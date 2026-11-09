@@ -69,12 +69,12 @@ enum MotionScript {
                     // SwiftUI builds its macOS accessibility tree lazily, on the first request from an accessibility
                     // client. A CI VM has none (no VoiceOver, no automation), so the panel's tree stays at 0 nodes
                     // and every press misses: all button steps took `direct:` on hosted macos-15 up to cf597e1, and
-                    // activating the app did not help. PERCH_MOTION_AX_WAKE=inproc|both makes this process its own
-                    // client (an AX API read of its own windows, off the main thread, which serves the request);
-                    // external|both mean motion_capture.sh queries us through System Events. `ax_nodes` in each
-                    // marker records the tree size before that step.
+                    // activating the app did not help. PERCH_MOTION_AX_WAKE=inproc (motion_capture.sh's default)
+                    // makes this process its own client: an AX API read of its own windows, off the main thread,
+                    // which serves the request. A System Events query from outside wakes it the same way. `ax_nodes`
+                    // in each marker records the tree size before that step.
                     let mode = ProcessInfo.processInfo.environment["PERCH_MOTION_AX_WAKE"] ?? "none"
-                    if mode == "inproc" || mode == "both" {
+                    if mode == "inproc" {
                         DispatchQueue.global().async {
                             let r = AX.queryOwnWindows()
                             Task { @MainActor in self.axWake = r }

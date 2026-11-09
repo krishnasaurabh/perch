@@ -28,34 +28,17 @@ need_ffmpeg() {
   command -v ffmpeg >/dev/null && command -v ffprobe >/dev/null
 }
 
-# SwiftUI builds a macOS app's accessibility tree lazily, once an accessibility client talks to it. A CI VM has
-# no VoiceOver, so the driver's in-process button presses find nothing and every button step takes `direct:`.
-# PERCH_MOTION_AX_WAKE picks how the tree is woken: "inproc" (the driver reads its own windows via the AX API),
-# "external" (System Events, which holds the Accessibility grant on GitHub's macOS images, queries Perch's
-# windows right after the driver's "reopen" marker), "both" (default) or "none".
-AXMODE="${PERCH_MOTION_AX_WAKE:-both}"
-ax_client() {  # ax_client <markers.json> <log>: one System Events AX query once "reopen" is written
-  local MK="$1" LOGF="$2"
-  for _ in $(seq 1 100); do grep -q '"reopen"' "$MK" 2>/dev/null && break; sleep 0.1; done
-  { echo "reopen seen at $(python3 -c 'import time;print(repr(time.time()))')"
-    osascript - >"$LOGF.osa" 2>&1 <<'OSA' &
-tell application "System Events" to tell process "Perch"
-  set n to count of windows
-  return "windows=" & n & " top-level elements=" & (count of UI elements of window 1)
-end tell
-OSA
-    # Stock macOS has no coreutils `timeout`; a watchdog stops osascript after 8 s.
-    local O=$!; ( sleep 8; kill $O 2>/dev/null ) & local WD=$!
-    wait $O; local ORC=$?; kill $WD 2>/dev/null; cat "$LOGF.osa"; rm -f "$LOGF.osa"
-    echo "osascript exit=$ORC at $(python3 -c 'import time;print(repr(time.time()))')"; } >"$LOGF"
-}
+# SwiftUI builds a macOS app's accessibility tree lazily, on the first request from an accessibility client.
+# A CI VM has no VoiceOver, so without a wake the driver's in-process button presses find nothing and every
+# button step takes `direct:`. PERCH_MOTION_AX_WAKE=inproc (default) has the driver read its own windows through
+# the AX API before the button steps; =none reproduces the empty tree.
+AXMODE="${PERCH_MOTION_AX_WAKE:-inproc}"
 drive() {  # drive <mode> <markers.json> <timeout-ticks> [extra args]: one driver run, waits for it to quit
   local MODE="$1" MK="$2" TICKS="$3"; shift 3
   PERCH_MOTION_AX_WAKE="$MODE" PERCH_DATA="$DATA" "$BIN" --motion-script "$MK" "$@" >>"$LOG" 2>&1 &
-  local P=$! C=
-  case "$MODE" in external|both) ax_client "$MK" "${MK%.json}.ax-client.txt" & C=$! ;; esac
+  local P=$!
   for _ in $(seq 1 "$TICKS"); do kill -0 $P 2>/dev/null || break; sleep 0.5; done
-  kill $P 2>/dev/null; [ -n "$C" ] && wait $C
+  kill $P 2>/dev/null
   rm -f "$DATA"
 }
 
@@ -63,12 +46,6 @@ record() {
   local BIN="$APP/Contents/MacOS/Perch"
   [ -x "$BIN" ] || { log "no app binary at $BIN"; return 1; }
   local DATA="${RUNNER_TEMP:-${TMPDIR:-/tmp}}/motion-planner.json"
-
-  # TEMPORARY (t_185144a4): which wake fills the AX tree, and does it persist across processes? No recording.
-  if [ "${PERCH_MOTION_AX_EXPERIMENT:-1}" = 1 ]; then
-    mkdir -p "$OUT/ax-exp"; local k=0
-    for m in none inproc external inproc both; do k=$((k + 1)); rm -f "$DATA"; drive "$m" "$OUT/ax-exp/$k-$m.json" 40; done
-  fi
 
   # Pass 1: real screen recording (compositor output, includes the menu bar and desktop).
   rm -f "$DATA" "$OUT/screen.mov"
