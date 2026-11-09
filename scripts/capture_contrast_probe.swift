@@ -73,8 +73,8 @@ MainActor.assumeIsolated {
             await passive("empty-home-unfocused")
             await explicit("empty-home-focused")
 
-            // Same three tasks as `--scenario three`.
-            delegate.store.apply { try $0.addTasks(["Prep slides for the 2pm review !high #work", "Call mom at 5pm", "Buy flowers"], on: nil) }
+            // Three tasks for today. No clock times: once 2pm/5pm have passed, the parser rolls those to tomorrow.
+            delegate.store.apply { try $0.addTasks(["Prep slides for the review !high #work", "Call mom", "Buy flowers"], on: nil) }
             await settle()
             require(delegate.store.engine.tasks(on: .day(delegate.store.today)).count == 3, "three tasks for today")
             await passive("three-home-unfocused")
