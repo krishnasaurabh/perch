@@ -68,7 +68,10 @@ enum MotionScript {
                 },
                 Step(name: "page", wait: 1.4, capture: true) { [model] in
                     self.press(target.title, orElse: {
-                        withAnimation(.spring(response: 0.3)) { model.page = target }
+                        // Same mutation as the picker button, without its spring wrapper: on a locked or
+                        // display-less session the animated transaction never commits inside the capture
+                        // window, so the clip would show Today throughout. The ax-press path keeps the spring.
+                        model.page = target
                         return "direct:model.page=\(target.rawValue)"
                     })
                 },
@@ -100,6 +103,9 @@ enum MotionScript {
             }
             DispatchQueue.main.asyncAfter(deadline: .now() + step.wait) { [self] in
                 let t = Date().timeIntervalSince1970
+                // Frame 0 of every captured clip is grabbed just BEFORE the action runs (t ~ 0), so each clip has a
+                // before/after pair even when the host can't animate.
+                if step.capture, snapshotDir != nil { preGrab(start: t) }
                 let via = step.action()
                 var m: [String: Any] = ["name": step.name, "t": t, "uptime": ProcessInfo.processInfo.systemUptime, "via": via]
                 if step.name == "page" { m["target"] = extra["page"] ?? "" }
@@ -145,6 +151,16 @@ enum MotionScript {
 
         private var burstFrames: [(Double, NSBitmapImageRep)] = []
 
+        private func visiblePanelView() -> NSView? {
+            NSApp.windows.compactMap({ $0 as? NotchPanel }).first(where: { $0.isVisible })?.contentView
+        }
+
+        /// Starts a clip with one frame of the pre-action state.
+        private func preGrab(start: TimeInterval) {
+            burstFrames = []
+            if let view = visiblePanelView() { grab(view, start: start) }
+        }
+
         private func grab(_ view: NSView, start: TimeInterval) {
             guard let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { return }
             view.cacheDisplay(in: view.bounds, to: rep)
@@ -155,7 +171,6 @@ enum MotionScript {
             try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
             guard let panel = NSApp.windows.compactMap({ $0 as? NotchPanel }).first(where: { $0.isVisible }), let view = panel.contentView
             else { done(); return }
-            burstFrames = []
             grab(view, start: start)
             let timer = Timer(timeInterval: 0.016, repeats: true) { [weak self, weak view] _ in
                 MainActor.assumeIsolated { if let self, let view { self.grab(view, start: start) } }
