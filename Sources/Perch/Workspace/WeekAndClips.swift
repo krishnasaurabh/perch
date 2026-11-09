@@ -233,39 +233,66 @@ private struct ClipsBody: View {
                     .toggleStyle(.switch).controlSize(.mini).font(.system(size: 10.5))
                 Toggle("Catch copies", isOn: Binding(get: { store.prefs.catchCopies }, set: { v in store.updatePrefs { $0.catchCopies = v } }))
                     .toggleStyle(.switch).controlSize(.mini).font(.system(size: 10.5))
-                if !clips.clips.isEmpty { Button("Clear") { clips.clearUnpinned() }.buttonStyle(PillStyle()) }
+                // Reserve its width so the heading and toggles do not jump when the first clip arrives.
+                Button("Clear") { clips.clearUnpinned() }.buttonStyle(PillStyle())
+                    .opacity(clips.clips.isEmpty ? 0 : 1)
+                    .disabled(clips.clips.isEmpty)
+                    .accessibilityHidden(clips.clips.isEmpty)
             }
             ZStack(alignment: .top) {
-                // The rope.
-                if !clips.clips.isEmpty {
-                    Path { p in
-                        p.move(to: CGPoint(x: 0, y: 14))
-                        p.addQuadCurve(to: CGPoint(x: 780, y: 14), control: CGPoint(x: 390, y: 34))
-                    }
-                    .stroke(Color.white.opacity(0.25), style: StrokeStyle(lineWidth: 1.5, lineCap: .round))
-                    .frame(height: 40)
-                }
-
-                if clips.clips.isEmpty {
-                    EmptyStateView("Drop something here to keep it close.", symbol: "paperclip")
-                        .frame(maxHeight: .infinity)
-                } else {
-                    ScrollView(.horizontal) {
-                        HStack(alignment: .top, spacing: 14) {
-                            ForEach(Array(clips.clips.enumerated()), id: \.element.id) { i, c in
-                                ClipCard(clip: c, clips: clips).rotationEffect(.degrees(i.isMultiple(of: 2) ? -2 : 2), anchor: .top)
+                // The rope spans the card's own content width, so it never runs past the card's edge.
+                ClipsRope()
+                Group {
+                    if clips.clips.isEmpty {
+                        // Sits just under the rope's lowest point, as if hanging from it.
+                        EmptyStateView("Drop something here to keep it close.", symbol: "paperclip")
+                            .padding(.top, ClipsLineLayout.emptyMessageTop)
+                            .transition(.opacity)
+                    } else {
+                        ScrollView(.horizontal) {
+                            HStack(alignment: .top, spacing: 14) {
+                                ForEach(Array(clips.clips.enumerated()), id: \.element.id) { i, c in
+                                    ClipCard(clip: c, clips: clips).rotationEffect(.degrees(i.isMultiple(of: 2) ? -2 : 2), anchor: .top)
+                                        .transition(.opacity)
+                                }
                             }
-                        }
-                        .padding(.horizontal, 16).padding(.top, 16)
-                    }.scrollIndicators(.never)
+                            .padding(.horizontal, 16).padding(.top, 16)
+                            .motion(Motion.row, value: clips.clips.map(\.id))
+                        }.scrollIndicators(.never)
+                        .transition(.opacity)
+                    }
                 }
             }
             .frame(maxHeight: .infinity, alignment: .top)
-            if !clips.clips.isEmpty {
+            // Gesture hints only once there is something to click, double-click or drag.
+            if ClipsLineLayout.showsGestureHints(clipCount: clips.clips.count) {
                 Text("Click: copy · Double-click: open · Drag: move or share").font(.system(size: 10)).foregroundStyle(Theme.tertiary)
+                    .transition(.opacity)
             }
         }
+        // Populated <-> empty crossfades in place, with the page-switch timing (Reduce Motion aware).
+        .motion(Motion.page, value: clips.clips.isEmpty)
         .card()
+    }
+}
+
+/// The line clips hang on. Its width comes from the space it is given (the card's content box), inset at both ends.
+private struct ClipsRope: View {
+    var body: some View {
+        GeometryReader { g in
+            if let rope = ClipsLineLayout.rope(width: g.size.width) {
+                Path { p in
+                    p.move(to: CGPoint(x: rope.start.x, y: rope.start.y))
+                    p.addQuadCurve(to: CGPoint(x: rope.end.x, y: rope.end.y), control: CGPoint(x: rope.control.x, y: rope.control.y))
+                }
+                // Tertiary ink at 55 %: white at ≈ 0.25 on the dark tile (unchanged), and dark ink if the card turns light.
+                .stroke(Theme.tertiary.opacity(0.55), style: StrokeStyle(lineWidth: 1.5, lineCap: .round))
+            }
+        }
+        .frame(height: ClipsLineLayout.bandHeight)
+        .clipped()
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
     }
 }
 
