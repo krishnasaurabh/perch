@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # macOS only. Build an isolated entry point against the real app sources, render the Today capture field
 # resting/focused (empty and three tasks) plus Week, then measure rendered prompt and icon contrast (review F02).
+# Week's MiniComposer prompts are the dark-scheme case, gated with --week.
 # Does not modify the app, the user's planner, preferences, or clipboard.
 set -euo pipefail
 [[ $(uname -s) == Darwin ]] || { printf '%s\n' 'This UI probe requires macOS.' >&2; exit 2; }
@@ -27,4 +28,5 @@ PY
 PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s "$ROOT/scripts" -p test_measure_capture_contrast.py
 python3 "$ROOT/scripts/measure_capture_contrast.py" \
   "$OUT/empty-home-unfocused" "$OUT/empty-home-focused" "$OUT/three-home-unfocused" "$OUT/three-home-focused" \
+  --week "$OUT/week" \
   | tee "$OUT/contrast.json"

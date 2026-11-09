@@ -100,8 +100,18 @@ struct MiniComposer: View {
     @EnvironmentObject var store: PlannerStore
     @State private var text = ""
     var body: some View {
-        TextField(ref == .inbox ? "Add to Inbox" : "Add a task", text: $text)
+        let prompt = ref == .inbox ? "Add to Inbox" : "Add a task"
+        // Prompt drawn by us, as in TaskComposer (review F02): AppKit's own placeholder colour measures 3.9:1 on
+        // the dark tile. `Theme.secondary` (dark: white 62 %) clears 4.5:1 there and stays dimmer than real text.
+        TextField("", text: $text)
             .textFieldStyle(.plain).font(.system(size: 10.5))
+            .background(alignment: .leading) {
+                if text.isEmpty {
+                    Text(prompt).font(.system(size: 10.5)).foregroundStyle(Theme.secondary).lineLimit(1)
+                        .allowsHitTesting(false).accessibilityHidden(true)
+                }
+            }
+            .accessibilityLabel(prompt)
             .padding(.horizontal, 6).padding(.vertical, 5)
             .background(RoundedRectangle(cornerRadius: 7).fill(Color.white.opacity(0.05)))
             .onSubmit {
