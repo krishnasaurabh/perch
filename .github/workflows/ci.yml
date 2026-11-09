@@ -112,6 +112,8 @@ jobs:
           EOF
       - name: Empty states and capture focus
         run: bash scripts/check_empty_states.sh "$RUNNER_TEMP/empty-states"
+      - name: Week with a busy today (overflow fade, +N more, pinned Add)
+        run: bash scripts/week_shots.sh "$RUNNER_TEMP/notch/week"
       - name: Larger flat desktop (best effort; the runner's virtual display defaults to 1024x768)
         run: |
           OUT=$RUNNER_TEMP/notch/large; mkdir -p $OUT
