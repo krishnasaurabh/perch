@@ -188,14 +188,18 @@ elif os.path.exists(mov) and os.path.getsize(mov) > 0 and os.path.exists(markers
            "clips": {}}
     # Re-anchor every marker in timeline order: the recorder clock drifts from the app clock (~0.3 s over
     # 10 s on a hosted VM), so one offset from "open" mis-windows later clips. Each marker snaps to the first
-    # visible change in [pred-0.25, pred+0.8] after the previous anchor and carries its offset forward.
+    # visible change in [pred-0.4, pred+0.8] after the previous anchor. Its offset is carried forward only if it
+    # moved by <= 0.4 s: clock drift is slow, while a larger jump is a late render (the AX wake can hold the main
+    # thread at "reopen" for ~0.7 s) and carrying it would push the next window past the next marker's change.
     anchor_off, last_i, cur = {}, 0, offset
     for m in sorted(mk["markers"], key=lambda m: m["t"]):
         pred = m["t"] - start + cur
-        hit = next((i for i in range(max(last_i + 1, 1), n) if pred - 0.25 <= pts[i] <= pred + 0.8 and d[i] > CHANGED), None)
+        hit = next((i for i in range(max(last_i + 1, 1), n) if pred - 0.4 <= pts[i] <= pred + 0.8 and d[i] > CHANGED), None)
+        own = cur
         if hit is not None:
-            cur = pts[hit - 1] - (m["t"] - start); last_i = hit
-        anchor_off[m["name"]] = (cur, hit is not None)
+            own = pts[hit - 1] - (m["t"] - start); last_i = hit
+            if abs(own - cur) <= 0.4: cur = own
+        anchor_off[m["name"]] = (own, hit is not None)
     rec["per_marker_offset_s"] = {k: [round(v[0], 4), v[1]] for k, v in anchor_off.items()}
     for name in CLIPS:
         if name not in M: continue
