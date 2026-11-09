@@ -10,6 +10,7 @@ struct NotchRootView: View {
     @EnvironmentObject var model: NotchModel
     @EnvironmentObject var services: Services
     @EnvironmentObject var screen: NotchScreenState
+    @Environment(\.motionPolicy) private var motionPolicy
 
     private var active: Bool { model.screenID == screen.id }
     private var expanded: Bool { active && model.expanded }
@@ -31,10 +32,9 @@ struct NotchRootView: View {
 
                 Group {
                     if expanded {
-                        // The content scales up from the notch with the shell and fades in; it closes nearly as a snap.
+                        // Normal mode scales/fades with the shell; reduced mode inserts at final geometry.
                         WorkspaceView(notchHeight: g.notchSize.height)
-                            .transition(.asymmetric(insertion: .opacity.combined(with: .scale(scale: 0.5, anchor: .top)),
-                                                    removal: .opacity.combined(with: .scale(scale: 0.85, anchor: .top))))
+                            .transition(motionPolicy.workspaceTransition)
                     } else {
                         ClosedNotchView(notch: g.notchSize, activity: activity)
                             .transition(.opacity)
@@ -58,6 +58,7 @@ struct NotchRootView: View {
         // Ink tokens resolve against the scheme: the shell is always "dark". Cards override it for themselves.
         .environment(\.colorScheme, .dark)
         .opacity(hidden ? 0 : 1)
+        .motionBoundary()
     }
 
     /// Flat screen with "Draw a notch on external displays" off: nothing drawn until it opens or shows something there.

@@ -107,31 +107,85 @@ enum Motion {
     /// One Insights bar growing from the baseline: spring R 0.30, ζ 1 (≈ 200 ms), staggered 130 ms left to right.
     static let bar = Animation.spring(response: 0.30, dampingFraction: 1.0)
     static let barStagger = 0.13
-    /// Reduce Motion stand-in for all of the above: a short fade, no travel.
+    /// Reserved for opacity-only effects. Never substitute this on a layout/scale transaction.
     static let reduced = Animation.easeInOut(duration: 0.15)
 
-    static var reduceMotion: Bool { NSWorkspace.shared.accessibilityDisplayShouldReduceMotion }
-    static func resolved(_ a: Animation) -> Animation { reduceMotion ? reduced : a }
+    static var reduceMotion: Bool { MotionPolicy.system.reduceMotion }
+    static func resolved(_ a: Animation) -> Animation? { MotionPolicy.system.animation(a) }
 
-    /// `withAnimation` that honors Reduce Motion.
+    /// Reduced mode snaps to the final state. `disablesAnimations` also prevents nested
+    /// `.animation` modifiers from adding their own spatial animation to this transaction.
     @discardableResult
-    static func animate<R>(_ a: Animation, _ body: () throws -> R) rethrows -> R {
-        try withAnimation(resolved(a), body)
+    static func animate<R>(_ a: Animation, policy: MotionPolicy = .system, _ body: () throws -> R) rethrows -> R {
+        try withTransaction(policy.transaction(a), body)
     }
 }
 
+/// One policy for explicit updates, implicit view animations and notch choreography.
+/// Reduced mode intentionally omits the optional 150 ms opacity fade: no layout, scale,
+/// travel or repeating effects may ride on a transaction intended only for opacity.
+struct MotionPolicy: Equatable {
+    let reduceMotion: Bool
+    static var system: Self { Self(reduceMotion: NSWorkspace.shared.accessibilityDisplayShouldReduceMotion) }
+
+    func animation(_ normal: Animation) -> Animation? { reduceMotion ? nil : normal }
+
+    func enforce(on transaction: inout Transaction) {
+        guard reduceMotion else { return }
+        transaction.animation = nil
+        transaction.disablesAnimations = true
+    }
+
+    func transaction(_ normal: Animation) -> Transaction {
+        var transaction = Transaction(animation: animation(normal))
+        enforce(on: &transaction)
+        return transaction
+    }
+
+    var workspaceTransition: AnyTransition {
+        if reduceMotion { return .identity }
+        return .asymmetric(insertion: .opacity.combined(with: .scale(scale: 0.5, anchor: .top)),
+                           removal: .opacity.combined(with: .scale(scale: 0.85, anchor: .top)))
+    }
+}
+
+private struct MotionPolicyOverrideKey: EnvironmentKey {
+    static let defaultValue: MotionPolicy? = nil
+}
+
+extension EnvironmentValues {
+    /// Injection seam for in-process tests; production follows live SwiftUI accessibility changes.
+    var motionPolicyOverride: MotionPolicy? {
+        get { self[MotionPolicyOverrideKey.self] }
+        set { self[MotionPolicyOverrideKey.self] = newValue }
+    }
+    var motionPolicy: MotionPolicy { motionPolicyOverride ?? MotionPolicy(reduceMotion: accessibilityReduceMotion) }
+}
+
 extension View {
-    /// `.animation(_:value:)` that honors Reduce Motion.
     func motion<V: Equatable>(_ a: Animation, value: V) -> some View {
         modifier(MotionModifier(animation: a, value: value))
     }
+
+    /// Place outside the animated subtree so descendants cannot re-enable interpolation.
+    func motionBoundary() -> some View { modifier(MotionBoundary()) }
 }
 
 private struct MotionModifier<V: Equatable>: ViewModifier {
     let animation: Animation
     let value: V
-    @Environment(\.accessibilityReduceMotion) private var reduce
-    func body(content: Content) -> some View { content.animation(reduce ? Motion.reduced : animation, value: value) }
+    @Environment(\.motionPolicy) private var policy
+    func body(content: Content) -> some View {
+        content.animation(policy.animation(animation), value: value)
+            .transaction { policy.enforce(on: &$0) }
+    }
+}
+
+private struct MotionBoundary: ViewModifier {
+    @Environment(\.motionPolicy) private var policy
+    func body(content: Content) -> some View {
+        content.transaction { policy.enforce(on: &$0) }
+    }
 }
 
 // MARK: - Color helpers
@@ -257,11 +311,10 @@ struct GlassButton: View {
     }
 }
 
-/// Small owl mark drawn in SwiftUI (the original ships a Rive animation; this is a static stand-in that blinks).
+/// Quiet, static owl mark. No idle timer or repeating animation in either motion mode.
 struct OwlMark: View {
     var size: CGFloat = 18
     var awake = true
-    @State private var blink = false
     var body: some View {
         ZStack {
             Ellipse().fill(Theme.owl).frame(width: size, height: size * 0.92)
@@ -273,22 +326,13 @@ struct OwlMark: View {
             Triangle().fill(Color.black.opacity(0.75)).frame(width: size * 0.16, height: size * 0.14).offset(y: size * 0.16)
         }
         .frame(width: size, height: size)
-        .task {
-            guard awake else { return }
-            while !Task.isCancelled {
-                try? await Task.sleep(nanoseconds: UInt64.random(in: 2_500_000_000...5_500_000_000))
-                withAnimation(.easeInOut(duration: 0.08)) { blink = true }
-                try? await Task.sleep(nanoseconds: 120_000_000)
-                withAnimation(.easeInOut(duration: 0.08)) { blink = false }
-            }
-        }
     }
     private var eye: some View {
         ZStack {
             Circle().fill(Color.white).frame(width: size * 0.36, height: size * 0.36)
             Circle().fill(Color.black).frame(width: size * 0.17, height: size * 0.17)
         }
-        .scaleEffect(x: 1, y: blink || !awake ? 0.12 : 1)
+        .scaleEffect(x: 1, y: awake ? 1 : 0.12)
     }
 }
 

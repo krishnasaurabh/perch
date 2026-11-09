@@ -112,6 +112,8 @@ jobs:
                   assert s["window"]["y"] + s["window"]["h"] == s["frame"]["y"] + s["frame"]["h"], "window not flush with screen top"
           sys.exit(1 if bad else 0)
           EOF
+      - name: Reduced motion policy and nested transaction regression
+        run: bash scripts/check_motion.sh "$RUNNER_TEMP/motion-policy"
       - name: Empty states and capture focus
         run: bash scripts/check_empty_states.sh "$RUNNER_TEMP/empty-states"
       - name: Larger flat desktop (best effort; the runner's virtual display defaults to 1024x768)
@@ -148,3 +150,4 @@ jobs:
             ${{ runner.temp }}/perch-*.png
             ${{ runner.temp }}/notch/**
             ${{ runner.temp }}/empty-states/
+            ${{ runner.temp }}/motion-policy/

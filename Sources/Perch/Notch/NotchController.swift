@@ -38,21 +38,26 @@ final class NotchModel: ObservableObject {
     /// Explicit opening intent, not passive hover/drag. A new ID also refocuses an already-open page.
     @Published var captureFocusRequest: UUID?
 
+    /// Nil in production (live system preference); deterministic override for in-process probes.
+    let motionPolicyOverride: MotionPolicy?
+    var motionPolicy: MotionPolicy { motionPolicyOverride ?? .system }
+    init(motionPolicy: MotionPolicy? = nil) { self.motionPolicyOverride = motionPolicy }
+
     func open(page: NotchPage? = nil, pinned: Bool = false) {
         if let page { self.page = page }
         self.pinned = pinned || self.pinned
-        Motion.animate(Motion.open) { expanded = true }
+        Motion.animate(Motion.open, policy: motionPolicy) { expanded = true }
     }
 
     func close() {
         pinned = false
         detailsTaskID = nil
         captureFocusRequest = nil
-        Motion.animate(Motion.close) { expanded = false }
+        Motion.animate(Motion.close, policy: motionPolicy) { expanded = false }
     }
 
     func show(_ a: NotchActivity, for seconds: Double? = nil) {
-        Motion.animate(Motion.activity) { activity = a }
+        Motion.animate(Motion.activity, policy: motionPolicy) { activity = a }
         if let s = seconds {
             let id = a.id
             DispatchQueue.main.asyncAfter(deadline: .now() + s) { [weak self] in
@@ -62,7 +67,7 @@ final class NotchModel: ObservableObject {
     }
 
     func dismissActivity() {
-        Motion.animate(Motion.activityDismiss) { activity = nil }
+        Motion.animate(Motion.activityDismiss, policy: motionPolicy) { activity = nil }
     }
 
     /// Whether the closed notch shows the timer (and so uses the wide wings).
@@ -259,6 +264,7 @@ final class NotchController {
         let state = NotchScreenState(id: id, geometry: g)
         let panel = NotchPanel(frame: g.window)
         let root = NotchRootView()
+            .environment(\.motionPolicyOverride, model.motionPolicyOverride)
             .environmentObject(store).environmentObject(model).environmentObject(services).environmentObject(state)
         let host = NotchHostingView(rootView: root)
         host.frame = NSRect(origin: .zero, size: g.window.size)
