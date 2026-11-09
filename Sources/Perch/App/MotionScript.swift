@@ -97,11 +97,11 @@ enum MotionScript {
                     self.press(NotchPage.home.title, orElse: { model.page = .home; return "direct:model.page=home" })
                 },
                 Step(name: "tick", wait: 1.6, capture: true) { [store] in
-                    // Task-row check button (TasksCard); like the button, completion is unanimated plus confetti.
+                    // The real row button owns tick/fade choreography. The fallback only completes the task;
+                    // main no longer has a Confetti API, so do not reintroduce synthetic celebration here.
                     self.press("Check off task", orElse: {
                         guard let t = store.engine.tasks(on: .day(store.today)).first(where: { !$0.done }) else { return "none" }
                         store.apply { try $0.complete(t.id.uuidString) }
-                        Confetti.fire()
                         return "direct:complete"
                     })
                 },
