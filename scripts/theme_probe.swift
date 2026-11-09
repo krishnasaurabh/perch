@@ -108,11 +108,21 @@ MainActor.assumeIsolated {
                 model.open(page: page, pinned: true)
                 try? await Task.sleep(nanoseconds: 700_000_000)
                 save(host, output.appendingPathComponent("\(mode)-\(page.rawValue).png"))
+                if page == .home {
+                    window.makeKeyAndOrderFront(nil)
+                    app.activate(ignoringOtherApps: true)
+                    model.captureFocusRequest = UUID()
+                    try? await Task.sleep(nanoseconds: 700_000_000)
+                    save(host, output.appendingPathComponent("\(mode)-home-focused.png"))
+                    model.captureFocusRequest = nil
+                }
             }
             window.close()
             let settings = SettingsView().environmentObject(store).environmentObject(services)
                 .environment(\.colorScheme, light ? .light : .dark)
             let (settingsWindow, settingsHost) = render(settings, size: CGSize(width: 620, height: 560), appearance: appearance)
+            settingsWindow.makeKeyAndOrderFront(nil)
+            app.activate(ignoringOtherApps: true)
             try? await Task.sleep(nanoseconds: 700_000_000)
             save(settingsHost, output.appendingPathComponent("\(mode)-settings.png"))
             settingsWindow.close()

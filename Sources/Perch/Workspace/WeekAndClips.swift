@@ -65,7 +65,7 @@ struct WeekPage: View {
         .padding(8)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .background(RoundedRectangle(cornerRadius: 12).fill(target == key ? Theme.accent.opacity(0.16) : (isToday ? Color.white.opacity(0.08) : Theme.card)))
-        .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(isToday ? Theme.accent.opacity(0.4) : Theme.cardStroke))
+        .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(Theme.cardStroke))
         .opacity(past ? 0.6 : 1)
         .onDrop(of: [.plainText], isTargeted: Binding(get: { target == key }, set: { target = $0 ? key : (target == key ? nil : target) })) { items in
             guard !past else { return false }

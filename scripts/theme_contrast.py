@@ -47,11 +47,20 @@ def source_rows():
         'static let tertiary = Color.dynamic(light: (0x000000, 0.62), dark: (0xFFFFFF, 0.45))',
         'static let danger = Color.dynamic(light: (0x5C110B, 1), dark: (0xFF6B6B, 1))',
         'case .high: return priorityHigh',
+        'static let selectedPill = Color.dynamic(light: (0x9DADA1, 1), dark: (0x333333, 1))',
         '.background(Capsule().fill(on ? Theme.selectedPill : .clear))',
     ]:
         assert expected in source, expected
     pills = source.split('struct SegmentPills', 1)[1].split('struct GlassButton', 1)[0]
     assert 'Theme.fill)' not in pills, 'Nested segment track fill returned'
+    # Cover the production wiring, not just a disconnected palette.
+    tasks = (ROOT / 'Sources/Perch/Workspace/TasksCard.swift').read_text()
+    week = (ROOT / 'Sources/Perch/Workspace/WeekAndClips.swift').read_text()
+    assert '.strokeBorder(Theme.inputStroke, lineWidth: focused ? 2 : 1)' in tasks
+    assert '.strokeBorder(Theme.cardStroke, lineWidth: 1)' in source
+    assert '.strokeBorder(Theme.cardStroke)' in week
+    assert '.strokeBorder(Theme.inputStroke, lineWidth: 1)' in week
+    assert '.stroke(Theme.rope,' in week
     rows = []
     for mode in ('light', 'dark'):
         card = token('sage' if mode == 'light' else 'tile', mode)
@@ -80,12 +89,66 @@ def source_rows():
     return rows
 
 
+def ui_pixels(directory):
+    """Gate actual edges, plus the filled selected pill, in production Home/Week."""
+    from PIL import Image
+    def near(a, b):
+        return max(abs(x-y) for x,y in zip(a,b)) <= 2
+    def edge(image, foreground, background):
+        pixels = image.load()
+        scale = max(1, round(image.width / 868))
+        matches = []
+        for y in range(3*scale, image.height-3*scale):
+            for x in range(3*scale, image.width-3*scale):
+                fg = pixels[x,y]
+                if not near(fg, foreground):
+                    continue
+                for dx,dy in ((2*scale,0),(-2*scale,0),(0,2*scale),(0,-2*scale)):
+                    bg = pixels[x+dx,y+dy]
+                    if near(bg, background):
+                        matches.append(contrast(tuple(v/255 for v in fg), tuple(v/255 for v in bg)))
+                        break
+        assert len(matches) >= 30, ('Missing production boundary', foreground, background, len(matches))
+        assert min(matches) >= 3, ('Low production boundary contrast', min(matches))
+        return {'adjacent_samples': len(matches), 'minimum_ratio': round(min(matches), 4)}
+    evidence = {}
+    for mode in ('light', 'dark'):
+        home = Image.open(directory / f'{mode}-home.png').convert('RGB')
+        focused = Image.open(directory / f'{mode}-home-focused.png').convert('RGB')
+        week = Image.open(directory / f'{mode}-week.png').convert('RGB')
+        evidence[mode] = {
+            'home_card': edge(home, (47,61,51), (135,158,141)),
+            'home_capture_resting': edge(home, (41,53,45), (124,145,130)),
+            'home_capture_focused': edge(focused, (41,53,45), (119,139,124)),
+            'week_card': edge(week, (133,133,133), (29,29,29)),
+            'week_capture': edge(week, (153,153,153), (40,40,40)),
+        }
+        # A 2 pt focused outline must contain appreciably more ink than the 1 pt resting edge.
+        def count(image, color):
+            colors = image.getcolors(image.width*image.height)
+            assert colors is not None
+            return sum(n for n,c in colors if near(c, color))
+        resting_count, focused_count = count(home, (41,53,45)), count(focused, (41,53,45))
+        assert focused_count > resting_count * 1.3, ('Capture did not focus', mode, resting_count, focused_count)
+        assert count(home, (39,61,46)) >= 8, ('High-priority Home marker missing', mode)
+        assert count(week, (185,198,186)) >= 8, ('High-priority Week marker missing', mode)
+        selection_count = count(home, (157,173,161))
+        assert selection_count > 50, ('Single opaque selected pill missing', mode)
+        evidence[mode].update(resting_stroke_pixels=resting_count, focused_stroke_pixels=focused_count,
+                              selected_fill_pixels=selection_count)
+    return evidence
+
+
 def rendered_rows(directory, expected):
     from PIL import Image
     manifest = json.loads((directory / 'swatches.json').read_text())
     result = []
+    assert len(manifest) == 2 and {e['appearance'] for e in manifest} == {'light', 'dark'}
     for entry in manifest:
         mode = entry['appearance']
+        expected_names = {r['name'] for r in expected if r['appearance'] == mode}
+        assert len(entry['rows']) == len(expected_names)
+        assert {r['name'] for r in entry['rows']} == expected_names
         image = Image.open(directory / f'{mode}-swatches.png').convert('RGB')
         scale = image.width / 120
         assert image.height == round(len(entry['rows']) * 30 * scale)
@@ -97,9 +160,11 @@ def rendered_rows(directory, expected):
             for actual, field in ((fg, 'foreground'), (bg, 'background')):
                 reference = tuple(int(want[field][j:j+2], 16) for j in (1, 3, 5))
                 assert max(abs(a-b) for a,b in zip(actual, reference)) <= 2, (mode, row['name'], actual, reference)
-            assert ratio >= row['minimum'], (mode, row['name'], ratio, row['minimum'])
+            assert row['minimum'] == want['minimum'], (mode, row['name'], 'gate changed')
+            assert ratio >= want['minimum'], (mode, row['name'], ratio, want['minimum'])
             result.append(dict(appearance=mode, name=row['name'], foreground=hex_rgb(tuple(v/255 for v in fg)),
                                background=hex_rgb(tuple(v/255 for v in bg)), ratio=round(ratio, 4), minimum=row['minimum']))
+    assert len(result) == len(expected), 'Incomplete rendered color coverage'
     images = {}
     for mode in ('light', 'dark'):
         for page in ('home', 'week', 'settings'):
@@ -107,7 +172,7 @@ def rendered_rows(directory, expected):
             with Image.open(path) as image:
                 image.verify()
             images[path.name] = hashlib.sha256(path.read_bytes()).hexdigest()
-    report = dict(rows=result, images=images, failures=[])
+    report = dict(rows=result, images=images, ui=ui_pixels(directory), failures=[])
     (directory / 'pixel-contrast.json').write_text(json.dumps(report, indent=2) + '\n')
     return result
 
