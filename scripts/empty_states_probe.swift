@@ -1,5 +1,6 @@
 // Replaces App/main.swift only in the temporary CI probe package. Uses the actual views/controller.
 import AppKit
+import ApplicationServices
 import PlannerCore
 import SwiftUI
 
@@ -99,6 +100,53 @@ func probeWeekBars(_ focusOnly: Insights, output: URL) async {
     window.orderOut(nil)
 }
 
+// Exercise the real SwiftUI buttons, not a test-only tab setter. SwiftUI creates
+// its AX tree lazily, so ask for our own windows off-main before traversing it.
+func wakeAccessibility() async {
+    await Task.detached {
+        let app = AXUIElementCreateApplication(getpid())
+        var value: CFTypeRef?
+        _ = AXUIElementCopyAttributeValue(app, kAXWindowsAttribute as CFString, &value)
+        for window in (value as? [AXUIElement]) ?? [] {
+            var children: CFTypeRef?
+            _ = AXUIElementCopyAttributeValue(window, kAXChildrenAttribute as CFString, &children)
+        }
+    }.value
+}
+
+@MainActor
+func axObject(_ node: NSObject, _ name: String) -> Any? {
+    let selector = NSSelectorFromString(name)
+    return node.responds(to: selector) ? node.perform(selector)?.takeUnretainedValue() : nil
+}
+
+@MainActor
+func findControl(_ label: String) -> NSObject? {
+    func find(_ node: NSObject, depth: Int) -> NSObject? {
+        guard depth < 60 else { return nil }
+        if axObject(node, "accessibilityLabel") as? String == label { return node }
+        for child in (axObject(node, "accessibilityChildren") as? [NSObject]) ?? [] {
+            if let found = find(child, depth: depth + 1) { return found }
+        }
+        return nil
+    }
+    for window in NSApp.windows where window is NotchPanel && window.isVisible {
+        if let root = window.contentView, let found = find(root, depth: 0) { return found }
+    }
+    return nil
+}
+
+@MainActor
+func pressControl(_ label: String) {
+    guard let node = findControl(label) else { require(false, "button exists: \(label)"); return }
+    let selector = NSSelectorFromString("accessibilityPerformPress")
+    guard node.responds(to: selector), let implementation = node.method(for: selector) else {
+        require(false, "button supports press: \(label)"); return
+    }
+    typealias Press = @convention(c) (AnyObject, Selector) -> Bool
+    require(unsafeBitCast(implementation, to: Press.self)(node, selector), "pressed real button: \(label)")
+}
+
 MainActor.assumeIsolated {
     let app = NSApplication.shared
     let delegate = AppDelegate()
@@ -136,6 +184,10 @@ MainActor.assumeIsolated {
             NotificationCenter.default.post(name: .perchOpenWorkspace, object: NotchPage.home)
             await settle()
             require(captureEditor() != nil, "explicit opening refocuses an already-open Today")
+            await wakeAccessibility()
+            await settle()
+            require(findControl("To do 0") != nil, "empty Today exposes To do")
+            require(findControl("Completed 0") == nil, "empty Today hides Completed 0")
             delegate.notch.snapshot(into: output.appendingPathComponent("today-empty"))
 
             for page in [NotchPage.week, .clips] {
@@ -173,6 +225,26 @@ MainActor.assumeIsolated {
             await settle()
             delegate.notch.snapshot(into: output.appendingPathComponent("today-cleared"))
             require(delegate.store.engine.insights().allTimeCompleted == 1, "first completion records Insights progress")
+            delegate.store.apply { try $0.addTasks(["Sort the seed packets", "Rinse the paint tray"]) }
+            await settle()
+            require(delegate.store.engine.tasks(on: .day(delegate.store.today)).count == 3, "three-task Today fixture")
+            require(findControl("Completed 1") != nil, "first completion makes Completed reachable")
+            delegate.notch.snapshot(into: output.appendingPathComponent("today-three-one-completed"))
+            pressControl("Completed 1")
+            await settle()
+            require(findControl("Uncheck task") != nil && findControl("Check off task") == nil,
+                    "Completed shows only the finished row")
+            delegate.notch.snapshot(into: output.appendingPathComponent("today-completed-tab"))
+            pressControl("Uncheck task")
+            await settle()
+            require(findControl("Completed 0") == nil && findControl("To do 3") != nil,
+                    "reopening the last completion hides its pill")
+            require(findControl("Check off task") != nil, "last completion reopened: To do rows are visible")
+            delegate.notch.snapshot(into: output.appendingPathComponent("today-tab-fallback"))
+            delegate.store.apply { try $0.complete(id.uuidString) }
+            await settle()
+            require(findControl("Completed 1") != nil && findControl("Check off task") != nil && findControl("Uncheck task") == nil,
+                    "a new completion does not resurrect the hidden tab selection")
             delegate.store.apply { engine in
                 engine.planner.tasks = []
                 _ = engine.startStopwatch(taskID: nil)
@@ -195,7 +267,7 @@ MainActor.assumeIsolated {
                 require(NSImage(systemSymbolName: symbol, accessibilityDescription: nil) != nil,
                         "SF Symbol exists: \(symbol)")
             }
-            for name in ["today-empty", "week-empty", "clips-empty", "today-populated", "today-cleared", "insights-focus-only"] {
+            for name in ["today-empty", "week-empty", "clips-empty", "today-populated", "today-cleared", "today-three-one-completed", "today-completed-tab", "today-tab-fallback", "insights-focus-only"] {
                 let files = (try? FileManager.default.contentsOfDirectory(at: output.appendingPathComponent(name),
                                                                          includingPropertiesForKeys: nil)) ?? []
                 require(files.contains { $0.pathExtension == "png" && NSImage(contentsOf: $0) != nil },

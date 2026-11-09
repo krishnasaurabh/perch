@@ -6,15 +6,21 @@ struct TasksCard: View {
     @EnvironmentObject var store: PlannerStore
     @EnvironmentObject var model: NotchModel
     @State private var tab: Tab = .active
-    enum Tab: String, CaseIterable { case active = "To do", completed = "Completed" }
+    typealias Tab = TodayTab
 
     var body: some View {
         let all = store.engine.tasks(on: .day(store.today))
         let open = all.filter { !$0.done }, finished = all.filter(\.done)
-        let shown = tab == .active ? open : finished
+        let selection = Binding(
+            get: { TodayTabs.resolved(tab, completedCount: finished.count) },
+            set: { tab = $0 })
+        let shown = selection.wrappedValue == .active ? open : finished
+        let pills = TodayTabs.visible(completedCount: finished.count).map {
+            ($0, $0 == .active ? "To do \(open.count)" : "Completed \(finished.count)")
+        }
         VStack(alignment: .leading, spacing: 10) {
             CardHeading("Today's tasks", trailing: AnyView(
-                SegmentPills(items: [(Tab.active, "To do \(open.count)"), (Tab.completed, "Completed \(finished.count)")], selection: $tab)))
+                SegmentPills(items: pills, selection: selection)))
             ScrollView {
                 // A plain VStack (not Lazy) so a ticked row can fade out while the rows below slide up.
                 VStack(spacing: 0) {
@@ -27,7 +33,7 @@ struct TasksCard: View {
                             .transition(.opacity)
                         if t.id != shown.last?.id { RowDivider() }
                     }
-                    if shown.isEmpty { empty(all: all) }
+                    if shown.isEmpty { empty(all: all, selected: selection.wrappedValue) }
                 }
                 .motion(Motion.row, value: shown.map(\.id))
             }
@@ -35,6 +41,9 @@ struct TasksCard: View {
             TaskComposer(day: .day(store.today), placeholder: "What would you like to do?")
         }
         .card(.tasks)
+        .onChange(of: finished.count, initial: true) { _, count in
+            tab = TodayTabs.resolved(tab, completedCount: count)
+        }
     }
 
     /// Task rows are separated by a dotted rule.
@@ -48,8 +57,8 @@ struct TasksCard: View {
         }
     }
 
-    @ViewBuilder func empty(all: [PlanTask]) -> some View {
-        if tab == .active {
+    @ViewBuilder func empty(all: [PlanTask], selected: Tab) -> some View {
+        if selected == .active {
             EmptyStateView(all.isEmpty ? "Start with one task." : "All clear for today.",
                            symbol: all.isEmpty ? "square.and.pencil" : "checkmark.circle")
         } else {
