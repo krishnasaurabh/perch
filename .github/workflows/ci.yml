@@ -164,3 +164,12 @@ jobs:
             ${{ runner.temp }}/empty-states/
             ${{ runner.temp }}/motion-policy/
             ${{ runner.temp }}/capture-contrast/
+      # Record interface transitions as CI artifacts.
+      - name: Motion capture (open, close, page, tick, timer)
+        run: scripts/motion_capture.sh "$RUNNER_TEMP/motion" dist/Perch.app
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: perch-motion
+          path: ${{ runner.temp }}/motion
+          if-no-files-found: error
