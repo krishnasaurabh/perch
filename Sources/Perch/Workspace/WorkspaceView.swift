@@ -9,8 +9,8 @@ struct WorkspaceView: View {
     @EnvironmentObject var services: Services
 
     var body: some View {
-        VStack(spacing: Theme.gutter) {
-            header.frame(height: max(notchHeight, 30))
+        VStack(spacing: WorkspaceLayout.headerGap) {
+            header.frame(height: WorkspaceLayout.headerHeight(notchHeight: notchHeight))
             ErrorBanner()
             // In-place crossfade between pages: nothing slides or scales.
             ZStack(alignment: .top) {
@@ -19,7 +19,7 @@ struct WorkspaceView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         }
         .padding(.horizontal, 8)
-        .padding(.bottom, 13)
+        .padding(.bottom, WorkspaceLayout.bottomInset)
         .foregroundStyle(Theme.text)
         .sheet(item: Binding(get: { model.detailsTaskID.map(IDBox.init) }, set: { model.detailsTaskID = $0?.id })) { box in
             TaskDetailsSheet(taskID: box.id).environmentObject(store).environmentObject(model)
@@ -116,10 +116,19 @@ private struct HomeBody: View {
             HStack(alignment: .top, spacing: Theme.gutter) {
                 TasksCard().frame(maxHeight: .infinity)
                 if !side.isEmpty {
-                    VStack(spacing: Theme.gutter) {
-                        ForEach(side, id: \.self) { id in
-                            // A lone side card matches the task card's height instead of leaving black below it.
-                            sideCard(id).frame(maxHeight: side.count == 1 ? .infinity : nil).transition(.opacity)
+                    Group {
+                        if side.count == 1, let id = side.first {
+                            sideCard(id).frame(maxHeight: .infinity)
+                        } else {
+                            // Optional cards scroll independently: never squeeze the timer's controls
+                            // or move today's capture out of view when all three cards are enabled.
+                            ScrollView {
+                                VStack(spacing: Theme.gutter) {
+                                    ForEach(side, id: \.self) { id in
+                                        sideCard(id).frame(minHeight: id == "notepad" ? 160 : nil)
+                                    }
+                                }
+                            }
                         }
                     }
                     .frame(width: Theme.sideColumn)

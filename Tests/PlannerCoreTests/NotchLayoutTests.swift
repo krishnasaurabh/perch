@@ -457,7 +457,7 @@ final class NotchLayoutTests: XCTestCase {
             let idle = NotchLayout.idleFrame(screen: s, leftWing: 32, rightWing: 32)
             let timer = NotchLayout.idleFrame(screen: s, leftWing: 85, rightWing: 85)
             let act = NotchLayout.idleFrame(screen: s, leftWing: 32, rightWing: 32, below: 62, minWidth: 400)
-            let w = NotchLayout.workspaceFrame(screen: s, size: workspaceSize)
+            let w = WorkspaceLayout.frame(screen: s)
             return Row(name: name, camera: NotchLayout.camera(screen: s).map(LayoutRect.init),
                        notch: .init(NotchLayout.notch(screen: s)), idle: .init(idle), idleTimer: .init(timer), idleActivity: .init(act),
                        workspace: .init(w), hoverClosed: .init(NotchLayout.hoverFrame(idle: idle, workspace: w, expanded: false, screen: s)),

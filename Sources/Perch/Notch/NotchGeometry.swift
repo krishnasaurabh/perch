@@ -12,7 +12,7 @@ extension NotchLayout.Screen {
 
 /// The notch frames for one screen. A thin AppKit-side view of `NotchLayout`; every number comes from there.
 struct NotchGeometry: Equatable {
-    static let workspaceSize = CGSize(width: 820, height: 470)
+    static let workspaceSize = WorkspaceLayout.preferredSize()
     /// Wing widths either side of the notch: owl + task count, or owl + running timer.
     static let wing: CGFloat = 32, timerWing: CGFloat = 85
     /// An activity strip hangs this far below the notch, at least this wide.
@@ -29,7 +29,7 @@ struct NotchGeometry: Equatable {
     /// The real camera housing, or the notch Perch draws on a flat screen.
     var notchRect: NSRect { NotchLayout.notch(screen: screen) }
     var notchSize: CGSize { notchRect.size }
-    var workspace: NSRect { NotchLayout.workspaceFrame(screen: screen, size: Self.workspaceSize) }
+    var workspace: NSRect { WorkspaceLayout.frame(screen: screen) }
     /// The open workspace hangs from the top edge beside a housing, and floats below the menu bar on a flat screen.
     var workspaceAttached: Bool { NotchLayout.workspaceAttached(screen: screen) }
 

@@ -21,24 +21,32 @@ struct TasksCard: View {
         VStack(alignment: .leading, spacing: 10) {
             CardHeading("Today's tasks", trailing: AnyView(
                 SegmentPills(items: pills, selection: selection)))
-            ScrollView {
-                // A plain VStack (not Lazy) so a ticked row can fade out while the rows below slide up.
-                VStack(spacing: 0) {
-                    ForEach(shown) { t in
-                        TaskRow(task: t)
-                            .onDrag { NSItemProvider(object: t.id.uuidString as NSString) }
-                            .onDrop(of: [.plainText], isTargeted: nil) { items in
-                                reorder(items, before: t.id); return true
-                            }
-                            .transition(.opacity)
-                        if t.id != shown.last?.id { RowDivider() }
+            GeometryReader { viewport in
+                ScrollView {
+                    // A plain VStack lets a ticked row fade out. The viewport, not the
+                    // task count, owns the height; capture remains outside this scroller.
+                    VStack(spacing: 0) {
+                        ForEach(shown) { t in
+                            TaskRow(task: t)
+                                .onDrag { NSItemProvider(object: t.id.uuidString as NSString) }
+                                .onDrop(of: [.plainText], isTargeted: nil) { items in
+                                    reorder(items, before: t.id); return true
+                                }
+                                .transition(.opacity)
+                            if t.id != shown.last?.id { RowDivider() }
+                        }
+                        if shown.isEmpty { empty(all: all, selected: selection.wrappedValue) }
                     }
-                    if shown.isEmpty { empty(all: all, selected: selection.wrappedValue) }
+                    .frame(maxWidth: .infinity)
+                    .frame(minHeight: shown.isEmpty ? viewport.size.height : 0, alignment: .bottom)
+                    .motion(Motion.row, value: shown.map(\.id))
                 }
-                .motion(Motion.row, value: shown.map(\.id))
+                .scrollIndicators(.never)
             }
-            .scrollIndicators(.never)
+            .frame(minHeight: 0)
             TaskComposer(day: .day(store.today), placeholder: "What would you like to do?")
+                .fixedSize(horizontal: false, vertical: true)
+                .layoutPriority(1)
         }
         .card(.tasks)
         .onChange(of: finished.count, initial: true) { _, count in
