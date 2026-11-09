@@ -1,5 +1,5 @@
 import AppKit
-import ApplicationServices  // AXIsProcessTrusted (diagnostic only)
+import ApplicationServices  // AX client API (motion driver only)
 import PlannerCore
 import SwiftUI
 
@@ -66,14 +66,20 @@ enum MotionScript {
                 Step(name: "close", wait: 1.6, capture: true) { [model] in model.close(); return "NotchModel.close" },
                 Step(name: "reopen", wait: 1.4, capture: false) {
                     NSApp.activate(ignoringOtherApps: true)
-                    // SwiftUI builds its macOS accessibility tree lazily, only once an accessibility client is
-                    // talking to the app. A CI VM has none (no VoiceOver, no automation), so the panel's tree has
-                    // 0 nodes and every press misses (all button steps took `direct:` on hosted macos-15 up to
-                    // cf597e1; activation alone did not help). PERCH_MOTION_AX_WAKE=inproc (motion_capture.sh's
-                    // default) turns on accessibility automation in this process, as XCUITest does; =none keeps
-                    // the old behaviour. `ax_nodes` in each marker records the tree size before that step.
+                    // SwiftUI builds its macOS accessibility tree lazily, on the first request from an accessibility
+                    // client. A CI VM has none (no VoiceOver, no automation), so the panel's tree stays at 0 nodes
+                    // and every press misses: all button steps took `direct:` on hosted macos-15 up to cf597e1, and
+                    // activating the app did not help. PERCH_MOTION_AX_WAKE=inproc|both makes this process its own
+                    // client (an AX API read of its own windows, off the main thread, which serves the request);
+                    // external|both mean motion_capture.sh queries us through System Events. `ax_nodes` in each
+                    // marker records the tree size before that step.
                     let mode = ProcessInfo.processInfo.environment["PERCH_MOTION_AX_WAKE"] ?? "none"
-                    if mode == "inproc" || mode == "both" { self.axWake = AX.enableAutomation() }
+                    if mode == "inproc" || mode == "both" {
+                        DispatchQueue.global().async {
+                            let r = AX.queryOwnWindows()
+                            Task { @MainActor in self.axWake = r }
+                        }
+                    }
                     NotificationCenter.default.post(name: .perchOpenWorkspace, object: NotchPage.home); return "perchOpenWorkspace"
                 },
                 // 2.4 s (was 1.4): settle time for SwiftUI to publish the tree after the wake.
@@ -247,15 +253,21 @@ private enum AX {
     static func label(_ o: NSObject) -> String? { object(o, "accessibilityLabel") as? String }
     static func children(_ o: NSObject) -> [NSObject] { (object(o, "accessibilityChildren") as? [Any])?.compactMap { $0 as? NSObject } ?? [] }
 
-    /// Turns on accessibility automation in this process, the switch an automation client (XCUITest) flips.
-    /// Private libAccessibility call, looked up at runtime, so a missing symbol only changes the returned report.
-    /// Used by the CI motion driver only.
-    static func enableAutomation() -> String {
-        typealias SetBool = @convention(c) (Bool) -> Void
-        guard let h = dlopen("/usr/lib/libAccessibility.dylib", RTLD_NOW) else { return "libAccessibility=missing" }
-        guard let p = dlsym(h, "_AXSSetAutomationEnabled") else { return "_AXSSetAutomationEnabled=missing" }
-        unsafeBitCast(p, to: SetBool.self)(true)
-        return "_AXSSetAutomationEnabled=called"
+    /// Reads this process's windows and their children through the public AX client API, which is the request
+    /// that makes SwiftUI build its tree. Must run off the main thread (the main thread answers it). Returns the
+    /// AXError codes and counts, e.g. "windows=0:1 children=0:3" (-25211 = API disabled: no Accessibility grant).
+    nonisolated static func queryOwnWindows() -> String {
+        let app = AXUIElementCreateApplication(getpid())
+        var v: CFTypeRef?
+        let e = AXUIElementCopyAttributeValue(app, kAXWindowsAttribute as CFString, &v)
+        let wins = (v as? [AXUIElement]) ?? []
+        var kids = 0, ke: AXError = .success
+        for w in wins {
+            var c: CFTypeRef?
+            ke = AXUIElementCopyAttributeValue(w, kAXChildrenAttribute as CFString, &c)
+            kids += (c as? [AXUIElement])?.count ?? 0
+        }
+        return "windows=\(e.rawValue):\(wins.count) children=\(ke.rawValue):\(kids)"
     }
 
     static func press(_ o: NSObject) -> Bool {

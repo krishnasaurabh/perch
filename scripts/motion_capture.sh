@@ -30,7 +30,7 @@ need_ffmpeg() {
 
 # SwiftUI builds a macOS app's accessibility tree lazily, once an accessibility client talks to it. A CI VM has
 # no VoiceOver, so the driver's in-process button presses find nothing and every button step takes `direct:`.
-# PERCH_MOTION_AX_WAKE picks how the tree is woken: "inproc" (driver flips libAccessibility's automation flag),
+# PERCH_MOTION_AX_WAKE picks how the tree is woken: "inproc" (the driver reads its own windows via the AX API),
 # "external" (System Events, which holds the Accessibility grant on GitHub's macOS images, queries Perch's
 # windows right after the driver's "reopen" marker), "both" (default) or "none".
 AXMODE="${PERCH_MOTION_AX_WAKE:-both}"
@@ -67,7 +67,7 @@ record() {
   # TEMPORARY (t_185144a4): which wake fills the AX tree, and does it persist across processes? No recording.
   if [ "${PERCH_MOTION_AX_EXPERIMENT:-1}" = 1 ]; then
     mkdir -p "$OUT/ax-exp"; local k=0
-    for m in none inproc external none inproc; do k=$((k + 1)); rm -f "$DATA"; drive "$m" "$OUT/ax-exp/$k-$m.json" 40; done
+    for m in none inproc external inproc both; do k=$((k + 1)); rm -f "$DATA"; drive "$m" "$OUT/ax-exp/$k-$m.json" 40; done
   fi
 
   # Pass 1: real screen recording (compositor output, includes the menu bar and desktop).
