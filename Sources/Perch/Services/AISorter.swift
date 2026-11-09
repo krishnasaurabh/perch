@@ -85,39 +85,3 @@ enum AISorter {
     }
     #endif
 }
-
-/// A small burst from the top center when a task is checked off.
-struct ConfettiBurst: View {
-    @State private var bursts: [UUID] = []
-    var body: some View {
-        ZStack {
-            ForEach(bursts, id: \.self) { id in Burst().id(id) }
-        }
-        .allowsHitTesting(false)
-        .onReceive(NotificationCenter.default.publisher(for: .init("PerchConfetti"))) { _ in
-            let id = UUID()
-            bursts.append(id)
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1.4) { bursts.removeAll { $0 == id } }
-        }
-    }
-
-    private struct Burst: View {
-        @State private var go = false
-        let pieces: [(angle: Double, dist: CGFloat, color: Color, size: CGFloat)] = (0..<26).map { _ in
-            (Double.random(in: 200...340), CGFloat.random(in: 60...170),
-             [Theme.accent, Theme.done, Color(hex: "#8E8CF5"), Color(hex: "#F57FA3"), .white].randomElement()!, CGFloat.random(in: 4...7))
-        }
-        var body: some View {
-            ZStack {
-                ForEach(0..<pieces.count, id: \.self) { i in
-                    let p = pieces[i]
-                    RoundedRectangle(cornerRadius: 1.5).fill(p.color).frame(width: p.size, height: p.size * 1.6)
-                        .rotationEffect(.degrees(go ? p.angle * 3 : 0))
-                        .offset(x: go ? cos(p.angle * .pi / 180) * p.dist : 0, y: go ? -sin(p.angle * .pi / 180) * p.dist + 40 : 0)
-                        .opacity(go ? 0 : 1)
-                }
-            }
-            .onAppear { withAnimation(.easeOut(duration: 1.2)) { go = true } }
-        }
-    }
-}

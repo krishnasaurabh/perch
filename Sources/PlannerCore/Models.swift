@@ -199,8 +199,11 @@ public struct Preferences: Codable, Equatable, Sendable {
     public var includeWeekendsInStreak: Bool = true
     public var catchScreenshots: Bool = true
     public var catchCopies: Bool = false
-    public var workspaceCardOrder: [String] = ["tasks", "focus", "notepad", "events", "insights"]
-    public var hiddenWorkspaceCards: [String] = []
+    /// Order of Today's side-column cards (see `HomeLayout`). Older files may still list "tasks" and "insights";
+    /// both are ignored there, because tasks are always shown and Insights has its own tab.
+    public var workspaceCardOrder: [String] = ["focus", "events", "notepad"]
+    /// The notepad is opt-in so the first screen stays clean.
+    public var hiddenWorkspaceCards: [String] = ["notepad"]
     public var hiddenCalendarIDs: [String] = []
     public var welcomeCompleted: Bool = false
     public init() {}

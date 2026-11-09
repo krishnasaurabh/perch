@@ -9,96 +9,135 @@ struct WorkspaceView: View {
     @EnvironmentObject var services: Services
 
     var body: some View {
-        VStack(spacing: 10) {
+        VStack(spacing: Theme.gutter) {
             header.frame(height: max(notchHeight, 30))
             ErrorBanner()
-            Group {
-                switch model.page {
-                case .home: HomePage()
-                case .week: WeekPage()
-                case .clips: ClipsPage()
-                }
+            // In-place crossfade between pages: nothing slides or scales.
+            ZStack(alignment: .top) {
+                page.id(model.page).transition(.opacity)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         }
         .padding(.horizontal, 8)
-        .padding(.bottom, 14)
+        .padding(.bottom, 13)
         .foregroundStyle(Theme.text)
         .sheet(item: Binding(get: { model.detailsTaskID.map(IDBox.init) }, set: { model.detailsTaskID = $0?.id })) { box in
             TaskDetailsSheet(taskID: box.id).environmentObject(store).environmentObject(model)
         }
     }
 
+    @ViewBuilder private var page: some View {
+        switch model.page {
+        case .home: HomePage()
+        case .week: WeekPage()
+        case .clips: ClipsPage()
+        case .insights: InsightsPage()
+        }
+    }
+
+    /// Identity on the left, pages and one menu on the right, so nothing sits under the camera housing.
     private var header: some View {
-        ZStack {
-            pagePicker
-            HStack(spacing: 10) {
+        HStack(spacing: 10) {
             HStack(spacing: 7) {
                 OwlMark(size: 18)
                 Text(Date.now, format: .dateTime.weekday(.wide).month(.abbreviated).day())
                     .font(.system(size: 12.5, weight: .semibold)).foregroundStyle(Theme.text)
+                    .lineLimit(1)
             }
-            Spacer()
-            HStack(spacing: 6) {
-                GlassButton(symbol: "arrow.uturn.backward", help: "Undo (⌘Z)") { store.undo() }.disabled(!store.canUndo)
-                GlassButton(symbol: "macwindow", help: "Open dashboard") { DashboardWindow.show(store: store, model: model, services: services) }
-                GlassButton(symbol: "gearshape", help: "Settings") { SettingsWindow.show(store: store, services: services) }
-            }
-            }
+            Spacer(minLength: 0)
+            pagePicker
+            moreMenu
         }
         .padding(.horizontal, 6)
     }
 
-    /// Centered on the panel (and therefore under the notch) regardless of the side groups' widths.
+    /// Text-only tabs in one dark pill. The selected pill snaps; only the page below crossfades.
     private var pagePicker: some View {
-            HStack(spacing: 2) {
-                ForEach(NotchPage.allCases) { p in
-                    Button { withAnimation(.spring(response: 0.3)) { model.page = p } } label: {
-                        Label(p.title, systemImage: p.symbol)
-                            .labelStyle(.titleAndIcon)
-                            .font(.system(size: 11.5, weight: .semibold))
-                            .padding(.horizontal, 10).padding(.vertical, 5)
-                            .background(Capsule().fill(model.page == p ? Color.white.opacity(0.14) : .clear))
-                            .foregroundStyle(model.page == p ? Theme.text : Theme.secondary)
-                    }.buttonStyle(.plain)
+        HStack(spacing: 0) {
+            ForEach(NotchPage.allCases) { p in
+                let on = model.page == p
+                Button { Motion.animate(Motion.page) { model.page = p } } label: {
+                    Text(p.title)
+                        .font(.system(size: 11.5, weight: on ? .semibold : .medium))
+                        .padding(.horizontal, 9).padding(.vertical, 5)
+                        .background(Capsule().fill(on ? Theme.fillStrong : .clear))
+                        .foregroundStyle(on ? Theme.text : Theme.secondary)
+                        .contentShape(Capsule())
                 }
+                .buttonStyle(.plain)
+                .accessibilityAddTraits(on ? .isSelected : [])
+                .transaction { $0.animation = nil }
             }
-            .padding(3)
-            .background(Capsule().fill(Color.white.opacity(0.05)))
-            // On a MacBook the hardware notch sits dead center, so the picker drops just below it.
-            .offset(y: (model.geometry?.hasHardwareNotch ?? false) ? (model.geometry!.notchSize.height + 2) / 2 + 12 : 0)
+        }
+        .padding(2)
+        .background(Capsule().fill(Theme.fill))
+    }
+
+    /// Undo, Dashboard and Settings behind one button. ⌘Z still undoes directly.
+    private var moreMenu: some View {
+        Menu {
+            Button("Undo") { store.undo() }.disabled(!store.canUndo)
+            Divider()
+            Button("Open Dashboard") { DashboardWindow.show(store: store, model: model, services: services) }
+            Button("Settings…") { SettingsWindow.show(store: store, services: services) }
+        } label: {
+            Image(systemName: "ellipsis")
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(Theme.text)
+                .frame(width: 26, height: 26)
+                .background(Circle().fill(Theme.fill))
+        }
+        .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
+        .help("More")
+        .accessibilityLabel("More")
     }
 }
 
 struct IDBox: Identifiable { let id: UUID }
 
-/// Today: tasks | focus | notepad, with agenda + insights underneath. Cards follow the user's order and visibility.
+/// Today: today's tasks with the capture field, and beside them only what matters right now:
+/// the focus timer while it runs, today's agenda when there are events, the notepad if turned on.
 struct HomePage: View {
+    @EnvironmentObject var services: Services
+    var body: some View { HomeBody(calendar: services.calendar) }
+}
+
+private struct HomeBody: View {
+    @ObservedObject var calendar: CalendarService
     @EnvironmentObject var store: PlannerStore
+    @EnvironmentObject var model: NotchModel
+
     var body: some View {
-        let order = store.prefs.workspaceCardOrder.filter { !store.prefs.hiddenWorkspaceCards.contains($0) }
-        let top = order.filter { ["tasks", "focus", "notepad"].contains($0) }
-        let bottom = order.filter { ["events", "insights"].contains($0) }
-        VStack(spacing: 10) {
+        let timer = store.planner.focus.map { $0.state != .finished } ?? false
+        let events = calendar.hasAccess && calendar.events.contains { $0.end > model.now }
+        let side = HomeLayout.sideCards(store.prefs, timerActive: timer, hasEvents: events)
+        VStack(spacing: Theme.gutter) {
             OverdueBanner()
-            HStack(alignment: .top, spacing: 10) {
-                ForEach(top, id: \.self) { id in
-                    switch id {
-                    case "tasks": TasksCard().frame(minWidth: 300, maxWidth: .infinity)
-                    case "focus": FocusCard().frame(width: 200)
-                    default: NotepadCard().frame(minWidth: 200, maxWidth: .infinity)
+            HStack(alignment: .top, spacing: Theme.gutter) {
+                TasksCard().frame(maxHeight: .infinity)
+                if !side.isEmpty {
+                    VStack(spacing: Theme.gutter) {
+                        ForEach(side, id: \.self) { id in
+                            // A lone side card matches the task card's height instead of leaving black below it.
+                            sideCard(id).frame(maxHeight: side.count == 1 ? .infinity : nil).transition(.opacity)
+                        }
                     }
+                    .frame(width: Theme.sideColumn)
+                    .frame(maxHeight: .infinity, alignment: .top)
+                    .transition(.opacity)
                 }
             }
             .frame(maxHeight: .infinity)
-            if !bottom.isEmpty {
-                HStack(alignment: .top, spacing: 10) {
-                    ForEach(bottom, id: \.self) { id in
-                        if id == "events" { AgendaCard().frame(maxWidth: .infinity) } else { InsightsCard().frame(maxWidth: .infinity) }
-                    }
-                }
-                .frame(height: 104)
-            }
+        }
+        // Card enter/leave: the timer starting or today's events loading fades a card in while the task card resizes.
+        .motion(Motion.card, value: side)
+    }
+
+    @ViewBuilder private func sideCard(_ id: String) -> some View {
+        switch id {
+        case "focus": FocusCard()
+        case "events": AgendaCard()
+        default: NotepadCard().frame(maxHeight: .infinity)
         }
     }
 }
@@ -208,7 +247,8 @@ struct PillStyle: ButtonStyle {
         configuration.label
             .font(.system(size: 11, weight: .semibold))
             .padding(.horizontal, 10).padding(.vertical, 5)
-            .background(Capsule().fill(prominent ? Theme.accent.opacity(configuration.isPressed ? 0.7 : 0.9) : Color.white.opacity(configuration.isPressed ? 0.2 : 0.1)))
-            .foregroundStyle(prominent ? Color.black : Theme.text)
+            .background(Capsule().fill(prominent ? Theme.prominent : (configuration.isPressed ? Theme.fillStrong : Theme.fill)))
+            .opacity(prominent && configuration.isPressed ? 0.8 : 1)
+            .foregroundStyle(prominent ? Theme.onAccent : Theme.text)
     }
 }

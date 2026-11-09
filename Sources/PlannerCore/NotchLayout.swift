@@ -46,6 +46,8 @@ public enum NotchLayout {
     public static let drawnNotchAspect: CGFloat = 3
     /// Gap kept between the workspace and the screen's side edges.
     public static let screenMargin: CGFloat = 8
+    /// Gap below the menu bar on flat screens, keeping menus, status items and the clock accessible.
+    public static let menuBarGap: CGFloat = 8
     /// Extra room around the workspace for its drop shadow.
     public static let shadowPadding = (horizontal: CGFloat(24), bottom: CGFloat(48))
 
@@ -88,12 +90,25 @@ public enum NotchLayout {
         return clamp(CGRect(x: minX, y: screen.frame.maxY - h, width: maxX - minX, height: h), into: screen.frame)
     }
 
-    /// The open workspace: flush with the top edge, centered under the notch, never wider or taller than the screen allows.
+    /// The workspace attaches to the top edge only beside a real camera housing.
+    /// On flat screens, including external monitors, it floats below the menu bar.
+    public static func workspaceAttached(screen: Screen) -> Bool { camera(screen: screen) != nil }
+
+    /// Distance from the screen's top edge to the workspace's top edge: 0 beside a housing; otherwise the menu bar
+    /// (the fallback height when it hides automatically, since it slides in exactly where the pointer opens Perch) plus `menuBarGap`.
+    public static func workspaceTopInset(screen: Screen) -> CGFloat {
+        if workspaceAttached(screen: screen) { return 0 }
+        let bar = screen.menuBarHeight > 0 ? screen.menuBarHeight : fallbackMenuBarHeight
+        return bar + menuBarGap
+    }
+
+    /// The open workspace, centered under the notch, never wider or taller than the screen allows. Flush with the
+    /// top edge beside a housing; below the menu bar on a flat screen (`workspaceTopInset`).
     public static func workspaceFrame(screen: Screen, size: CGSize) -> CGRect {
-        let f = screen.frame
-        let w = min(size.width, f.width - 2 * screenMargin), h = min(size.height, f.height - screenMargin)
+        let f = screen.frame, top = workspaceTopInset(screen: screen)
+        let w = min(size.width, f.width - 2 * screenMargin), h = max(0, min(size.height, f.height - top - screenMargin))
         let x = min(max(notch(screen: screen).midX - w / 2, f.minX + screenMargin), f.maxX - screenMargin - w)
-        return CGRect(x: x, y: f.maxY - h, width: w, height: h)
+        return CGRect(x: x, y: f.maxY - top - h, width: w, height: h)
     }
 
     /// Where the pointer counts as "on the notch". Open: exactly the workspace. Closed: the idle shape plus a little slop
@@ -111,6 +126,17 @@ public enum NotchLayout {
         let p = shadowPadding
         let padded = CGRect(x: u.minX - p.horizontal, y: u.minY - p.bottom, width: u.width + 2 * p.horizontal, height: u.height + p.bottom)
         return padded.intersection(screen.frame)
+    }
+
+    /// While a detached workspace is open: the column under the closed shape, from the screen's top edge down to the
+    /// workspace, so the pointer that opened it can travel down across the menu bar without it closing. Only as wide
+    /// as the closed shape, so the rest of the menu bar stays free. nil when the workspace hangs from the top edge.
+    public static func openBridge(idle: CGRect, workspace: CGRect, screen: Screen) -> CGRect? {
+        let top = screen.frame.maxY
+        guard workspace.maxY < top else { return nil }
+        let minX = max(idle.minX, workspace.minX), maxX = min(idle.maxX, workspace.maxX)
+        guard maxX > minX else { return nil }
+        return CGRect(x: minX, y: workspace.maxY, width: maxX - minX, height: top - workspace.maxY)
     }
 
     // MARK: Full screen

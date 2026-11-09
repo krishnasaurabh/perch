@@ -65,6 +65,14 @@ jobs:
           PERCH_DATA=$RUNNER_TEMP/shot.json dist/Perch.app/Contents/MacOS/Perch --dump-layout $OUT/live-closed.json --snapshot $OUT &
           sleep 5; screencapture -x $RUNNER_TEMP/perch-closed.png || true; kill %1 || true
           ls -la $OUT $RUNNER_TEMP/perch-*.png
+      - name: Home and Insights snapshots (empty, 3 tasks, timer running, insights)
+        run: |
+          for sc in empty:home three:home timer:home insights:insights empty:insights; do
+            name=${sc%%:*}; page=${sc##*:}; OUT=$RUNNER_TEMP/notch/$name-$page; mkdir -p $OUT
+            PERCH_DATA=$RUNNER_TEMP/sc-$name.json dist/Perch.app/Contents/MacOS/Perch --preview-open --scenario $name --page $page --snapshot $OUT &
+            PID=$!; sleep 5; kill $PID || true; wait $PID 2>/dev/null || true
+            ls $OUT/*.png || { echo "no snapshot for $name"; exit 1; }
+          done
       - name: NotchLayout frames (fixtures + live) and mouse routing
         run: |
           OUT=$RUNNER_TEMP/notch
@@ -75,27 +83,66 @@ jobs:
           fx = json.load(open(f"{out}/fixtures.json")); print("fixtures:", [r["name"] for r in fx])
           want = {
               "closed": dict(notchCenterTopEdge=True, leftWing=True, justBelowShape=False, leftOfShape=False,
-                             windowCornerOutsideShape=False, workspaceCenter=False),
+                             windowCornerOutsideShape=False, workspaceCenter=False, shapeTopCornerOutside=False, shapeTopInside=True),
               "open": dict(notchCenterTopEdge=True, workspaceCenter=True, justBelowShape=False, leftOfShape=False,
-                           windowCornerOutsideShape=False),
+                           windowCornerOutsideShape=False, shapeTopCornerOutside=False, shapeTopInside=True),
           }
           bad = 0
           for state, exp in want.items():
               screens = json.load(open(f"{out}/live-{state}.json"))
               assert screens, f"no screens in live-{state}.json"
               for s in screens:
-                  print(state, s["name"], "frame", s["frame"], "notch", s["notch"], "idle", s["idle"], "window", s["window"], "visible", s["visible"])
+                  print(state, s["name"], "frame", s["frame"], "notch", s["notch"], "idle", s["idle"], "workspace", s["workspace"],
+                        "window", s["window"], "visible", s["visible"], "attached", s.get("workspaceAttached"))
                   if not s["visible"]: continue
                   if state == "open" and not s["expanded"]: continue
+                  exp = dict(exp, menuBarRight=False)
+                  if state == "open":
+                      # Flat screen: the workspace floats below the menu bar, so the menu bar (incl. the strip above the
+                      # notch and above the workspace's edge) clicks through. Beside a housing it hangs from the top.
+                      att = s["workspaceAttached"]
+                      exp.update(notchCenterTopEdge=att, menuBarAboveWorkspaceEdge=att)
+                      bar = s["frame"]["y"] + s["frame"]["h"] - max(s["menuBarHeight"], 24)
+                      top = s["workspace"]["y"] + s["workspace"]["h"]
+                      if not att and top > bar - 8: print(f"  MENU BAR OVERLAP: workspace top {top} > {bar - 8}"); bad += 1
                   for k, v in exp.items():
                       if s["routing"][k] != v: print(f"  ROUTING MISMATCH {state} {k}: got {s['routing'][k]} want {v}"); bad += 1
                   assert s["window"]["y"] + s["window"]["h"] == s["frame"]["y"] + s["frame"]["h"], "window not flush with screen top"
           sys.exit(1 if bad else 0)
           EOF
+      - name: Empty states and capture focus
+        run: bash scripts/check_empty_states.sh "$RUNNER_TEMP/empty-states"
+      - name: Larger flat desktop (best effort; the runner's virtual display defaults to 1024x768)
+        run: |
+          OUT=$RUNNER_TEMP/notch/large; mkdir -p $OUT
+          brew install --quiet jakehilborn/jakehilborn/displayplacer >/dev/null 2>&1 || true
+          if command -v displayplacer >/dev/null; then
+            displayplacer list | tee $OUT/displayplacer-list.txt | head -40
+            ID=$(displayplacer list | awk '/^Persistent screen id:/{print $4; exit}')
+            for res in 1920x1080 1680x1050 1440x900 1280x1024 1280x800; do
+              displayplacer "id:$ID res:$res scaling:off origin:(0,0) degree:0" 2>&1 | tail -2 && sleep 3
+              system_profiler SPDisplaysDataType | grep -i resolution | tee $OUT/resolution.txt
+              grep -q "${res%x*} x ${res#*x}" $OUT/resolution.txt && { echo "switched to $res"; break; }
+            done
+          fi
+          PERCH_DATA=$RUNNER_TEMP/large.json dist/Perch.app/Contents/MacOS/Perch --preview-open --demo --dump-layout $OUT/live-open.json --snapshot $OUT &
+          sleep 6; screencapture -x $RUNNER_TEMP/perch-open-large.png || true; kill %1 || true; sleep 1
+          python3 - "$OUT" <<'EOF'
+          import json, sys
+          for s in json.load(open(f"{sys.argv[1]}/live-open.json")):
+              print("large", s["name"], "frame", s["frame"], "workspace", s["workspace"], "attached", s["workspaceAttached"], "routing", s["routing"])
+              if not s["expanded"] or s["workspaceAttached"]: continue
+              bar = s["frame"]["y"] + s["frame"]["h"] - max(s["menuBarHeight"], 24)
+              top = s["workspace"]["y"] + s["workspace"]["h"]
+              assert top <= bar - 8, f"MENU BAR OVERLAP on {s['frame']}: workspace top {top} > {bar - 8}"
+              assert not s["routing"]["menuBarRight"] and not s["routing"]["menuBarAboveWorkspaceEdge"], "menu bar must click through"
+          EOF
       - uses: actions/upload-artifact@v4
+        if: always()
         with:
           name: Perch
           path: |
             dist/*.dmg
             ${{ runner.temp }}/perch-*.png
-            ${{ runner.temp }}/notch/*
+            ${{ runner.temp }}/notch/**
+            ${{ runner.temp }}/empty-states/

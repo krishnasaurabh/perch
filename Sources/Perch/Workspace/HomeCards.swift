@@ -1,12 +1,11 @@
 import PlannerCore
 import SwiftUI
 
-/// The focus timer: dot-matrix / digital / minimal faces, countdown or stopwatch, +5 min.
+/// The running focus timer, on the lavender time card. On Today it appears only while a session is active.
 struct FocusCard: View {
     @EnvironmentObject var store: PlannerStore
     @EnvironmentObject var model: NotchModel
     @State private var minutes = 25
-    @State private var picking = false
 
     var body: some View {
         let f = store.planner.focus
@@ -14,24 +13,29 @@ struct FocusCard: View {
         let task = f?.taskID.flatMap { id in store.planner.tasks.first { $0.id == id } }
 
         VStack(alignment: .leading, spacing: 10) {
-            CardHeading("Focus", symbol: "timer", trailing: AnyView(styleMenu))
+            CardHeading(active ? (task?.title ?? "Just focusing") : "Focus", trailing: AnyView(styleMenu))
+            // When the timer is the only card beside the tasks it fills the column; the face centres in it.
             Spacer(minLength: 0)
-            VStack(spacing: 8) {
+            VStack(spacing: 6) {
                 face(f)
-                Text(active ? (task?.title ?? "Just focusing") : "Pick something to focus on")
-                    .font(.system(size: 11.5, weight: .medium)).foregroundStyle(active ? Theme.text : Theme.secondary)
-                    .lineLimit(2).multilineTextAlignment(.center)
-                if let f, active, let limit = f.limit {
-                    ProgressView(value: min(1, f.elapsed(at: model.now) / limit))
-                        .progressViewStyle(.linear).tint(Theme.accent).frame(width: 140)
+                if let f, active {
+                    Text(status(f)).font(Theme.meta).foregroundStyle(Theme.secondary)
+                    if let limit = f.limit {
+                        FocusProgress(fraction: min(1, f.elapsed(at: model.now) / limit)).frame(width: 150)
+                    }
                 }
             }
             .frame(maxWidth: .infinity)
             Spacer(minLength: 0)
             controls(f, active: active)
         }
-        .card()
+        .card(.timer)
         .onAppear { minutes = store.prefs.defaultFocusMinutes }
+    }
+
+    private func status(_ f: FocusSession) -> String {
+        if f.state == .paused { return "Paused" }
+        return f.limit == nil ? "Elapsed" : "Remaining"
     }
 
     @ViewBuilder func face(_ f: FocusSession?) -> some View {
@@ -40,29 +44,31 @@ struct FocusCard: View {
             return f.remaining(at: model.now) ?? f.elapsed(at: model.now)
         }()
         let text = TimerText.clock(secs)
-        let running = f?.state == .running
+        let dim = f?.state == .paused
         switch store.prefs.workspaceTimerStyle {
         case .dotMatrix:
-            DotMatrixText(text: text, dot: text.count > 5 ? 5 : 7, color: running ? Theme.accent : Theme.text.opacity(0.85))
+            DotMatrixText(text: text, dot: text.count > 5 ? 4.5 : 6.5, color: dim ? Theme.secondary : Theme.accent)
         case .digital:
-            Text(text).font(.system(size: 38, weight: .semibold, design: .rounded).monospacedDigit())
-                .foregroundStyle(running ? Theme.accent : Theme.text)
+            Text(text).font(.system(size: 36, weight: .semibold, design: .rounded).monospacedDigit())
+                .foregroundStyle(dim ? Theme.secondary : Theme.text)
         case .minimal:
-            Text(text).font(.system(size: 30, weight: .light).monospacedDigit()).foregroundStyle(Theme.text)
+            Text(text).font(.system(size: 30, weight: .light).monospacedDigit()).foregroundStyle(dim ? Theme.secondary : Theme.text)
         }
     }
 
     @ViewBuilder func controls(_ f: FocusSession?, active: Bool) -> some View {
         HStack(spacing: 8) {
             if active, let f {
-                GlassButton(symbol: f.state == .running ? "pause.fill" : "play.fill",
-                            help: f.state == .running ? "Pause timer" : "Continue timer", tint: Theme.accent, size: 30) {
-                    store.apply { e in f.state == .running ? try e.pauseTimer() : try e.resumeTimer() }
+                let running = f.state == .running
+                Button { store.apply { e in running ? try e.pauseTimer() : try e.resumeTimer() } } label: {
+                    Label(running ? "Pause" : "Continue", systemImage: running ? "pause.fill" : "play.fill")
                 }
-                if f.limit != nil { GlassButton(symbol: "goforward.5", help: "Extend by 5 min", size: 30) { store.apply { $0.extendTimer(minutes: 5) } } }
-                GlassButton(symbol: "stop.fill", help: "Stop timer", size: 30) { store.apply { _ = $0.stopTimer() } }
+                .buttonStyle(PillStyle(prominent: true))
+                .help(running ? "Pause timer" : "Continue timer")
+                if f.limit != nil { GlassButton(symbol: "goforward.5", help: "Add five minutes", size: 26) { store.apply { $0.extendTimer(minutes: 5) } } }
+                GlassButton(symbol: "stop.fill", help: "End focus session", size: 26) { store.apply { _ = $0.stopTimer() } }
                 if let id = f.taskID {
-                    GlassButton(symbol: "checkmark", help: "Mark done", tint: Theme.done, size: 30) { store.apply { try $0.complete(id.uuidString) } }
+                    GlassButton(symbol: "checkmark", help: "Mark done", tint: Theme.done, size: 26) { store.apply { try $0.complete(id.uuidString) } }
                 }
             } else {
                 Stepper(value: $minutes, in: 5...180, step: 5) {
@@ -85,12 +91,30 @@ struct FocusCard: View {
                 Text("Digital").tag(WorkspaceTimerStyle.digital)
                 Text("Minimal").tag(WorkspaceTimerStyle.minimal)
             }
-        } label: { Image(systemName: "slider.horizontal.3").font(.system(size: 10)) }
+        } label: { Image(systemName: "slider.horizontal.3").font(.system(size: 11)).foregroundStyle(Theme.secondary) }
             .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
+            .help("Timer face")
     }
 }
 
-/// A daily notepad. Saves as you type. ⌘↩ turns the current line into a task.
+/// Thin token-drawn progress track: the native linear ProgressView all but vanishes on the lavender card.
+struct FocusProgress: View {
+    let fraction: Double
+    var body: some View {
+        GeometryReader { g in
+            ZStack(alignment: .leading) {
+                Capsule().fill(Theme.chartPlanned)
+                Capsule().fill(Theme.text).frame(width: max(4, g.size.width * fraction))
+            }
+        }
+        .frame(height: 4)
+        .accessibilityElement()
+        .accessibilityLabel("Focus progress")
+        .accessibilityValue("\(Int(fraction * 100)) percent")
+    }
+}
+
+/// A daily notepad. Saves as you type. ⌘↩ turns the current line into a task. Off by default on Today.
 struct NotepadCard: View {
     var day: DayKey?
     @EnvironmentObject var store: PlannerStore
@@ -103,8 +127,8 @@ struct NotepadCard: View {
         let d = day ?? store.today
         let readOnly = d < store.today
         VStack(alignment: .leading, spacing: 8) {
-            CardHeading("Notepad", symbol: "square.and.pencil", trailing: AnyView(
-                Text(flash ?? "⌘↩ makes a task").font(.system(size: 9.5)).foregroundStyle(flash == nil ? Theme.tertiary : Theme.accent)))
+            CardHeading("Notepad", trailing: AnyView(
+                Text(flash ?? "⌘↩ makes a task").font(Theme.meta).foregroundStyle(flash == nil ? Theme.tertiary : Theme.accent)))
             ScratchpadEditor(text: $text, isEditable: !readOnly, placeholder: "Jot a note", onCommandReturn: { line in
                 let clean = line.trimmingCharacters(in: .whitespaces)
                 guard !clean.isEmpty, let t = store.apply({ try $0.lineToTask(clean, day: max(d, store.today)) }) ?? nil else { return }
@@ -112,7 +136,7 @@ struct NotepadCard: View {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 2) { flash = nil }
             })
         }
-        .card()
+        .card(.tile)
         .onAppear { load(d) }
         .onChange(of: d) { _, nd in load(nd) }
         .onChange(of: store.planner.notes) { _, _ in
@@ -131,7 +155,7 @@ struct NotepadCard: View {
     func load(_ d: DayKey) { text = store.engine.notepad(on: d); loadedFor = d }
 }
 
-/// NSTextView so ⌘↩ can read the line under the cursor.
+/// NSTextView so ⌘↩ can read the line under the cursor. Lives on a dark tile, so its ink is white.
 struct ScratchpadEditor: NSViewRepresentable {
     @Binding var text: String
     var isEditable = true
@@ -147,7 +171,7 @@ struct ScratchpadEditor: NSViewRepresentable {
         tv.drawsBackground = false
         tv.font = .systemFont(ofSize: 12.5)
         tv.textColor = NSColor.white.withAlphaComponent(0.9)
-        tv.insertionPointColor = NSColor(Theme.accent)
+        tv.insertionPointColor = NSColor(Theme.owl)
         tv.isRichText = false
         tv.allowsUndo = true
         tv.textContainerInset = NSSize(width: 0, height: 2)
@@ -182,7 +206,8 @@ struct ScratchpadEditor: NSViewRepresentable {
     }
 }
 
-/// Today's calendar events; completion is local to Perch, not synced to Calendar.
+/// Today's calendar events. Checking one off is local to Perch; Calendar is unchanged. On Today the card appears only
+/// when there are events left today.
 struct AgendaCard: View {
     @EnvironmentObject var services: Services
     var body: some View { AgendaBody(calendar: services.calendar) }
@@ -193,103 +218,44 @@ private struct AgendaBody: View {
     @EnvironmentObject var store: PlannerStore
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            CardHeading("Schedule", symbol: "calendar")
+        VStack(alignment: .leading, spacing: 8) {
+            CardHeading("Today's agenda")
             if !calendar.hasAccess {
-                HStack {
-                    Text("Allow calendar access to list today's events here.").font(.system(size: 11)).foregroundStyle(Theme.secondary)
-                    Spacer()
-                    Button("Allow Calendar Access") { Task { await calendar.requestAccess() } }.buttonStyle(PillStyle())
-                }
+                Text("Allow calendar access to list today's events here.").font(Theme.meta).foregroundStyle(Theme.secondary)
+                Button("Allow Calendar Access") { Task { await calendar.requestAccess() } }.buttonStyle(PillStyle())
             } else {
-                // Keep ended events available to check off (or reopen) for the rest of the day.
+                // Ended events stay listed so they can still be checked off (or reopened) for the rest of the day.
                 let events = calendar.events
                 if events.isEmpty {
-                    Text("Your calendars are clear today.").font(.system(size: 11)).foregroundStyle(Theme.secondary)
+                    Text("Nothing else on the calendar today.").font(Theme.meta).foregroundStyle(Theme.secondary)
                 } else {
-                    ScrollView(.horizontal) {
-                        HStack(spacing: 8) {
-                            ForEach(events) { e in
-                                let completed = store.planner.completedCalendarEventIDs.contains(e.id)
-                                HStack(spacing: 7) {
-                                    Toggle(e.title, isOn: Binding(
-                                        get: { store.planner.completedCalendarEventIDs.contains(e.id) },
-                                        set: { value in
-                                            store.apply { try $0.setCalendarEventCompleted(e.id, completed: value) }
-                                        }
-                                    ))
-                                    .toggleStyle(.checkbox)
-                                    .labelsHidden()
-                                    .frame(width: 32, height: 32)
-                                    .accessibilityLabel("Complete calendar event: \(e.title)")
-                                    .help(completed ? "Mark incomplete in Perch" : "Mark complete in Perch (Calendar is unchanged)")
-                                    RoundedRectangle(cornerRadius: 2).fill(Color(hex: e.colorHex)).frame(width: 3)
-                                        .opacity(completed ? 0.5 : 1)
-                                    VStack(alignment: .leading, spacing: 1) {
-                                        Text(e.title).font(.system(size: 11.5, weight: .semibold)).lineLimit(1)
-                                            .strikethrough(completed)
-                                            .foregroundStyle(completed ? Theme.secondary : Theme.text)
-                                        Text(e.allDay ? "All day" : "\(e.start.formatted(date: .omitted, time: .shortened)) – \(e.end.formatted(date: .omitted, time: .shortened))")
-                                            .font(.system(size: 10)).foregroundStyle(Theme.secondary)
-                                    }
-                                }
-                                .padding(.horizontal, 8).padding(.vertical, 6)
-                                .background(RoundedRectangle(cornerRadius: 9).fill(Color.white.opacity(0.05)))
-                                .frame(width: 210, alignment: .leading)
+                    VStack(alignment: .leading, spacing: 6) {
+                        ForEach(events.prefix(4)) { e in
+                            let completed = store.planner.completedCalendarEventIDs.contains(e.id)
+                            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                                Toggle(e.title, isOn: Binding(
+                                    get: { store.planner.completedCalendarEventIDs.contains(e.id) },
+                                    set: { value in store.apply { try $0.setCalendarEventCompleted(e.id, completed: value) } }
+                                ))
+                                .toggleStyle(.checkbox)
+                                .labelsHidden()
+                                .accessibilityLabel("Complete calendar event: \(e.title)")
+                                .help(completed ? "Mark incomplete in Perch" : "Mark complete in Perch (Calendar is unchanged)")
+                                Text(e.allDay ? "All day" : e.start.formatted(date: .omitted, time: .shortened))
+                                    .font(Theme.meta.monospacedDigit()).foregroundStyle(Theme.secondary)
+                                    .frame(width: 58, alignment: .leading)
+                                Text(e.title).font(Theme.title).lineLimit(1)
+                                    .strikethrough(completed)
+                                    .foregroundStyle(completed ? Theme.secondary : Theme.text)
                             }
                         }
-                    }.scrollIndicators(.never)
+                        if events.count > 4 {
+                            Text("+\(events.count - 4) more").font(Theme.meta).foregroundStyle(Theme.tertiary)
+                        }
+                    }
                 }
             }
         }
-        .card(padding: 10)
-    }
-}
-
-/// Small insights summary; the dashboard has the full charts.
-struct InsightsCard: View {
-    @EnvironmentObject var store: PlannerStore
-    var body: some View {
-        let i = store.engine.insights()
-        VStack(alignment: .leading, spacing: 8) {
-            CardHeading("Insights", symbol: "chart.bar", trailing: AnyView(
-                Text("\(i.today.completedCalendarEvents) events done")
-                    .font(.system(size: 11)).foregroundStyle(Theme.secondary)
-                    .help("Calendar events checked off in Perch today. \(i.allTimeCompletedCalendarEvents) all time.")
-            ))
-            HStack(spacing: 14) {
-                stat("\(i.streak)", "day streak", "flame.fill")
-                stat("\(i.today.completed)/\(i.today.planned)", "done today", "checkmark.circle")
-                stat(TimerText.short(i.today.focusSeconds), "focused", "timer")
-                Spacer()
-                SparkBars(values: i.lastSeven.map { Double($0.completed) })
-                    .frame(width: 90, height: 34)
-            }
-        }
-        .card(padding: 10)
-    }
-
-    func stat(_ v: String, _ label: String, _ symbol: String) -> some View {
-        VStack(alignment: .leading, spacing: 1) {
-            HStack(spacing: 4) {
-                Image(systemName: symbol).font(.system(size: 10)).foregroundStyle(Theme.accent)
-                Text(v).font(.system(size: 15, weight: .bold, design: .rounded).monospacedDigit())
-            }
-            Text(label).font(.system(size: 9.5)).foregroundStyle(Theme.secondary)
-        }
-    }
-}
-
-struct SparkBars: View {
-    let values: [Double]
-    var body: some View {
-        let m = max(values.max() ?? 1, 1)
-        HStack(alignment: .bottom, spacing: 4) {
-            ForEach(Array(values.enumerated()), id: \.offset) { i, v in
-                RoundedRectangle(cornerRadius: 2)
-                    .fill(i == values.count - 1 ? Theme.accent : Color.white.opacity(0.25))
-                    .frame(height: max(3, CGFloat(v / m) * 34))
-            }
-        }
+        .card(.timer)
     }
 }

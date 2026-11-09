@@ -23,9 +23,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         setupURLScheme()
         setupEventNudges()
 
-        if CommandLine.arguments.contains("--demo") { seedDemo() }
-        if CommandLine.arguments.contains("--preview-open") {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { self.model.open(pinned: true) }
+        let args = CommandLine.arguments
+        if args.contains("--demo") { seedDemo() }
+        if let i = args.firstIndex(of: "--scenario"), i + 1 < args.count { seedScenario(args[i + 1]) }
+        if args.contains("--preview-open") {
+            // `--page <home|week|clips|insights>` picks the page the preview opens on (CI snapshots).
+            let page = args.firstIndex(of: "--page").flatMap { i in i + 1 < args.count ? NotchPage(rawValue: args[i + 1]) : nil }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { self.model.open(page: page, pinned: true) }
         }
         if !store.prefs.welcomeCompleted && !CommandLine.arguments.contains("--preview-open") { showWelcome() }
     }
@@ -41,6 +45,38 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             try e.writeNotepad(on: e.today, text: "Try batching email to 11 and 4\nQuestions for the design sync")
             _ = try e.startTimer(task: "Draft release notes", minutes: 50)
             e.planner.preferences.welcomeCompleted = true
+        }
+    }
+
+    /// Fixed planner states for CI snapshots (`--scenario <name>`), only into an empty planner.
+    /// `empty`: nothing yet. `three`: three tasks for today. `timer`: the same with a focus session running.
+    /// `insights`: two weeks of finished tasks and focus, for the Insights page.
+    private func seedScenario(_ name: String) {
+        guard store.planner.tasks.isEmpty else { return }
+        store.apply { e in
+            e.planner.preferences.welcomeCompleted = true
+            switch name {
+            case "three", "timer":
+                _ = try e.addTasks(["Prep slides for the 2pm review !high #work", "Call mom at 5pm", "Buy flowers"])
+                if name == "timer" { _ = try e.startTimer(task: "Prep slides", minutes: 45) }
+            case "insights":
+                let cal = Calendar.current, now = Date()
+                let doneByDay = [2, 4, 3, 5, 1, 6, 4, 3, 2, 3, 2, 0, 3, 2]  // index 0 = 13 days ago, 13 = today
+                for (i, done) in doneByDay.enumerated() {
+                    let ago = doneByDay.count - 1 - i
+                    let date = cal.date(byAdding: .day, value: -ago, to: now)!
+                    let day = e.dayKey(date)
+                    for n in 0..<(done + 1 + i % 2) {
+                        let finished = n < done
+                        let at = cal.date(bySettingHour: 9 + n, minute: 15, second: 0, of: date) ?? date
+                        e.planner.tasks.append(PlanTask(title: "Task \(n + 1)", day: day, done: finished, completedAt: finished ? at : nil, createdAt: date))
+                    }
+                    if ago > 0, done > 0, let start = cal.date(bySettingHour: 10, minute: 0, second: 0, of: date) {
+                        e.planner.focusLog.append(FocusSegment(taskID: nil, start: start, end: start.addingTimeInterval(Double(done) * 600)))
+                    }
+                }
+            default: break
+            }
         }
     }
 

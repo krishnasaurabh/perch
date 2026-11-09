@@ -3,11 +3,12 @@ import Combine
 import PlannerCore
 import SwiftUI
 
+/// The workspace pages, in picker order. Insights is a page of its own so Today stays clean (tenet 1).
 enum NotchPage: String, CaseIterable, Identifiable {
-    case home, week, clips
+    case home, week, clips, insights
     var id: String { rawValue }
-    var title: String { ["home": "Today", "week": "Week", "clips": "Clips"][rawValue]! }
-    var symbol: String { ["home": "sun.max", "week": "calendar", "clips": "paperclip"][rawValue]! }
+    var title: String { ["home": "Today", "week": "Week", "clips": "Clips", "insights": "Insights"][rawValue]! }
+    var symbol: String { ["home": "sun.max", "week": "calendar", "clips": "paperclip", "insights": "chart.bar"][rawValue]! }
 }
 
 /// A short-lived thing the closed notch shows: a reminder nudge, a finished timer, a caught clip.
@@ -34,21 +35,24 @@ final class NotchModel: ObservableObject {
     @Published var pinned = false
     @Published var editingTaskID: UUID?
     @Published var detailsTaskID: UUID?
+    /// Explicit opening intent, not passive hover/drag. A new ID also refocuses an already-open page.
+    @Published var captureFocusRequest: UUID?
 
     func open(page: NotchPage? = nil, pinned: Bool = false) {
         if let page { self.page = page }
         self.pinned = pinned || self.pinned
-        withAnimation(.spring(response: 0.38, dampingFraction: 0.82)) { expanded = true }
+        Motion.animate(Motion.open) { expanded = true }
     }
 
     func close() {
         pinned = false
         detailsTaskID = nil
-        withAnimation(.spring(response: 0.32, dampingFraction: 0.9)) { expanded = false }
+        captureFocusRequest = nil
+        Motion.animate(Motion.close) { expanded = false }
     }
 
     func show(_ a: NotchActivity, for seconds: Double? = nil) {
-        withAnimation(.spring(response: 0.4, dampingFraction: 0.75)) { activity = a }
+        Motion.animate(Motion.activity) { activity = a }
         if let s = seconds {
             let id = a.id
             DispatchQueue.main.asyncAfter(deadline: .now() + s) { [weak self] in
@@ -58,7 +62,7 @@ final class NotchModel: ObservableObject {
     }
 
     func dismissActivity() {
-        withAnimation(.spring(response: 0.3, dampingFraction: 0.9)) { activity = nil }
+        Motion.animate(Motion.activityDismiss) { activity = nil }
     }
 
     /// Whether the closed notch shows the timer (and so uses the wide wings).
@@ -125,7 +129,7 @@ final class NotchController {
 
         model.$expanded.removeDuplicates().sink { [weak self] open in
             guard let self else { return }
-            if open { self.slots[self.model.screenID]?.panel.makeKey() } else {
+            if !open {
                 self.openedForDrop = false
                 for s in self.slots.values { s.panel.resignKey() }
             }
@@ -173,8 +177,9 @@ final class NotchController {
         }
     }
 
-    /// Debug render: grey backdrop, the window's content, and the camera housing outlined in red,
-    /// so a reviewer can see whether the wings sit beside the real housing. Pixel scale follows the screen.
+    /// Debug render: grey backdrop, the screen's menu-bar band in a lighter grey, the window's content, and the camera
+    /// housing outlined in red, so a reviewer can see whether the wings sit beside the real housing and whether the open
+    /// shell clears the menu bar (its top corners/shoulders show against the band). Pixel scale follows the screen.
     func snapshot(into dir: URL) {
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         for slot in slots.values {
@@ -190,9 +195,12 @@ final class NotchController {
             ctx.cgContext.scaleBy(x: CGFloat(out.pixelsWide) / size.width, y: CGFloat(out.pixelsHigh) / size.height)
             NSColor(calibratedRed: 0.47, green: 0.49, blue: 0.53, alpha: 1).setFill()
             NSRect(origin: .zero, size: size).fill()
+            let w = slot.panel.frame, sf = slot.state.geometry.screenFrame
+            let bar = slot.state.geometry.screen.menuBarHeight > 0 ? slot.state.geometry.screen.menuBarHeight : NotchLayout.fallbackMenuBarHeight
+            NSColor(calibratedWhite: 0.86, alpha: 1).setFill()
+            NSRect(x: sf.minX, y: sf.maxY - bar, width: sf.width, height: bar).offsetBy(dx: -w.minX, dy: -w.minY).fill()
             rep.draw(in: NSRect(origin: .zero, size: size), from: .zero, operation: .sourceOver, fraction: 1, respectFlipped: true, hints: nil)
             if let cam = slot.state.geometry.camera {
-                let w = slot.panel.frame
                 NSColor.systemRed.setStroke()
                 let path = NSBezierPath(rect: cam.offsetBy(dx: -w.minX, dy: -w.minY).insetBy(dx: 0.5, dy: 0.5))
                 path.lineWidth = 1
@@ -286,8 +294,11 @@ final class NotchController {
         }
         slot.panel.orderFrontRegardless()
         model.open(page: page, pinned: pinned)
-        if activate { NSApp.activate(ignoringOtherApps: true) }
-        slot.panel.makeKey()
+        if activate {
+            NSApp.activate(ignoringOtherApps: true)
+            slot.panel.makeKey()
+            model.captureFocusRequest = UUID()
+        }
     }
 
     // MARK: Visibility
@@ -332,11 +343,11 @@ final class NotchController {
         }
     }
 
+    /// Exactly the drawn outline: the open workspace (rounded corners and shoulders excluded), or the closed silhouette.
     private func isOnShape(_ p: NSPoint, _ slot: Slot) -> Bool {
-        let g = slot.state.geometry
         let active = model.screenID == slot.state.id
-        if active && model.expanded { return NotchLayout.contains(g.workspace, pointer: p) }
-        return NotchGeometry.silhouetteContains(p, shape: g.idle(timer: timerShowing(), activity: active && model.activity != nil))
+        return slot.state.geometry.shapeContains(p, expanded: active && model.expanded, timer: timerShowing(),
+                                                 activity: active && model.activity != nil)
     }
 
     private func hoverRect(_ slot: Slot) -> NSRect {
@@ -373,7 +384,8 @@ final class NotchController {
 
         if e.type == .leftMouseDown {
             if model.expanded {
-                let inside = slots[model.screenID].map { NotchLayout.contains($0.state.geometry.workspace, pointer: p) } ?? false
+                // Same test as mouse routing: a click that went through to another app (menu bar, a corner) closes.
+                let inside = slots[model.screenID].map { isOnShape(p, $0) } ?? false
                 if !inside && !anySheetOrPopoverOpen() { model.close() }
             } else if let id = slotUnderPointer(), let slot = slots[id], drawn(slot), NotchLayout.contains(hoverRect(slot), pointer: p) {
                 if prefs.notchOpenTrigger == .click || (prefs.notchOpenTrigger == .doubleClick && e.clickCount >= 2) {
@@ -417,9 +429,13 @@ final class NotchController {
         }
     }
 
+    /// Keeps it open: the workspace, plus (flat screen) the menu-bar strip the pointer crosses to reach it.
     private func pointerInWorkspace(_ p: NSPoint) -> Bool {
         guard let slot = slots[model.screenID] else { return false }
-        return NotchLayout.contains(hoverRect(slot), pointer: p)
+        if NotchLayout.contains(hoverRect(slot), pointer: p) { return true }
+        guard model.expanded, let bridge = slot.state.geometry.openBridge(timer: timerShowing(), activity: model.activity != nil)
+        else { return false }
+        return NotchLayout.contains(bridge, pointer: p)
     }
 
     private func anySheetOrPopoverOpen() -> Bool {
@@ -453,6 +469,7 @@ final class NotchController {
                                     "expanded": model.expanded && model.screenID == s.state.id, "ignoresMouse": s.panel.ignoresMouseEvents,
                                     "idle": r(g.idle(timer: timerShowing(), activity: false)), "workspace": r(g.workspace),
                                     "window": r(s.panel.frame), "hardwareNotch": g.hasHardwareNotch, "fullScreen": s.state.fullScreen,
+                                    "menuBarHeight": g.screen.menuBarHeight, "workspaceAttached": g.workspaceAttached,
                                     "visible": s.panel.isVisible]
             if let c = g.camera { d["camera"] = r(c) }
             // Mouse-routing probes: the decision `updateMouseRouting` makes at each point, from the live code path.
@@ -465,6 +482,12 @@ final class NotchController {
                 ("leftOfShape", NSPoint(x: shape.minX - 3, y: shape.maxY - 5)),
                 ("workspaceCenter", NSPoint(x: g.workspace.midX, y: g.workspace.midY)),
                 ("windowCornerOutsideShape", NSPoint(x: s.panel.frame.minX + 2, y: s.panel.frame.minY + 2)),
+                // Where the clock and status items sit: must always click through to the menu bar.
+                ("menuBarRight", NSPoint(x: g.screenFrame.maxX - 40, y: g.screenFrame.maxY - 4)),
+                ("menuBarAboveWorkspaceEdge", NSPoint(x: g.workspace.maxX - 30, y: g.screenFrame.maxY - 4)),
+                // The drawn outline, not its bounding box: a rounded/shouldered top corner is transparent and clicks through.
+                ("shapeTopCornerOutside", NSPoint(x: shape.minX + 1.5, y: shape.maxY - 2)),
+                ("shapeTopInside", NSPoint(x: shape.midX, y: shape.maxY - 2)),
             ]
             d["routing"] = Dictionary(uniqueKeysWithValues: probes.map { ($0.0, drawn(s) && isOnShape($0.1, s)) })
             return d

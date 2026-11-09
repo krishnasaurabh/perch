@@ -19,18 +19,22 @@ struct NotchRootView: View {
         let g = screen.geometry
         let window = g.window
         let shape = g.shape(expanded: expanded, timer: NotchModel.timerShowing(store), activity: activity != nil)
-        let k = NotchGeometry.radii(expanded: expanded)
+        // Beside a housing the open shell hangs from the top edge; on a flat screen it floats below the menu bar.
+        // Same outline the controller hit-tests (`NotchGeometry.shapeContains`).
+        let outline = g.outline(expanded: expanded)
 
         ZStack(alignment: .topLeading) {
             ZStack(alignment: .top) {
-                NotchShape(topRadius: k.top, bottomRadius: k.bottom)
+                // The open shell is drawn without a shadow.
+                outline
                     .fill(Theme.notchBlack)
-                    .shadow(color: .black.opacity(expanded ? 0.5 : 0), radius: 24, y: 10)
 
                 Group {
                     if expanded {
+                        // The content scales up from the notch with the shell and fades in; it closes nearly as a snap.
                         WorkspaceView(notchHeight: g.notchSize.height)
-                            .transition(.opacity.combined(with: .scale(scale: 0.96, anchor: .top)))
+                            .transition(.asymmetric(insertion: .opacity.combined(with: .scale(scale: 0.5, anchor: .top)),
+                                                    removal: .opacity.combined(with: .scale(scale: 0.85, anchor: .top))))
                     } else {
                         ClosedNotchView(notch: g.notchSize, activity: activity)
                             .transition(.opacity)
@@ -39,21 +43,20 @@ struct NotchRootView: View {
                 .padding(.horizontal, expanded ? 10 : 0)
             }
             .frame(width: shape.width, height: shape.height)
-            .clipShape(NotchShape(topRadius: k.top, bottomRadius: k.bottom))
-            .contentShape(NotchShape(topRadius: k.top, bottomRadius: k.bottom))
+            .clipShape(outline)
+            .contentShape(outline)
             .onDrop(of: [.fileURL, .url, .plainText, .image], isTargeted: nil) { providers in
                 handleDrop(providers); return true
             }
-            // Window and shape are both flush with the screen top, so only x needs placing.
+            // The window is flush with the screen top; the shape is too, except an open workspace on a flat screen.
             .offset(x: shape.minX - window.minX, y: window.maxY - shape.maxY)
         }
         .frame(width: window.width, height: window.height, alignment: .topLeading)
-        .overlay(alignment: .top) {
-            if active { ConfettiBurst().padding(.top, 60).offset(x: g.notchRect.midX - window.midX) }
-        }
-        .animation(.spring(response: 0.38, dampingFraction: 0.82), value: expanded)
-        .animation(.spring(response: 0.4, dampingFraction: 0.78), value: activity)
+        .motion(expanded ? Motion.open : Motion.close, value: expanded)
+        .motion(activity == nil ? Motion.activityDismiss : Motion.activity, value: activity)
         .preferredColorScheme(.dark)
+        // Ink tokens resolve against the scheme: the shell is always "dark". Cards override it for themselves.
+        .environment(\.colorScheme, .dark)
         .opacity(hidden ? 0 : 1)
     }
 
@@ -110,9 +113,10 @@ struct ClosedNotchView: View {
             }
             .frame(height: notch.height)
 
+            // Mask reveal: the strip sits at its final size and the growing shape (clipped above) uncovers it.
             if let a = activity {
                 ActivityStrip(activity: a).padding(.horizontal, 10).padding(.bottom, 10)
-                    .transition(.move(edge: .top).combined(with: .opacity))
+                    .transition(.opacity)
             }
         }
     }
@@ -147,14 +151,12 @@ struct ActivityStrip: View {
     let activity: NotchActivity
     @EnvironmentObject var store: PlannerStore
     @EnvironmentObject var model: NotchModel
-    @State private var swing = false
 
     var body: some View {
         HStack(spacing: 10) {
+            // Static reminder icon, without a swinging animation.
             Image(systemName: icon)
                 .font(.system(size: 15, weight: .semibold)).foregroundStyle(Theme.accent)
-                .rotationEffect(.degrees(swing ? 12 : -12), anchor: .top)
-                .onAppear { withAnimation(.easeInOut(duration: 0.35).repeatCount(6, autoreverses: true)) { swing = true } }
             VStack(alignment: .leading, spacing: 1) {
                 Text(activity.title).font(.system(size: 12.5, weight: .semibold)).foregroundStyle(Theme.text).lineLimit(1)
                 Text(activity.subtitle).font(.system(size: 11)).foregroundStyle(Theme.secondary).lineLimit(1)
@@ -197,7 +199,7 @@ struct ActivityStrip: View {
         Button(action: action) {
             Text(title).font(.system(size: 11, weight: .semibold)).foregroundStyle(Theme.text)
                 .padding(.horizontal, 9).padding(.vertical, 5)
-                .background(Capsule().fill(Color.white.opacity(0.12)))
+                .background(Capsule().fill(Theme.fill))
         }.buttonStyle(.plain)
     }
 }

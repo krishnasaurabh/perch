@@ -30,6 +30,8 @@ struct NotchGeometry: Equatable {
     var notchRect: NSRect { NotchLayout.notch(screen: screen) }
     var notchSize: CGSize { notchRect.size }
     var workspace: NSRect { NotchLayout.workspaceFrame(screen: screen, size: Self.workspaceSize) }
+    /// The open workspace hangs from the top edge beside a housing, and floats below the menu bar on a flat screen.
+    var workspaceAttached: Bool { NotchLayout.workspaceAttached(screen: screen) }
 
     func idle(timer: Bool, activity: Bool) -> NSRect {
         if activity {
@@ -50,6 +52,12 @@ struct NotchGeometry: Equatable {
         NotchLayout.hoverFrame(idle: idle(timer: timer, activity: activity), workspace: workspace, expanded: expanded, screen: screen)
     }
 
+    /// Open on a flat screen: the strip of menu bar between the notch and the floating workspace. The pointer may
+    /// cross it without the workspace closing; clicks there still reach the menu bar.
+    func openBridge(timer: Bool, activity: Bool) -> NSRect? {
+        NotchLayout.openBridge(idle: idle(timer: timer, activity: activity), workspace: workspace, screen: screen)
+    }
+
     /// The transparent window: fixed per screen and large enough for every shape, so it never moves while animating.
     var window: NSRect {
         NotchLayout.windowFrame(screen: screen, containing: [idle(timer: true, activity: true), idle(timer: true, activity: false), workspace])
@@ -57,20 +65,30 @@ struct NotchGeometry: Equatable {
 
     static func radii(expanded: Bool) -> (top: CGFloat, bottom: CGFloat) { expanded ? (10, 26) : (6, 12) }
 
-    /// Exact hit test against the drawn closed silhouette (not its bounding box). Global coordinates, y up.
-    static func silhouetteContains(_ p: NSPoint, shape r: NSRect) -> Bool {
+    /// The outline drawn for a state. The one source for the fill, the clip, the content shape and the hit test, so what
+    /// takes clicks is exactly what is visible: beside a housing (and always when closed) it hangs from the top edge with
+    /// concave shoulders; open on a flat screen it is a rounded rectangle floating below the menu bar.
+    func outline(expanded: Bool) -> NotchShape {
+        let k = Self.radii(expanded: expanded)
+        return NotchShape(topRadius: k.top, bottomRadius: k.bottom, attached: !expanded || workspaceAttached)
+    }
+
+    /// Exact hit test against the drawn shape (not its bounding box). Global coordinates, y up.
+    func shapeContains(_ p: NSPoint, expanded: Bool, timer: Bool, activity: Bool) -> Bool {
+        let r = shape(expanded: expanded, timer: timer, activity: activity)
         guard NotchLayout.contains(r, pointer: p) else { return false }
-        let k = radii(expanded: false)
-        let path = NotchShape(topRadius: k.top, bottomRadius: k.bottom).path(in: CGRect(origin: .zero, size: r.size))
+        let path = outline(expanded: expanded).path(in: CGRect(origin: .zero, size: r.size))
         // SwiftUI paths are y-down. Pull a pointer pinned to the top edge just inside.
         return path.contains(CGPoint(x: p.x - r.minX, y: max(0.5, r.maxY - p.y)))
     }
 }
 
-/// Notch silhouette: flush with the top edge, small concave shoulders, rounded bottom.
+/// Notch silhouette: flush with the top edge, small concave shoulders, rounded bottom. Detached (the workspace
+/// floating below a flat screen's menu bar) it is a plain continuous rounded rectangle with `bottomRadius` corners.
 struct NotchShape: Shape {
     var topRadius: CGFloat = 6
     var bottomRadius: CGFloat = 14
+    var attached = true
 
     var animatableData: AnimatablePair<CGFloat, CGFloat> {
         get { .init(topRadius, bottomRadius) }
@@ -78,6 +96,9 @@ struct NotchShape: Shape {
     }
 
     func path(in r: CGRect) -> Path {
+        if !attached {
+            return RoundedRectangle(cornerRadius: min(bottomRadius, r.height / 2, r.width / 2), style: .continuous).path(in: r)
+        }
         var p = Path()
         let t = topRadius, b = min(bottomRadius, r.height / 2)
         p.move(to: CGPoint(x: r.minX, y: r.minY))

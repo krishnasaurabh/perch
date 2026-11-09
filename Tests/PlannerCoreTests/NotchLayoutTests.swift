@@ -42,9 +42,17 @@ enum Screens {
     static let mbp14FullScreenSpace = NotchLayout.Screen(frame: CGRect(x: 0, y: 0, width: 1512, height: 982),
                                                          visibleFrame: CGRect(x: 0, y: 0, width: 1512, height: 982))
 
+    /// The GitHub macOS runner's only display: flat 1024 x 768 with a 24 pt menu bar (CI `perch-open.png`).
+    static let ci1024 = NotchLayout.Screen(frame: CGRect(x: 0, y: 0, width: 1024, height: 768),
+                                           visibleFrame: CGRect(x: 0, y: 0, width: 1024, height: 744))
+    /// A larger flat built-in screen: a notchless 13-inch MacBook Air at 1440 x 900, 25 pt menu bar.
+    static let flat1440 = NotchLayout.Screen(frame: CGRect(x: 0, y: 0, width: 1440, height: 900),
+                                             visibleFrame: CGRect(x: 0, y: 0, width: 1440, height: 875))
+
     static let all: [(String, NotchLayout.Screen)] = [
         ("mbp14", mbp14), ("mbp16", mbp16), ("mba15", mba15), ("mbp14Small", mbp14Small), ("hd1080", hd1080),
         ("uhd4k", uhd4k), ("uhd4kNative", uhd4kNative), ("ultrawide", ultrawide), ("mbp14FullScreenSpace", mbp14FullScreenSpace),
+        ("ci1024", ci1024), ("flat1440", flat1440),
     ]
 }
 
@@ -167,20 +175,105 @@ final class NotchLayoutTests: XCTestCase {
         XCTAssertEqual(w.midX, NotchLayout.camera(screen: Screens.mbp14)!.midX)
     }
 
+    /// Flat screens: the workspace floats `menuBarGap` below the menu bar, so the
+    /// app menus, status items and clock stay uncovered.
     func testWorkspaceOnMonitorsInEveryDirection() {
         let right = NotchLayout.workspaceFrame(screen: Screens.hd1080, size: workspaceSize)
-        XCTAssertEqual(right, CGRect(x: 2062, y: 610, width: 820, height: 470))
+        XCTAssertEqual(right, CGRect(x: 2062, y: 578, width: 820, height: 470))
         let left = NotchLayout.workspaceFrame(screen: Screens.uhd4k, size: workspaceSize)
-        XCTAssertEqual(left, CGRect(x: -1690, y: 770, width: 820, height: 470))
+        XCTAssertEqual(left, CGRect(x: -1690, y: 738, width: 820, height: 470))
         let above = NotchLayout.workspaceFrame(screen: Screens.ultrawide, size: workspaceSize)
-        XCTAssertEqual(above, CGRect(x: 346, y: 1952, width: 820, height: 470))
+        XCTAssertEqual(above, CGRect(x: 346, y: 1919, width: 820, height: 470), "25 pt menu bar + 8 gap")
     }
 
     func testWorkspaceShrinksToFitASmallScreen() {
         let tiny = NotchLayout.Screen(frame: CGRect(x: 0, y: 0, width: 800, height: 400),
                                       visibleFrame: CGRect(x: 0, y: 0, width: 800, height: 376))
         let w = NotchLayout.workspaceFrame(screen: tiny, size: workspaceSize)
-        XCTAssertEqual(w, CGRect(x: 8, y: 8, width: 784, height: 392))
+        XCTAssertEqual(w, CGRect(x: 8, y: 8, width: 784, height: 360))
+    }
+
+    // MARK: Menu bar clearance
+
+    /// The CI display: a flat 1024 x 768 screen. The shell used to sit on the menu bar from x 102 to 922, covering
+    /// Finder's menus and clipping the date beside the clock. Now the whole menu bar is clear.
+    func testFlatScreenWorkspaceLeavesTheWholeMenuBarClear() {
+        let ci = Screens.ci1024
+        XCTAssertFalse(NotchLayout.workspaceAttached(screen: ci))
+        XCTAssertEqual(NotchLayout.workspaceTopInset(screen: ci), 32)
+        let w = NotchLayout.workspaceFrame(screen: ci, size: workspaceSize)
+        XCTAssertEqual(w, CGRect(x: 102, y: 266, width: 820, height: 470))
+        let menuBar = CGRect(x: 0, y: 744, width: 1024, height: 24)
+        XCTAssertFalse(w.intersects(menuBar))
+        XCTAssertEqual(menuBar.minY - w.maxY, NotchLayout.menuBarGap)
+    }
+
+    /// Review F03 (d035096): the shell covered x 102-922 of the CI menu bar and clipped the date to "ov 9 11:40 AM".
+    /// On every flat screen, the open shell, the whole window band it is drawn in above its top edge, and the corner
+    /// where the clock sits stay apart: nothing Perch draws or hit-tests while open overlaps the menu bar except the
+    /// notch-wide bridge, which only keeps it open (clicks there pass through).
+    func testFlatScreensKeepTheClockAndStatusItemsClear() {
+        let flats: [(String, NotchLayout.Screen)] = Screens.all.filter { !NotchLayout.workspaceAttached(screen: $0.1) } + [
+            ("1280x800", .init(frame: CGRect(x: 0, y: 0, width: 1280, height: 800), visibleFrame: CGRect(x: 0, y: 0, width: 1280, height: 776))),
+            ("1680x1050", .init(frame: CGRect(x: 0, y: 0, width: 1680, height: 1050), visibleFrame: CGRect(x: 0, y: 0, width: 1680, height: 1025))),
+            ("2560x1440", .init(frame: CGRect(x: 0, y: 0, width: 2560, height: 1440), visibleFrame: CGRect(x: 0, y: 0, width: 2560, height: 1415))),
+        ]
+        XCTAssertTrue(flats.contains { $0.0 == "ci1024" } && flats.contains { $0.0 == "flat1440" })
+        for (name, s) in flats {
+            let bar = s.menuBarHeight > 0 ? s.menuBarHeight : NotchLayout.fallbackMenuBarHeight
+            let menuBar = CGRect(x: s.frame.minX, y: s.frame.maxY - bar, width: s.frame.width, height: bar)
+            let w = NotchLayout.workspaceFrame(screen: s, size: workspaceSize)
+            XCTAssertFalse(w.intersects(menuBar), name)
+            XCTAssertEqual(menuBar.minY - w.maxY, NotchLayout.menuBarGap, name)
+            XCTAssertEqual(w.height, workspaceSize.height, "\(name): the 470 pt height policy is unchanged here")
+            // The clock: the right-most 160 pt of the menu bar (date + time + Control Center).
+            let clock = CGRect(x: menuBar.maxX - 160, y: menuBar.minY, width: 160, height: bar)
+            let idle = NotchLayout.idleFrame(screen: s, leftWing: 85, rightWing: 85)
+            XCTAssertFalse(idle.intersects(clock), name)
+            let bridge = NotchLayout.openBridge(idle: idle, workspace: w, screen: s)
+            XCTAssertNotNil(bridge, name)
+            XCTAssertFalse(bridge!.intersects(clock), name)
+            XCTAssertLessThanOrEqual(bridge!.width, idle.width, name)
+            // The host window still reaches the top edge (the closed notch lives there) and holds the floating shell.
+            let win = NotchLayout.windowFrame(screen: s, containing: [idle, w])
+            XCTAssertEqual(win.maxY, s.frame.maxY, name)
+            XCTAssertTrue(win.contains(w), name)
+        }
+    }
+
+    func testFlat1440FixtureFloatsBelowItsMenuBar() {
+        let s = Screens.flat1440
+        let w = NotchLayout.workspaceFrame(screen: s, size: workspaceSize)
+        XCTAssertEqual(w, CGRect(x: 310, y: 397, width: 820, height: 470), "25 pt menu bar + 8 gap")
+        XCTAssertEqual(NotchLayout.openBridge(idle: NotchLayout.idleFrame(screen: s, leftWing: 32, rightWing: 32), workspace: w, screen: s)?.height, 33)
+    }
+
+    func testAutoHiddenMenuBarStillGetsClearance() {
+        // It slides in exactly where the pointer goes to open Perch, so leave room for it.
+        let w = NotchLayout.workspaceFrame(screen: Screens.uhd4kNative, size: workspaceSize)
+        XCTAssertEqual(w.maxY, 2160 - NotchLayout.fallbackMenuBarHeight - NotchLayout.menuBarGap)
+    }
+
+    func testBesideAHousingTheWorkspaceStillHangsFromTheTop() {
+        // The workspace attaches to the real camera housing.
+        for s in [Screens.mbp14, Screens.mbp16, Screens.mba15, Screens.mbp14Small] {
+            XCTAssertTrue(NotchLayout.workspaceAttached(screen: s))
+            XCTAssertEqual(NotchLayout.workspaceTopInset(screen: s), 0)
+            XCTAssertEqual(NotchLayout.workspaceFrame(screen: s, size: workspaceSize).maxY, s.frame.maxY)
+        }
+    }
+
+    func testOpenBridgeSpansTheMenuBarUnderTheNotchOnly() {
+        let s = Screens.hd1080
+        let idle = NotchLayout.idleFrame(screen: s, leftWing: 32, rightWing: 32)
+        let w = NotchLayout.workspaceFrame(screen: s, size: workspaceSize)
+        let b = NotchLayout.openBridge(idle: idle, workspace: w, screen: s)
+        XCTAssertEqual(b, CGRect(x: idle.minX, y: w.maxY, width: idle.width, height: 32))
+        XCTAssertEqual(b?.maxY, s.frame.maxY)
+        // Attached workspaces need no bridge.
+        let m = Screens.mbp14
+        XCTAssertNil(NotchLayout.openBridge(idle: NotchLayout.idleFrame(screen: m, leftWing: 32, rightWing: 32),
+                                            workspace: NotchLayout.workspaceFrame(screen: m, size: workspaceSize), screen: m))
     }
 
     func testWorkspaceStaysOnScreenWhenTheNotchIsNearAnEdge() {
@@ -268,8 +361,14 @@ final class NotchLayoutTests: XCTestCase {
             }
             let w = NotchLayout.workspaceFrame(screen: s, size: workspaceSize)
             XCTAssertTrue(s.frame.contains(w), name)
-            XCTAssertEqual(w.maxY, s.frame.maxY, name)
-            XCTAssertTrue(w.contains(n) || w.width < n.width, name)
+            XCTAssertEqual(w.maxY, s.frame.maxY - NotchLayout.workspaceTopInset(screen: s), name)
+            XCTAssertTrue((w.minX <= n.minX && n.maxX <= w.maxX) || w.width < n.width, name)
+            if NotchLayout.workspaceAttached(screen: s) {
+                XCTAssertTrue(w.contains(n) || w.width < n.width, name)
+            } else {
+                // Never on the menu bar (nor where an auto-hidden one slides in).
+                XCTAssertLessThanOrEqual(w.maxY, min(s.visibleFrame.maxY, s.frame.maxY - NotchLayout.fallbackMenuBarHeight) - NotchLayout.menuBarGap, name)
+            }
         }
     }
 
