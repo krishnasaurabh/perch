@@ -67,16 +67,16 @@ enum MotionScript {
                     NotificationCenter.default.post(name: .perchOpenWorkspace, object: NotchPage.home); return "perchOpenWorkspace"
                 },
                 Step(name: "page", wait: 1.4, capture: true) { [model] in
-                    self.press(target.title, else: {
+                    self.press(target.title, orElse: {
                         withAnimation(.spring(response: 0.3)) { model.page = target }
                         return "direct:model.page=\(target.rawValue)"
                     })
                 },
                 Step(name: "page-back", wait: 1.2, capture: false) { [model] in
-                    self.press(NotchPage.home.title, else: { model.page = .home; return "direct:model.page=home" })
+                    self.press(NotchPage.home.title, orElse: { model.page = .home; return "direct:model.page=home" })
                 },
                 Step(name: "tick", wait: 1.6, capture: true) { [store] in
-                    self.press("Mark as complete", else: {
+                    self.press("Mark as complete", orElse: {
                         guard let t = store.engine.tasks(on: .day(store.today)).first(where: { !$0.done }) else { return "none" }
                         store.apply { try $0.complete(t.id.uuidString) }
                         Confetti.fire()
@@ -84,7 +84,7 @@ enum MotionScript {
                     })
                 },
                 Step(name: "timer", wait: 1.6, capture: true) { [store] in
-                    self.press("Start", else: {
+                    self.press("Start", orElse: {
                         store.apply { try $0.startTimer(task: nil, minutes: 25) }
                         return "direct:startTimer"
                     })
@@ -122,7 +122,7 @@ enum MotionScript {
 
         /// Presses the first element labelled `label` in a visible notch window. Returns the `via` string, or nil.
         /// Uses the ObjC accessibility methods directly, so it works for NSViews and SwiftUI's private AX nodes alike.
-        private func press(_ label: String, else fallback: () -> String) -> String { press(label) ?? fallback() }
+        private func press(_ label: String, orElse fallback: () -> String) -> String { press(label) ?? fallback() }
 
         private func press(_ label: String) -> String? {
             for w in NSApp.windows where w is NotchPanel && w.isVisible {

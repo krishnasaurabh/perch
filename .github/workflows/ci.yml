@@ -166,6 +166,9 @@ jobs:
             ${{ runner.temp }}/capture-contrast/
       # Record interface transitions as CI artifacts.
       - name: Motion capture (open, close, page, tick, timer)
+        # Evidence only: never blocks a branch. Errors land in summary.md / capture.log inside the artifact.
+        continue-on-error: true
+        timeout-minutes: 12
         run: scripts/motion_capture.sh "$RUNNER_TEMP/motion" dist/Perch.app
       - uses: actions/upload-artifact@v4
         if: always()
