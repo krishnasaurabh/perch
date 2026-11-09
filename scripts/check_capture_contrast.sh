@@ -24,6 +24,7 @@ data.write_text(json.dumps({'preferences': {'welcomeCompleted': True,
 env = dict(os.environ, PERCH_DATA=str(data), CAPTURE_CONTRAST_OUTPUT=output)
 subprocess.run([binary], env=env, check=True, timeout=60)
 PY
+PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s "$ROOT/scripts" -p test_measure_capture_contrast.py
 python3 "$ROOT/scripts/measure_capture_contrast.py" \
   "$OUT/empty-home-unfocused" "$OUT/empty-home-focused" "$OUT/three-home-unfocused" "$OUT/three-home-focused" \
   | tee "$OUT/contrast.json"
