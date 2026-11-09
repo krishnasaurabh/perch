@@ -46,11 +46,14 @@ struct FocusCard: View {
         let text = TimerText.clock(secs)
         let dim = f?.state == .paused
         switch store.prefs.workspaceTimerStyle {
-        case .dotMatrix:
-            DotMatrixText(text: text, dot: text.count > 5 ? 4.5 : 6.5, color: dim ? Theme.secondary : Theme.accent)
         case .digital:
-            Text(text).font(.system(size: 36, weight: .semibold, design: .rounded).monospacedDigit())
+            // The default face: the 32 pt semibold timer token with monospaced digits, so the value reads at a glance
+            // and the digits don't shift as they tick.
+            Text(text).font(.system(size: 32, weight: .semibold).monospacedDigit())
                 .foregroundStyle(dim ? Theme.secondary : Theme.text)
+        case .dotMatrix:
+            // Opt-in: decorative, and harder to read at a glance.
+            DotMatrixText(text: text, dot: text.count > 5 ? 4.5 : 6.5, color: dim ? Theme.secondary : Theme.accent)
         case .minimal:
             Text(text).font(.system(size: 30, weight: .light).monospacedDigit()).foregroundStyle(dim ? Theme.secondary : Theme.text)
         }
@@ -87,9 +90,9 @@ struct FocusCard: View {
     var styleMenu: some View {
         Menu {
             Picker("Timer face", selection: Binding(get: { store.prefs.workspaceTimerStyle }, set: { v in store.updatePrefs { $0.workspaceTimerStyle = v } })) {
-                Text("Dot grid").tag(WorkspaceTimerStyle.dotMatrix)
                 Text("Digital").tag(WorkspaceTimerStyle.digital)
                 Text("Minimal").tag(WorkspaceTimerStyle.minimal)
+                Text("Dot grid").tag(WorkspaceTimerStyle.dotMatrix)
             }
         } label: { Image(systemName: "slider.horizontal.3").font(.system(size: 11)).foregroundStyle(Theme.secondary) }
             .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
@@ -135,6 +138,8 @@ struct NotepadCard: View {
                 flash = "Added “\(t.title)”"
                 DispatchQueue.main.asyncAfter(deadline: .now() + 2) { flash = nil }
             })
+            // Text running past the card fades out, like a scrolled list, instead of being cut mid-glyph.
+            .mask { ScratchpadEditor.bottomFade }
         }
         .card(.tile)
         .onAppear { load(d) }
@@ -162,10 +167,22 @@ struct ScratchpadEditor: NSViewRepresentable {
     var placeholder = ""
     var onCommandReturn: (String) -> Void
 
+    /// Height of the bottom fade. The scroll view reserves the same inset, so the last line can scroll clear of it.
+    static let fadeHeight: CGFloat = 24
+    /// Opaque, then a ramp to clear over the last `fadeHeight` points.
+    static var bottomFade: some View {
+        VStack(spacing: 0) {
+            Color.black
+            LinearGradient(colors: [.black, .clear], startPoint: .top, endPoint: .bottom).frame(height: fadeHeight)
+        }
+    }
+
     func makeNSView(context: Context) -> NSScrollView {
         let scroll = NSTextView.scrollableTextView()
         scroll.drawsBackground = false
         scroll.hasVerticalScroller = false
+        scroll.automaticallyAdjustsContentInsets = false
+        scroll.contentInsets = NSEdgeInsets(top: 0, left: 0, bottom: Self.fadeHeight, right: 0)
         let tv = scroll.documentView as! NSTextView
         tv.delegate = context.coordinator
         tv.drawsBackground = false

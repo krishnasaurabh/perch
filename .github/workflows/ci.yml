@@ -73,6 +73,8 @@ jobs:
             PID=$!; sleep 5; kill $PID || true; wait $PID 2>/dev/null || true
             ls $OUT/*.png || { echo "no snapshot for $name"; exit 1; }
           done
+      - name: Home cards legibility (exact timer value, default and dot-matrix faces, heavy notepad)
+        run: bash scripts/homecards_shots.sh "$RUNNER_TEMP/notch/homecards"
       - name: NotchLayout frames (fixtures + live) and mouse routing
         run: |
           OUT=$RUNNER_TEMP/notch

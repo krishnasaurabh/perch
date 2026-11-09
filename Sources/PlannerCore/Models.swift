@@ -188,7 +188,8 @@ public struct Preferences: Codable, Equatable, Sendable {
     public var defaultFocusMinutes: Int = 25
     public var focusCompletionSound: Bool = true
     public var notchTimerPlacement: NotchTimerPlacement = .right
-    public var workspaceTimerStyle: WorkspaceTimerStyle = .dotMatrix
+    /// Digital reads at a glance; the dot-matrix face is opt-in.
+    public var workspaceTimerStyle: WorkspaceTimerStyle = .digital
     public var notchOpenTrigger: NotchOpenTrigger = .hover
     public var notchOnMonitors: Bool = true
     /// nil = automatic (screen under the pointer); otherwise a display name.

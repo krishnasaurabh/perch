@@ -162,9 +162,9 @@ struct SettingsView: View {
                 Text("Hidden").tag(NotchTimerPlacement.hidden)
             }
             Picker("Workspace timer face", selection: pref(\.workspaceTimerStyle)) {
-                Text("Dot grid").tag(WorkspaceTimerStyle.dotMatrix)
                 Text("Digital").tag(WorkspaceTimerStyle.digital)
                 Text("Minimal").tag(WorkspaceTimerStyle.minimal)
+                Text("Dot grid").tag(WorkspaceTimerStyle.dotMatrix)
             }
         }
     }

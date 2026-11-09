@@ -342,6 +342,6 @@ final class PlannerFileTests: XCTestCase {
         let json = #"{"tasks":[],"preferences":{"defaultFocusMinutes":50}}"#
         let p = try PlannerFile.decoder.decode(Planner.self, from: Data(json.utf8))
         XCTAssertEqual(p.preferences.defaultFocusMinutes, 50)
-        XCTAssertEqual(p.preferences.workspaceTimerStyle, .dotMatrix)
+        XCTAssertEqual(p.preferences.workspaceTimerStyle, .digital)
     }
 }
