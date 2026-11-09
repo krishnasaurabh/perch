@@ -6,7 +6,9 @@
 #   timer-dotmatrix  the opt-in dot-matrix face, same value
 #   notepad-heavy    notepad shown beside the timer, with more lines than fit (bottom edge treatment)
 # Each shot writes <out>/<name>/notch-*.png (in-process --snapshot) and <out>/<name>-screen.png (screencapture).
-set -u
+# The seed avoids clock times on purpose: "at 2pm" run after 2pm (hosted runners are UTC) moves the task to
+# tomorrow, start_timer then finds nothing today, and the shots silently render an empty planner.
+set -euo pipefail
 OUT=${1:?usage: homecards_shots.sh OUTPUT_DIRECTORY}; mkdir -p "$OUT"
 APP=dist/Perch.app/Contents/MacOS/Perch
 SRC="$OUT/seed.json"; rm -f "$SRC"
@@ -19,7 +21,7 @@ for i in range(1, 7):
               "Check the rate limits with Sam ahead of launch",
               "Groceries: rice, dal, paneer, coriander, curd, onions",
               "Book flights for Dec 15 trip"]
-calls = [["add_tasks", {"titles": ["Prep slides for the 2pm review !high #work", "Call mom at 5pm", "Buy flowers"]}],
+calls = [["add_tasks", {"titles": ["Prep slides for the review !high #work", "Call mom", "Buy flowers"]}],
          ["start_timer", {"task": "Prep slides", "minutes": 45}],
          ["pause_timer", {}],
          ["write_notepad", {"mode": "replace", "text": "\n".join(lines)}]]
@@ -31,6 +33,21 @@ for i, (tool, args) in enumerate(calls, 1):
 print("\n".join(json.dumps(m) for m in msgs))
 EOF
 PERCH_DATA="$SRC" "$APP" --mcp < "$OUT/seed.jsonl" > "$OUT/seed.log" 2>&1
+# Every seeding call must succeed; otherwise the snapshots prove nothing.
+python3 - "$OUT/seed.log" <<'EOF'
+import json, sys
+seen = set()
+for line in open(sys.argv[1]):
+    try: m = json.loads(line)
+    except ValueError: continue
+    if m.get("id", 0) > 0:
+        seen.add(m["id"])
+        r = m.get("result") or {}
+        if "error" in m or r.get("isError"):
+            sys.exit(f"seed call {m['id']} failed: {json.dumps(m)[:300]}")
+if seen != {1, 2, 3, 4}: sys.exit(f"seed replies missing: got ids {sorted(seen)}")
+print("seed: 4/4 calls ok")
+EOF
 
 variant() {  # variant <name> <python expression editing p>
   python3 - "$SRC" "$OUT/$1.json" "$2" <<'EOF'
@@ -56,6 +73,6 @@ for name in timer-default timer-dotmatrix notepad-heavy; do
   PERCH_DATA="$OUT/$name.json" "$APP" --preview-open --page home --snapshot "$dir" > "$OUT/$name.log" 2>&1 &
   pid=$!; sleep 6
   screencapture -x "$OUT/$name-screen.png" || true
-  kill $pid 2>/dev/null; wait $pid 2>/dev/null
+  kill $pid 2>/dev/null || true; wait $pid 2>/dev/null || true
   ls "$dir"/*.png || { echo "no snapshot for $name"; exit 1; }
 done
