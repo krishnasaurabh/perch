@@ -243,12 +243,22 @@ struct TaskComposer: View {
     var body: some View {
         HStack(spacing: 8) {
             Image(systemName: "plus").font(.system(size: 11, weight: .bold)).foregroundStyle(Theme.secondary)
-            TextField(placeholder, text: $text, axis: .vertical)
+            // Prompt drawn by Perch. AppKit draws a TextField's own placeholder in the system placeholder
+            // colour (≈ 2.4:1 resting, 1.6:1 focused on the input fill) and ignores `prompt:` foreground styles on
+            // macOS. `Theme.text` is the only ink token that clears 4.5:1 on both the 8 % and 12 % fill.
+            TextField("", text: $text, axis: .vertical)
                 .textFieldStyle(.plain).font(Theme.body)
                 .lineLimit(1...4)
                 .truncationMode(.tail)
+                .background(alignment: .leading) {
+                    if text.isEmpty {
+                        Text(placeholder).font(Theme.body).foregroundStyle(Theme.text).lineLimit(1)
+                            .allowsHitTesting(false).accessibilityHidden(true)
+                    }
+                }
                 .focused($focused)
                 .accessibilityLabel("Add a task")
+                .accessibilityHint(placeholder)
                 .accessibilityIdentifier("task-capture")
                 .onSubmit(add)
             if !text.isEmpty, let preview = preview {

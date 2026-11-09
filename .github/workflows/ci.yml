@@ -148,6 +148,8 @@ jobs:
               assert top <= bar - 8, f"MENU BAR OVERLAP on {s['frame']}: workspace top {top} > {bar - 8}"
               assert not s["routing"]["menuBarRight"] and not s["routing"]["menuBarAboveWorkspaceEdge"], "menu bar must click through"
           EOF
+      - name: Capture prompt contrast (rendered, resting + focused)
+        run: bash scripts/check_capture_contrast.sh "$RUNNER_TEMP/capture-contrast"
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -158,3 +160,4 @@ jobs:
             ${{ runner.temp }}/notch/**
             ${{ runner.temp }}/empty-states/
             ${{ runner.temp }}/motion-policy/
+            ${{ runner.temp }}/capture-contrast/
