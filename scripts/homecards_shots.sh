@@ -4,7 +4,8 @@
 # banked time, so the face shows an exact value: limit 45:00, banked 754 s -> "32:26" remaining.
 #   timer-default    no workspaceTimerStyle key, so the shipped default face renders
 #   timer-dotmatrix  the opt-in dot-matrix face, same value
-#   notepad-heavy    notepad shown beside the timer, with more lines than fit (bottom edge treatment)
+#   notepad-heavy    notepad shown beside the timer, with more lines than fit (bottom edge fades)
+#   notepad-fits     the same card with three short lines (no fade: every line at full ink)
 # Each shot writes <out>/<name>/notch-*.png (in-process --snapshot) and <out>/<name>-screen.png (screencapture).
 # The seed avoids clock times on purpose: "at 2pm" run after 2pm (hosted runners are UTC) moves the task to
 # tomorrow, start_timer then finds nothing today, and the shots silently render an empty planner.
@@ -67,8 +68,9 @@ EOF
 variant timer-default "pass"
 variant timer-dotmatrix "prefs['workspaceTimerStyle'] = 'dotMatrix'"
 variant notepad-heavy "prefs['hiddenWorkspaceCards'] = []"
+variant notepad-fits "prefs['hiddenWorkspaceCards'] = []; p['notes'][0]['text'] = 'Call the dentist\\nPick up dry cleaning\\nDraft the review notes'"
 
-for name in timer-default timer-dotmatrix notepad-heavy; do
+for name in timer-default timer-dotmatrix notepad-heavy notepad-fits; do
   dir="$OUT/$name"; rm -rf "$dir"; mkdir -p "$dir"
   PERCH_DATA="$OUT/$name.json" "$APP" --preview-open --page home --snapshot "$dir" > "$OUT/$name.log" 2>&1 &
   pid=$!; sleep 6

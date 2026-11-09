@@ -132,14 +132,12 @@ struct NotepadCard: View {
         VStack(alignment: .leading, spacing: 8) {
             CardHeading("Notepad", trailing: AnyView(
                 Text(flash ?? "⌘↩ makes a task").font(Theme.meta).foregroundStyle(flash == nil ? Theme.tertiary : Theme.accent)))
-            ScratchpadEditor(text: $text, isEditable: !readOnly, placeholder: "Jot a note", onCommandReturn: { line in
+            ScratchpadEditor(text: $text, isEditable: !readOnly, placeholder: "Jot a note", surface: CardTone.tile.fill, onCommandReturn: { line in
                 let clean = line.trimmingCharacters(in: .whitespaces)
                 guard !clean.isEmpty, let t = store.apply({ try $0.lineToTask(clean, day: max(d, store.today)) }) ?? nil else { return }
                 flash = "Added “\(t.title)”"
                 DispatchQueue.main.asyncAfter(deadline: .now() + 2) { flash = nil }
             })
-            // Text running past the card fades out, like a scrolled list, instead of being cut mid-glyph.
-            .mask { ScratchpadEditor.bottomFade }
         }
         .card(.tile)
         .onAppear { load(d) }
@@ -165,24 +163,26 @@ struct ScratchpadEditor: NSViewRepresentable {
     @Binding var text: String
     var isEditable = true
     var placeholder = ""
+    /// The surface the editor sits on. Overflow fades into this colour, so it must be the card's own fill token.
+    var surface: Color = CardTone.tile.fill
     var onCommandReturn: (String) -> Void
 
-    /// Height of the bottom fade. The scroll view reserves the same inset, so the last line can scroll clear of it.
+    /// Height of the bottom fade drawn over overflowing text.
     static let fadeHeight: CGFloat = 24
-    /// Opaque, then a ramp to clear over the last `fadeHeight` points.
-    static var bottomFade: some View {
-        VStack(spacing: 0) {
-            Color.black
-            LinearGradient(colors: [.black, .clear], startPoint: .top, endPoint: .bottom).frame(height: fadeHeight)
-        }
-    }
 
     func makeNSView(context: Context) -> NSScrollView {
         let scroll = NSTextView.scrollableTextView()
         scroll.drawsBackground = false
         scroll.hasVerticalScroller = false
-        scroll.automaticallyAdjustsContentInsets = false
-        scroll.contentInsets = NSEdgeInsets(top: 0, left: 0, bottom: Self.fadeHeight, right: 0)
+        // Text running past the bottom edge fades into the card instead of being cut mid-glyph. The fade is an AppKit
+        // view drawn over the clip view (a SwiftUI mask doesn't reach into this NSScrollView on every macOS), and it
+        // shows only while there is more text below the visible area.
+        let fade = OverflowFadeView(frame: NSRect(x: 0, y: 0, width: scroll.bounds.width, height: Self.fadeHeight))
+        fade.autoresizingMask = [.width]
+        fade.color = NSColor(surface)
+        fade.isHidden = true
+        scroll.addSubview(fade, positioned: .above, relativeTo: scroll.contentView)
+        context.coordinator.fade = fade
         let tv = scroll.documentView as! NSTextView
         tv.delegate = context.coordinator
         tv.drawsBackground = false
@@ -193,6 +193,7 @@ struct ScratchpadEditor: NSViewRepresentable {
         tv.allowsUndo = true
         tv.textContainerInset = NSSize(width: 0, height: 2)
         tv.string = text
+        context.coordinator.observe(scroll)
         return scroll
     }
 
@@ -201,16 +202,50 @@ struct ScratchpadEditor: NSViewRepresentable {
         tv.isEditable = isEditable
         if tv.string != text { tv.string = text }
         context.coordinator.parent = self
+        context.coordinator.fade?.color = NSColor(surface)
+        context.coordinator.refreshFade()
     }
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
 
     final class Coordinator: NSObject, NSTextViewDelegate {
         var parent: ScratchpadEditor
+        weak var fade: OverflowFadeView?
+        weak var scroll: NSScrollView?
         init(_ p: ScratchpadEditor) { parent = p }
+        deinit { NotificationCenter.default.removeObserver(self) }
+
+        /// Re-check overflow whenever the text grows or shrinks, the card resizes, or the user scrolls.
+        func observe(_ scroll: NSScrollView) {
+            self.scroll = scroll
+            let clip = scroll.contentView
+            clip.postsBoundsChangedNotifications = true
+            clip.postsFrameChangedNotifications = true
+            scroll.documentView?.postsFrameChangedNotifications = true
+            let nc = NotificationCenter.default
+            nc.addObserver(self, selector: #selector(viewChanged), name: NSView.boundsDidChangeNotification, object: clip)
+            nc.addObserver(self, selector: #selector(viewChanged), name: NSView.frameDidChangeNotification, object: clip)
+            nc.addObserver(self, selector: #selector(viewChanged), name: NSView.frameDidChangeNotification, object: scroll.documentView)
+            refreshFade()
+        }
+
+        @objc private func viewChanged(_ n: Notification) { refreshFade() }
+
+        /// Pin the fade to the visible bottom edge and show it only while text continues below that edge.
+        func refreshFade() {
+            guard let scroll, let fade, let doc = scroll.documentView else { return }
+            let h = min(ScratchpadEditor.fadeHeight, scroll.bounds.height)
+            fade.frame = NSRect(x: 0, y: scroll.isFlipped ? scroll.bounds.height - h : 0, width: scroll.bounds.width, height: h)
+            let visible = scroll.contentView.bounds
+            fade.isHidden = !EdgeFade.showsBottomFade(contentHeight: Double(doc.frame.height),
+                                                      visibleOffset: Double(visible.minY),
+                                                      visibleHeight: Double(visible.height))
+        }
+
         func textDidChange(_ n: Notification) {
             guard let tv = n.object as? NSTextView else { return }
             parent.text = tv.string
+            refreshFade()
         }
         func textView(_ tv: NSTextView, doCommandBy sel: Selector) -> Bool {
             guard sel == #selector(NSResponder.insertNewline(_:)),
@@ -219,6 +254,21 @@ struct ScratchpadEditor: NSViewRepresentable {
             let line = ns.substring(with: ns.lineRange(for: tv.selectedRange()))
             parent.onCommandReturn(line.trimmingCharacters(in: .newlines))
             return true
+        }
+    }
+}
+
+/// A ramp from clear to the card's surface colour, drawn over the bottom of the notepad's scroll view. It is a plain
+/// drawn view (not a layer mask), so it also shows in the in-process `--snapshot` renders, and it never takes clicks.
+final class OverflowFadeView: NSView {
+    var color: NSColor = .clear { didSet { if color != oldValue { needsDisplay = true } } }
+    override var isFlipped: Bool { true }
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+    override func draw(_ dirtyRect: NSRect) {
+        effectiveAppearance.performAsCurrentDrawingAppearance {
+            // Flipped: transparent at the top (y = 0), the full surface colour at the bottom edge.
+            NSGradient(starting: color.withAlphaComponent(0), ending: color)?
+                .draw(from: NSPoint(x: 0, y: 0), to: NSPoint(x: 0, y: bounds.height), options: [])
         }
     }
 }
