@@ -64,22 +64,25 @@ enum MotionScript {
                 },
                 Step(name: "close", wait: 1.6, capture: true) { [model] in model.close(); return "NotchModel.close" },
                 Step(name: "reopen", wait: 1.4, capture: false) {
+                    // Activate so SwiftUI publishes the panel's accessibility tree before the button steps.
+                    NSApp.activate(ignoringOtherApps: true)
                     NotificationCenter.default.post(name: .perchOpenWorkspace, object: NotchPage.home); return "perchOpenWorkspace"
                 },
                 Step(name: "page", wait: 1.4, capture: true) { [model] in
                     self.press(target.title, orElse: {
-                        // Same mutation as the picker button, without its spring wrapper: on a locked or
-                        // display-less session the animated transaction never commits inside the capture
-                        // window, so the clip would show Today throughout. The ax-press path keeps the spring.
-                        model.page = target
-                        return "direct:model.page=\(target.rawValue)"
+                        // Same mutation and spring as the picker button. On a locked session the animated
+                        // transaction never commits inside the capture window, so there it is set plainly.
+                        if Self.screenLocked { model.page = target; return "direct:model.page=\(target.rawValue)" }
+                        withAnimation(.spring(response: 0.3)) { model.page = target }
+                        return "direct-spring:model.page=\(target.rawValue)"
                     })
                 },
                 Step(name: "page-back", wait: 1.2, capture: false) { [model] in
                     self.press(NotchPage.home.title, orElse: { model.page = .home; return "direct:model.page=home" })
                 },
                 Step(name: "tick", wait: 1.6, capture: true) { [store] in
-                    self.press("Mark as complete", orElse: {
+                    // Task-row check button (TasksCard); like the button, completion is unanimated plus confetti.
+                    self.press("Check off task", orElse: {
                         guard let t = store.engine.tasks(on: .day(store.today)).first(where: { !$0.done }) else { return "none" }
                         store.apply { try $0.complete(t.id.uuidString) }
                         Confetti.fire()
@@ -129,6 +132,10 @@ enum MotionScript {
         /// Presses the first element labelled `label` in a visible notch window. Returns the `via` string, or nil.
         /// Uses the ObjC accessibility methods directly, so it works for NSViews and SwiftUI's private AX nodes alike.
         private func press(_ label: String, orElse fallback: () -> String) -> String { press(label) ?? fallback() }
+
+        static var screenLocked: Bool {
+            (CGSessionCopyCurrentDictionary() as? [String: Any])?["CGSSessionScreenIsLocked"] as? Bool ?? false
+        }
 
         private func press(_ label: String) -> String? {
             for w in NSApp.windows where w is NotchPanel && w.isVisible {

@@ -85,6 +85,8 @@ import glob, hashlib, json, math, os, shutil, statistics, subprocess, sys
 out = sys.argv[1]
 CLIPS = ["open", "close", "page", "tick", "timer"]
 PRE, POST = 0.3, 1.25             # clip window around each marker, seconds
+GRID_FPS = 60                     # fixed output timeline per clip (deterministic frame count)
+GRID_N = round((PRE + POST) * GRID_FPS)  # 93 frames per clip
 GW, GH = 256, 144                 # analysis raster (grey) for frame differences
 CHANGED = 0.25                    # mean |delta| on 0-255 grey above which a frame counts as changed
 HAVE_FF = os.environ.get("HAVE_FF") == "1"
@@ -195,18 +197,35 @@ elif os.path.exists(mov) and os.path.getsize(mov) > 0 and os.path.exists(markers
         if not idx:
             rec["clips"][name] = {"error": "no frames in window"}; continue
         a, b = pts[idx[0]], pts[idx[-1]]
+        # Raw recorder frames in the window (screencapture is variable-rate: it skips static frames).
+        rdir = os.path.join(cdir, ".raw"); os.makedirs(rdir)
         sel = f"select=between(n\\,{idx[0]}\\,{idx[-1]}),setpts=PTS-STARTPTS"
-        sh(["ffmpeg", "-v", "error", "-y", "-i", mov, *PASS, "-vf", sel + ",pad=ceil(iw/2)*2:ceil(ih/2)*2",
-            "-c:v", "libx264", "-crf", "16", "-pix_fmt", "yuv420p", "-an", os.path.join(cdir, "clip.mp4")])
-        sh(["ffmpeg", "-v", "error", "-y", "-i", mov, *PASS, "-vf", f"{sel},crop={crop}",
-            "-start_number", "0", os.path.join(cdir, "frames", "f%04d.png")])
+        sh(["ffmpeg", "-v", "error", "-y", "-i", mov, *PASS, "-vf", f"{sel},crop={crop}", "-start_number", "0", os.path.join(rdir, "r%04d.png")])
+        raw = sorted(glob.glob(os.path.join(rdir, "r*.png")))
+        # Deterministic output: exactly GRID_N frames per clip on a fixed 60 fps grid from marker-PRE, each the
+        # latest recorder frame at or before that instant (sample-and-hold). Same count and timestamps every run.
+        grid, j = [], 0
+        for k in range(GRID_N):
+            t = vt - PRE + k / GRID_FPS
+            while j + 1 < len(idx) and pts[idx[j + 1]] <= t + 1e-6: j += 1
+            grid.append((k, t, j))
+        for k, t, jj in grid:
+            if jj < len(raw): shutil.copyfile(raw[jj], os.path.join(cdir, "frames", f"f{k:04d}.png"))
+        shutil.rmtree(rdir)
+        sh(["ffmpeg", "-v", "error", "-y", "-framerate", str(GRID_FPS), "-start_number", "0", "-i", os.path.join(cdir, "frames", "f%04d.png"),
+            "-vf", "pad=ceil(iw/2)*2:ceil(ih/2)*2", "-c:v", "libx264", "-crf", "16", "-pix_fmt", "yuv420p", "-an", os.path.join(cdir, "clip.mp4")])
         files = sorted(glob.glob(os.path.join(cdir, "frames", "f*.png")))
+        # Motion stats use the raw recorder frames (true intermediates), not the held grid.
         times = [pts[i] for i in idx]; dd = [0.0] + [d[i] for i in idx[1:]]
         stats = motion_stats(times, dd, [g[i] for i in idx])
-        frames = [{"i": k, "file": f"frames/f{k:04d}.png" if k < len(files) else None, "video_pts_s": round(pts[i], 5),
-                   "t_from_marker_ms": round((pts[i] - vt) * 1000, 2), "mean_abs_delta": round(dd[k], 4), "changed": dd[k] > CHANGED}
-                  for k, i in enumerate(idx)]
-        meta = {"clip": name, "kind": "screen-recording", "marker": M[name], "alignment_offset_s": round(off_n, 4), "window_s": [round(a, 4), round(b, 4)], **stats, "frames": frames}
+        frames = []
+        for k, t, jj in grid:
+            src = idx[jj]; prev = idx[grid[k - 1][2]] if k else None
+            dk = diff(g[prev], g[src]) if prev is not None and prev != src else 0.0
+            frames.append({"i": k, "file": f"frames/f{k:04d}.png", "t_from_marker_ms": round((t - vt) * 1000, 2),
+                           "source_video_pts_s": round(pts[src], 5), "held": prev == src, "mean_abs_delta": round(dk, 4), "changed": dk > CHANGED})
+        meta = {"clip": name, "kind": "screen-recording", "marker": M[name], "alignment_offset_s": round(off_n, 4), "window_s": [round(a, 4), round(b, 4)],
+                "grid": {"fps": GRID_FPS, "frames": GRID_N, "from_marker_s": -PRE}, "raw_frames_in_window": len(idx), **stats, "frames": frames}
         json.dump(meta, open(os.path.join(cdir, "frames.json"), "w"), indent=1)
         # Contact sheet starts one frame before the motion so the before state is visible.
         first_ch = next((k for k, f in enumerate(frames) if f["changed"]), 0)
@@ -214,7 +233,7 @@ elif os.path.exists(mov) and os.path.getsize(mov) > 0 and os.path.exists(markers
         for k, f in enumerate(files[max(0, first_ch - 1):]):
             os.symlink(f, os.path.join(sdir, f"f{k:04d}.png"))
         sheet(os.path.join(sdir, "f%04d.png"), os.path.join(cdir, "sheet.png"), len(files)); shutil.rmtree(sdir)
-        rec["clips"][name] = {k: v for k, v in meta.items() if k != "frames"} | {"frames_in_window": len(idx), "via": M[name].get("via")}
+        rec["clips"][name] = {k: v for k, v in meta.items() if k != "frames"} | {"frames_in_window": GRID_N, "via": M[name].get("via")}
     summary["screen_recording"] = rec
 else:
     what = "screen.mov missing or empty (recorder refused or no Screen Recording grant)" if os.path.exists(markers_path) else "markers.json missing"
