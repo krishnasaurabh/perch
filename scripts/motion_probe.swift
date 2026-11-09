@@ -88,12 +88,15 @@ MainActor.assumeIsolated {
         evidence.require(Motion.barStagger == 0.13, "normal bar stagger unchanged")
         evidence.require(Motion.reduced == .easeInOut(duration: 0.15), "opacity-only token remains 150 ms")
         var env = EnvironmentValues()
-        env.accessibilityReduceMotion = true
-        evidence.require(env.motionPolicy.reduceMotion, "environment follows enabled system preference")
-        env.accessibilityReduceMotion = false
-        evidence.require(!env.motionPolicy.reduceMotion, "environment follows disabled system preference")
+        evidence.require(env.motionPolicy.reduceMotion == env.accessibilityReduceMotion,
+                         "environment defaults to system preference")
+        env.motionPolicyOverride = MotionPolicy(reduceMotion: false)
+        evidence.require(!env.motionPolicy.reduceMotion, "normal injection overrides host preference")
         env.motionPolicyOverride = MotionPolicy(reduceMotion: true)
-        evidence.require(env.motionPolicy.reduceMotion, "injected environment overrides host preference")
+        evidence.require(env.motionPolicy.reduceMotion, "reduced injection overrides host preference")
+        env.motionPolicyOverride = nil
+        evidence.require(env.motionPolicy.reduceMotion == env.accessibilityReduceMotion,
+                         "removing injection restores system preference")
 
         let store = PlannerStore()
         store.updatePrefs { $0.catchCopies = false; $0.catchScreenshots = false; $0.welcomeCompleted = true }
