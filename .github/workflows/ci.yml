@@ -116,6 +116,8 @@ jobs:
         run: bash scripts/check_motion.sh "$RUNNER_TEMP/motion-policy"
       - name: Empty states and capture focus
         run: bash scripts/check_empty_states.sh "$RUNNER_TEMP/empty-states"
+      - name: Capture prompt contrast (rendered, resting + focused)
+        run: bash scripts/check_capture_contrast.sh "$RUNNER_TEMP/capture-contrast"
       - name: Week with a busy today (overflow fade, +N more, pinned Add)
         run: bash scripts/week_shots.sh "$RUNNER_TEMP/notch/week"
       - name: Clips layout (empty/populated, dark/light, pixel bounds)
@@ -157,4 +159,5 @@ jobs:
             ${{ runner.temp }}/perch-*.png
             ${{ runner.temp }}/notch/**
             ${{ runner.temp }}/empty-states/
+            ${{ runner.temp }}/capture-contrast/
             ${{ runner.temp }}/motion-policy/

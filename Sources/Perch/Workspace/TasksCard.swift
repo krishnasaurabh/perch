@@ -243,7 +243,10 @@ struct TaskComposer: View {
     var body: some View {
         HStack(spacing: 8) {
             Image(systemName: "plus").font(.system(size: 11, weight: .bold)).foregroundStyle(Theme.secondary)
-            TextField(placeholder, text: $text, axis: .vertical)
+            // Explicit prompt ink: the default placeholder rendered ≈ 2.4:1 on the input fill.
+            // `Theme.text` is the only existing light-ink token that clears 4.5:1 on both the resting (8 %)
+            // and focused (12 %) fill; `Theme.secondary` drops to ≈ 4.3:1 once focused.
+            TextField(placeholder, text: $text, prompt: Text(placeholder).foregroundStyle(Theme.text), axis: .vertical)
                 .textFieldStyle(.plain).font(Theme.body)
                 .lineLimit(1...4)
                 .truncationMode(.tail)
