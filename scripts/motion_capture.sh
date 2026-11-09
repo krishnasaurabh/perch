@@ -168,8 +168,14 @@ elif os.path.exists(mov) and os.path.getsize(mov) > 0 and os.path.exists(markers
     W, H = int(st.get("width", 0)), int(st.get("height", 0))
     mk = json.load(open(markers_path))
     scr = (mk.get("screens") or [{}])[0]
-    # Analyse the top 2/3 of the screen (where the notch and its workspace live).
-    crop = f"{W}:{int(H * 0.66) // 2 * 2}:0:0"
+    # Keep a fixed logical-width region around the centered workspace. Scaling an entire 1920px
+    # desktop down to GW diluted a real task removal below CHANGED (0.12 versus the 0.25 threshold).
+    # Respect backing scale and keep the full workspace height; the original 1024x768 crop is unchanged.
+    scale = float(scr.get("scale", 1))
+    cw = min(W, int(1024 * scale) // 2 * 2)
+    ch = min(int(H * 0.66) // 2 * 2, int(600 * scale) // 2 * 2)
+    cx = (W - cw) // 4 * 2
+    crop = f"{cw}:{ch}:{cx}:0"
     g = grey_frames(["-i", mov], crop)
     n = min(len(g), len(pts)); g, pts = g[:n], pts[:n]
     d = [0.0] + [diff(g[i - 1], g[i]) for i in range(1, n)]
@@ -182,7 +188,7 @@ elif os.path.exists(mov) and os.path.getsize(mov) > 0 and os.path.exists(markers
     cand = [i for i in range(20, n) if est - 2.5 <= pts[i] <= est + 0.5 and d[i] > CHANGED and max(d[i - 18:i]) <= CHANGED]
     offset = (pts[cand[0] - 1] - est) if cand else 0.0
     rec = {"source": "screencapture -V (real compositor output)", "file": "screen.mov", "width": W, "height": H,
-           "screen_points": scr, "frames": n, "duration_s": round(pts[-1] - pts[0], 3) if n else 0,
+           "screen_points": scr, "analysis_crop": crop, "frames": n, "duration_s": round(pts[-1] - pts[0], 3) if n else 0,
            "stream_avg_frame_rate": st.get("avg_frame_rate"), "stream_r_frame_rate": st.get("r_frame_rate"),
            "alignment_offset_s": round(offset, 4), "aligned_on": "first changed frame after the open marker" if cand else "none (raw clock)",
            "clips": {}}
