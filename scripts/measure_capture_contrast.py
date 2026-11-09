@@ -5,6 +5,8 @@ Usage:
   measure_capture_contrast.py STATE_DIR...          gate: placeholder >= 4.5:1, plus/mic >= 3:1, and a
                                                     directory named *-focused / *-unfocused / *-passive
                                                     must show the matching focused / resting fill
+  measure_capture_contrast.py ... --week WEEK_DIR   also gate every Week MiniComposer prompt (dark scheme)
+                                                    at >= 4.5:1, light ink on the white-5 % field
   measure_capture_contrast.py --report STATE_DIR... same measurements, never fails
   measure_capture_contrast.py --diff A.png B.png [--outside-field]
                                                     count changed pixels (optionally outside the field)
@@ -183,6 +185,60 @@ def measure(path):
     }
 
 
+def mini_fills():
+    """Week MiniComposer fills (dark scheme): white 5 % over the day tile #1D1D1D and over Today's column
+    (white 8 % over the black shell). Rounded to 8-bit as the compositor does."""
+    over = lambda base, a: tuple(round(v + (255 - v) * a) for v in base)
+    return {"tile": over((0x1D,) * 3, 0.05), "today": over(over((0,) * 3, 0.08), 0.05)}
+
+
+def measure_week(path):
+    """Measure every Week MiniComposer prompt (dark tiles). Light-on-dark: the lightest colour occurring >= 5
+    times in the field ROI versus the field's modal colour."""
+    img = read_png(path)
+    fills = mini_fills()
+    good = [sum(any(near(p, f, 2) for f in fills.values()) for p in row) >= 0.3 * len(row) for row in img]
+    bands, y = [], 0
+    while y < len(img):
+        if not good[y]:
+            y += 1
+            continue
+        y0 = y
+        while y < len(img) and good[y]:
+            y += 1
+        bands.append((y0, y))
+    assert bands, f"{path}: no Week composer band found"
+    fy0, fy1 = max(bands, key=lambda b: b[1] - b[0])
+    k = max(1, round((fy1 - fy0) / 22))
+    band = img[fy0:fy1]
+    fields = []
+    for name, fill in fills.items():
+        col = [sum(near(row[x], fill, 2) for row in band) >= 0.3 * len(band) for x in range(len(band[0]))]
+        x = 0
+        while x < len(col):
+            if not col[x]:
+                x += 1
+                continue
+            s = x
+            while x < len(col) and col[x]:
+                x += 1
+            if x - s >= 30 * k:
+                fields.append((s, x, name))
+    assert fields, f"{path}: no Week composer fields found"
+    out = []
+    for fx0, fx1, under in sorted(fields):
+        x0, x1, y0, y1 = fx0 + 4 * k, fx1 - 4 * k, fy0 + 2 * k, fy1 - 2 * k
+        px = [img[yy][xx] for yy in range(y0, y1) for xx in range(x0, x1)]
+        bg = Counter(px).most_common(1)[0][0]
+        ink = Counter(p for p in px if max(abs(a - b) for a, b in zip(p, bg)) > 8)
+        assert ink, f"{path}: Week field at x {fx0}-{fx1} has no prompt glyphs"
+        light = max((p for p, n in ink.items() if n >= 5), key=luminance, default=max(ink, key=luminance))
+        out.append({"over": under, "field_xyxy": [fx0, fy0, fx1, fy1], "background_rgb": "#%02X%02X%02X" % bg,
+                    "ink_rgb": "#%02X%02X%02X" % light, "ink_pixels": sum(ink.values()),
+                    "ratio": round(ratio(light, bg), 3)})
+    return {"image": str(path), "scale": k, "fields": out}
+
+
 def diff(a, b, outside_field):
     ia, ib = read_png(a), read_png(b)
     assert len(ia) == len(ib) and len(ia[0]) == len(ib[0]), "image sizes differ"
@@ -205,9 +261,19 @@ def main(argv):
     if argv and argv[0] == "--diff":
         print(json.dumps(diff(argv[1], argv[2], "--outside-field" in argv), indent=2))
         return 0
-    report = argv and argv[0] == "--report"
-    dirs = argv[1:] if report else argv
+    report = bool(argv) and argv[0] == "--report"
+    args = argv[1:] if report else list(argv)
+    week_dirs = [args[i + 1] for i, a in enumerate(args) if a == "--week"]
+    dirs = [a for i, a in enumerate(args) if a != "--week" and (i == 0 or args[i - 1] != "--week")]
     results, failures = {}, []
+    for d in week_dirs:
+        pngs = sorted(Path(d).glob("notch-*-open.png"))
+        assert pngs, f"{d}: no notch-*-open.png"
+        r = measure_week(pngs[0])
+        results[Path(d).name] = r
+        for f in r["fields"]:
+            if f["ratio"] < PLACEHOLDER_MIN:
+                failures.append(f"{Path(d).name}: Week prompt at x {f['field_xyxy'][0]} {f['ratio']}:1 < {PLACEHOLDER_MIN}:1")
     for d in dirs:
         pngs = sorted(Path(d).glob("notch-*-open.png"))
         assert pngs, f"{d}: no notch-*-open.png"
