@@ -10,6 +10,9 @@
 #      Summary in summary.json / summary.md.
 #
 # POSTPROCESS_ONLY=1 motion_capture.sh <out-dir>  re-runs step 3 on an existing out-dir (works on Linux too).
+#
+# Exit 0 = the driver fired every transition. summary.md's first line says whether motion frames were
+# RECORDED or are UNVERIFIED (no recorder/ffmpeg on this host). Exit 3 = driver wiring broken.
 set -uo pipefail
 OUT="${1:?out dir}"; APP="${2:-dist/Perch.app}"
 mkdir -p "$OUT"; OUT="$(cd "$OUT" && pwd)"
@@ -69,24 +72,29 @@ record() {
 
 if [ "${POSTPROCESS_ONLY:-0}" != 1 ]; then
   [ "$(uname)" = Darwin ] || { log "recording needs macOS; use POSTPROCESS_ONLY=1 elsewhere"; exit 2; }
-  need_ffmpeg || log "ffmpeg unavailable: no clips or sheets can be made"
-  record
+  need_ffmpeg || log "ffmpeg unavailable: no clips, sheets or frame diffs; summary still lists markers and raw frames"
+  record || exit 3
 fi
-need_ffmpeg || { log "ffmpeg/ffprobe required for post-processing"; exit 1; }
+HAVE_FF=0; need_ffmpeg && HAVE_FF=1
+[ "$HAVE_FF" = 1 ] || log "ffmpeg/ffprobe missing: post-processing limited to markers + raw in-process frame timing"
 
-python3 - "$OUT" <<'PY'
+# Exit codes: 0 = driver ran (frames may still be UNVERIFIED if this host can't record; see summary.md),
+# 3 = driver wiring broken (no app, missing markers or transitions), anything else = post-processing crashed.
+HAVE_FF=$HAVE_FF python3 - "$OUT" <<'PY'
 import glob, hashlib, json, math, os, shutil, statistics, subprocess, sys
 out = sys.argv[1]
 CLIPS = ["open", "close", "page", "tick", "timer"]
 PRE, POST = 0.15, 1.25            # clip window around each marker, seconds
 GW, GH = 256, 144                 # analysis raster (grey) for frame differences
 CHANGED = 0.25                    # mean |delta| on 0-255 grey above which a frame counts as changed
+HAVE_FF = os.environ.get("HAVE_FF") == "1"
+WIRING = ["ready", "open", "close", "reopen", "page", "page-back", "tick", "timer", "end"]
 log = open(os.path.join(out, "capture.log"), "a")
 def sh(cmd, **kw):
     log.write("$ " + " ".join(cmd) + "\n"); log.flush()
     return subprocess.run(cmd, stdout=subprocess.PIPE, stderr=log, **kw)
-ver = sh(["ffmpeg", "-hide_banner", "-version"]).stdout.decode()
-PASS = ["-fps_mode", "passthrough"] if "-fps_mode" in sh(["ffmpeg", "-hide_banner", "-h", "long"]).stdout.decode() else ["-vsync", "0"]
+ver = sh(["ffmpeg", "-hide_banner", "-version"]).stdout.decode() if HAVE_FF else ""
+PASS = (["-fps_mode", "passthrough"] if "-fps_mode" in sh(["ffmpeg", "-hide_banner", "-h", "long"]).stdout.decode() else ["-vsync", "0"]) if HAVE_FF else []
 
 def probe_pts(path):
     r = sh(["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries", "frame=pts_time,best_effort_timestamp_time:stream=width,height,avg_frame_rate,r_frame_rate", "-of", "json", path])
@@ -121,18 +129,30 @@ def motion_stats(times, diffs, grey):
                 median_interval_ms=round(med * 1000, 2) if med else None, fps_in_motion=round(1 / med, 1) if med else None)
 
 def sheet(pattern, dest, count):
-    if count == 0: return
+    if count == 0 or not HAVE_FF: return
     cols = 6; rows = max(1, math.ceil(min(count, 48) / cols))
     sh(["ffmpeg", "-v", "error", "-y", "-framerate", "60", "-i", pattern, "-frames:v", "1",
         "-vf", f"select=lt(n\\,48),scale=300:-1,tile={cols}x{rows}:padding=4:margin=4:color=0x303030", dest])
 
-summary = {"ffmpeg": ver.splitlines()[0] if ver else "", "threshold_mean_abs_delta": CHANGED, "analysis_raster": f"{GW}x{GH} grey",
+summary = {"ffmpeg": ver.splitlines()[0] if ver else None, "threshold_mean_abs_delta": CHANGED, "analysis_raster": f"{GW}x{GH} grey",
            "screen_recording": None, "in_process": None}
+
+# ---------- 0. Driver wiring (needs no ffmpeg): every scripted transition fired, and how ----------
+def wiring(path):
+    if not os.path.exists(path): return {"ok": False, "error": f"missing {os.path.relpath(path, out)}"}
+    mk = json.load(open(path))["markers"]; seen = {m["name"]: m.get("via") for m in mk}
+    miss = [n for n in WIRING if n not in seen]
+    fallbacks = [n for n, v in seen.items() if str(v).startswith("direct:") or v == "none"]
+    return {"ok": not miss, "missing": miss, "via": seen, "direct_fallbacks": fallbacks}
+summary["wiring"] = {"screen_pass": wiring(os.path.join(out, "markers.json")),
+                     "in_process_pass": wiring(os.path.join(out, "in-process", "markers.json"))}
 
 # ---------- 1. Screen recording ----------
 mov = os.path.join(out, "screen.mov")
 markers_path = os.path.join(out, "markers.json")
-if os.path.exists(mov) and os.path.getsize(mov) > 0 and os.path.exists(markers_path):
+if not HAVE_FF:
+    summary["screen_recording"] = {"error": "ffmpeg/ffprobe not installed on this host; screen.mov (if any) left unanalysed"}
+elif os.path.exists(mov) and os.path.getsize(mov) > 0 and os.path.exists(markers_path):
     pts, st = probe_pts(mov)
     W, H = int(st.get("width", 0)), int(st.get("height", 0))
     mk = json.load(open(markers_path))
@@ -185,39 +205,59 @@ if os.path.exists(mov) and os.path.getsize(mov) > 0 and os.path.exists(markers_p
         rec["clips"][name] = {k: v for k, v in meta.items() if k != "frames"} | {"frames_in_window": len(idx), "via": M[name].get("via")}
     summary["screen_recording"] = rec
 else:
-    summary["screen_recording"] = {"error": "no screen.mov or markers.json; see capture.log for the recorder's exact output"}
+    what = "screen.mov missing or empty (recorder refused or no Screen Recording grant)" if os.path.exists(markers_path) else "markers.json missing"
+    summary["screen_recording"] = {"error": what + "; see capture.log for the recorder's exact output"}
 
 # ---------- 2. In-process 16 ms snapshots (labelled fallback) ----------
 ip = os.path.join(out, "in-process")
 if os.path.isdir(ip):
     res = {"source": "in-process own-window render (NSView.cacheDisplay every 16 ms), NOT compositor output", "clips": {}}
+    ipmk = os.path.join(ip, "markers.json")
+    ipvia = {m["name"]: m.get("via") for m in json.load(open(ipmk))["markers"]} if os.path.exists(ipmk) else {}
     for name in CLIPS:
         fj = os.path.join(ip, name, "frames.json")
         if not os.path.exists(fj): continue
         meta = json.load(open(fj)); fr = meta["frames"]
         if not fr: continue
-        pngs = [os.path.join(ip, name, f["file"]) for f in fr]
-        lst = os.path.join(ip, name, "list.txt")
-        open(lst, "w").write("".join(f"file '{p}'\n" for p in pngs))
-        g = grey_frames(["-f", "concat", "-safe", "0", "-i", lst]); os.remove(lst)
-        times = [f["t"] for f in fr][:len(g)]
-        dd = [0.0] + [diff(g[i - 1], g[i]) for i in range(1, len(g))]
-        for k, f in enumerate(fr[:len(g)]): f["mean_abs_delta"] = round(dd[k], 4); f["changed"] = dd[k] > CHANGED
+        times = [f["t"] for f in fr]
+        if HAVE_FF:
+            pngs = [os.path.join(ip, name, f["file"]) for f in fr]
+            lst = os.path.join(ip, name, "list.txt")
+            open(lst, "w").write("".join(f"file '{p}'\n" for p in pngs))
+            g = grey_frames(["-f", "concat", "-safe", "0", "-i", lst]); os.remove(lst)
+            times = times[:len(g)]
+            dd = [0.0] + [diff(g[i - 1], g[i]) for i in range(1, len(g))]
+            for k, f in enumerate(fr[:len(g)]): f["mean_abs_delta"] = round(dd[k], 4); f["changed"] = dd[k] > CHANGED
+            meta.update(motion_stats(times, dd, g))
+        else:
+            # Byte-identical PNGs are the only "no change" signal available without a decoder.
+            dig = [hashlib.sha1(open(os.path.join(ip, name, f["file"]), "rb").read()).hexdigest() for f in fr]
+            meta.update(changed_frames=None, distinct_intermediate_frames=None, byte_distinct_frames=len(set(dig)))
         iv = [times[i] - times[i - 1] for i in range(1, len(times))]
-        meta.update(motion_stats(times, dd, g), median_spacing_ms=round(statistics.median(iv) * 1000, 2) if iv else None,
+        meta.update(median_spacing_ms=round(statistics.median(iv) * 1000, 2) if iv else None,
                     max_spacing_ms=round(max(iv) * 1000, 2) if iv else None)
         json.dump(meta, open(fj, "w"), indent=1)
         sheet(os.path.join(ip, name, "f%03d.png"), os.path.join(ip, name, "sheet.png"), len(fr))
         # mp4 at the requested 16 ms cadence (62.5 fps); frames.json has the real timestamps.
-        sh(["ffmpeg", "-v", "error", "-y", "-framerate", "62.5", "-i", os.path.join(ip, name, "f%03d.png"),
+        if HAVE_FF: sh(["ffmpeg", "-v", "error", "-y", "-framerate", "62.5", "-i", os.path.join(ip, name, "f%03d.png"),
             "-c:v", "libx264", "-crf", "16", "-pix_fmt", "yuv420p", "-vf", "pad=ceil(iw/2)*2:ceil(ih/2)*2", os.path.join(ip, name, "clip.mp4")])
-        res["clips"][name] = {k: v for k, v in meta.items() if k != "frames"} | {"frames_total": len(fr)}
-    mk = os.path.join(ip, "markers.json")
-    if os.path.exists(mk): res["markers"] = json.load(open(mk))["markers"]
+        res["clips"][name] = {k: v for k, v in meta.items() if k != "frames"} | {"frames_total": len(fr), "via": ipvia.get(name)}
+    if os.path.exists(ipmk): res["markers"] = json.load(open(ipmk))["markers"]
     summary["in_process"] = res
 
+sr = summary["screen_recording"] or {}
+recorded = "error" not in sr and any("error" not in c for c in sr.get("clips", {}).values())
+wired = summary["wiring"]["screen_pass"]["ok"] or summary["wiring"]["in_process_pass"]["ok"]
+summary["status"] = ("RECORDED" if recorded else "UNVERIFIED") if wired else "WIRING-BROKEN"
+summary["status_reason"] = ("compositor frames recorded" if recorded else
+                            "no compositor recording on this host: " + sr.get("error", "no usable clips")) if wired else "driver markers missing"
 json.dump(summary, open(os.path.join(out, "summary.json"), "w"), indent=1)
-L = ["# Perch motion capture summary", ""]
+L = ["# Perch motion capture summary", "", f"**Motion frames: {summary['status']}** ({summary['status_reason']})", "", "## Driver wiring"]
+for k, w in summary["wiring"].items():
+    if "error" in w: L.append(f"- {k}: ERROR {w['error']}"); continue
+    L.append(f"- {k}: {'ok' if w['ok'] else 'MISSING ' + ', '.join(w['missing'])}; via " +
+             ", ".join(f"{n}={v}" for n, v in w["via"].items()) + (f"; direct fallbacks: {', '.join(w['direct_fallbacks'])}" if w["direct_fallbacks"] else ""))
+L.append("")
 for key, title in (("screen_recording", "Screen recording"), ("in_process", "In-process 16 ms snapshots (fallback, not compositor)")):
     r = summary.get(key)
     L.append(f"## {title}")
@@ -231,11 +271,17 @@ for key, title in (("screen_recording", "Screen recording"), ("in_process", "In-
     L.append("|---|---|---|---|---|---|---|")
     for name, c in r["clips"].items():
         via = c.get("via") or (c.get("marker") or {}).get("via", "")
-        L.append(f"| {name} | {via} | {c.get('changed_frames')} | {c.get('distinct_intermediate_frames')} | {c.get('motion_span_s')} | {c.get('median_interval_ms', c.get('median_spacing_ms'))} | {c.get('fps_in_motion')} |")
+        changed = c.get("changed_frames") if c.get("changed_frames") is not None else f"n/a ({c.get('byte_distinct_frames')} byte-distinct of {c.get('frames_total')})"
+        L.append(f"| {name} | {via} | {changed} | {c.get('distinct_intermediate_frames', 'n/a')} | {c.get('motion_span_s', 'n/a')} | {c.get('median_interval_ms', c.get('median_spacing_ms'))} | {c.get('fps_in_motion', 'n/a')} |")
     L.append("")
 open(os.path.join(out, "summary.md"), "w").write("\n".join(L))
 print("\n".join(L))
+sys.exit(3 if summary["status"] == "WIRING-BROKEN" else 0)
 PY
 RC=$?
 [ -n "${GITHUB_STEP_SUMMARY:-}" ] && [ -f "$OUT/summary.md" ] && cat "$OUT/summary.md" >>"$GITHUB_STEP_SUMMARY"
+if [ -f "$OUT/summary.json" ] && [ -n "${GITHUB_ACTIONS:-}" ]; then
+  ST=$(python3 -c 'import json,sys;j=json.load(open(sys.argv[1]));print(j["status"]+": "+j["status_reason"])' "$OUT/summary.json")
+  case "$ST" in RECORDED*) ;; *) echo "::warning title=Perch motion frames::$ST" ;; esac
+fi
 exit $RC
