@@ -1,0 +1,101 @@
+name: CI
+on:
+  push:
+    paths-ignore: ['docs/**', '**/*.md']
+  pull_request:
+    paths-ignore: ['docs/**', '**/*.md']
+  workflow_dispatch:
+    inputs:
+      macos:
+        description: Run the macOS job
+        type: boolean
+        default: true
+
+# One run per branch; a new push cancels the older run.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  core-linux:
+    name: PlannerCore tests (Linux)
+    # GitHub-hosted runner. Never use a self-hosted runner on a public repo (fork PRs run code on it).
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: swift-actions/setup-swift@v2
+        with: { swift-version: "6.1" }
+      - run: swift test
+      - run: swift build -c release --product perch-cli
+      - name: MCP end-to-end with the official Python SDK
+        run: |
+          pip install --quiet mcp
+          PERCH_DATA=$RUNNER_TEMP/p.json TZ=America/Los_Angeles python scripts/mcp_smoke.py "$PWD/.build/release/perch-cli"
+
+  app-macos:
+    name: Perch.app (macOS)
+    runs-on: macos-15
+    if: github.event_name != 'workflow_dispatch' || inputs.macos
+    steps:
+      - uses: actions/checkout@v4
+      - name: Toolchain
+        run: |
+          sudo xcode-select -s "$(ls -d /Applications/Xcode_26*.app 2>/dev/null | sort -V | tail -1 || ls -d /Applications/Xcode*.app | sort -V | tail -1)"
+          swift --version
+      - run: swift test
+      - name: Build and bundle
+        run: scripts/bundle.sh
+      - name: App binary speaks MCP
+        run: |
+          pip3 install --quiet --break-system-packages mcp || pip3 install --quiet mcp
+          PERCH_DATA=$RUNNER_TEMP/p.json python3 scripts/mcp_smoke.py "$PWD/dist/Perch.app/Contents/MacOS/Perch"
+      - name: App launches and survives 5 s
+        run: |
+          PERCH_DATA=$RUNNER_TEMP/launch.json dist/Perch.app/Contents/MacOS/Perch --preview-open &
+          PID=$!; sleep 5
+          kill -0 $PID && echo "still running" && kill $PID
+      - name: Screenshots (grey wallpaper so the notch outline shows)
+        run: |
+          python3 -c "import zlib,struct;w,h=64,64;raw=b''.join(b'\\x00'+bytes([120,124,135])*w for _ in range(h));c=lambda t,d:struct.pack('>I',len(d))+t+d+struct.pack('>I',zlib.crc32(t+d));open('/tmp/grey.png','wb').write(b'\\x89PNG\\r\\n\\x1a\\n'+c(b'IHDR',struct.pack('>IIBBBBB',w,h,8,2,0,0,0))+c(b'IDAT',zlib.compress(raw))+c(b'IEND',b''))"
+          osascript -e 'tell application "System Events" to tell every desktop to set picture to "/tmp/grey.png"' || true
+          sleep 2
+          OUT=$RUNNER_TEMP/notch; mkdir -p $OUT
+          PERCH_DATA=$RUNNER_TEMP/shot.json dist/Perch.app/Contents/MacOS/Perch --preview-open --demo --dump-layout $OUT/live-open.json --snapshot $OUT &
+          sleep 6; screencapture -x $RUNNER_TEMP/perch-open.png || true; kill %1 || true; sleep 1
+          PERCH_DATA=$RUNNER_TEMP/shot.json dist/Perch.app/Contents/MacOS/Perch --dump-layout $OUT/live-closed.json --snapshot $OUT &
+          sleep 5; screencapture -x $RUNNER_TEMP/perch-closed.png || true; kill %1 || true
+          ls -la $OUT $RUNNER_TEMP/perch-*.png
+      - name: NotchLayout frames (fixtures + live) and mouse routing
+        run: |
+          OUT=$RUNNER_TEMP/notch
+          NOTCH_LAYOUT_JSON=$OUT/fixtures.json swift test --filter NotchLayoutTests/testDumpFramesToJSON
+          python3 - "$OUT" <<'EOF'
+          import json, sys
+          out = sys.argv[1]
+          fx = json.load(open(f"{out}/fixtures.json")); print("fixtures:", [r["name"] for r in fx])
+          want = {
+              "closed": dict(notchCenterTopEdge=True, leftWing=True, justBelowShape=False, leftOfShape=False,
+                             windowCornerOutsideShape=False, workspaceCenter=False),
+              "open": dict(notchCenterTopEdge=True, workspaceCenter=True, justBelowShape=False, leftOfShape=False,
+                           windowCornerOutsideShape=False),
+          }
+          bad = 0
+          for state, exp in want.items():
+              screens = json.load(open(f"{out}/live-{state}.json"))
+              assert screens, f"no screens in live-{state}.json"
+              for s in screens:
+                  print(state, s["name"], "frame", s["frame"], "notch", s["notch"], "idle", s["idle"], "window", s["window"], "visible", s["visible"])
+                  if not s["visible"]: continue
+                  if state == "open" and not s["expanded"]: continue
+                  for k, v in exp.items():
+                      if s["routing"][k] != v: print(f"  ROUTING MISMATCH {state} {k}: got {s['routing'][k]} want {v}"); bad += 1
+                  assert s["window"]["y"] + s["window"]["h"] == s["frame"]["y"] + s["frame"]["h"], "window not flush with screen top"
+          sys.exit(1 if bad else 0)
+          EOF
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Perch
+          path: |
+            dist/*.dmg
+            ${{ runner.temp }}/perch-*.png
+            ${{ runner.temp }}/notch/*

@@ -1,0 +1,21 @@
+name: Repository hygiene
+on: [push, pull_request, workflow_dispatch]
+permissions:
+  contents: read
+concurrency:
+  group: repository-hygiene-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  repository-hygiene:
+    name: Repository hygiene
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Test repository rules
+        run: python3 -m unittest discover -s scripts -p test_repository_policy.py
+      - name: Check tracked files and history
+        run: python3 scripts/check_repository.py --history HEAD

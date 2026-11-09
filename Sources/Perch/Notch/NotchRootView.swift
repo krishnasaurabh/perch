@@ -1,0 +1,203 @@
+import PlannerCore
+import SwiftUI
+
+/// Everything drawn inside one screen's notch window: the closed silhouette (timer, nudges) and, on the active
+/// screen, the expanded workspace. The window is fixed; the shape is placed at the frame `NotchLayout` computed.
+struct NotchRootView: View {
+    static var expandedSize: CGSize { NotchGeometry.workspaceSize }
+
+    @EnvironmentObject var store: PlannerStore
+    @EnvironmentObject var model: NotchModel
+    @EnvironmentObject var services: Services
+    @EnvironmentObject var screen: NotchScreenState
+
+    private var active: Bool { model.screenID == screen.id }
+    private var expanded: Bool { active && model.expanded }
+    private var activity: NotchActivity? { active ? model.activity : nil }
+
+    var body: some View {
+        let g = screen.geometry
+        let window = g.window
+        let shape = g.shape(expanded: expanded, timer: NotchModel.timerShowing(store), activity: activity != nil)
+        let k = NotchGeometry.radii(expanded: expanded)
+
+        ZStack(alignment: .topLeading) {
+            ZStack(alignment: .top) {
+                NotchShape(topRadius: k.top, bottomRadius: k.bottom)
+                    .fill(Theme.notchBlack)
+                    .shadow(color: .black.opacity(expanded ? 0.5 : 0), radius: 24, y: 10)
+
+                Group {
+                    if expanded {
+                        WorkspaceView(notchHeight: g.notchSize.height)
+                            .transition(.opacity.combined(with: .scale(scale: 0.96, anchor: .top)))
+                    } else {
+                        ClosedNotchView(notch: g.notchSize, activity: activity)
+                            .transition(.opacity)
+                    }
+                }
+                .padding(.horizontal, expanded ? 10 : 0)
+            }
+            .frame(width: shape.width, height: shape.height)
+            .clipShape(NotchShape(topRadius: k.top, bottomRadius: k.bottom))
+            .contentShape(NotchShape(topRadius: k.top, bottomRadius: k.bottom))
+            .onDrop(of: [.fileURL, .url, .plainText, .image], isTargeted: nil) { providers in
+                handleDrop(providers); return true
+            }
+            // Window and shape are both flush with the screen top, so only x needs placing.
+            .offset(x: shape.minX - window.minX, y: window.maxY - shape.maxY)
+        }
+        .frame(width: window.width, height: window.height, alignment: .topLeading)
+        .overlay(alignment: .top) {
+            if active { ConfettiBurst().padding(.top, 60).offset(x: g.notchRect.midX - window.midX) }
+        }
+        .animation(.spring(response: 0.38, dampingFraction: 0.82), value: expanded)
+        .animation(.spring(response: 0.4, dampingFraction: 0.78), value: activity)
+        .preferredColorScheme(.dark)
+        .opacity(hidden ? 0 : 1)
+    }
+
+    /// Flat screen with "Draw a notch on external displays" off: nothing drawn until it opens or shows something there.
+    private var hidden: Bool {
+        !screen.geometry.hasHardwareNotch && !store.prefs.notchOnMonitors && !expanded && activity == nil
+    }
+
+    /// Files and images become file/image clips; links and text become text clips. Then Clips opens on this screen.
+    private func handleDrop(_ providers: [NSItemProvider]) {
+        let clips = services.clips
+        for p in providers {
+            if p.hasItemConformingToTypeIdentifier("public.file-url") {
+                _ = p.loadObject(ofClass: URL.self) { url, _ in
+                    if let url { Task { @MainActor in clips.add(.file(url), source: "dropped") } }
+                }
+            } else if p.canLoadObject(ofClass: URL.self) {
+                _ = p.loadObject(ofClass: URL.self) { url, _ in
+                    if let url { Task { @MainActor in clips.add(.text(url.absoluteString), source: "dropped") } }
+                }
+            } else if p.canLoadObject(ofClass: String.self) {
+                _ = p.loadObject(ofClass: String.self) { s, _ in
+                    if let s { Task { @MainActor in clips.add(.text(s), source: "dropped") } }
+                }
+            } else if p.hasItemConformingToTypeIdentifier("public.image") {
+                p.loadDataRepresentation(forTypeIdentifier: "public.image") { d, _ in
+                    if let d { Task { @MainActor in clips.add(.image(d), source: "dropped") } }
+                }
+            }
+        }
+        if model.screenID != screen.id {
+            model.screenID = screen.id
+            model.geometry = screen.geometry
+        }
+        model.open(page: .clips)
+    }
+}
+
+/// Closed state: owl on the left wing, running timer (or open-task count) on the right, nudges below.
+/// The middle gap is exactly the notch, so the wings sit beside the camera housing.
+struct ClosedNotchView: View {
+    let notch: CGSize
+    let activity: NotchActivity?
+    @EnvironmentObject var store: PlannerStore
+    @EnvironmentObject var model: NotchModel
+    @EnvironmentObject var services: Services
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 0) {
+                wing(left: true)
+                Spacer().frame(width: notch.width)
+                wing(left: false)
+            }
+            .frame(height: notch.height)
+
+            if let a = activity {
+                ActivityStrip(activity: a).padding(.horizontal, 10).padding(.bottom, 10)
+                    .transition(.move(edge: .top).combined(with: .opacity))
+            }
+        }
+    }
+
+    @ViewBuilder func wing(left: Bool) -> some View {
+        let placement = store.prefs.notchTimerPlacement
+        let focus = store.planner.focus.flatMap { $0.state == .finished ? nil : $0 }
+        let showTimer = focus != nil && placement != .hidden && (placement == .left) == left
+        HStack(spacing: 5) {
+            if showTimer, let f = focus {
+                Circle().fill(f.state == .running ? Theme.accent : Theme.secondary).frame(width: 6, height: 6)
+                Text(TimerText.clock(f.remaining(at: model.now) ?? f.elapsed(at: model.now)))
+                    .font(.system(size: 12.5, weight: .semibold, design: .rounded).monospacedDigit())
+                    .foregroundStyle(f.state == .running ? Theme.text : Theme.secondary)
+            } else if left {
+                OwlMark(size: 16, awake: true)
+            } else {
+                let open = store.engine.tasks(on: .day(store.today)).filter { !$0.done }.count
+                if open > 0 {
+                    Text("\(open)").font(.system(size: 11.5, weight: .bold, design: .rounded)).foregroundStyle(Theme.secondary)
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: left ? .leading : .trailing)
+        // Clear the concave shoulder (topRadius) so content never touches the visible edge.
+        .padding(.horizontal, 8 + NotchGeometry.radii(expanded: false).top)
+    }
+}
+
+/// Upcoming-event nudges, reminder rings, finished timers: with actions right in the notch.
+struct ActivityStrip: View {
+    let activity: NotchActivity
+    @EnvironmentObject var store: PlannerStore
+    @EnvironmentObject var model: NotchModel
+    @State private var swing = false
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: icon)
+                .font(.system(size: 15, weight: .semibold)).foregroundStyle(Theme.accent)
+                .rotationEffect(.degrees(swing ? 12 : -12), anchor: .top)
+                .onAppear { withAnimation(.easeInOut(duration: 0.35).repeatCount(6, autoreverses: true)) { swing = true } }
+            VStack(alignment: .leading, spacing: 1) {
+                Text(activity.title).font(.system(size: 12.5, weight: .semibold)).foregroundStyle(Theme.text).lineLimit(1)
+                Text(activity.subtitle).font(.system(size: 11)).foregroundStyle(Theme.secondary).lineLimit(1)
+            }
+            Spacer(minLength: 6)
+            actions
+            GlassButton(symbol: "xmark", help: "Dismiss", size: 22) { model.dismissActivity() }
+        }
+    }
+
+    private var icon: String {
+        switch activity.kind {
+        case .reminder: return "bell.fill"
+        case .focusDone: return "checkmark.seal.fill"
+        case .eventSoon: return "calendar"
+        case .clip: return "paperclip"
+        case .message: return "sparkles"
+        }
+    }
+
+    @ViewBuilder private var actions: some View {
+        switch activity.kind {
+        case .reminder(let id):
+            pill("Start") {
+                store.apply { try $0.startTimer(task: id.uuidString, minutes: nil) }
+                model.dismissActivity()
+            }
+            pill("Snooze 5 min") { store.apply { try $0.snooze(id.uuidString, minutes: 5) }; model.dismissActivity() }
+            pill("Done") { store.apply { try $0.complete(id.uuidString) }; model.dismissActivity() }
+        case .focusDone(let id):
+            if let id { pill("Mark done") { store.apply { try $0.complete(id.uuidString) }; model.dismissActivity() } }
+            pill("+5 min") { store.apply { $0.extendTimer(minutes: 5) }; model.dismissActivity() }
+        case .clip:
+            pill("Open line") { model.dismissActivity(); model.open(page: .clips) }
+        default: EmptyView()
+        }
+    }
+
+    func pill(_ title: String, _ action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(title).font(.system(size: 11, weight: .semibold)).foregroundStyle(Theme.text)
+                .padding(.horizontal, 9).padding(.vertical, 5)
+                .background(Capsule().fill(Color.white.opacity(0.12)))
+        }.buttonStyle(.plain)
+    }
+}
