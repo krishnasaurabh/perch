@@ -57,7 +57,8 @@ enum MotionScript {
         struct Step { let name: String; let wait: Double; let capture: Bool; let action: @MainActor () -> String }
 
         func run() {
-            let target = NotchPage(rawValue: "insights") ?? .week
+            // Keep the captured page transition fixed when other pages are added to the app.
+            let target = NotchPage.week
             let steps: [Step] = [
                 Step(name: "ready", wait: 4.0, capture: false) { "launch" },  // long still lead-in for alignment
                 Step(name: "open", wait: 1.6, capture: true) {
