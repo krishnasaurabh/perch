@@ -73,7 +73,7 @@ enum MotionScript {
                     // default) turns on accessibility automation in this process, as XCUITest does; =none keeps
                     // the old behaviour. `ax_nodes` in each marker records the tree size before that step.
                     let mode = ProcessInfo.processInfo.environment["PERCH_MOTION_AX_WAKE"] ?? "none"
-                    if mode == "inproc" { self.axWake = AX.enableAutomation() }
+                    if mode == "inproc" || mode == "both" { self.axWake = AX.enableAutomation() }
                     NotificationCenter.default.post(name: .perchOpenWorkspace, object: NotchPage.home); return "perchOpenWorkspace"
                 },
                 // 2.4 s (was 1.4): settle time for SwiftUI to publish the tree after the wake.

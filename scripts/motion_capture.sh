@@ -28,10 +28,47 @@ need_ffmpeg() {
   command -v ffmpeg >/dev/null && command -v ffprobe >/dev/null
 }
 
+# SwiftUI builds a macOS app's accessibility tree lazily, once an accessibility client talks to it. A CI VM has
+# no VoiceOver, so the driver's in-process button presses find nothing and every button step takes `direct:`.
+# PERCH_MOTION_AX_WAKE picks how the tree is woken: "inproc" (driver flips libAccessibility's automation flag),
+# "external" (System Events, which holds the Accessibility grant on GitHub's macOS images, queries Perch's
+# windows right after the driver's "reopen" marker), "both" (default) or "none".
+AXMODE="${PERCH_MOTION_AX_WAKE:-both}"
+ax_client() {  # ax_client <markers.json> <log>: one System Events AX query once "reopen" is written
+  local MK="$1" LOGF="$2"
+  for _ in $(seq 1 100); do grep -q '"reopen"' "$MK" 2>/dev/null && break; sleep 0.1; done
+  { echo "reopen seen at $(python3 -c 'import time;print(repr(time.time()))')"
+    osascript - >"$LOGF.osa" 2>&1 <<'OSA' &
+tell application "System Events" to tell process "Perch"
+  set n to count of windows
+  return "windows=" & n & " top-level elements=" & (count of UI elements of window 1)
+end tell
+OSA
+    # Stock macOS has no coreutils `timeout`; a watchdog stops osascript after 8 s.
+    local O=$!; ( sleep 8; kill $O 2>/dev/null ) & local WD=$!
+    wait $O; local ORC=$?; kill $WD 2>/dev/null; cat "$LOGF.osa"; rm -f "$LOGF.osa"
+    echo "osascript exit=$ORC at $(python3 -c 'import time;print(repr(time.time()))')"; } >"$LOGF"
+}
+drive() {  # drive <mode> <markers.json> <timeout-ticks> [extra args]: one driver run, waits for it to quit
+  local MODE="$1" MK="$2" TICKS="$3"; shift 3
+  PERCH_MOTION_AX_WAKE="$MODE" PERCH_DATA="$DATA" "$BIN" --motion-script "$MK" "$@" >>"$LOG" 2>&1 &
+  local P=$! C=
+  case "$MODE" in external|both) ax_client "$MK" "${MK%.json}.ax-client.txt" & C=$! ;; esac
+  for _ in $(seq 1 "$TICKS"); do kill -0 $P 2>/dev/null || break; sleep 0.5; done
+  kill $P 2>/dev/null; [ -n "$C" ] && wait $C
+  rm -f "$DATA"
+}
+
 record() {
   local BIN="$APP/Contents/MacOS/Perch"
   [ -x "$BIN" ] || { log "no app binary at $BIN"; return 1; }
   local DATA="${RUNNER_TEMP:-${TMPDIR:-/tmp}}/motion-planner.json"
+
+  # TEMPORARY (t_185144a4): which wake fills the AX tree, and does it persist across processes? No recording.
+  if [ "${PERCH_MOTION_AX_EXPERIMENT:-1}" = 1 ]; then
+    mkdir -p "$OUT/ax-exp"; local k=0
+    for m in none inproc external none inproc; do k=$((k + 1)); rm -f "$DATA"; drive "$m" "$OUT/ax-exp/$k-$m.json" 40; done
+  fi
 
   # Pass 1: real screen recording (compositor output, includes the menu bar and desktop).
   rm -f "$DATA" "$OUT/screen.mov"
@@ -39,12 +76,7 @@ record() {
   screencapture -x -V 24 "$OUT/screen.mov" >>"$LOG" 2>&1 &
   local SC=$!
   sleep 2
-  # PERCH_MOTION_AX_WAKE=inproc (default) turns on SwiftUI's accessibility tree so the real buttons can be
-  # pressed; =none reproduces the old empty-tree behaviour (every button step takes its direct: fallback).
-  PERCH_MOTION_AX_WAKE="${PERCH_MOTION_AX_WAKE:-inproc}" PERCH_DATA="$DATA" "$BIN" --motion-script "$OUT/markers.json" >>"$LOG" 2>&1 &
-  local P=$!
-  for _ in $(seq 1 40); do kill -0 $P 2>/dev/null || break; sleep 0.5; done
-  kill $P 2>/dev/null
+  drive "$AXMODE" "$OUT/markers.json" 40
   wait $SC; local RC=$?
   log "screencapture exit=$RC size=$(stat -f%z "$OUT/screen.mov" 2>/dev/null || echo none)"
   if [ ! -s "$OUT/screen.mov" ] && command -v ffmpeg >/dev/null; then
@@ -55,20 +87,14 @@ record() {
     ffmpeg -hide_banner -y -f avfoundation -framerate 60 -capture_cursor 0 -i "Capture screen 0:none" -t 24 \
       -c:v libx264 -preset ultrafast -crf 12 "$OUT/screen.mov" >>"$LOG" 2>&1 &
     local FF=$!; sleep 2
-    PERCH_DATA="$DATA" "$BIN" --motion-script "$OUT/markers.json" >>"$LOG" 2>&1 &
-    P=$!
-    for _ in $(seq 1 40); do kill -0 $P 2>/dev/null || break; sleep 0.5; done
-    kill $P 2>/dev/null; wait $FF; log "ffmpeg avfoundation exit=$? size=$(stat -f%z "$OUT/screen.mov" 2>/dev/null || echo none)"
+    drive "$AXMODE" "$OUT/markers.json" 40
+    wait $FF; log "ffmpeg avfoundation exit=$? size=$(stat -f%z "$OUT/screen.mov" 2>/dev/null || echo none)"
   fi
 
   # Pass 2: in-process own-window renders every 16 ms. Separate run so the extra main-thread work can't
   # disturb the recording above. Labelled "in-process-snapshot" everywhere.
   rm -f "$DATA"; mkdir -p "$OUT/in-process"
-  PERCH_MOTION_AX_WAKE="${PERCH_MOTION_AX_WAKE:-inproc}" PERCH_DATA="$DATA" "$BIN" --motion-script "$OUT/in-process/markers.json" --motion-snapshots "$OUT/in-process" >>"$LOG" 2>&1 &
-  P=$!
-  for _ in $(seq 1 60); do kill -0 $P 2>/dev/null || break; sleep 0.5; done
-  kill $P 2>/dev/null
-  rm -f "$DATA"
+  drive "$AXMODE" "$OUT/in-process/markers.json" 60 --motion-snapshots "$OUT/in-process"
   return 0
 }
 
