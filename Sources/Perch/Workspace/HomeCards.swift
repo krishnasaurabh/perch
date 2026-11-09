@@ -263,9 +263,14 @@ struct ScratchpadEditor: NSViewRepresentable {
 final class OverflowFadeView: NSView {
     var color: NSColor = .clear { didSet { if color != oldValue { needsDisplay = true } } }
     override var isFlipped: Bool { true }
+    override init(frame: NSRect) { super.init(frame: frame); clipsToBounds = true }
+    required init?(coder: NSCoder) { super.init(coder: coder); clipsToBounds = true }
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
     override func draw(_ dirtyRect: NSRect) {
         effectiveAppearance.performAsCurrentDrawingAppearance {
+            // A linear gradient paints an unbounded strip, and views don't clip to bounds by default since macOS 14,
+            // so clip explicitly or the ramp bleeds across neighbouring cards.
+            NSBezierPath(rect: bounds).addClip()
             // Flipped: transparent at the top (y = 0), the full surface colour at the bottom edge.
             NSGradient(starting: color.withAlphaComponent(0), ending: color)?
                 .draw(from: NSPoint(x: 0, y: 0), to: NSPoint(x: 0, y: bounds.height), options: [])
