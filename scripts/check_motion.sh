@@ -21,7 +21,8 @@ notch = (root / 'Sources/Perch/Notch/NotchRootView.swift').read_text()
 assert '.transition(motionPolicy.workspaceTransition)' in notch
 assert '.motionBoundary()' in notch
 chart = (root / 'Sources/Perch/Workspace/InsightsPage.swift').read_text()
-assert '.animation(reduce ? nil : Motion.bar' in chart
+assert '.animation(Self.growth(series, index: i, policy: policy)' in chart
+assert 'return policy.animation(Motion.bar.delay' in chart
 print('PASS: root policy wiring, no owl scheduler, chart reduced animation remains nil')
 PY
 cp "$ROOT/Package.swift" "$PROBE/"

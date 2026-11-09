@@ -1,6 +1,7 @@
 // Replaces App/main.swift only in the temporary CI probe package. Uses the actual views/controller.
 import AppKit
 import PlannerCore
+import SwiftUI
 
 @MainActor
 func require(_ condition: @autoclosure () -> Bool, _ message: String) {
@@ -21,6 +22,81 @@ func captureEditor() -> NSTextView? {
     // Unlike the notepad's NSTextView, a TextField uses the window's field editor.
     guard let editor = NSApp.keyWindow?.firstResponder as? NSTextView, editor.isFieldEditor else { return nil }
     return editor
+}
+
+/// Insights chart motion and scale (F07/F11). Pure checks on the WeekBars rules, then real rendered frames of a
+/// hosted WeekBars: Planned must already stand at final height on the first frames, Completed must still be on the
+/// baseline and then grow. Frames are written next to the snapshots as evidence.
+@MainActor
+func probeWeekBars(_ focusOnly: Insights, output: URL) async {
+    // Rules.
+    require(WeekBars.height(.planned, final: 50, grown: false) == 50, "Planned is at final height before growth")
+    require(WeekBars.height(.completed, final: 50, grown: false) == 0, "Completed starts on the baseline")
+    require(WeekBars.height(.completed, final: 50, grown: true) == 50, "Completed reaches its final height")
+    for i in 0..<7 {
+        require(WeekBars.growth(.planned, index: i, policy: MotionPolicy(reduceMotion: false)) == nil, "Planned bar \(i) has no animation")
+        require(WeekBars.growth(.completed, index: i, policy: MotionPolicy(reduceMotion: false)) != nil, "Completed bar \(i) animates")
+        require(WeekBars.growth(.completed, index: i, policy: MotionPolicy(reduceMotion: true)) == nil, "Reduce Motion: Completed bar \(i) does not animate")
+    }
+    require(WeekBars.growth(.completed, index: 3, policy: MotionPolicy(reduceMotion: false)) == Motion.bar.delay(3 * Motion.barStagger),
+            "Completed keeps the bars token and 130 ms stagger")
+    require(WeekBars.scaleLabel(top: 1, metric: .focus) == "1m", "focus-only scale names one minute")
+    require(WeekBars.scaleLabel(top: 5, metric: .tasks) == "5 tasks" && WeekBars.scaleLabel(top: 1, metric: .tasks) == "1 task",
+            "task scale names the top value")
+    let focusTop = max(1, focusOnly.lastSeven.map { $0.focusSeconds / 60 }.max() ?? 1)
+    require(WeekBars.scaleLabel(top: focusTop, metric: .focus) == "1m", "probe focus-only week tops out at 1m")
+
+    // Rendered frames: today has 4 planned, 1 completed.
+    var engine = PlannerEngine(planner: Planner())
+    let added = (try? engine.addTasks(["a", "b", "c", "d"])) ?? []
+    _ = try? engine.complete(added[0].id.uuidString)
+    let insights = engine.insights()
+    require(insights.lastSeven.last?.planned == 4 && insights.lastSeven.last?.completed == 1, "frame fixture: 1 of 4 today")
+    let size = NSSize(width: 420, height: 240)
+    let window = NSWindow(contentRect: NSRect(origin: NSPoint(x: 40, y: 40), size: size), styleMask: [.borderless],
+                          backing: .buffered, defer: false)
+    window.contentView = NSHostingView(rootView:
+        WeekBars(days: insights.lastSeven, metric: .tasks, today: engine.today)
+            .padding(10).frame(width: size.width, height: size.height).background(Color.white))
+    window.orderFrontRegardless()
+
+    // Top edge (in points from the top) of planned-grey and completed-dark pixels in today's column.
+    func frame(_ name: String) -> (planned: CGFloat?, completed: CGFloat?) {
+        guard let view = window.contentView, let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { return (nil, nil) }
+        view.cacheDisplay(in: view.bounds, to: rep)
+        if let png = rep.representation(using: .png, properties: [:]) {
+            try? FileManager.default.createDirectory(at: output.appendingPathComponent("insights-bars"), withIntermediateDirectories: true)
+            try? png.write(to: output.appendingPathComponent("insights-bars/\(name).png"))
+        }
+        let scale = CGFloat(rep.pixelsWide) / view.bounds.width
+        let inner = size.width - 20, col = (inner - 6 * 14) / 7
+        let x = Int((10 + 6 * (col + 14) + col / 2) * scale)
+        var planned: Int?, completed: Int?
+        // Scan only the plot: the day labels below the baseline are dark text too.
+        for y in 0..<Int((size.height - 48) * scale) {
+            guard let c = rep.colorAt(x: x, y: y)?.usingColorSpace(.deviceRGB) else { continue }
+            let v = (c.redComponent + c.greenComponent + c.blueComponent) / 3
+            if completed == nil, v < 0.3 { completed = y }
+            if planned == nil, v > 0.6, v < 0.9 { planned = y }
+        }
+        return (planned.map { CGFloat($0) / scale }, completed.map { CGFloat($0) / scale })
+    }
+    // Today is column 6: 780 ms of stagger before it starts, so ~100 ms in it must still be on the baseline.
+    try? await Task.sleep(nanoseconds: 100_000_000)
+    let early = frame("t0100ms")
+    try? await Task.sleep(nanoseconds: 2_400_000_000)
+    let late = frame("t2500ms")
+    print("bars frames: early planned \(early.planned as Any) completed \(early.completed as Any); late planned \(late.planned as Any) completed \(late.completed as Any)")
+    require(early.planned != nil && late.planned != nil, "Planned silhouette is visible in both frames")
+    require(abs((early.planned ?? 0) - (late.planned ?? 1)) <= 1, "Planned stands at final height from the first frames")
+    require(late.completed != nil, "Completed bar is drawn once grown")
+    // y grows downward: an absent or lower top edge early means Completed had not grown yet.
+    if NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
+        print("note: Reduce Motion is on for this runner; Completed is expected at final height immediately")
+    } else {
+        require((early.completed ?? .infinity) > (late.completed ?? 0) + 10, "Completed grows after the chart appears")
+    }
+    window.orderOut(nil)
 }
 
 MainActor.assumeIsolated {
@@ -112,6 +188,7 @@ MainActor.assumeIsolated {
             delegate.model.page = .insights
             await settle()
             delegate.notch.snapshot(into: output.appendingPathComponent("insights-focus-only"))
+            await probeWeekBars(focusOnly, output: output)
             delegate.model.page = .home
             require(delegate.store.lastError == nil, "empty-state transitions report no store error")
             for symbol in ["square.and.pencil", "checkmark.circle", "calendar", "tray", "paperclip", "chart.bar"] {

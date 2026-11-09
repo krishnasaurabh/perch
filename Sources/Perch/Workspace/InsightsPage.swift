@@ -115,14 +115,49 @@ struct InsightsPage: View {
     }
 }
 
-/// Seven days of bars. Completed (solid) stands in front of Planned (translucent). On appear each bar grows from
-/// the baseline, left to right: spring R 0.30 ζ 1 with a 130 ms stagger.
+/// Seven days of bars. Completed (solid) stands in front of Planned (translucent).
+///
+/// Planned is a stable comparison silhouette: it is at its final height from the first frame and never animates.
+/// Only Completed grows from the baseline, left to right: spring R 0.30 ζ 1 with a 130 ms stagger
+/// Reduce Motion drops the growth entirely.
+///
+/// One quiet label in tertiary ink sits on the top line and names the value it stands for ("5 tasks", "1m"),
+/// so a short week cannot pass for a big one. The top line and the baseline are single-pixel hairlines; no other
+/// gridlines, tick marks, vertical axis or legend.
 struct WeekBars: View {
     let days: [Insights.Day]
     let metric: InsightsPage.Metric
     let today: DayKey
     @State private var grown = false
-    @Environment(\.accessibilityReduceMotion) private var reduce
+    @Environment(\.motionPolicy) private var policy
+    @Environment(\.displayScale) private var displayScale
+
+    enum Series: CaseIterable { case planned, completed }
+
+    /// Height one bar draws at. Planned ignores `grown`; Completed sits on the baseline until the chart appears.
+    static func height(_ series: Series, final: CGFloat, grown: Bool) -> CGFloat {
+        series == .planned || grown ? max(final, 0) : 0
+    }
+
+    /// The growth animation for one bar: none for Planned, none under Reduce Motion, else the bars token + stagger.
+    static func growth(_ series: Series, index: Int, policy: MotionPolicy) -> Animation? {
+        guard series == .completed else { return nil }
+        return policy.animation(Motion.bar.delay(Double(index) * Motion.barStagger))
+    }
+
+    /// The value at the top line: "1 task", "5 tasks", or focus time as the momentum card writes it ("1m", "1h 20m").
+    static func scaleLabel(top: Double, metric: InsightsPage.Metric) -> String {
+        switch metric {
+        case .tasks:
+            let n = Int(top.rounded())
+            return "\(n) task\(n == 1 ? "" : "s")"
+        case .focus:
+            return TimerText.short(top * 60)
+        }
+    }
+
+    /// Height reserved above the top line for the scale label (one `Theme.meta` line plus a hair of air).
+    static let scaleStrip: CGFloat = 16
 
     var body: some View {
         let values = days.map { metric == .tasks ? Double($0.completed) : $0.focusSeconds / 60 }
@@ -130,36 +165,19 @@ struct WeekBars: View {
         let top = max(1, (values + planned).max() ?? 1)
         let empty = values.allSatisfy { $0 == 0 } && planned.allSatisfy { $0 == 0 }
         VStack(spacing: 6) {
-            GeometryReader { geo in
-                let h = geo.size.height
-                ZStack {
-                    VStack(spacing: 0) {
-                        // With no data only the baseline stays, so the hint never sits on a gridline.
-                        ForEach(0..<4, id: \.self) { _ in
-                            Rectangle().fill(Theme.chartPlanned.opacity(empty ? 0 : 0.35)).frame(height: 1)
-                            Spacer(minLength: 0)
-                        }
-                        Rectangle().fill(Theme.chartPlanned).frame(height: 1)
-                    }
-                    HStack(alignment: .bottom, spacing: 14) {
-                        ForEach(days.indices, id: \.self) { i in
-                            ZStack(alignment: .bottom) {
-                                if planned[i] > 0 {
-                                    bar(planned[i] / top * h, color: Theme.chartPlanned, index: i)
-                                }
-                                // A zero day keeps a 2 pt stub on the baseline so it reads as "none", not missing data.
-                                bar(max(values[i] / top * h, planned[i] > 0 || values[i] > 0 ? 2 : 0), color: Theme.chartCompleted, index: i)
-                            }
-                            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
-                            .accessibilityElement(children: .ignore)
-                            .accessibilityLabel(label(days[i], values[i], planned[i]))
-                        }
-                    }
-                    if empty {
-                        Text(metric == .tasks ? "Your week will fill in as you finish tasks." : "Time a session and your minutes show up here.")
-                            .font(Theme.meta).foregroundStyle(Theme.secondary)
-                    }
+            VStack(alignment: .leading, spacing: 0) {
+                // The single scale mark, resting on the top line it names. With no data there is no scale to name.
+                if !empty {
+                    Text(Self.scaleLabel(top: top, metric: metric))
+                        .font(Theme.meta.monospacedDigit()).foregroundStyle(Theme.tertiary)
+                        .lineLimit(1).fixedSize()
+                        .frame(height: Self.scaleStrip, alignment: .bottom)
+                        .padding(.bottom, 2)
+                        .accessibilityLabel("Chart top line: \(Self.scaleLabel(top: top, metric: metric))")
+                } else {
+                    Color.clear.frame(height: Self.scaleStrip + 2)
                 }
+                plot(values: values, planned: planned, top: top, empty: empty)
             }
             HStack(spacing: 14) {
                 ForEach(days, id: \.day) { d in
@@ -177,15 +195,52 @@ struct WeekBars: View {
         }
         .onAppear {
             guard !grown else { return }
-            if reduce { grown = true } else { DispatchQueue.main.async { grown = true } }
+            if policy.reduceMotion { grown = true } else { DispatchQueue.main.async { grown = true } }
         }
     }
 
-    private func bar(_ height: CGFloat, color: Color, index i: Int) -> some View {
+    private func plot(values: [Double], planned: [Double], top: Double, empty: Bool) -> some View {
+        GeometryReader { geo in
+            let h = geo.size.height
+            ZStack {
+                VStack(spacing: 0) {
+                    // Only the top line the scale label names, plus the baseline. Unlabeled quarter lines
+                    // fell on fractional values and showed through the translucent Planned bars.
+                    // With no data only the baseline stays, so the hint never sits on a gridline.
+                    // Both are one device pixel, so they guide the eye without framing the plot like a box.
+                    let hairline = 1 / max(displayScale, 1)
+                    Rectangle().fill(Theme.chartPlanned.opacity(empty ? 0 : 0.35)).frame(height: hairline)
+                    Spacer(minLength: 0)
+                    Rectangle().fill(Theme.chartPlanned).frame(height: hairline)
+                }
+                HStack(alignment: .bottom, spacing: 14) {
+                    ForEach(days.indices, id: \.self) { i in
+                        ZStack(alignment: .bottom) {
+                            if planned[i] > 0 {
+                                bar(.planned, planned[i] / top * h, color: Theme.chartPlanned, index: i)
+                            }
+                            // A zero day keeps a 2 pt stub on the baseline so it reads as "none", not missing data.
+                            bar(.completed, max(values[i] / top * h, planned[i] > 0 || values[i] > 0 ? 2 : 0),
+                                color: Theme.chartCompleted, index: i)
+                        }
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+                        .accessibilityElement(children: .ignore)
+                        .accessibilityLabel(label(days[i], values[i], planned[i]))
+                    }
+                }
+                if empty {
+                    Text(metric == .tasks ? "Your week will fill in as you finish tasks." : "Time a session and your minutes show up here.")
+                        .font(Theme.meta).foregroundStyle(Theme.secondary)
+                }
+            }
+        }
+    }
+
+    private func bar(_ series: Series, _ height: CGFloat, color: Color, index i: Int) -> some View {
         UnevenRoundedRectangle(topLeadingRadius: 4, topTrailingRadius: 4, style: .continuous)
             .fill(color)
-            .frame(height: grown ? max(height, 0) : 0)
-            .animation(reduce ? nil : Motion.bar.delay(Double(i) * Motion.barStagger), value: grown)
+            .frame(height: Self.height(series, final: height, grown: grown))
+            .animation(Self.growth(series, index: i, policy: policy), value: grown)
     }
 
     private func label(_ d: Insights.Day, _ v: Double, _ p: Double) -> String {
