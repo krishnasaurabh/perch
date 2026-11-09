@@ -66,7 +66,7 @@ def week(scale, ink):
     tile, fill = (0x1D,) * 3, (0x29,) * 3
     assert max(abs(a - b) for a, b in zip(fill, mini_fills()["tile"])) <= 2
     w, h = 120 * scale, 50 * scale
-    rows = [[SHELL] * w for _ in range(h)]
+    rows: list[list[tuple[int, ...]]] = [[SHELL] * w for _ in range(h)]
     for y in range(5 * scale, 45 * scale):
         for x in range(10 * scale, 110 * scale):
             rows[y][x] = tile
@@ -95,6 +95,22 @@ class WeekTests(unittest.TestCase):
             self.assertEqual(len(r["fields"]), 1)
             self.assertEqual(r["fields"][0]["background_rgb"], "#292929")
             self.assertLess(r["fields"][0]["ratio"], 4.5)
+
+    def test_background_scan_bridges_small_glyph_and_outline_gaps(self):
+        for scale in (1, 2):
+            for level in (0x85, 0xAE):
+                with self.subTest(scale=scale, ink=level):
+                    ink = (level, level, level)
+                    rows: list[list[tuple[int, ...]]] = week(scale, ink)
+                    for y in range(29 * scale, 31 * scale):
+                        for x in range(20 * scale, 80 * scale):
+                            rows[y][x] = ink
+                    r = self.measure(rows)
+                    self.assertEqual(r["scale"], scale)
+                    self.assertEqual(r["fields"][0]["field_xyxy"][1::2], [20 * scale, 42 * scale])
+                    measured = r["fields"][0]["ratio"]
+                    self.assertEqual(measured, round(ratio(ink, (0x29,) * 3), 3))
+                    self.assertEqual(measured >= 4.5, level == 0xAE)
 
     def test_secondary_token_passes(self):
         # Theme.secondary dark (white 62 %) over the field.

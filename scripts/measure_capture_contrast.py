@@ -208,7 +208,17 @@ def measure_week(path):
             y += 1
         bands.append((y0, y))
     assert bands, f"{path}: no Week composer band found"
-    fy0, fy1 = max(bands, key=lambda b: b[1] - b[0])
+    # Text plus the accessible outline can interrupt the background-majority
+    # scan for a couple of rows. Join those small gaps before choosing the
+    # field, otherwise the blank strip above the glyphs wins as a false ROI.
+    gap = 3 * max(1, round((bands[-1][1] - bands[0][0]) / 22))
+    joined = []
+    for start, end in bands:
+        if joined and start - joined[-1][1] <= gap:
+            joined[-1] = (joined[-1][0], end)
+        else:
+            joined.append((start, end))
+    fy0, fy1 = max(joined, key=lambda b: b[1] - b[0])
     k = max(1, round((fy1 - fy0) / 22))
     band = img[fy0:fy1]
     fields = []
