@@ -5,7 +5,7 @@ import SwiftUI
 // MARK: - Color tokens
 
 /// Perch uses a black shell and opaque pastel cards with dark ink,
-/// white only on black, one warm accent, no strokes and no shadows.
+/// white only on black, one warm accent, and no shadows. Functional boundaries use quiet, accessible strokes.
 ///
 /// Ink tokens are two-faced. They resolve against the SwiftUI `colorScheme` of the subtree that draws them:
 /// `.dark` means "on the black shell or a dark tile" (white ink, orange accent), `.light` means "on a pastel card"
@@ -28,8 +28,12 @@ enum Theme {
     /// Highlighted dark tile (today's week column): `#303030`.
     static let tileStrong = Color(hex: "#303030")
     static let card = tile
-    /// Cards carry no stroke; kept for callers that still outline a tile.
-    static let cardStroke = Color.clear
+    /// Functional card edges: >=3:1 against the pastel/card surface; fills stay unchanged.
+    static let cardStroke = Color.dynamic(light: (0x2F3D33, 1), dark: (0x858585, 1))
+    /// Capture edge remains visible in resting and focused states without darkening its fill.
+    static let inputStroke = Color.dynamic(light: (0x29352D, 1), dark: (0x999999, 1))
+    /// The clothesline is a boundary, not secondary text with another opacity applied.
+    static let rope = Color.dynamic(light: (0x2F3D33, 1), dark: (0x858585, 1))
 
     static let text = Color.dynamic(light: (0x000000, 0.90), dark: (0xFFFFFF, 0.92))
     static let secondary = Color.dynamic(light: (0x000000, 0.74), dark: (0xFFFFFF, 0.62))
@@ -45,11 +49,15 @@ enum Theme {
     static let prominent = Color.dynamic(light: (0x000000, 0.30), dark: (0xF19644, 1))
     static let done = Color.dynamic(light: (0x17401F, 1), dark: (0x7AD98F, 1))
     static let danger = Color.dynamic(light: (0x5C110B, 1), dark: (0xFF6B6B, 1))
+    /// Restrained green-grey priority marker, separate from destructive/overdue red.
+    static let priorityHigh = Color.dynamic(light: (0x273D2E, 1), dark: (0xB9C6BA, 1))
 
     /// Quiet control fill for segment tracks and icon buttons: white 12.5 % on black.
     static let fill = Color.dynamic(light: (0xFFFFFF, 0.20), dark: (0xFFFFFF, 0.125))
-    /// Selected segment, hovered control. Selected pill on sage measured `#9DADA1`.
+    /// Hovered control. Selection has its own opaque token to avoid stacked translucency.
     static let fillStrong = Color.dynamic(light: (0xFFFFFF, 0.32), dark: (0xFFFFFF, 0.20))
+    /// Single-layer task-filter selection: sage pill, quiet grey on the shell.
+    static let selectedPill = Color.dynamic(light: (0x9DADA1, 1), dark: (0x333333, 1))
     /// The capture field: a slightly darker bar on a card.
     static let inputFill = Color.dynamic(light: (0x000000, 0.08), dark: (0xFFFFFF, 0.08))
     static let inputFillFocused = Color.dynamic(light: (0x000000, 0.12), dark: (0xFFFFFF, 0.12))
@@ -62,7 +70,7 @@ enum Theme {
     /// Priority shows in the ring and the "High" chip's weight, not a rainbow. Only High gets its own color.
     static func priority(_ p: TaskPriority) -> Color {
         switch p {
-        case .high: return danger
+        case .high: return priorityHigh
         case .medium, .low: return secondary
         case .none: return .clear
         }
@@ -233,6 +241,7 @@ struct CardSurface: ViewModifier {
             .padding(padding)
             .frame(maxWidth: .infinity, alignment: .topLeading)
             .background(RoundedRectangle(cornerRadius: Theme.cardRadius, style: .continuous).fill(tone.fill))
+            .overlay(RoundedRectangle(cornerRadius: Theme.cardRadius, style: .continuous).strokeBorder(Theme.cardStroke, lineWidth: 1))
             .foregroundStyle(Theme.text)
             .environment(\.colorScheme, tone.scheme)
     }
@@ -275,7 +284,7 @@ struct SegmentPills<T: Hashable>: View {
                     Text(it.label)
                         .font(.system(size: 11, weight: on ? .semibold : .medium).monospacedDigit())
                         .padding(.horizontal, 9).padding(.vertical, 4)
-                        .background(Capsule().fill(on ? Theme.fillStrong : .clear))
+                        .background(Capsule().fill(on ? Theme.selectedPill : .clear))
                         .foregroundStyle(on ? Theme.text : Theme.secondary)
                         .contentShape(Capsule())
                 }
@@ -284,7 +293,6 @@ struct SegmentPills<T: Hashable>: View {
             }
         }
         .padding(2)
-        .background(Capsule().fill(Theme.fill))
         .transaction { $0.animation = nil }
     }
 }

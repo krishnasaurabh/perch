@@ -218,6 +218,7 @@ struct MiniComposer: View {
             .accessibilityLabel(prompt)
             .padding(.horizontal, 6).padding(.vertical, 5)
             .background(RoundedRectangle(cornerRadius: 7).fill(Color.white.opacity(0.05)))
+            .overlay(RoundedRectangle(cornerRadius: 7).strokeBorder(Theme.inputStroke, lineWidth: 1))
             .onSubmit {
                 guard !text.isEmpty else { return }
                 if store.apply({ try $0.addTasks([text], on: ref) }) != nil { text = "" }
@@ -252,7 +253,7 @@ private struct ClipsBody: View {
                     .help("Remove unpinned clips. Undo is available for 5 seconds.")
             }
             ZStack(alignment: .top) {
-                // The rope spans the card's own content width, so it never runs past the card's edge.
+                // Keep the bounded rope geometry; its stroke uses the shared accessibility token below.
                 ClipsRope()
                 Group {
                     if clips.clips.isEmpty {
@@ -307,8 +308,8 @@ private struct ClipsRope: View {
                     p.move(to: CGPoint(x: rope.start.x, y: rope.start.y))
                     p.addQuadCurve(to: CGPoint(x: rope.end.x, y: rope.end.y), control: CGPoint(x: rope.control.x, y: rope.control.y))
                 }
-                // Tertiary ink at 55 %: white at ≈ 0.25 on the dark tile (unchanged), and dark ink if the card turns light.
-                .stroke(Theme.tertiary.opacity(0.55), style: StrokeStyle(lineWidth: 1.5, lineCap: .round))
+                // Dedicated boundary ink: do not attenuate a text token a second time.
+                .stroke(Theme.rope, style: StrokeStyle(lineWidth: 1.5, lineCap: .round))
             }
         }
         .frame(height: ClipsLineLayout.bandHeight)

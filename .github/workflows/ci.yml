@@ -118,6 +118,10 @@ jobs:
           EOF
       - name: Reduced motion policy and nested transaction regression
         run: bash scripts/check_motion.sh "$RUNNER_TEMP/motion-policy"
+      - name: Theme contrast and Home Week Settings in both appearances
+        run: |
+          pip3 install --quiet --break-system-packages Pillow
+          bash scripts/check_theme.sh "$RUNNER_TEMP/notch/theme"
       - name: Empty states and capture focus
         run: bash scripts/check_empty_states.sh "$RUNNER_TEMP/empty-states"
       - name: Week with a busy today (overflow fade, +N more, pinned Add)
