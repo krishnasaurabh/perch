@@ -84,7 +84,7 @@ HAVE_FF=$HAVE_FF python3 - "$OUT" <<'PY'
 import glob, hashlib, json, math, os, shutil, statistics, subprocess, sys
 out = sys.argv[1]
 CLIPS = ["open", "close", "page", "tick", "timer"]
-PRE, POST = 0.15, 1.25            # clip window around each marker, seconds
+PRE, POST = 0.3, 1.25             # clip window around each marker, seconds
 GW, GH = 256, 144                 # analysis raster (grey) for frame differences
 CHANGED = 0.25                    # mean |delta| on 0-255 grey above which a frame counts as changed
 HAVE_FF = os.environ.get("HAVE_FF") == "1"
@@ -175,9 +175,21 @@ elif os.path.exists(mov) and os.path.getsize(mov) > 0 and os.path.exists(markers
            "stream_avg_frame_rate": st.get("avg_frame_rate"), "stream_r_frame_rate": st.get("r_frame_rate"),
            "alignment_offset_s": round(offset, 4), "aligned_on": "first changed frame after the open marker" if cand else "none (raw clock)",
            "clips": {}}
+    # Re-anchor every marker in timeline order: the recorder clock drifts from the app clock (~0.3 s over
+    # 10 s on a hosted VM), so one offset from "open" mis-windows later clips. Each marker snaps to the first
+    # visible change in [pred-0.25, pred+0.8] after the previous anchor and carries its offset forward.
+    anchor_off, last_i, cur = {}, 0, offset
+    for m in sorted(mk["markers"], key=lambda m: m["t"]):
+        pred = m["t"] - start + cur
+        hit = next((i for i in range(max(last_i + 1, 1), n) if pred - 0.25 <= pts[i] <= pred + 0.8 and d[i] > CHANGED), None)
+        if hit is not None:
+            cur = pts[hit - 1] - (m["t"] - start); last_i = hit
+        anchor_off[m["name"]] = (cur, hit is not None)
+    rec["per_marker_offset_s"] = {k: [round(v[0], 4), v[1]] for k, v in anchor_off.items()}
     for name in CLIPS:
         if name not in M: continue
-        vt = M[name]["t"] - start + offset
+        off_n = anchor_off.get(name, (offset, False))[0]
+        vt = M[name]["t"] - start + off_n
         idx = [i for i in range(n) if vt - PRE <= pts[i] <= vt + POST]
         cdir = os.path.join(out, name); shutil.rmtree(cdir, ignore_errors=True); os.makedirs(os.path.join(cdir, "frames"))
         if not idx:
@@ -194,7 +206,7 @@ elif os.path.exists(mov) and os.path.getsize(mov) > 0 and os.path.exists(markers
         frames = [{"i": k, "file": f"frames/f{k:04d}.png" if k < len(files) else None, "video_pts_s": round(pts[i], 5),
                    "t_from_marker_ms": round((pts[i] - vt) * 1000, 2), "mean_abs_delta": round(dd[k], 4), "changed": dd[k] > CHANGED}
                   for k, i in enumerate(idx)]
-        meta = {"clip": name, "kind": "screen-recording", "marker": M[name], "window_s": [round(a, 4), round(b, 4)], **stats, "frames": frames}
+        meta = {"clip": name, "kind": "screen-recording", "marker": M[name], "alignment_offset_s": round(off_n, 4), "window_s": [round(a, 4), round(b, 4)], **stats, "frames": frames}
         json.dump(meta, open(os.path.join(cdir, "frames.json"), "w"), indent=1)
         # Contact sheet starts one frame before the motion so the before state is visible.
         first_ch = next((k for k, f in enumerate(frames) if f["changed"]), 0)
