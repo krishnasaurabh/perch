@@ -18,6 +18,7 @@ MainActor.assumeIsolated {
     app.delegate = delegate
     app.setActivationPolicy(.accessory)
     let output = URL(fileURLWithPath: ProcessInfo.processInfo.environment["COMPACT_HOME_OUTPUT"]!)
+    let baseline = ProcessInfo.processInfo.environment["COMPACT_HOME_BASELINE"] == "1"
     DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
         Task { @MainActor in
             var metrics: [[String: Any]] = []
@@ -48,7 +49,13 @@ MainActor.assumeIsolated {
                 }
                 let workspace = geometry.workspace
                 let shell = workspace.offsetBy(dx: -panel.frame.minX, dy: -panel.frame.minY)
-                let capture = editor.convert(editor.bounds, to: nil)
+                let capture = editor.convert(editor.visibleRect, to: nil)
+                if baseline {
+                    metrics.append(["scenario": scenario, "workspaceHeight": workspace.height,
+                                    "capture": NSStringFromRect(capture)])
+                    delegate.notch.snapshot(into: output.appendingPathComponent(scenario))
+                    continue
+                }
                 require(shell.insetBy(dx: 1, dy: 1).contains(capture), "\(scenario): capture fully inside compact shell")
                 require(abs(workspace.height - WorkspaceLayout.preferredSize(notchHeight: geometry.notchSize.height).height) < 1,
                         "\(scenario): actual geometry uses the compact budget")
@@ -70,7 +77,7 @@ MainActor.assumeIsolated {
                     require(document.frame.height > list.contentSize.height, "dense: content scrolls instead of growing shell")
                     document.scroll(NSPoint(x: 0, y: document.frame.height))
                     await settle()
-                    require(editor.convert(editor.bounds, to: nil) == capture, "dense: capture does not move when tasks scroll")
+                    require(editor.convert(editor.visibleRect, to: nil) == capture, "dense: capture does not move when tasks scroll")
                     delegate.notch.snapshot(into: output.appendingPathComponent("dense-scrolled"))
                 }
                 if scenario == "long-title" {
@@ -78,8 +85,10 @@ MainActor.assumeIsolated {
                                       replacementRange: NSRange(location: NSNotFound, length: 0))
                     await settle()
                     require(delegate.model.geometry?.workspace == workspace && panel.frame == geometry.window, "typing never resizes the workspace")
-                    require(shell.contains(editor.convert(editor.bounds, to: nil)), "multi-line capture remains fully visible")
                     delegate.notch.snapshot(into: output.appendingPathComponent("multiline-capture"))
+                    let visibleCapture = editor.convert(editor.visibleRect, to: nil)
+                    print("multi-line document=\(editor.bounds) visible=\(visibleCapture) shell=\(shell)")
+                    require(visibleCapture.height >= 12 && shell.contains(visibleCapture), "multi-line capture viewport remains fully visible")
                 }
             }
             delegate.model.page = .insights

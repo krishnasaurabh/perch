@@ -8,9 +8,17 @@ mkdir -p "$OUT"
 OUT=$(cd "$OUT" && pwd)
 PROBE=$(mktemp -d "$OUT/build.XXXXXX")
 trap 'rm -rf "$PROBE"' EXIT
-cp "$ROOT/Package.swift" "$PROBE/"
-cp -R "$ROOT/Sources" "$PROBE/"
-cp -R "$ROOT/Tests" "$PROBE/"
+if [[ -n ${2:-} ]]; then
+    # Exact public baseline, capture-only. The helper is linked only for probe compilation;
+    # baseline NotchGeometry/TasksCard remain unchanged and still use their old 470pt layout.
+    git -C "$ROOT" archive "$2" Package.swift Sources Tests | tar -x -C "$PROBE"
+    cp "$ROOT/Sources/PlannerCore/WorkspaceLayout.swift" "$PROBE/Sources/PlannerCore/"
+    export COMPACT_HOME_BASELINE=1
+else
+    cp "$ROOT/Package.swift" "$PROBE/"
+    cp -R "$ROOT/Sources" "$PROBE/"
+    cp -R "$ROOT/Tests" "$PROBE/"
+fi
 cp "$ROOT/scripts/compact_home_probe.swift" "$PROBE/Sources/Perch/App/main.swift"
 swift build --package-path "$PROBE" -c release --product Perch
 python3 - "$PROBE/.build/release/Perch" "$OUT" <<'PY'

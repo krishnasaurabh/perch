@@ -124,7 +124,8 @@ jobs:
           python3 -m unittest discover -s scripts -p test_measure_clips_bounds.py
           bash scripts/check_clips_layout.sh "$RUNNER_TEMP/notch/clips"
       - name: Compact Home bounds and stress snapshots
-        run: bash scripts/check_compact_home.sh "$RUNNER_TEMP/notch/compact-home"
+        run: |
+          bash scripts/check_compact_home.sh "$RUNNER_TEMP/notch/compact-home"
       - name: Larger flat desktop (best effort; the runner's virtual display defaults to 1024x768)
         run: |
           OUT=$RUNNER_TEMP/notch/large; mkdir -p $OUT
