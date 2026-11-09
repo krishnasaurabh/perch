@@ -28,6 +28,43 @@ need_ffmpeg() {
   command -v ffmpeg >/dev/null && command -v ffprobe >/dev/null
 }
 
+# SwiftUI only builds a macOS app's accessibility tree once an AX client talks to it, so on a VM with no
+# VoiceOver the driver's in-process button presses find nothing. Once the driver writes its "reopen" marker,
+# act as that client: System Events (osascript has the Accessibility grant on GitHub's macOS images) sets
+# AXManualAccessibility on Perch and counts its windows' elements (AXEnhancedUserInterface is left alone:
+# it changes how apps animate). Output -> ax-wake.txt.
+ax_wake() {
+  local MK="$1" LOGF="$2"
+  case "${PERCH_MOTION_AX_WAKE:-both}" in external|both) ;; *) echo "skipped (PERCH_MOTION_AX_WAKE=${PERCH_MOTION_AX_WAKE:-})" >"$LOGF"; return 0 ;; esac
+  for _ in $(seq 1 80); do grep -q '"reopen"' "$MK" 2>/dev/null && break; sleep 0.1; done
+  { echo "reopen seen: $(python3 -c 'import time;print(repr(time.time()))')"
+    # No coreutils `timeout` on stock macOS: a watchdog kills osascript after 8 s.
+    osascript - >"$LOGF.osa" 2>&1 <<'OSA' &
+tell application "System Events"
+  set out to {}
+  tell process "Perch"
+    try
+      set value of attribute "AXManualAccessibility" to true
+      set end of out to "AXManualAccessibility=set"
+    on error e
+      set end of out to "AXManualAccessibility error: " & e
+    end try
+    try
+      set end of out to "windows=" & (count of windows)
+      set end of out to "top-level elements=" & (count of UI elements of window 1)
+    on error e
+      set end of out to "walk error: " & e
+    end try
+  end tell
+  set AppleScript's text item delimiters to linefeed
+  return out as text
+end tell
+OSA
+    local O=$!; ( sleep 8; kill $O 2>/dev/null ) & local WD=$!
+    wait $O; local ORC=$?; kill $WD 2>/dev/null; cat "$LOGF.osa"; rm -f "$LOGF.osa"
+    echo "osascript exit=$ORC at $(python3 -c 'import time;print(repr(time.time()))')"; } >"$LOGF"
+}
+
 record() {
   local BIN="$APP/Contents/MacOS/Perch"
   [ -x "$BIN" ] || { log "no app binary at $BIN"; return 1; }
@@ -39,8 +76,9 @@ record() {
   screencapture -x -V 24 "$OUT/screen.mov" >>"$LOG" 2>&1 &
   local SC=$!
   sleep 2
-  PERCH_DATA="$DATA" "$BIN" --motion-script "$OUT/markers.json" >>"$LOG" 2>&1 &
+  PERCH_MOTION_AX_WAKE="${PERCH_MOTION_AX_WAKE:-both}" PERCH_DATA="$DATA" "$BIN" --motion-script "$OUT/markers.json" >>"$LOG" 2>&1 &
   local P=$!
+  ax_wake "$OUT/markers.json" "$OUT/ax-wake.txt" &
   for _ in $(seq 1 40); do kill -0 $P 2>/dev/null || break; sleep 0.5; done
   kill $P 2>/dev/null
   wait $SC; local RC=$?
@@ -62,7 +100,8 @@ record() {
   # Pass 2: in-process own-window renders every 16 ms. Separate run so the extra main-thread work can't
   # disturb the recording above. Labelled "in-process-snapshot" everywhere.
   rm -f "$DATA"; mkdir -p "$OUT/in-process"
-  PERCH_DATA="$DATA" "$BIN" --motion-script "$OUT/in-process/markers.json" --motion-snapshots "$OUT/in-process" >>"$LOG" 2>&1 &
+  # In-process AX wake only here (no external query), so the two passes show which wake works on this host.
+  PERCH_MOTION_AX_WAKE="${PERCH_MOTION_AX_WAKE_PASS2:-inproc}" PERCH_DATA="$DATA" "$BIN" --motion-script "$OUT/in-process/markers.json" --motion-snapshots "$OUT/in-process" >>"$LOG" 2>&1 &
   P=$!
   for _ in $(seq 1 60); do kill -0 $P 2>/dev/null || break; sleep 0.5; done
   kill $P 2>/dev/null
@@ -144,10 +183,16 @@ def wiring(path):
     if not os.path.exists(path): return {"ok": False, "error": f"missing {os.path.relpath(path, out)}"}
     mk = json.load(open(path))["markers"]; seen = {m["name"]: m.get("via") for m in mk}
     miss = [n for n in WIRING if n not in seen]
-    fallbacks = [n for n, v in seen.items() if str(v).startswith("direct:") or v == "none"]
-    return {"ok": not miss, "missing": miss, "via": seen, "direct_fallbacks": fallbacks}
+    fallbacks = [n for n, v in seen.items() if str(v).startswith("direct") or v == "none"]
+    # AX diagnostics from the driver: notch-panel AX node count before each step, and the wake report.
+    ax = {m["name"]: m.get("ax_nodes") for m in mk if "ax_nodes" in m}
+    reo = next((m for m in mk if m["name"] == "reopen"), {})
+    wake = {k: reo.get(k) for k in ("ax_wake_mode", "ax_trusted", "ax_wake_inproc") if k in reo}
+    return {"ok": not miss, "missing": miss, "via": seen, "direct_fallbacks": fallbacks, "ax_nodes": ax, "ax_wake": wake}
 summary["wiring"] = {"screen_pass": wiring(os.path.join(out, "markers.json")),
                      "in_process_pass": wiring(os.path.join(out, "in-process", "markers.json"))}
+axw = os.path.join(out, "ax-wake.txt")
+if os.path.exists(axw): summary["wiring"]["screen_pass"]["ax_wake_external"] = open(axw).read().strip()
 
 # ---------- 1. Screen recording ----------
 mov = os.path.join(out, "screen.mov")
@@ -288,6 +333,9 @@ for k, w in summary["wiring"].items():
     if "error" in w: L.append(f"- {k}: ERROR {w['error']}"); continue
     L.append(f"- {k}: {'ok' if w['ok'] else 'MISSING ' + ', '.join(w['missing'])}; via " +
              ", ".join(f"{n}={v}" for n, v in w["via"].items()) + (f"; direct fallbacks: {', '.join(w['direct_fallbacks'])}" if w["direct_fallbacks"] else ""))
+    if w.get("ax_nodes"): L.append(f"  - AX nodes before each step: " + ", ".join(f"{n}={v}" for n, v in w["ax_nodes"].items()))
+    if w.get("ax_wake"): L.append(f"  - AX wake: " + ", ".join(f"{k}={v}" for k, v in w["ax_wake"].items()))
+    if w.get("ax_wake_external"): L.append("  - external AX query (System Events): " + w["ax_wake_external"].replace("\n", " | "))
 L.append("")
 for key, title in (("screen_recording", "Screen recording"), ("in_process", "In-process 16 ms snapshots (fallback, not compositor)")):
     r = summary.get(key)

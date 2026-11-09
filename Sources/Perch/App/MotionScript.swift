@@ -1,4 +1,5 @@
 import AppKit
+import ApplicationServices
 import PlannerCore
 import SwiftUI
 
@@ -64,11 +65,24 @@ enum MotionScript {
                 },
                 Step(name: "close", wait: 1.6, capture: true) { [model] in model.close(); return "NotchModel.close" },
                 Step(name: "reopen", wait: 1.4, capture: false) {
-                    // Activate so SwiftUI publishes the panel's accessibility tree before the button steps.
                     NSApp.activate(ignoringOtherApps: true)
+                    // SwiftUI builds its macOS accessibility tree lazily, only once an AX client is talking to the
+                    // app. A CI VM has none (no VoiceOver, no automation), so the tree stays empty and every press
+                    // misses. PERCH_MOTION_AX_WAKE: "inproc"/"both" turn on AX automation in-process here;
+                    // "external"/"both" mean motion_capture.sh queries us over AX (osascript) right after this.
+                    let mode = ProcessInfo.processInfo.environment["PERCH_MOTION_AX_WAKE"] ?? "none"
+                    if mode == "inproc" || mode == "both" {
+                        self.axWake = AX.enableAutomation()
+                        // Also ask our own process over the AX API, off the main thread (the main thread serves it).
+                        DispatchQueue.global().async {
+                            let r = AX.selfAttributes()
+                            Task { @MainActor in self.axWake = (self.axWake ?? "") + "," + r }
+                        }
+                    }
                     NotificationCenter.default.post(name: .perchOpenWorkspace, object: NotchPage.home); return "perchOpenWorkspace"
                 },
-                Step(name: "page", wait: 1.4, capture: true) { [model] in
+                // 2.4 s (was 1.4): leaves room for the external AX query and for SwiftUI to publish the tree.
+                Step(name: "page", wait: 2.4, capture: true) { [model] in
                     self.press(target.title, orElse: {
                         // Same mutation and spring as the picker button. On a locked session the animated
                         // transaction never commits inside the capture window, so there it is set plainly.
@@ -105,6 +119,9 @@ enum MotionScript {
                 write(); NSApp.terminate(nil); return
             }
             DispatchQueue.main.asyncAfter(deadline: .now() + step.wait) { [self] in
+                // How much of the AX tree is visible right before the action (counted before `t`, so it doesn't
+                // shift the action). `close` is the pre-wake baseline with the workspace open.
+                let axNodes = axCount()
                 let t = Date().timeIntervalSince1970
                 // Frame 0 of every captured clip is grabbed just BEFORE the action runs (t ~ 0), so each clip has a
                 // before/after pair even when the host can't animate.
@@ -112,6 +129,12 @@ enum MotionScript {
                 let via = step.action()
                 var m: [String: Any] = ["name": step.name, "t": t, "uptime": ProcessInfo.processInfo.systemUptime, "via": via]
                 if step.name == "page" { m["target"] = extra["page"] ?? "" }
+                m["ax_nodes"] = axNodes
+                if step.name == "reopen" {
+                    m["ax_wake_mode"] = ProcessInfo.processInfo.environment["PERCH_MOTION_AX_WAKE"] ?? "none"
+                    m["ax_trusted"] = AXIsProcessTrusted()
+                }
+                if let w = axWake { m["ax_wake_inproc"] = w }
                 markers.append(m)
                 write()
                 if step.capture, let dir = snapshotDir {
@@ -143,6 +166,19 @@ enum MotionScript {
                 if let el = find(label, in: root, depth: 0), AX.press(el) { return "ax-press:\(label)" }
             }
             return nil
+        }
+
+        private var axWake: String?
+
+        /// Accessibility descendants of the visible notch panel(s), capped. 0 = SwiftUI hasn't built the tree.
+        private func axCount() -> Int {
+            var n = 0
+            func walk(_ o: NSObject, _ depth: Int) {
+                guard depth < 60, n < 5000 else { return }
+                for c in AX.children(o) { n += 1; walk(c, depth + 1) }
+            }
+            for w in NSApp.windows where w is NotchPanel && w.isVisible { if let v = w.contentView { walk(v, 0) } }
+            return n
         }
 
         private func find(_ label: String, in node: NSObject, depth: Int) -> NSObject? {
@@ -215,6 +251,24 @@ private enum AX {
 
     static func label(_ o: NSObject) -> String? { object(o, "accessibilityLabel") as? String }
     static func children(_ o: NSObject) -> [NSObject] { (object(o, "accessibilityChildren") as? [Any])?.compactMap { $0 as? NSObject } ?? [] }
+
+    /// Turns on accessibility automation in this process, the switch an automation client (XCUITest) flips.
+    /// Private libAccessibility call, looked up at runtime, so a missing symbol only changes the returned report.
+    /// Used by the CI motion driver only.
+    static func enableAutomation() -> String {
+        typealias SetBool = @convention(c) (Bool) -> Void
+        guard let h = dlopen("/usr/lib/libAccessibility.dylib", RTLD_NOW) else { return "libAccessibility=missing" }
+        guard let p = dlsym(h, "_AXSSetAutomationEnabled") else { return "_AXSSetAutomationEnabled=missing" }
+        unsafeBitCast(p, to: SetBool.self)(true)
+        return "_AXSSetAutomationEnabled=called"
+    }
+
+    /// Sets AXManualAccessibility (the flag assistive apps set on a target app) on our own process. Must run off
+    /// the main thread, which serves the request. Returns the AXError code (0 = success, -25211 = API disabled).
+    static func selfAttributes() -> String {
+        let app = AXUIElementCreateApplication(getpid())
+        return "AXManualAccessibility=\(AXUIElementSetAttributeValue(app, "AXManualAccessibility" as CFString, kCFBooleanTrue).rawValue)"
+    }
 
     static func press(_ o: NSObject) -> Bool {
         let sel = NSSelectorFromString("accessibilityPerformPress")
