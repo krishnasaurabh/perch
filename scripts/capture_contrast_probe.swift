@@ -53,7 +53,8 @@ MainActor.assumeIsolated {
                 delegate.model.open(page: .home)
                 await settle()
                 require(delegate.model.captureFocusRequest == nil, "\(name): passive reveal requests no capture focus")
-                require(other.isKeyWindow && captureEditor() == nil, "\(name): passive reveal leaves capture unfocused")
+                // The fixture's own text field holds a field editor, so check which window owns the keyboard.
+                require(other.isKeyWindow && NSApp.keyWindow === other, "\(name): passive reveal leaves capture unfocused")
                 delegate.notch.snapshot(into: output.appendingPathComponent(name))
                 other.orderOut(nil)
             }

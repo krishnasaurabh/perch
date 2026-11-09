@@ -243,15 +243,22 @@ struct TaskComposer: View {
     var body: some View {
         HStack(spacing: 8) {
             Image(systemName: "plus").font(.system(size: 11, weight: .bold)).foregroundStyle(Theme.secondary)
-            // Explicit prompt ink: the default placeholder rendered ≈ 2.4:1 on the input fill.
-            // `Theme.text` is the only existing light-ink token that clears 4.5:1 on both the resting (8 %)
-            // and focused (12 %) fill; `Theme.secondary` drops to ≈ 4.3:1 once focused.
-            TextField(placeholder, text: $text, prompt: Text(placeholder).foregroundStyle(Theme.text), axis: .vertical)
+            // Prompt drawn by Perch. AppKit draws a TextField's own placeholder in the system placeholder
+            // colour (≈ 2.4:1 resting, 1.6:1 focused on the input fill) and ignores `prompt:` foreground styles on
+            // macOS. `Theme.text` is the only ink token that clears 4.5:1 on both the 8 % and 12 % fill.
+            TextField("", text: $text, axis: .vertical)
                 .textFieldStyle(.plain).font(Theme.body)
                 .lineLimit(1...4)
                 .truncationMode(.tail)
+                .background(alignment: .leading) {
+                    if text.isEmpty {
+                        Text(placeholder).font(Theme.body).foregroundStyle(Theme.text).lineLimit(1)
+                            .allowsHitTesting(false).accessibilityHidden(true)
+                    }
+                }
                 .focused($focused)
                 .accessibilityLabel("Add a task")
+                .accessibilityHint(placeholder)
                 .accessibilityIdentifier("task-capture")
                 .onSubmit(add)
             if !text.isEmpty, let preview = preview {

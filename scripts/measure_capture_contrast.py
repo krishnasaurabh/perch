@@ -13,8 +13,10 @@ Each STATE_DIR holds one `notch-*-open.png` written by `NotchController.snapshot
 
 Method for measuring rendered capture-field contrast:
 1. Field: the widest contiguous band of rows whose pixels match the capture fill, sage `#879E8D` with
-   black 8 % (resting) or 12 % (focused) over it, +/-3 per channel. ROI = that band inset 2 px vertically
-   and 4 px horizontally, so the rounded corners and the 1.5 pt focus stroke are excluded.
+   black 8 % (resting) or 12 % (focused) over it, +/-3 per channel, and the longest run of columns that are
+   mostly fill. ROI = that band inset 2 px vertically and 4 px horizontally, so the rounded corners and the
+   1.5 pt focus stroke are excluded. All pixel sizes here are 1x; they scale with the backing factor
+   (field height / 38 px), so 2x Retina snapshots measure the same way.
 2. Background = the modal ROI colour. Ink = pixels differing from it by more than 8 in any channel.
 3. Ink columns are split into clusters at gaps of >= 6 px: first = plus icon, last = mic, the rest = prompt.
    A 1-2 px column cluster whose vertical ink run spans >= 34 % of the band is a text caret, reported and excluded.
@@ -109,14 +111,28 @@ def find_field(img):
                 best = (state, y0, y, fill)
     assert best and best[2] - best[1] >= 12, "capture field not found"
     state, y0, y1, fill = best
-    xs = [x for row in img[y0:y1] for x, p in enumerate(row) if near(p, fill, 3)]
-    return state, y0, y1, min(xs), max(xs) + 1
+    # Field columns: the longest contiguous run of columns that are mostly fill. Taking min/max of every matching
+    # pixel instead lets stray fill-coloured pixels in the shell's rounded corner widen the field at 2x scale.
+    band = img[y0:y1]
+    col = [sum(near(row[x], fill, 3) for row in band) >= 0.3 * len(band) for x in range(len(band[0]))]
+    run, x = (0, 0), 0
+    while x < len(col):
+        if not col[x]:
+            x += 1
+            continue
+        s = x
+        while x < len(col) and col[x]:
+            x += 1
+        run = max(run, (s, x), key=lambda r: r[1] - r[0])
+    return state, y0, y1, run[0], run[1]
 
 
 def measure(path):
     img = read_png(path)
     state, fy0, fy1, fx0, fx1 = find_field(img)
-    y0, y1, x0, x1 = fy0 + 2, fy1 - 2, fx0 + 4, fx1 - 4
+    # Backing scale: the field is 38 px tall at 1x. Insets, gaps and caret width are 1x pixel sizes.
+    k = max(1, round((fy1 - fy0) / 38))
+    y0, y1, x0, x1 = fy0 + 2 * k, fy1 - 2 * k, fx0 + 4 * k, fx1 - 4 * k
     roi = [row[x0:x1] for row in img[y0:y1]]
     bg = Counter(p for row in roi for p in row).most_common(1)[0][0]
     ink = [[max(abs(a - b) for a, b in zip(p, bg)) > 8 for p in row] for row in roi]
@@ -127,7 +143,7 @@ def measure(path):
             x += 1
             continue
         s, gap = x, 0
-        while x < len(cols) and gap < 6:
+        while x < len(cols) and gap < 6 * k:
             gap = 0 if cols[x] else gap + 1
             x += 1
         clusters.append([s, x - gap])
@@ -143,7 +159,7 @@ def measure(path):
     caret = []
     text = []
     for s, e in clusters[1:-1]:
-        if e - s <= 2 and max(longest_run(c) for c in range(s, e)) >= 0.34 * (fy1 - fy0):
+        if e - s <= 2 * k and max(longest_run(c) for c in range(s, e)) >= 0.34 * (fy1 - fy0):
             caret.append([x0 + s, x0 + e])
         else:
             text.append((s, e))
@@ -160,7 +176,7 @@ def measure(path):
                 "ink_pixels": len(px), "x": [x0 + spans[0][0], x0 + spans[-1][1]]}
 
     return {
-        "image": str(path), "size": [len(img[0]), len(img)], "field_state": state,
+        "image": str(path), "size": [len(img[0]), len(img)], "scale": k, "field_state": state,
         "field_xyxy": [fx0, fy0, fx1, fy1], "roi_xyxy": [x0, y0, x1, y1], "background_rgb": "#%02X%02X%02X" % bg,
         "plus": stats([clusters[0]]), "placeholder": stats(text), "mic": stats([clusters[-1]]),
         "caret_columns_excluded": caret,
