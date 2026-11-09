@@ -112,13 +112,12 @@ struct SettingsView: View {
     }
 
     @ViewBuilder var workspace: some View {
-        Section("Cards") {
-            ForEach(store.prefs.workspaceCardOrder, id: \.self) { id in
+        Section("Beside today's tasks") {
+            ForEach(HomeLayout.ordered(store.prefs.workspaceCardOrder), id: \.self) { id in
                 HStack {
                     Toggle(cardName(id), isOn: Binding(get: { !store.prefs.hiddenWorkspaceCards.contains(id) }, set: { show in
                         store.updatePrefs { p in
-                            if show { p.hiddenWorkspaceCards.removeAll { $0 == id } }
-                            else if p.workspaceCardOrder.count - p.hiddenWorkspaceCards.count > 1 { p.hiddenWorkspaceCards.append(id) }
+                            if show { p.hiddenWorkspaceCards.removeAll { $0 == id } } else if !p.hiddenWorkspaceCards.contains(id) { p.hiddenWorkspaceCards.append(id) }
                         }
                     }))
                     Spacer()
@@ -126,8 +125,9 @@ struct SettingsView: View {
                     Button { moveCard(id, 1) } label: { Image(systemName: "chevron.down") }.buttonStyle(.borderless)
                 }
             }
-            Button("Reset to default") { store.updatePrefs { $0.workspaceCardOrder = Preferences().workspaceCardOrder; $0.hiddenWorkspaceCards = [] } }
-            Text("Hiding a card doesn't delete what's in it. One card must stay shown.").font(.caption).foregroundStyle(.secondary)
+            Button("Reset to default") { store.updatePrefs { $0.workspaceCardOrder = Preferences().workspaceCardOrder; $0.hiddenWorkspaceCards = Preferences().hiddenWorkspaceCards } }
+            Text("Today always shows your tasks. The focus timer appears while it runs and the agenda when you have events. Insights has its own tab.")
+                .font(.caption).foregroundStyle(.secondary)
         }
         Section("Clips") {
             Toggle("Add new screenshots to Clips", isOn: pref(\.catchScreenshots))
@@ -204,15 +204,17 @@ struct SettingsView: View {
     }
 
     func cardName(_ id: String) -> String {
-        ["tasks": "Tasks", "focus": "Focus timer", "notepad": "Notepad", "events": "Calendar", "insights": "Insights"][id] ?? id
+        ["focus": "Focus timer (while running)", "notepad": "Notepad", "events": "Today's agenda (when there are events)"][id] ?? id
     }
 
     func moveCard(_ id: String, _ delta: Int) {
         store.updatePrefs { p in
-            guard let i = p.workspaceCardOrder.firstIndex(of: id) else { return }
+            var order = HomeLayout.ordered(p.workspaceCardOrder)
+            guard let i = order.firstIndex(of: id) else { return }
             let j = i + delta
-            guard p.workspaceCardOrder.indices.contains(j) else { return }
-            p.workspaceCardOrder.swapAt(i, j)
+            guard order.indices.contains(j) else { return }
+            order.swapAt(i, j)
+            p.workspaceCardOrder = order
         }
     }
 

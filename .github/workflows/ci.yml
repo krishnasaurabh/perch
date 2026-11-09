@@ -65,6 +65,14 @@ jobs:
           PERCH_DATA=$RUNNER_TEMP/shot.json dist/Perch.app/Contents/MacOS/Perch --dump-layout $OUT/live-closed.json --snapshot $OUT &
           sleep 5; screencapture -x $RUNNER_TEMP/perch-closed.png || true; kill %1 || true
           ls -la $OUT $RUNNER_TEMP/perch-*.png
+      - name: Home and Insights snapshots (empty, 3 tasks, timer running, insights)
+        run: |
+          for sc in empty:home three:home timer:home insights:insights empty:insights; do
+            name=${sc%%:*}; page=${sc##*:}; OUT=$RUNNER_TEMP/notch/$name-$page; mkdir -p $OUT
+            PERCH_DATA=$RUNNER_TEMP/sc-$name.json dist/Perch.app/Contents/MacOS/Perch --preview-open --scenario $name --page $page --snapshot $OUT &
+            PID=$!; sleep 5; kill $PID || true; wait $PID 2>/dev/null || true
+            ls $OUT/*.png || { echo "no snapshot for $name"; exit 1; }
+          done
       - name: NotchLayout frames (fixtures + live) and mouse routing
         run: |
           OUT=$RUNNER_TEMP/notch
@@ -92,10 +100,17 @@ jobs:
                   assert s["window"]["y"] + s["window"]["h"] == s["frame"]["y"] + s["frame"]["h"], "window not flush with screen top"
           sys.exit(1 if bad else 0)
           EOF
+      - name: Empty states and capture focus
+        run: bash scripts/check_empty_states.sh "$RUNNER_TEMP/empty-states"
+      - name: Capture prompt contrast (rendered, resting + focused)
+        run: bash scripts/check_capture_contrast.sh "$RUNNER_TEMP/capture-contrast"
       - uses: actions/upload-artifact@v4
+        if: always()
         with:
           name: Perch
           path: |
             dist/*.dmg
             ${{ runner.temp }}/perch-*.png
-            ${{ runner.temp }}/notch/*
+            ${{ runner.temp }}/notch/**
+            ${{ runner.temp }}/empty-states/
+            ${{ runner.temp }}/capture-contrast/

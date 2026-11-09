@@ -49,8 +49,9 @@ struct WeekPage: View {
                             .onDrag { NSItemProvider(object: t.id.uuidString as NSString) }
                     }
                     if tasks.isEmpty {
-                        Text(past ? "Empty." : ref == .inbox ? "Undated tasks go here." : "Free so far.")
-                            .font(.system(size: 10)).foregroundStyle(Theme.tertiary).padding(.top, 6)
+                        EmptyStateView(past ? "No plans" : ref == .inbox ? "For later" : "Open day",
+                                       symbol: ref == .inbox ? "tray" : "calendar",
+                                       compact: true)
                     }
                 }
             }.scrollIndicators(.never)
@@ -133,21 +134,18 @@ private struct ClipsBody: View {
             }
             ZStack(alignment: .top) {
                 // The rope.
-                Path { p in
-                    p.move(to: CGPoint(x: 0, y: 14))
-                    p.addQuadCurve(to: CGPoint(x: 780, y: 14), control: CGPoint(x: 390, y: 34))
+                if !clips.clips.isEmpty {
+                    Path { p in
+                        p.move(to: CGPoint(x: 0, y: 14))
+                        p.addQuadCurve(to: CGPoint(x: 780, y: 14), control: CGPoint(x: 390, y: 34))
+                    }
+                    .stroke(Color.white.opacity(0.25), style: StrokeStyle(lineWidth: 1.5, lineCap: .round))
+                    .frame(height: 40)
                 }
-                .stroke(Color.white.opacity(0.25), style: StrokeStyle(lineWidth: 1.5, lineCap: .round))
-                .frame(height: 40)
 
                 if clips.clips.isEmpty {
-                    VStack(spacing: 6) {
-                        Image(systemName: "camera.viewfinder").font(.system(size: 26)).foregroundStyle(Theme.tertiary)
-                        Text("Screenshots, screen recordings, copied items and anything you drop in show up here.")
-                            .font(.system(size: 12)).foregroundStyle(Theme.secondary)
-                        Text("⇧⌘5 to capture · ⌘C to copy · or drop files, links and text").font(.system(size: 10.5)).foregroundStyle(Theme.tertiary)
-                    }
-                    .padding(.top, 70)
+                    EmptyStateView("Drop something here to keep it close.", symbol: "paperclip")
+                        .frame(maxHeight: .infinity)
                 } else {
                     ScrollView(.horizontal) {
                         HStack(alignment: .top, spacing: 14) {
@@ -160,7 +158,9 @@ private struct ClipsBody: View {
                 }
             }
             .frame(maxHeight: .infinity, alignment: .top)
-            Text("Click: copy · Double-click: open · Drag: move or share").font(.system(size: 10)).foregroundStyle(Theme.tertiary)
+            if !clips.clips.isEmpty {
+                Text("Click: copy · Double-click: open · Drag: move or share").font(.system(size: 10)).foregroundStyle(Theme.tertiary)
+            }
         }
         .card()
     }

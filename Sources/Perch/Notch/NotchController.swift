@@ -3,11 +3,12 @@ import Combine
 import PlannerCore
 import SwiftUI
 
+/// The workspace pages, in picker order. Insights is a page of its own so Today stays clean (tenet 1).
 enum NotchPage: String, CaseIterable, Identifiable {
-    case home, week, clips
+    case home, week, clips, insights
     var id: String { rawValue }
-    var title: String { ["home": "Today", "week": "Week", "clips": "Clips"][rawValue]! }
-    var symbol: String { ["home": "sun.max", "week": "calendar", "clips": "paperclip"][rawValue]! }
+    var title: String { ["home": "Today", "week": "Week", "clips": "Clips", "insights": "Insights"][rawValue]! }
+    var symbol: String { ["home": "sun.max", "week": "calendar", "clips": "paperclip", "insights": "chart.bar"][rawValue]! }
 }
 
 /// A short-lived thing the closed notch shows: a reminder nudge, a finished timer, a caught clip.
@@ -34,21 +35,24 @@ final class NotchModel: ObservableObject {
     @Published var pinned = false
     @Published var editingTaskID: UUID?
     @Published var detailsTaskID: UUID?
+    /// Explicit opening intent, not passive hover/drag. A new ID also refocuses an already-open page.
+    @Published var captureFocusRequest: UUID?
 
     func open(page: NotchPage? = nil, pinned: Bool = false) {
         if let page { self.page = page }
         self.pinned = pinned || self.pinned
-        withAnimation(.spring(response: 0.38, dampingFraction: 0.82)) { expanded = true }
+        Motion.animate(Motion.open) { expanded = true }
     }
 
     func close() {
         pinned = false
         detailsTaskID = nil
-        withAnimation(.spring(response: 0.32, dampingFraction: 0.9)) { expanded = false }
+        captureFocusRequest = nil
+        Motion.animate(Motion.close) { expanded = false }
     }
 
     func show(_ a: NotchActivity, for seconds: Double? = nil) {
-        withAnimation(.spring(response: 0.4, dampingFraction: 0.75)) { activity = a }
+        Motion.animate(Motion.activity) { activity = a }
         if let s = seconds {
             let id = a.id
             DispatchQueue.main.asyncAfter(deadline: .now() + s) { [weak self] in
@@ -58,7 +62,7 @@ final class NotchModel: ObservableObject {
     }
 
     func dismissActivity() {
-        withAnimation(.spring(response: 0.3, dampingFraction: 0.9)) { activity = nil }
+        Motion.animate(Motion.activityDismiss) { activity = nil }
     }
 
     /// Whether the closed notch shows the timer (and so uses the wide wings).
@@ -125,7 +129,7 @@ final class NotchController {
 
         model.$expanded.removeDuplicates().sink { [weak self] open in
             guard let self else { return }
-            if open { self.slots[self.model.screenID]?.panel.makeKey() } else {
+            if !open {
                 self.openedForDrop = false
                 for s in self.slots.values { s.panel.resignKey() }
             }
@@ -286,8 +290,11 @@ final class NotchController {
         }
         slot.panel.orderFrontRegardless()
         model.open(page: page, pinned: pinned)
-        if activate { NSApp.activate(ignoringOtherApps: true) }
-        slot.panel.makeKey()
+        if activate {
+            NSApp.activate(ignoringOtherApps: true)
+            slot.panel.makeKey()
+            model.captureFocusRequest = UUID()
+        }
     }
 
     // MARK: Visibility
