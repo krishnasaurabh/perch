@@ -1,5 +1,5 @@
 import AppKit
-import ApplicationServices
+import ApplicationServices  // AXIsProcessTrusted (diagnostic only)
 import PlannerCore
 import SwiftUI
 
@@ -66,22 +66,17 @@ enum MotionScript {
                 Step(name: "close", wait: 1.6, capture: true) { [model] in model.close(); return "NotchModel.close" },
                 Step(name: "reopen", wait: 1.4, capture: false) {
                     NSApp.activate(ignoringOtherApps: true)
-                    // SwiftUI builds its macOS accessibility tree lazily, only once an AX client is talking to the
-                    // app. A CI VM has none (no VoiceOver, no automation), so the tree stays empty and every press
-                    // misses. PERCH_MOTION_AX_WAKE: "inproc"/"both" turn on AX automation in-process here;
-                    // "external"/"both" mean motion_capture.sh queries us over AX (osascript) right after this.
+                    // SwiftUI builds its macOS accessibility tree lazily, only once an accessibility client is
+                    // talking to the app. A CI VM has none (no VoiceOver, no automation), so the panel's tree has
+                    // 0 nodes and every press misses (all button steps took `direct:` on hosted macos-15 up to
+                    // cf597e1; activation alone did not help). PERCH_MOTION_AX_WAKE=inproc (motion_capture.sh's
+                    // default) turns on accessibility automation in this process, as XCUITest does; =none keeps
+                    // the old behaviour. `ax_nodes` in each marker records the tree size before that step.
                     let mode = ProcessInfo.processInfo.environment["PERCH_MOTION_AX_WAKE"] ?? "none"
-                    if mode == "inproc" || mode == "both" {
-                        self.axWake = AX.enableAutomation()
-                        // Also ask our own process over the AX API, off the main thread (the main thread serves it).
-                        DispatchQueue.global().async {
-                            let r = AX.selfAttributes()
-                            Task { @MainActor in self.axWake = (self.axWake ?? "") + "," + r }
-                        }
-                    }
+                    if mode == "inproc" { self.axWake = AX.enableAutomation() }
                     NotificationCenter.default.post(name: .perchOpenWorkspace, object: NotchPage.home); return "perchOpenWorkspace"
                 },
-                // 2.4 s (was 1.4): leaves room for the external AX query and for SwiftUI to publish the tree.
+                // 2.4 s (was 1.4): settle time for SwiftUI to publish the tree after the wake.
                 Step(name: "page", wait: 2.4, capture: true) { [model] in
                     self.press(target.title, orElse: {
                         // Same mutation and spring as the picker button. On a locked session the animated
@@ -261,13 +256,6 @@ private enum AX {
         guard let p = dlsym(h, "_AXSSetAutomationEnabled") else { return "_AXSSetAutomationEnabled=missing" }
         unsafeBitCast(p, to: SetBool.self)(true)
         return "_AXSSetAutomationEnabled=called"
-    }
-
-    /// Sets AXManualAccessibility (the flag assistive apps set on a target app) on our own process. Must run off
-    /// the main thread, which serves the request. Returns the AXError code (0 = success, -25211 = API disabled).
-    static func selfAttributes() -> String {
-        let app = AXUIElementCreateApplication(getpid())
-        return "AXManualAccessibility=\(AXUIElementSetAttributeValue(app, "AXManualAccessibility" as CFString, kCFBooleanTrue).rawValue)"
     }
 
     static func press(_ o: NSObject) -> Bool {
