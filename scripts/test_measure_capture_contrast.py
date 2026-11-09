@@ -5,7 +5,7 @@ import unittest
 import zlib
 from pathlib import Path
 
-from measure_capture_contrast import measure, over_black, ratio
+from measure_capture_contrast import measure, measure_week, mini_fills, over_black, ratio
 
 SHELL = (0, 0, 0)
 
@@ -58,6 +58,48 @@ class MeasureTests(unittest.TestCase):
         r = self.measure(field(2, (0x1A, 0x1A, 0x1A), fill=over_black(0.12)))
         self.assertEqual(r["field_state"], "focused")
         self.assertGreaterEqual(r["placeholder"]["ratio"], 4.5)
+
+
+def week(scale, ink):
+    """Black shell, a #1D1D1D day tile holding a 70x22 (1x) MiniComposer field with an 8x20 prompt."""
+    # The compositor renders the field as #292929, 1 above the 8-bit token math (#282828); the +/-2 match covers it.
+    tile, fill = (0x1D,) * 3, (0x29,) * 3
+    assert max(abs(a - b) for a, b in zip(fill, mini_fills()["tile"])) <= 2
+    w, h = 120 * scale, 50 * scale
+    rows = [[SHELL] * w for _ in range(h)]
+    for y in range(5 * scale, 45 * scale):
+        for x in range(10 * scale, 110 * scale):
+            rows[y][x] = tile
+    fx0, fy0 = 20 * scale, 20 * scale
+    for y in range(fy0, fy0 + 22 * scale):
+        for x in range(fx0, fx0 + 70 * scale):
+            rows[y][x] = fill
+    for y in range(fy0 + 7 * scale, fy0 + 15 * scale):
+        for x in range(fx0 + 6 * scale, fx0 + 26 * scale):
+            rows[y][x] = ink
+    return rows
+
+
+class WeekTests(unittest.TestCase):
+    def measure(self, rows):
+        with tempfile.TemporaryDirectory() as d:
+            p = Path(d) / "notch-1-open.png"
+            write_png(p, rows)
+            return measure_week(p)
+
+    def test_system_placeholder_grey_fails(self):
+        # AppKit's placeholder grey as rendered on the dark tile before the fix (#858585 on #292929, 3.94:1).
+        for scale in (1, 2):
+            r = self.measure(week(scale, (0x85, 0x85, 0x85)))
+            self.assertEqual(r["scale"], scale)
+            self.assertEqual(len(r["fields"]), 1)
+            self.assertEqual(r["fields"][0]["background_rgb"], "#292929")
+            self.assertLess(r["fields"][0]["ratio"], 4.5)
+
+    def test_secondary_token_passes(self):
+        # Theme.secondary dark (white 62 %) over the field.
+        r = self.measure(week(2, (0xAE, 0xAE, 0xAE)))
+        self.assertGreaterEqual(r["fields"][0]["ratio"], 4.5)
 
 
 if __name__ == "__main__":
