@@ -35,6 +35,7 @@ struct WeekPage: View {
                 .transition(.opacity)
             }
         }
+        .showsDays(days)
     }
 
     private func go(_ week: Int) { Motion.animate(Motion.page) { anchor = week } }
@@ -233,6 +234,7 @@ struct ClipsPage: View {
 private struct ClipsBody: View {
     @ObservedObject var clips: ClipsService
     @EnvironmentObject var store: PlannerStore
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -243,11 +245,11 @@ private struct ClipsBody: View {
                     .toggleStyle(.switch).controlSize(.mini).font(.system(size: 10.5))
                 Toggle("Catch copies", isOn: Binding(get: { store.prefs.catchCopies }, set: { v in store.updatePrefs { $0.catchCopies = v } }))
                     .toggleStyle(.switch).controlSize(.mini).font(.system(size: 10.5))
-                // Reserve its width so the heading and toggles do not jump when the first clip arrives.
-                Button("Clear") { clips.clearUnpinned() }.buttonStyle(PillStyle())
-                    .opacity(clips.clips.isEmpty ? 0 : 1)
-                    .disabled(clips.clips.isEmpty)
-                    .accessibilityHidden(clips.clips.isEmpty)
+                Button("Let go of all") { clips.sweep() }.buttonStyle(PillStyle())
+                    .opacity(clips.clips.contains(where: { !$0.pinned }) ? 1 : 0)
+                    .disabled(!clips.clips.contains(where: { !$0.pinned }))
+                    .accessibilityHidden(!clips.clips.contains(where: { !$0.pinned }))
+                    .help("Remove unpinned clips. Undo is available for 5 seconds.")
             }
             ZStack(alignment: .top) {
                 // The rope spans the card's own content width, so it never runs past the card's edge.
@@ -274,10 +276,20 @@ private struct ClipsBody: View {
                 }
             }
             .frame(maxHeight: .infinity, alignment: .top)
-            // Gesture hints only once there is something to click, double-click or drag.
-            if ClipsLineLayout.showsGestureHints(clipCount: clips.clips.count) {
-                Text("Click: copy · Double-click: open · Drag: move or share").font(.system(size: 10)).foregroundStyle(Theme.tertiary)
-                    .transition(.opacity)
+            .overlay(alignment: .bottom) {
+                if let banner = clips.letGoBanner {
+                    LetGoToast(banner: banner) { clips.undoLetGo() }
+                        .transition(.opacity)
+                        .padding(.bottom, 4)
+                }
+            }
+            HStack(spacing: 6) {
+                if ClipsLineLayout.showsGestureHints(clipCount: clips.clips.count) {
+                    Text("Click: copy · Double-click: open · Drag: move or share").font(.system(size: 10)).foregroundStyle(Theme.tertiary)
+                        .transition(.opacity)
+                }
+                Spacer(minLength: 8)
+                FolderWatchStatus(state: clips.folderWatch)
             }
         }
         // Populated <-> empty crossfades in place, with the page-switch timing (Reduce Motion aware).
@@ -303,6 +315,61 @@ private struct ClipsRope: View {
         .clipped()
         .allowsHitTesting(false)
         .accessibilityHidden(true)
+    }
+}
+
+/// "Let go of 2 clips · Undo", with the 5-second window draining underneath.
+private struct LetGoToast: View {
+    let banner: ClipsService.LetGoBanner
+    let undo: () -> Void
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "arrow.uturn.backward.circle").font(.system(size: 13)).foregroundStyle(Theme.secondary)
+            Text(banner.count == 1 ? "Let go of 1 clip" : "Let go of \(banner.count) clips")
+                .font(.system(size: 11.5, weight: .medium)).foregroundStyle(Theme.text)
+            Button("Undo", action: undo).buttonStyle(PillStyle(prominent: true))
+                .accessibilityHint("Puts the clips back on the line")
+        }
+        .padding(.leading, 12).padding(.trailing, 6).padding(.vertical, 6)
+        .background(Capsule().fill(Color(white: 0.16)))
+        .overlay(Capsule().strokeBorder(Theme.cardStroke))
+        .overlay(alignment: .bottom) {
+            TimelineView(.periodic(from: .now, by: 0.1)) { ctx in
+                let left = max(0, banner.deadline.timeIntervalSince(ctx.date)) / LetGoLedger<ClipsService.Clip>.window
+                GeometryReader { g in
+                    Capsule().fill(Theme.accent.opacity(0.7)).frame(width: g.size.width * left, height: 2)
+                }
+                .frame(height: 2).padding(.horizontal, 16).padding(.bottom, 3)
+            }
+        }
+        .shadow(color: .black.opacity(0.35), radius: 8, y: 3)
+        .id(banner.token)
+    }
+}
+
+/// Whether the screenshot folder itself is watched, or only Spotlight is catching screenshots.
+private struct FolderWatchStatus: View {
+    let state: ClipsService.FolderWatch
+
+    var body: some View {
+        switch state {
+        case .off:
+            EmptyView()
+        case .watching(let url):
+            Label("Watching \(url.lastPathComponent)", systemImage: "eye")
+                .font(.system(size: 10)).foregroundStyle(Theme.tertiary).lineLimit(1)
+                .help("New screenshots in \(url.path) hang here right away.")
+        case .unreadable(let url):
+            Button {
+                NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_FilesAndFolders")!)
+            } label: {
+                Label("Can't read \(url.lastPathComponent): using Spotlight only", systemImage: "exclamationmark.triangle")
+                    .font(.system(size: 10)).foregroundStyle(Theme.accent).lineLimit(1)
+            }
+            .buttonStyle(.plain)
+            .help("Allow Perch to access \(url.path) in Privacy & Security › Files and Folders, so screenshots appear instantly.")
+        }
     }
 }
 
@@ -360,7 +427,7 @@ private struct ClipCard: View {
                 Button("Show in Finder") { NSWorkspace.shared.activateFileViewerSelecting([clips.clipURL(clip)!]) }
             }
             Divider()
-            Button("Remove", role: .destructive) { clips.remove(clip.id) }
+            Button("Let go", role: .destructive) { clips.letGo(clip.id) }
         }
     }
 }

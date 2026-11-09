@@ -13,8 +13,11 @@ enum AppInfo {
 /// coordinating file writes between the app and MCP server process.
 @MainActor
 final class PlannerStore: ObservableObject {
-    @Published private(set) var planner: Planner
+    @Published private(set) var planner: Planner { didSet { refreshToday() } }
     @Published var lastError: String?
+    /// The planner's logical day. It follows `Preferences.resetHour`, so 1 AM with "Day ends at 4 AM"
+    /// is still yesterday. Published so views redraw when the day rolls over or the hour setting changes.
+    @Published private(set) var today: DayKey
     let file: PlannerFile
 
     private var undoStack: [Planner] = []
@@ -25,10 +28,14 @@ final class PlannerStore: ObservableObject {
 
     init(file: PlannerFile = PlannerFile()) {
         self.file = file
-        do { planner = try file.load() } catch {
-            planner = Planner()
-            lastError = (error as? PlannerError)?.message ?? error.localizedDescription
+        var loaded = Planner()
+        var loadError: String?
+        do { loaded = try file.load() } catch {
+            loadError = (error as? PlannerError)?.message ?? error.localizedDescription
         }
+        planner = loaded
+        today = PlannerEngine(planner: loaded).today
+        lastError = loadError
         lastSeenModification = file.modificationDate
         startWatching()
         DistributedNotificationCenter.default().addObserver(
@@ -38,7 +45,16 @@ final class PlannerStore: ObservableObject {
 
     var engine: PlannerEngine { PlannerEngine(planner: planner) }
     var prefs: Preferences { planner.preferences }
-    var today: DayKey { DayKey(Date()) }
+
+    /// The planner day a moment belongs to (honours the reset hour). Use instead of `DayKey(date)`.
+    func dayKey(_ date: Date) -> DayKey { engine.dayKey(date) }
+    /// Natural-language capture that agrees with `today`. Use instead of `TaskCapture()`.
+    var capture: TaskCapture { TaskCapture(now: Date(), resetHour: prefs.resetHour) }
+
+    private func refreshToday() {
+        let t = engine.today
+        if t != today { today = t }
+    }
 
     // MARK: Mutations
 
@@ -112,8 +128,9 @@ final class PlannerStore: ObservableObject {
 
     private func startWatching() {
         // Poll the modification date: survives atomic replace (which breaks a single vnode watch).
+        // The same tick notices the clock crossing the reset hour.
         pollTimer = Timer.scheduledTimer(withTimeInterval: 0.75, repeats: true) { [weak self] _ in
-            Task { @MainActor in self?.reloadFromDisk(external: true) }
+            Task { @MainActor in self?.reloadFromDisk(external: true); self?.refreshToday() }
         }
     }
 

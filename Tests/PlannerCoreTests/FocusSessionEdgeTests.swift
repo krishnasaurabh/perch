@@ -112,7 +112,6 @@ final class FocusSessionEdgeTests: XCTestCase {
     // MARK: Engine paths
 
     func testPauseResumeThroughTheEngineIgnoresSleepGaps() throws {
-        throw XCTSkip("BUG(focus-checkpoint): dev-core 30s checkpoints double-count banked time and record sub-second segments. Fix card: focus-checkpoint-fix. Remove this skip when fixed.")
         let (varEngine, setClock) = makeEngine()
         var engine = varEngine
         _ = try engine.addTasks(["deep work"])
@@ -121,17 +120,41 @@ final class FocusSessionEdgeTests: XCTestCase {
         setClock(10)
         try engine.pauseTimer()
         XCTAssertFalse(engine.tick(), "a paused timer never finishes on a tick")
+        XCTAssertEqual(engine.planner.tasks[0].focusedSeconds, 600, accuracy: 0.5)
+        XCTAssertEqual(engine.planner.focusSegments.count, 1)
         setClock(180)  // slept for almost three hours while paused
+        XCTAssertFalse(engine.tick())
+        XCTAssertEqual(engine.planner.tasks[0].focusedSeconds, 600, accuracy: 0.5)
+        XCTAssertEqual(engine.insights().today.focusSeconds, 600, accuracy: 0.5)
         try engine.resumeTimer()
         setClock(190)
         XCTAssertFalse(engine.tick())
-        XCTAssertEqual(engine.planner.tasks[0].focusedSeconds, 600, accuracy: 0.5)
+        // The resumed stretch is checkpointed, not deferred until pause/finish.
+        XCTAssertEqual(engine.planner.tasks[0].focusedSeconds, 1200, accuracy: 0.5)
+        XCTAssertEqual(engine.planner.focus?.banked, 1200)
+        XCTAssertEqual(engine.planner.focus?.resumedAt, at(190))
+        XCTAssertEqual(engine.planner.focusSegments.count, 2)
+        XCTAssertFalse(engine.tick(), "repeating a checkpoint at the same instant is a no-op")
+        XCTAssertEqual(engine.planner.tasks[0].focusedSeconds, 1200, accuracy: 0.5)
+        XCTAssertEqual(engine.planner.focusSegments.count, 2)
 
         setClock(205)
         XCTAssertTrue(engine.tick(), "25 running minutes are up")
         XCTAssertEqual(engine.planner.tasks[0].focusedSeconds, 1500, accuracy: 0.5)
-        XCTAssertEqual(engine.planner.focusSegments.count, 2)
+        XCTAssertEqual(engine.insights().today.focusSeconds, 1500, accuracy: 0.5)
+        let segments = engine.planner.focusSegments
+        XCTAssertEqual(segments.count, 3)
+        XCTAssertEqual(segments.map(\.start), [t0, at(180), at(190)])
+        XCTAssertEqual(segments.map(\.end), [at(10), at(190), at(195)],
+                       "exclude the paused gap and cap the final tail at the countdown limit")
+        XCTAssertEqual(segments.map(\.seconds), [600, 600, 300])
+        XCTAssertTrue(segments.allSatisfy { $0.taskID == engine.planner.tasks[0].id })
+        for (previous, next) in zip(segments, segments.dropFirst()) {
+            XCTAssertLessThanOrEqual(previous.end, next.start, "checkpoint intervals must not overlap")
+        }
         XCTAssertFalse(engine.tick())
+        XCTAssertEqual(engine.planner.focusSegments, segments, "finished ticks must not record again")
+        XCTAssertEqual(engine.planner.tasks[0].focusedSeconds, 1500, accuracy: 0.5)
     }
 
     func testTickFinishesExactlyAtTheLimit() throws {
@@ -287,7 +310,6 @@ final class FocusSessionEdgeTests: XCTestCase {
     }
 
     func testSubSecondSessionsAreNotRecorded() throws {
-        throw XCTSkip("BUG(focus-checkpoint): dev-core 30s checkpoints double-count banked time and record sub-second segments. Fix card: focus-checkpoint-fix. Remove this skip when fixed.")
         let (varEngine, setClock) = makeEngine()
         var engine = varEngine
         try engine.startTimer(task: nil, minutes: 5)

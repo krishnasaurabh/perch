@@ -152,6 +152,7 @@ struct ActivityStrip: View {
     let activity: NotchActivity
     @EnvironmentObject var store: PlannerStore
     @EnvironmentObject var model: NotchModel
+    @EnvironmentObject var services: Services
 
     var body: some View {
         HStack(spacing: 10) {
@@ -160,7 +161,7 @@ struct ActivityStrip: View {
                 .font(.system(size: 15, weight: .semibold)).foregroundStyle(Theme.accent)
             VStack(alignment: .leading, spacing: 1) {
                 Text(activity.title).font(.system(size: 12.5, weight: .semibold)).foregroundStyle(Theme.text).lineLimit(1)
-                Text(activity.subtitle).font(.system(size: 11)).foregroundStyle(Theme.secondary).lineLimit(1)
+                Text(services.timeline.subtitle(for: activity, now: model.now)).font(.system(size: 11)).foregroundStyle(Theme.secondary).lineLimit(1)
             }
             Spacer(minLength: 6)
             actions

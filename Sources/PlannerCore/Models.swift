@@ -49,8 +49,10 @@ public struct PlanTask: Codable, Equatable, Identifiable, Sendable {
     public var carriedFrom: DayKey?
     /// Linked EKReminder calendarItemIdentifier when Reminders sync is on.
     public var reminderLink: String?
-    /// Stable root task ID shared by every generated repeat in a series.
+    /// Series-generation identity; initially the root task ID, fresh after a cadence edit.
     public var repeatedFrom: UUID?
+    /// Scheduled phase, retained when individual occurrences move or are deleted.
+    public var repeatAnchor: DayKey?
     public var carryCount: Int
     /// MCP clientInfo.name, never a caller-supplied tool argument.
     public var agentID: String?
@@ -63,7 +65,7 @@ public struct PlanTask: Codable, Equatable, Identifiable, Sendable {
         priority: TaskPriority = .none, projectID: UUID? = nil, notes: String = "",
         repeatRule: TaskRepeat? = nil, minutes: Int? = nil, steps: [Subtask] = [],
         focusedSeconds: Double = 0, carriedFrom: DayKey? = nil, reminderLink: String? = nil,
-        repeatedFrom: UUID? = nil, carryCount: Int = 0, agentID: String? = nil
+        repeatedFrom: UUID? = nil, carryCount: Int = 0, agentID: String? = nil, repeatAnchor: DayKey? = nil
     ) {
         self.id = id; self.title = title; self.day = day; self.done = done
         self.completedAt = completedAt; self.createdAt = createdAt; self.remindAt = remindAt
@@ -71,6 +73,7 @@ public struct PlanTask: Codable, Equatable, Identifiable, Sendable {
         self.notes = notes; self.repeatRule = repeatRule; self.minutes = minutes; self.steps = steps
         self.focusedSeconds = focusedSeconds; self.carriedFrom = carriedFrom; self.reminderLink = reminderLink
         self.repeatedFrom = repeatedFrom; self.carryCount = carryCount; self.agentID = agentID
+        self.repeatAnchor = repeatAnchor ?? (repeatRule == nil ? nil : day)
     }
 
     public init(from decoder: Decoder) throws {
@@ -93,6 +96,7 @@ public struct PlanTask: Codable, Equatable, Identifiable, Sendable {
         carriedFrom = try c.decodeIfPresent(DayKey.self, forKey: .carriedFrom)
         reminderLink = try c.decodeIfPresent(String.self, forKey: .reminderLink)
         repeatedFrom = try c.decodeIfPresent(UUID.self, forKey: .repeatedFrom)
+        repeatAnchor = try c.decodeIfPresent(DayKey.self, forKey: .repeatAnchor)
         carryCount = try c.decodeIfPresent(Int.self, forKey: .carryCount) ?? 0
         agentID = try c.decodeIfPresent(String.self, forKey: .agentID)
     }

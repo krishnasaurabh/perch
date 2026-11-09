@@ -10,10 +10,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     var services: Services!
     var notch: NotchController!
     var statusItem: NSStatusItem?
+    /// "Open Perch (<chord>)": kept so a rebind in Settings can retitle it without a relaunch.
+    private var openItem: NSMenuItem?
     private var cancellables = Set<AnyCancellable>()
 
     func applicationDidFinishLaunching(_ n: Notification) {
         store = PlannerStore()
+        // Once per launch, before the first tick: a timer left running by a crash or kill -9 comes back
+        // paused with its last checkpoint banked. The time the app was gone is not focus time.
+        store.applyUntracked { $0.recoverFocus() }
         model = NotchModel()
         services = Services(store: store)
         services.attach(model: model)
@@ -21,7 +26,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         notch.start()
         setupMenuBar()
         setupURLScheme()
-        setupEventNudges()
+        setupActivityDump()
 
         let args = CommandLine.arguments
         if args.contains("--demo") { seedDemo() }
@@ -57,8 +62,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             e.planner.preferences.welcomeCompleted = true
             switch name {
             case "three", "timer":
-                _ = try e.addTasks(["Prep slides for the 2pm review !high #work", "Call mom at 5pm", "Buy flowers"])
-                if name == "timer" { _ = try e.startTimer(task: "Prep slides", minutes: 45) }
+                let added = try e.addTasks(["Draft the test checklist !high #work", "Review the release notes", "Choose a desk plant"], on: .day(e.today))
+                if name == "timer", let first = added.first { _ = try e.startTimer(task: first.id.uuidString, minutes: 45) }
             case "insights":
                 let cal = Calendar.current, now = Date()
                 let doneByDay = [2, 4, 3, 5, 1, 6, 4, 3, 2, 3, 2, 0, 3, 2]  // index 0 = 13 days ago, 13 = today
@@ -85,14 +90,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         item.button?.image = NSImage(systemSymbolName: "bird", accessibilityDescription: "Perch")
         let menu = NSMenu()
-        menu.addItem(withTitle: "Open Perch (⌥N)", action: #selector(openWorkspace), keyEquivalent: "").target = self
+        let open = menu.addItem(withTitle: Self.openTitle(), action: #selector(openWorkspace), keyEquivalent: "")
+        open.target = self
+        openItem = open
         menu.addItem(withTitle: "Dashboard", action: #selector(openDashboard), keyEquivalent: "").target = self
         menu.addItem(withTitle: "Settings…", action: #selector(openSettings), keyEquivalent: ",").target = self
         menu.addItem(.separator())
         menu.addItem(withTitle: "Quit Perch", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         item.menu = menu
         statusItem = item
+
+        // didFail too: a chord macOS refuses is rolled back after didChange, so re-read the store each time.
+        Publishers.Merge(NotificationCenter.default.publisher(for: ShortcutStore.didChange),
+                         NotificationCenter.default.publisher(for: ShortcutStore.didFail))
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in self?.openItem?.title = Self.openTitle() }
+            .store(in: &cancellables)
     }
+
+    private static func openTitle() -> String { "Open Perch (\(ShortcutStore.load().display))" }
 
     @objc func openWorkspace() { NotificationCenter.default.post(name: .perchOpenWorkspace, object: NotchPage.home) }
     @objc func openDashboard() { DashboardWindow.show(store: store, model: model, services: services) }
@@ -110,7 +126,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         switch url.host {
         case "add":
             if let title = q["title"], !title.isEmpty {
-                let day = try? DayRef.parse(q["date"], now: Date())
+                let day = try? DayRef.parse(q["date"], now: Date(), resetHour: store.prefs.resetHour)
                 if let added = store.apply({ try $0.addTasks([title], on: day) }), let t = added.first {
                     model.show(.init(kind: .message, title: "Added", subtitle: t.title), for: 2.5)
                 }
@@ -121,17 +137,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    /// "In 5 min" for calendar events, once per event.
-    private func setupEventNudges() {
-        var nudged = Set<String>()
-        Timer.publish(every: 20, on: .main, in: .common).autoconnect().sink { [weak self] _ in
-            guard let self else { return }
-            self.services.calendar.refresh()
-            if let e = self.services.calendar.startingSoon(), !nudged.contains(e.id) {
-                nudged.insert(e.id)
-                self.model.show(.init(kind: .eventSoon(e.id), title: e.title, subtitle: "In \(max(1, Int(e.start.timeIntervalSinceNow / 60))) min"), for: 12)
-            }
-        }.store(in: &cancellables)
+    /// `--dump-activity <path>`: one JSON line per timeline pass (what shows, what the notch shows, next wake).
+    private func setupActivityDump() {
+        let args = CommandLine.arguments
+        guard let i = args.firstIndex(of: "--dump-activity"), i + 1 < args.count else { return }
+        let url = URL(fileURLWithPath: args[i + 1])
+        FileManager.default.createFile(atPath: url.path, contents: nil)
+        let iso = ISO8601DateFormatter()
+        iso.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        services.timeline.onPass = { [weak self] showing, wake in
+            let row: [String: Any] = ["at": iso.string(from: Date()), "showing": showing ?? NSNull(),
+                                      "notch": self?.model.activity?.title ?? NSNull(),
+                                      "nextWake": wake.map(iso.string(from:)) ?? NSNull()]
+            guard let data = try? JSONSerialization.data(withJSONObject: row, options: [.sortedKeys]),
+                  let h = try? FileHandle(forWritingTo: url) else { return }
+            h.seekToEndOfFile(); h.write(data + Data("\n".utf8)); try? h.close()
+        }
+        services.timeline.refresh()
     }
 
     private func showWelcome() {
@@ -146,19 +168,46 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 }
 
+extension PlannerStore {
+    /// Engine bookkeeping the user didn't do (launch recovery, timer ticks): a locked write like `apply`,
+    /// but kept off the undo stack. Undoing a recovery would resume a timer from before the crash and
+    /// credit the offline gap; a checkpoint every 30 s would bury the user's own edits and clear redo.
+    @discardableResult
+    func applyUntracked<T>(_ body: (inout PlannerEngine) throws -> T) -> T? {
+        // Pick up a pending agent edit first so it still lands on the undo stack.
+        reloadFromDisk(external: true)
+        do {
+            let result: T = try file.mutate { p in
+                var e = PlannerEngine(planner: p)
+                let r = try body(&e)
+                p = e.planner
+                return r
+            }
+            reloadFromDisk(external: false)
+            return result
+        } catch {
+            lastError = (error as? PlannerError)?.message ?? error.localizedDescription
+            return nil
+        }
+    }
+}
+
 /// First run: what it is, the one shortcut, and optional permissions. Every permission is optional.
 struct WelcomeView: View {
     let done: () -> Void
     @EnvironmentObject var store: PlannerStore
     @EnvironmentObject var services: Services
     @State private var granted: Set<String> = []
+    @State private var shortcut = ShortcutStore.load().display
 
     var body: some View {
         VStack(spacing: 18) {
             OwlMark(size: 64).padding(.top, 34)
             Text("Your plan lives in the notch now.").font(.system(size: 22, weight: .bold))
-            Text("Hover over the notch, or press ⌥N. Type or say what's on your mind and it becomes a sorted task.")
+            Text("Hover over the notch, or press \(shortcut). Type or say what's on your mind and it becomes a sorted task.")
                 .multilineTextAlignment(.center).foregroundStyle(.secondary).frame(width: 400)
+                .onReceive(NotificationCenter.default.publisher(for: ShortcutStore.didChange)) { _ in shortcut = ShortcutStore.load().display }
+                .onReceive(NotificationCenter.default.publisher(for: ShortcutStore.didFail)) { _ in shortcut = ShortcutStore.load().display }
             VStack(spacing: 8) {
                 row("calendar", "Calendar", "Shows today's events next to your list. Perch never edits them.", "cal") { await services.calendar.requestAccess() }
                 row("bell", "Notifications", "A heads-up when a reminder fires or a timer ends.", "notif") { await services.reminders.requestAuthorization() }

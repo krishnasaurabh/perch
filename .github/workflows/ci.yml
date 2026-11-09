@@ -49,6 +49,10 @@ jobs:
         run: |
           pip3 install --quiet --break-system-packages mcp || pip3 install --quiet mcp
           PERCH_DATA=$RUNNER_TEMP/p.json python3 scripts/mcp_smoke.py "$PWD/dist/Perch.app/Contents/MacOS/Perch"
+      - name: Integrated store, repeats, clips and settings
+        run: bash scripts/check_integration.sh "$RUNNER_TEMP/integration"
+      - name: Focus survives an app crash without crediting offline time
+        run: python3 scripts/focus_crash_check.py "$PWD/dist/Perch.app/Contents/MacOS/Perch" "$RUNNER_TEMP/focus-crash"
       - name: App launches and survives 5 s
         run: |
           PERCH_DATA=$RUNNER_TEMP/launch.json dist/Perch.app/Contents/MacOS/Perch --preview-open &
@@ -164,3 +168,5 @@ jobs:
             ${{ runner.temp }}/empty-states/
             ${{ runner.temp }}/motion-policy/
             ${{ runner.temp }}/capture-contrast/
+            ${{ runner.temp }}/integration/
+            ${{ runner.temp }}/focus-crash/

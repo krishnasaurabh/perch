@@ -2,7 +2,8 @@
 
 A task manager, focus timer and notepad that live in your Mac's notch.
 
-Hover the notch or press **⌥N**. Type or say what's on your mind, and it becomes a sorted task.
+Hover the notch or press **⌥N** (configurable in Settings). Type or dictate a task.
+Version **1.1.0** keeps Today compact and puts charts on a separate Insights tab.
 
 ## What it does
 
@@ -11,17 +12,26 @@ Hover the notch or press **⌥N**. Type or say what's on your mind, and it becom
 | **Notch workspace** | Hover the notch, or press ⌥N, to open it. On monitors and Macs without a notch, Perch draws one. It follows your pointer between screens and steps aside for full-screen apps. |
 | **Natural-language capture** | `text dad tomorrow at 6pm !high #home every monday for 30 min due friday` fills in the day, reminder, priority, project, repeat, time limit and deadline. A live hint under the field shows what it read. |
 | **Voice** | Click the mic and speak. Recognition is on-device only (`requiresOnDeviceRecognition = true`). |
-| **Focus timer** | A countdown or stopwatch that stays visible in the closed notch. Pause, resume or add 5 minutes. There are three timer faces: dot matrix, digital and minimal. Time only counts while the timer runs. |
-| **Week view** | Drag tasks between days or into the Inbox. Past days are a read-only record. |
+| **Focus timer** | Countdown or stopwatch, with digital (default), dot-grid and minimal faces. Running time is checkpointed every 30 seconds; a restarted app restores the saved time paused, without crediting time offline. |
+| **Week view** | Drag tasks between days or into the Inbox. Busy columns scroll with overflow hints and a fixed capture field. Past days remain read-only. |
+| **Day and repeats** | Set the day boundary in Settings. Repeats materialize when a day is viewed; stop a series without deleting its existing tasks. Carrying or deleting one occurrence keeps its schedule phase. Legacy completed, unlinked repeat history is not automatically restarted. |
 | **Notepad** | One per day, saved automatically. **⌘↩** turns the current line into a task. |
-| **Clips** | New screenshots and screen recordings (and, optionally, anything you copy) hang on a line in the notch. Concealed copies from password managers are skipped. |
+| **Clips** | Screenshot-folder watching supplements Spotlight. Clips can be pinned, reordered and let go with a five-second Undo window. Temporary dropped files get an owned copy. The line itself is session-only, not a persistent file library. Concealed clipboard content is skipped. |
 | **Reminders** | A reminder rings in the notch with Start, Snooze and Done. Optionally, Perch syncs both ways with a "Perch" list in Apple Reminders, so tasks reach your iPhone and Watch. |
-| **Calendar** | Shows today's events and a "starts in 5 min" nudge. Read-only. |
-| **Overdue carry-forward** | Copy unfinished tasks to today, or leave them in history. |
+| **Calendar** | Shows events and timeline nudges. Check-off state is stored locally and counted separately from completed tasks; source calendars are never edited. |
+| **Overdue carry-forward** | Ask, automatically carry, or leave unfinished tasks in history. Overdue tasks can also be completed on their original day. |
 | **Insights** | Streak, completed vs planned, focus minutes, the last 7 days against the 7 before, and peak hours. |
 | **AI sorting (optional)** | On-device Apple Intelligence (FoundationModels, macOS 26) sets a priority and project. Whatever you type yourself always wins. |
-| **MCP server for agents** | Run the app binary with `--mcp` and it acts as a local MCP server. Connect it to Claude Code, the Claude app or Cursor with one click in Settings. 18 tools. Agent changes show up live and ⌘Z undoes them. |
+| **MCP server for agents** | Local stdio server with 18 tools and one-click setup for Claude Code, Claude Desktop and Cursor. Task rows identify the client that created them; Dashboard history can filter by agent. External changes refresh in the app and are undoable. |
 | **URL scheme** | `perch://add?title=Buy%20milk&date=tomorrow`, `perch://open?page=week` |
+
+## Verification and remaining limits
+
+The test suite covers planner rules, migration, dates, repeats, focus accounting and MCP.
+The macOS workflow is configured to build the app, exercise its MCP binary and run
+crash/restart and rendered-view probes. This is not a claim that every workflow run passes.
+
+Rendered snapshots and in-process probes do **not** prove physical hover/hotkeys, live VoiceOver, multi-monitor routing, fullscreen transitions, permission dialogs or Apple service synchronization. Those remain hardware acceptance checks. Global Undo versus truly simultaneous external writes is not a proven transactional merge. Calendar fetching uses the civil day even when the task day has a custom boundary.
 
 ## Agents (MCP)
 

@@ -455,12 +455,11 @@ final class NotchController {
     private var ticks = 0
     private func onTick() {
         model.now = Date()
+        // A running timer is written through on every tick; the engine banks a checkpoint every
+        // 30 s of running time, so a crash or kill -9 loses at most that much.
         if store.engine.planner.focus?.state == .running {
-            var finished = false
-            store.apply { e in finished = e.tick() }
-            if finished { services.focusFinished() }
+            if store.applyUntracked({ $0.tick() }) == true { services.focusFinished() }
         }
-        services.reminders.check()
         ticks += 1
         if ticks % 2 == 0 { applyFullScreen() }
     }

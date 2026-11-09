@@ -149,6 +149,7 @@ public struct PlannerEngine {
             } else if day == .inbox {
                 task.day = nil
             }
+            task.repeatAnchor = task.repeatRule == nil ? nil : task.day
             planner.tasks.append(task)
             added.append(task)
         }
@@ -175,6 +176,7 @@ public struct PlannerEngine {
         guard !planner.tasks[i].done else { throw PlannerError("Already completed: \(planner.tasks[i].title).") }
         // Stop the timer first so its focus time lands on the task before we copy it.
         if planner.focus?.taskID == planner.tasks[i].id, planner.focus?.state != .finished { _ = stopTimer() }
+        preserveRepeatAnchor(of: planner.tasks[i].id)
         var t = planner.tasks[i]
         t.done = true
         t.completedAt = now()
@@ -206,6 +208,7 @@ public struct PlannerEngine {
     public mutating func delete(_ ref: String, on day: DayRef) throws -> PlanTask {
         let i = try index(of: ref, on: resolved(day))
         try requireEditable(planner.tasks[i])
+        preserveRepeatAnchor(of: planner.tasks[i].id)
         let t = planner.tasks.remove(at: i)
         if planner.focus?.taskID == t.id { planner.focus = nil }
         return t
@@ -213,6 +216,7 @@ public struct PlannerEngine {
 
     public mutating func move(_ ref: String, from: DayRef, to: DayRef) throws -> PlanTask {
         let i = try index(of: ref, on: resolved(from))
+        preserveRepeatAnchor(of: planner.tasks[i].id)
         var t = planner.tasks[i]
         guard !t.done else { throw PlannerError("Reopen this task before continuing: \(t.title).") }
         try requireEditable(t)
@@ -249,6 +253,7 @@ public struct PlannerEngine {
             throw PlannerError("Supply a field to update: title, notes, priority, project, remind_at, deadline, repeat, minutes, steps or done_steps.")
         }
         let i = try index(of: ref, on: resolved(day))
+        preserveRepeatAnchor(of: planner.tasks[i].id)
         var t = planner.tasks[i]
         try requireEditable(t)
         var changesRepeat = false
@@ -292,7 +297,10 @@ public struct PlannerEngine {
             if parsed != t.repeatRule {
                 changesRepeat = true
                 // Changing cadence starts a new series here; preplanned tasks remain in place.
-                if parsed != nil { t.repeatedFrom = nil }
+                if parsed != nil {
+                    t.repeatedFrom = UUID()
+                    t.repeatAnchor = t.day
+                }
             }
             t.repeatRule = parsed
         }
@@ -325,6 +333,7 @@ public struct PlannerEngine {
         let i = try index(of: ref, on: .day(today))
         guard planner.tasks[i].day != nil else { throw PlannerError("Schedule \(planner.tasks[i].title) on a date before snoozing it.") }
         guard !planner.tasks[i].done else { throw PlannerError("Already completed: \(planner.tasks[i].title).") }
+        preserveRepeatAnchor(of: planner.tasks[i].id)
         let at = now().addingTimeInterval(Double(minutes) * 60)
         planner.tasks[i].remindAt = at
         planner.tasks[i].day = dayKey(at)
@@ -378,6 +387,7 @@ public struct PlannerEngine {
         let eligible = Set(overdue().map(\.id)).intersection(selected)
         guard !eligible.isEmpty else { return [] }
         let completedAt = now()
+        for id in eligible { preserveRepeatAnchor(of: id) }
         if let id = planner.focus?.taskID, eligible.contains(id), planner.focus?.state != .finished {
             _ = stopTimer()
         }
@@ -411,6 +421,7 @@ public struct PlannerEngine {
     public mutating func carryForward(_ ids: [UUID], to day: DayKey) -> [PlanTask] {
         var out: [PlanTask] = []
         for id in ids {
+            preserveRepeatAnchor(of: id)
             guard let t = planner.tasks.first(where: { $0.id == id }), let from = t.day,
                   from < day, !t.done, !planner.dismissedOverdue.contains(id) else { continue }
             if t.repeatRule != nil && planner.tasks.contains(where: { $0.repeatSeriesID == t.repeatSeriesID && $0.day == day }) {
@@ -483,7 +494,11 @@ public struct PlannerEngine {
     public mutating func stopTimer() -> FocusSegment? {
         guard var f = planner.focus, f.state != .finished else { return nil }
         let seg = f.finish(at: now())
-        record(seg)
+        // Ignore an accidental subsecond stop, but preserve fractional tails
+        // after time was already banked (including an explicit checkpoint).
+        if let seg, seg.seconds >= 1 || f.banked > seg.seconds {
+            record(seg)
+        }
         planner.focus = nil
         return seg
     }

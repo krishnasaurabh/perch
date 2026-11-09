@@ -52,6 +52,7 @@ struct TasksCard: View {
         .onChange(of: finished.count, initial: true) { _, count in
             tab = TodayTabs.resolved(tab, completedCount: count)
         }
+        .showsDays([store.today])
     }
 
     /// Task rows are separated by a dotted rule.
@@ -163,21 +164,27 @@ struct TaskRow: View {
         let bits = metaBits
         if !bits.isEmpty {
             HStack(spacing: 10) {
-                ForEach(bits, id: \.text) { b in
-                    HStack(spacing: 3) {
-                        if let s = b.symbol { Image(systemName: s).font(.system(size: 9, weight: .semibold)) }
-                        Text(b.text).font(.system(size: 10.5, weight: b.strong ? .bold : .medium))
-                    }
-                    .foregroundStyle(b.color)
+                ForEach(bits.indices, id: \.self) { i in
+                    bit(bits[i])
                 }
             }
         }
     }
 
-    /// Meta chips use monochrome ink; emphasis is weight, and red only for late.
-    private struct Bit {
-        let symbol: String?; let text: String; let color: Color; var strong = false
+    @ViewBuilder private func bit(_ b: Bit) -> some View {
+        let label = HStack(spacing: 3) {
+            if let s = b.symbol { Image(systemName: s).font(.system(size: 9, weight: .semibold)) }
+            Text(b.text).font(.system(size: b.chip ? 9.5 : 10.5, weight: b.strong ? .bold : b.chip ? .semibold : .medium)).lineLimit(1)
+        }
+        .foregroundStyle(b.color)
+        .padding(.horizontal, b.chip ? 5 : 0)
+        .padding(.vertical, b.chip ? 1.5 : 0)
+        .background(Capsule().fill(b.chip ? Theme.fill : .clear))
+        .overlay(Capsule().strokeBorder(Theme.secondary.opacity(b.chip ? 0.25 : 0), lineWidth: 1))
+        if let tip = b.tip { label.help(tip) } else { label }
     }
+
+    private struct Bit { let symbol: String?; let text: String; let color: Color; var strong = false; var chip = false; var tip: String? = nil }
 
     private var metaBits: [Bit] {
         var out: [Bit] = []
@@ -195,6 +202,10 @@ struct TaskRow: View {
         if let m = task.minutes { out.append(Bit(symbol: "timer", text: "\(m)m", color: Theme.secondary)) }
         if !task.steps.isEmpty { out.append(Bit(symbol: "list.bullet", text: "\(task.steps.filter(\.done).count)/\(task.steps.count)", color: Theme.secondary)) }
         if let c = task.carriedFrom { out.append(Bit(symbol: "arrow.uturn.right", text: "from " + shortDay(c), color: Theme.tertiary)) }
+        if let agent = task.agentID, let name = AgentName.short(agent) {
+            out.append(Bit(symbol: "sparkles", text: "via " + name, color: Theme.secondary, chip: true,
+                           tip: "Added through MCP by \(agent)"))
+        }
         return out
     }
 
@@ -217,6 +228,9 @@ struct TaskRow: View {
         }
         Button("Rename") { draft = task.title; editing = true }
         Button("Details…") { model.detailsTaskID = task.id }
+        if task.repeatRule != nil {
+            Button("Stop Repeating") { store.apply { try $0.endRepeat(of: task.id) } }
+        }
         Divider()
         Button("Delete", role: .destructive) { delete() }
     }
@@ -244,6 +258,28 @@ struct TaskRow: View {
         editing = false
         guard draft != task.title else { return }
         store.apply { try $0.rename(task.id.uuidString, on: task.day.map { .day($0) } ?? .inbox, to: draft) }
+    }
+}
+
+/// Turns an MCP `clientInfo.name` (what `PlanTask.agentID` stores) into a short
+/// label for the provenance chip. Unknown clients fall back to their first word.
+enum AgentName {
+    static func short(_ raw: String) -> String? {
+        let name = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty else { return nil }
+        let lower = name.lowercased()
+        // Ordered: "claude-code" must read as Claude, not Code.
+        let known: [(needle: String, label: String)] = [
+            ("claude", "Claude"), ("cursor", "Cursor"), ("codex", "Codex"),
+            ("opencode", "OpenCode"), ("windsurf", "Windsurf"),
+            ("copilot", "Copilot"), ("chatgpt", "ChatGPT"),
+        ]
+        if let hit = known.first(where: { lower.contains($0.needle) }) { return hit.label }
+        let parts = name.split(whereSeparator: { $0 == "-" || $0 == "_" || $0 == " " || $0 == "." })
+        // Short needles only match a whole token ("zed-agent", not "personalized").
+        if parts.contains(where: { $0.lowercased() == "zed" }) { return "Zed" }
+        let word = parts.first.map(String.init) ?? name
+        return word.count > 14 ? String(word.prefix(13)) + "…" : word.prefix(1).uppercased() + word.dropFirst()
     }
 }
 
@@ -299,10 +335,10 @@ struct TaskComposer: View {
 
     /// Live hint of what the parser read: "Tomorrow 5:00 PM · High".
     var preview: String? {
-        let c = TaskCapture().parse(text)
+        let c = store.capture.parse(text)
         var bits: [String] = []
         if c.inbox { bits.append("Inbox") }
-        if let d = c.day, d != DayKey(Date()) { bits.append(d.date().formatted(.dateTime.weekday(.abbreviated).month(.abbreviated).day())) }
+        if let d = c.day, d != store.today { bits.append(d.date().formatted(.dateTime.weekday(.abbreviated).month(.abbreviated).day())) }
         if let r = c.remindAt { bits.append(r.formatted(date: .omitted, time: .shortened)) }
         if c.priority != .none { bits.append(c.priority.rawValue.capitalized) }
         if let p = c.projectName { bits.append("#" + p) }
@@ -350,6 +386,47 @@ private struct VoiceButtonBody: View {
         .popover(isPresented: Binding(get: { if case .error = voice.state { return true }; return false },
                                       set: { if !$0 { voice.state = .idle } })) {
             if case .error(let m) = voice.state { Text(m).font(.system(size: 12)).padding(12).frame(width: 260) }
+        }
+    }
+}
+
+// MARK: Lazy repeats
+
+extension View {
+    /// Marks these days as on screen, so their copies of repeating tasks exist (lazy repeats).
+    func showsDays(_ days: [DayKey]) -> some View { modifier(ShowsDays(days: days)) }
+}
+
+private struct ShowsDays: ViewModifier {
+    let days: [DayKey]
+    @EnvironmentObject var store: PlannerStore
+
+    func body(content: Content) -> some View {
+        content
+            .onAppear { store.materializeRepeats(on: days) }
+            .onChange(of: days) { _, new in store.materializeRepeats(on: new) }
+            // Materialize at view/day boundaries, never as feedback to Undo or Redo.
+    }
+}
+
+extension PlannerStore {
+    /// Creates the scheduled copies of repeating tasks for days being shown. Past days stay a record.
+    /// Not an undo step and leaves `lastError` alone: this is the view catching up, not a user edit,
+    /// so ⌘Z still undoes the user's last change and an earlier error banner stays up.
+    func materializeRepeats(on days: [DayKey]) {
+        let open = days.filter { $0 >= today }
+        // Dry run on a copy first, so ordinary redraws never take the file lock or write.
+        var probe = engine
+        guard open.contains(where: { !probe.applyRepeats(on: $0).isEmpty }) else { return }
+        do {
+            try file.mutate { p in
+                var e = PlannerEngine(planner: p)
+                for d in open { e.applyRepeats(on: d) }
+                p = e.planner
+            }
+            reloadFromDisk(external: false)
+        } catch {
+            lastError = (error as? PlannerError)?.message ?? error.localizedDescription
         }
     }
 }

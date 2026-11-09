@@ -1,4 +1,6 @@
+import AppKit
 import Charts
+import Combine
 import PlannerCore
 import ServiceManagement
 import SwiftUI
@@ -83,7 +85,8 @@ struct SettingsView: View {
                 Text("Click").tag(NotchOpenTrigger.click)
                 Text("Double-click").tag(NotchOpenTrigger.doubleClick)
             }
-            LabeledContent("Shortcut", value: "⌥N")
+            ShortcutPreferenceRow()
+            Text("Works anywhere, even when Perch isn't the front app.").font(.caption).foregroundStyle(.secondary)
             Toggle("Open at login", isOn: Binding(get: { SMAppService.mainApp.status == .enabled }, set: { on in
                 do { on ? try SMAppService.mainApp.register() : try SMAppService.mainApp.unregister() }
                 catch { store.lastError = "Perch couldn't update the login item: \(error.localizedDescription)" }
@@ -98,6 +101,13 @@ struct SettingsView: View {
             Text("Choose Automatic to follow the pointer between displays.").font(.caption).foregroundStyle(.secondary)
             Toggle("Draw a notch on external displays", isOn: pref(\.notchOnMonitors))
             Text("Behaves like the built-in notch and hides while an app is full screen.").font(.caption).foregroundStyle(.secondary)
+        }
+        Section("Day") {
+            Stepper(value: pref(\.resetHour), in: 0...6) {
+                LabeledContent("Day ends at", value: Self.hourLabel(store.prefs.resetHour))
+            }
+            Text("Up to this hour, Perch still counts it as the previous day, so a late night stays on today's list.")
+                .font(.caption).foregroundStyle(.secondary)
         }
         Section("Insights") {
             Toggle("Count Saturday and Sunday toward the streak", isOn: pref(\.includeWeekendsInStreak))
@@ -203,6 +213,12 @@ struct SettingsView: View {
         }
     }
 
+    /// "Midnight" for 0, otherwise the hour in the user's clock style ("4 AM" or "04:00").
+    static func hourLabel(_ hour: Int) -> String {
+        guard hour > 0, let d = Calendar.current.date(bySettingHour: hour, minute: 0, second: 0, of: Date()) else { return "Midnight" }
+        return d.formatted(date: .omitted, time: .shortened)
+    }
+
     func cardName(_ id: String) -> String {
         ["focus": "Focus timer (while running)", "notepad": "Notepad", "events": "Today's agenda (when there are events)"][id] ?? id
     }
@@ -220,10 +236,114 @@ struct SettingsView: View {
 
     func exportBackup() {
         let panel = NSSavePanel()
-        panel.nameFieldStringValue = "Perch-\(DayKey(Date())).json"
+        panel.nameFieldStringValue = "Perch-\(store.today).json"
         panel.allowedContentTypes = [.json]
         if panel.runModal() == .OK, let url = panel.url {
             do { try store.file.export(to: url) } catch { store.lastError = error.localizedDescription }
+        }
+    }
+}
+
+// MARK: - Global shortcut
+
+/// The shortcut in Settings: shows what is live, records a replacement, and says so when macOS refuses one.
+struct ShortcutPreferenceRow: View {
+    @State private var shortcut: ShortcutKey = .default
+    @State private var recording = false
+    @State private var problem: String?
+
+    var body: some View {
+        LabeledContent("Shortcut") {
+            VStack(alignment: .trailing, spacing: 4) {
+                HStack(spacing: 8) {
+                    if recording {
+                        ShortcutRecorder(onRecord: choose, onCancel: { recording = false })
+                            .frame(width: 104, height: 24)
+                        Text("Press the keys you want. Esc cancels.").font(.caption).foregroundStyle(.secondary)
+                    } else {
+                        Button { problem = nil; recording = true } label: {
+                            Text(shortcut.display)
+                                .font(.system(size: 13, weight: .semibold, design: .rounded))
+                                .frame(minWidth: 64)
+                        }
+                        .help("Click, then press the keys you want to use")
+                        if shortcut != .default {
+                            Button("Use ⌥N") { choose(.default) }.buttonStyle(.link)
+                        }
+                    }
+                }
+                if let problem {
+                    Text(problem).font(.caption).foregroundStyle(.orange)
+                }
+            }
+        }
+        .onAppear { shortcut = ShortcutStore.load() }
+        .onReceive(NotificationCenter.default.publisher(for: ShortcutStore.didFail)) { note in
+            // The live hot key kept the old chord; show what is actually registered now.
+            recording = false
+            shortcut = note.userInfo?["restored"] as? ShortcutKey ?? ShortcutStore.load()
+            problem = "macOS wouldn't give up that combination. Kept \(shortcut.display)."
+        }
+    }
+
+    private func choose(_ key: ShortcutKey) {
+        recording = false
+        problem = nil
+        shortcut = key
+        ShortcutStore.save(key)   // the running hot key re-registers on this change, no relaunch
+    }
+}
+
+/// One key press, captured straight from the window so ⌘ combinations never reach the menu bar.
+private final class ShortcutRecorderView: NSView {
+    var onRecord: ((ShortcutKey) -> Void)?
+    var onCancel: (() -> Void)?
+
+    override var acceptsFirstResponder: Bool { true }
+    override func becomeFirstResponder() -> Bool { true }
+
+    override func draw(_ dirtyRect: NSRect) {
+        let path = NSBezierPath(roundedRect: bounds.insetBy(dx: 1.5, dy: 1.5), xRadius: 6, yRadius: 6)
+        NSColor.controlAccentColor.setStroke()
+        path.lineWidth = 2
+        path.stroke()
+    }
+
+    override func keyDown(with event: NSEvent) { capture(event) }
+
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        guard event.type == .keyDown else { return super.performKeyEquivalent(with: event) }
+        return capture(event) || super.performKeyEquivalent(with: event)
+    }
+
+    /// Escape cancels; anything that isn't a usable chord beeps and keeps listening.
+    @discardableResult
+    private func capture(_ event: NSEvent) -> Bool {
+        if event.keyCode == UInt16(ShortcutKey.escapeKeyCode) { onCancel?(); return true }
+        guard let key = ShortcutKey(event: event) else { NSSound.beep(); return true }
+        onRecord?(key)
+        return true
+    }
+}
+
+private struct ShortcutRecorder: NSViewRepresentable {
+    let onRecord: (ShortcutKey) -> Void
+    let onCancel: () -> Void
+
+    func makeNSView(context: Context) -> ShortcutRecorderView {
+        let view = ShortcutRecorderView()
+        view.onRecord = onRecord
+        view.onCancel = onCancel
+        return view
+    }
+
+    func updateNSView(_ view: ShortcutRecorderView, context: Context) {
+        view.onRecord = onRecord
+        view.onCancel = onCancel
+        // SwiftUI inserts the view before it has a window; take the keyboard on the next pass.
+        DispatchQueue.main.async {
+            guard let window = view.window, window.firstResponder !== view else { return }
+            window.makeFirstResponder(view)
         }
     }
 }
@@ -343,12 +463,23 @@ struct UpcomingList: View {
 struct HistoryList: View {
     @EnvironmentObject var store: PlannerStore
     @State private var query = ""
+    @State private var agentFilter: String?
     var body: some View {
-        let past = store.planner.tasks.filter { ($0.day.map { $0 < store.today } ?? false) }
+        let history = store.planner.tasks.filter { ($0.day.map { $0 < store.today } ?? false) }
+        let agents = Array(Set(history.compactMap(\.agentID))).sorted()
+        let past = history.filter { agentFilter == nil || $0.agentID == agentFilter }
             .filter { query.isEmpty || $0.title.localizedCaseInsensitiveContains(query) }
         let groups = Dictionary(grouping: past, by: { $0.day! }).sorted { $0.key > $1.key }
         VStack(alignment: .leading, spacing: 16) {
-            TextField("Search history", text: $query).textFieldStyle(.roundedBorder).frame(width: 280)
+            HStack {
+                TextField("Search history", text: $query).textFieldStyle(.roundedBorder).frame(width: 280)
+                Picker("Agent", selection: $agentFilter) {
+                    Text("All agents").tag(String?.none)
+                    ForEach(agents, id: \.self) { name in
+                        Text(AgentName.short(name) ?? name).tag(String?.some(name))
+                    }
+                }.frame(width: 150)
+            }
             if groups.isEmpty { Text(query.isEmpty ? "Finished days show up here." : "No matches. Change the search text.").foregroundStyle(.secondary) }
             ForEach(groups, id: \.key) { day, tasks in
                 VStack(alignment: .leading, spacing: 4) {
@@ -373,6 +504,9 @@ struct DashboardTaskLine: View {
             Image(systemName: task.done ? "checkmark.circle.fill" : "circle").foregroundStyle(task.done ? .green : .secondary)
             Text(task.title).strikethrough(task.done)
             if let p = store.engine.project(id: task.projectID) { Text("#\(p.name)").foregroundStyle(Color(hex: p.colorHex)).font(.caption) }
+            if let agent = task.agentID, let name = AgentName.short(agent) {
+                Text("via " + name).font(.caption).foregroundStyle(.secondary).help(agent)
+            }
             if task.focusedSeconds > 0 { Text(TimerText.short(task.focusedSeconds)).font(.caption).foregroundStyle(.secondary) }
             if let c = task.carriedFrom { Text("carried from \(c.raw)").font(.caption).foregroundStyle(.tertiary) }
         }

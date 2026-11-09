@@ -41,14 +41,14 @@ struct TaskDetailsSheet: View {
                         label("Reminder")
                         HStack {
                             if let r = t.remindAt {
-                                DatePicker("", selection: Binding(get: { r }, set: { v in store.updateTask(t.id) { $0.remindAt = v; $0.day = DayKey(v) } }))
+                                DatePicker("", selection: Binding(get: { r }, set: { v in store.updateTask(t.id) { $0.remindAt = v; $0.day = store.dayKey(v) } }))
                                     .labelsHidden()
                                 Button("Remove") { store.updateTask(t.id) { $0.remindAt = nil } }
                             } else {
                                 Button("Remind me") {
                                     let base = t.day?.date() ?? Date()
                                     let at = max(Date().addingTimeInterval(3600), Calendar.current.date(bySettingHour: 9, minute: 0, second: 0, of: base)!)
-                                    store.updateTask(t.id) { $0.remindAt = at; $0.day = DayKey(at) }
+                                    store.updateTask(t.id) { $0.remindAt = at; $0.day = store.dayKey(at) }
                                 }.disabled(t.day == nil || t.done)
                             }
                         }
@@ -84,6 +84,10 @@ struct TaskDetailsSheet: View {
                             TextField("e.g. every mon, wed", text: $repeatText).textFieldStyle(.roundedBorder)
                                 .onSubmit { applyRepeat(t) }
                             Button("Set") { applyRepeat(t) }.disabled(t.day == nil)
+                            if t.repeatRule != nil {
+                                Button("Stop repeating") { stopRepeating(t) }
+                                    .help("Keeps this task and copies already planned. No new copies are made.")
+                            }
                         }
                     }
                     GridRow {
@@ -151,6 +155,10 @@ struct TaskDetailsSheet: View {
 
     func move(_ t: PlanTask, _ to: DayRef) {
         store.apply { try $0.move(t.id.uuidString, from: t.day.map { .day($0) } ?? .inbox, to: to) }
+    }
+
+    func stopRepeating(_ t: PlanTask) {
+        if store.apply({ try $0.endRepeat(of: t.id) }) != nil { repeatText = "" }
     }
 
     func applyRepeat(_ t: PlanTask) {
