@@ -256,7 +256,7 @@ private enum AX {
     /// Reads this process's windows and their children through the public AX client API, which is the request
     /// that makes SwiftUI build its tree. Must run off the main thread (the main thread answers it). Returns the
     /// AXError codes and counts, e.g. "windows=0:1 children=0:3" (-25211 = API disabled: no Accessibility grant).
-    nonisolated static func queryOwnWindows() -> String {
+    static func queryOwnWindows() -> String {
         let app = AXUIElementCreateApplication(getpid())
         var v: CFTypeRef?
         let e = AXUIElementCopyAttributeValue(app, kAXWindowsAttribute as CFString, &v)
