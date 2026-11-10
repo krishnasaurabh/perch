@@ -323,6 +323,11 @@ public struct Planner: Codable, Equatable, Sendable {
     public var preferences: Preferences = Preferences()
     public init() {}
 
+    enum CodingKeys: String, CodingKey {
+        case version, tasks, projects, notes, focusSegments, focus, dismissedOverdue
+        case repeatOccurrences, completedCalendarEventIDs, completedCalendarEventDays, preferences
+    }
+
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         version = try c.decodeMissing(Int.self, forKey: .version, default: Self.currentVersion)
@@ -337,5 +342,23 @@ public struct Planner: Codable, Equatable, Sendable {
         completedCalendarEventIDs = try c.decodeMissing(Set<String>.self, forKey: .completedCalendarEventIDs, default: [])
         completedCalendarEventDays = try c.decodeMissing([String: DayKey].self, forKey: .completedCalendarEventDays, default: [:])
         preferences = try c.decodeMissing(Preferences.self, forKey: .preferences, default: Preferences())
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(version, forKey: .version)
+        try c.encode(tasks, forKey: .tasks)
+        try c.encode(projects, forKey: .projects)
+        try c.encode(notes, forKey: .notes)
+        try c.encode(focusSegments, forKey: .focusSegments)
+        try c.encodeIfPresent(focus, forKey: .focus)
+        try c.encode(dismissedOverdue, forKey: .dismissedOverdue)
+        try c.encode(repeatOccurrences, forKey: .repeatOccurrences)
+        // Set iteration order changes between decodes, so writing it directly would make an
+        // unchanged document serialize differently on every save and evict the backup history
+        // that byte comparison is supposed to deduplicate.
+        try c.encode(completedCalendarEventIDs.sorted(), forKey: .completedCalendarEventIDs)
+        try c.encode(completedCalendarEventDays, forKey: .completedCalendarEventDays)
+        try c.encode(preferences, forKey: .preferences)
     }
 }
