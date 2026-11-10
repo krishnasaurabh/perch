@@ -148,9 +148,26 @@ final class ReminderServiceTests: XCTestCase {
         let f = ReminderFixture(); defer { f.clean() }; let id = f.task()
         f.source.onQuery = { f.store.send(.delete(id)) }
         await f.service.reconcile()
-        // Explicit second pass stands in for the normal planner-change subscription in this isolated fixture.
-        await f.service.reconcile()
         XCTAssertTrue(f.source.pending.isEmpty)
+        XCTAssertEqual(f.source.additions, 0)
+    }
+
+    @MainActor
+    func testNativeRequestUsesOneShotUTCTriggerWithoutAccessingCenter() throws {
+        let instant = Date(timeIntervalSince1970: 1_800_000_000.25)
+        let reminder = ScheduledReminder(
+            id: ScheduledReminder.prefix + "fixture", date: instant, title: "Fixture", body: "Body")
+        let request = SystemNotificationAccess.request(for: reminder)
+        let trigger = try XCTUnwrap(request.trigger as? UNCalendarNotificationTrigger)
+        XCTAssertFalse(trigger.repeats)
+        XCTAssertEqual(request.identifier, reminder.id)
+        XCTAssertEqual(request.content.title, reminder.title)
+        XCTAssertEqual(request.content.body, reminder.body)
+        XCTAssertNotNil(request.content.sound)
+        XCTAssertEqual(trigger.dateComponents.timeZone?.secondsFromGMT(), 0)
+        let date = try XCTUnwrap(trigger.dateComponents.calendar?.date(from: trigger.dateComponents))
+        XCTAssertEqual(date.timeIntervalSince1970, 1_800_000_001)
+        XCTAssertEqual(request.content.userInfo["due"] as? Double, instant.timeIntervalSinceReferenceDate)
     }
 
     @MainActor
@@ -174,5 +191,40 @@ final class ReminderServiceTests: XCTestCase {
                 Calendar.current.component(.hour, from: task.remindAt!),
                 Calendar.current.component(.hour, from: before[0].remindAt!))
         }
+    }
+
+    @MainActor
+    func testRolloverWaitsForResetHourAndDoesNotResurrectDeletedOccurrence() throws {
+        let f = ReminderFixture(); defer { f.clean() }
+        f.store.updatePrefs {
+            $0.resetHour = 4; $0.carryMode = .never
+        }
+        let day = f.store.today
+        f.time.now = day.adding(days: 1).start(resetHour: 4).addingTimeInterval(-60)
+        let id = f.task()
+        f.store.updateTask(id) { $0.repeatRule = .daily }
+        f.store.beginApplication()
+        XCTAssertEqual(f.store.today, day)
+        XCTAssertEqual(f.store.planner.tasks.count, 14)
+        let future = try XCTUnwrap(f.store.planner.tasks.first { $0.day == day.adding(days: 3) })
+        f.store.send(.delete(future.id))
+        f.store.renewReminderHorizon()
+        XCTAssertFalse(f.store.planner.tasks.contains { $0.id == future.id || $0.day == future.day })
+        f.time.now += 60
+        f.store.advanceLifecycle()
+        XCTAssertEqual(f.store.today, day.adding(days: 1))
+        XCTAssertTrue(f.store.planner.tasks.contains { $0.day == day.adding(days: 14) })
+        XCTAssertFalse(f.store.planner.tasks.contains { $0.day == future.day })
+    }
+
+    @MainActor
+    func testCompletionRelativeRepeatsAreNotExpandedBeforeCompletion() throws {
+        let f = ReminderFixture(); defer { f.clean() }; let id = f.task()
+        f.store.updateTask(id) { $0.repeatRule = TaskRepeat(unit: .day, fromCompletion: true) }
+        f.store.beginApplication()
+        XCTAssertEqual(f.store.planner.tasks.count, 1)
+        f.store.send(.complete(id))
+        f.store.renewReminderHorizon()
+        XCTAssertEqual(f.store.planner.tasks.count, 2)
     }
 }

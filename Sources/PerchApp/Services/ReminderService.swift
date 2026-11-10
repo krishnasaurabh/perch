@@ -125,9 +125,12 @@ final class ReminderService: NSObject, UNUserNotificationCenterDelegate {
             try ledger.save(history)
             records = history
             observedDeliveries.subtract(delivered)
+            if store.lastError == lastError { store.lastError = nil }
             lastError = nil
         } catch {
-            lastError = "Reminder scheduling failed: \(error.localizedDescription)"
+            let message = "Reminder scheduling failed: \(error.localizedDescription)"
+            lastError = message
+            store.lastError = message
         }
     }
 

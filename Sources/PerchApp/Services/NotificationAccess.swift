@@ -45,6 +45,9 @@ final class SystemNotificationAccess: NotificationAccess {
     }
     func schedule(_ reminder: ScheduledReminder) async throws {
         guard Bundle.main.bundleIdentifier != nil else { return }
+        try await UNUserNotificationCenter.current().add(Self.request(for: reminder))
+    }
+    static func request(for reminder: ScheduledReminder) -> UNNotificationRequest {
         let content = UNMutableNotificationContent()
         content.title = reminder.title; content.body = reminder.body; content.sound = .default
         content.userInfo = ["due": reminder.date.timeIntervalSinceReferenceDate]
@@ -52,11 +55,11 @@ final class SystemNotificationAccess: NotificationAccess {
         // so a timezone change does not silently retime an existing task.
         var utc = Calendar(identifier: .gregorian)
         utc.timeZone = TimeZone(secondsFromGMT: 0)!
-        var parts = utc.dateComponents([.year, .month, .day, .hour, .minute, .second], from: reminder.date)
+        let triggerDate = Date(timeIntervalSince1970: reminder.date.timeIntervalSince1970.rounded(.up))
+        var parts = utc.dateComponents([.year, .month, .day, .hour, .minute, .second], from: triggerDate)
         parts.calendar = utc; parts.timeZone = utc.timeZone
         let trigger = UNCalendarNotificationTrigger(dateMatching: parts, repeats: false)
-        try await UNUserNotificationCenter.current().add(
-            UNNotificationRequest(identifier: reminder.id, content: content, trigger: trigger))
+        return UNNotificationRequest(identifier: reminder.id, content: content, trigger: trigger)
     }
     func removeReminders(ids: [String]) {
         guard Bundle.main.bundleIdentifier != nil else { return }
