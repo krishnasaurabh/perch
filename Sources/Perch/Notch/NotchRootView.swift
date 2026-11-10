@@ -141,33 +141,91 @@ struct TimerPillLayer: View {
     @EnvironmentObject var model: NotchModel
     @Environment(\.motionPolicy) private var motionPolicy
 
+    @State private var presentation: Presentation?
+    @State private var reveal: CGFloat = 0
+    @State private var generation = 0
+
+    private struct Presentation {
+        let side: NotchTimerPlacement
+        var text: String
+        var opacity: Double
+    }
+
+    private var currentText: String? {
+        guard let focus = store.planner.focus, focus.state != .finished else { return nil }
+        return TimerText.clock(focus.remaining(at: model.now) ?? focus.elapsed(at: model.now))
+    }
+
     var body: some View {
         let n = geometry.tuckedNotch
         ZStack(alignment: .topLeading) {
             geometry.outline(expanded: false).fill(Theme.notchBlack)
                 .frame(width: n.width, height: n.height)
                 .offset(x: n.minX - bounds.minX, y: bounds.maxY - n.maxY)
-            ZStack(alignment: .topLeading) {
-                if let side, let focus = store.planner.focus, focus.state != .finished {
-                    let p = geometry.pill(side: side)
-                    let text = TimerText.clock(focus.remaining(at: model.now) ?? focus.elapsed(at: model.now))
-                    // Capture presentation values here: the exiting capsule must not read a cleared live timer.
-                    Capsule(style: .continuous).fill(Theme.notchBlack)
-                        .overlay {
-                            DotMatrixText(text: text, dot: Self.dot(for: text, width: p.width - 24, height: p.height * 0.52),
-                                          color: Color.white.opacity(focus.state == .running ? 0.95 : 0.6), unlit: .clear)
-                        }
-                        .frame(width: p.width, height: p.height)
-                        // Position via layout so the transition owns the only translation channel.
-                        .position(x: p.midX - bounds.minX, y: bounds.maxY - p.midY)
-                        .id(side)
-                        .transition(motionPolicy.reduceMotion ? .identity :
-                            .opacity.combined(with: .offset(x: side == .left ? 6 : -6)))
-                        .zIndex(1)
-                }
+            if let shown = presentation {
+                let p = geometry.pill(side: shown.side)
+                Capsule(style: .continuous).fill(Theme.notchBlack)
+                    .overlay {
+                        DotMatrixText(text: shown.text,
+                                      dot: Self.dot(for: shown.text, width: p.width - 24, height: p.height * 0.52),
+                                      color: Color.white.opacity(shown.opacity), unlit: .clear)
+                    }
+                    .frame(width: p.width, height: p.height)
+                    // Explicit state drives both channels; no spatial insertion transition is required.
+                    .opacity(reveal)
+                    .offset(x: p.minX - bounds.minX + (shown.side == .left ? 6 : -6) * (1 - reveal),
+                            y: bounds.maxY - p.maxY)
+                    .zIndex(1)
             }
-            .frame(width: bounds.width, height: bounds.height, alignment: .topLeading)
-            .motion(Motion.card, value: side)
+        }
+        .onChange(of: side, initial: true) { _, newSide in changeSide(newSide) }
+        .onChange(of: currentText) { _, text in
+            guard let text, presentation?.side == side else { return }
+            presentation?.text = text
+            presentation?.opacity = store.planner.focus?.state == .running ? 0.95 : 0.6
+        }
+        .onChange(of: store.planner.focus?.state) { _, state in
+            guard presentation?.side == side else { return }
+            presentation?.opacity = state == .running ? 0.95 : 0.6
+        }
+    }
+
+    private func changeSide(_ newSide: NotchTimerPlacement?) {
+        generation += 1
+        let request = generation
+        if motionPolicy.reduceMotion {
+            install(newSide, request: request, animated: false)
+        } else if presentation != nil {
+            // Retain the outgoing digits and placement until the fade/reveal has finished.
+            withAnimation(Motion.card, completionCriteria: .logicallyComplete) {
+                reveal = 0
+            } completion: {
+                guard generation == request else { return }
+                install(newSide, request: request, animated: true)
+            }
+        } else {
+            install(newSide, request: request, animated: true)
+        }
+    }
+
+    private func install(_ newSide: NotchTimerPlacement?, request: Int, animated: Bool) {
+        var snap = Transaction(animation: nil)
+        snap.disablesAnimations = true
+        withTransaction(snap) {
+            if let newSide, let text = currentText {
+                presentation = Presentation(side: newSide, text: text,
+                                            opacity: store.planner.focus?.state == .running ? 0.95 : 0.6)
+                reveal = animated ? 0 : 1
+            } else {
+                presentation = nil
+                reveal = 0
+            }
+        }
+        guard animated, newSide != nil else { return }
+        // Establish the hidden endpoint before animating an already-present capsule.
+        DispatchQueue.main.async {
+            guard generation == request else { return }
+            Motion.animate(Motion.card, policy: motionPolicy) { reveal = 1 }
         }
     }
 
