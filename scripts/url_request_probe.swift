@@ -37,11 +37,26 @@ final class ProbeClock {
     var now = Date(timeIntervalSince1970: 1_893_456_000) // Synthetic fixed clock.
 }
 
+struct FileSnapshot: Equatable {
+    let data: Data?
+    let modified: Date?
+}
+
 @MainActor
-func files(under directory: URL) throws -> [String: Data] {
-    let urls = try FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: [.isRegularFileKey])
-    return try Dictionary(uniqueKeysWithValues: urls.filter { try $0.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile == true }
-        .map { ($0.lastPathComponent, try Data(contentsOf: $0)) })
+func files(under directory: URL) throws -> [String: FileSnapshot] {
+    // Include nested backups, lock files and mtimes: rewriting identical bytes is still a write.
+    let keys: Set<URLResourceKey> = [.isRegularFileKey, .contentModificationDateKey]
+    guard let enumerator = FileManager.default.enumerator(at: directory, includingPropertiesForKeys: Array(keys)) else {
+        throw PlannerError("Cannot enumerate fixture directory")
+    }
+    var result: [String: FileSnapshot] = [:]
+    for url in [directory] + enumerator.allObjects.compactMap({ $0 as? URL }) {
+        let values = try url.resourceValues(forKeys: keys)
+        let name = String(url.path.dropFirst(directory.path.count))
+        result[name] = FileSnapshot(data: values.isRegularFile == true ? try Data(contentsOf: url) : nil,
+                                    modified: values.contentModificationDate)
+    }
+    return result
 }
 
 @MainActor
