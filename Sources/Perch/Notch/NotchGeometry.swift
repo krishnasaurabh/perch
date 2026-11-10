@@ -22,9 +22,15 @@ struct NotchGeometry: Equatable {
     static let activityDepth: CGFloat = 62, activityWidth: CGFloat = 400, activityWing: CGFloat = 100
 
     let screen: NotchLayout.Screen
+    let backingScaleFactor: CGFloat
 
-    init(screen: NotchLayout.Screen) { self.screen = screen }
-    init(screen: NSScreen) { self.screen = NotchLayout.Screen(screen) }
+    init(screen: NotchLayout.Screen, backingScaleFactor: CGFloat = 1) {
+        self.screen = screen
+        self.backingScaleFactor = max(1, backingScaleFactor)
+    }
+    init(screen: NSScreen) {
+        self.init(screen: NotchLayout.Screen(screen), backingScaleFactor: screen.backingScaleFactor)
+    }
 
     var screenFrame: NSRect { screen.frame }
     var camera: NSRect? { NotchLayout.camera(screen: screen) }
@@ -65,7 +71,7 @@ struct NotchGeometry: Equatable {
     /// The pill's bottom edge sits one device pixel above the housing's: `safeAreaTop` includes the housing's
     /// anti-aliased lip, so matching it exactly reads as a pixel lower than the hardware (seen on a 14" M3 Air).
     private func pixelAligned(_ r: NSRect) -> NSRect {
-        let scale: CGFloat = 2, top = r.maxY
+        let scale = backingScaleFactor, top = r.maxY
         let h = ((r.height * scale).rounded(.down) - 1) / scale
         return NSRect(x: r.minX, y: top - h, width: r.width, height: h)
     }

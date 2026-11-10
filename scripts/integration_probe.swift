@@ -22,12 +22,67 @@ func snapshot<V: View>(_ view: V, name: String, size: NSSize, output: URL) async
 }
 
 @MainActor
+func checkClosedNotch(store: PlannerStore, model: NotchModel, services: Services, output: URL) async throws {
+    let display = NotchLayout.Screen(frame: CGRect(x: 0, y: 0, width: 1512, height: 982),
+        visibleFrame: CGRect(x: 0, y: 0, width: 1512, height: 944.5), safeAreaTop: 37.5,
+        auxiliaryLeftWidth: 652, auxiliaryRightWidth: 652)
+    for scale in [CGFloat(1), CGFloat(2)] {
+        let g = NotchGeometry(screen: display, backingScaleFactor: scale)
+        let camera = g.camera!
+        let idle = g.idle(timer: nil, activity: false)
+        require(camera.contains(idle) && idle.width < camera.width && idle.height < camera.height,
+                "idle housing contains entire painted frame at \(scale)x")
+        for side in [NotchTimerPlacement.left, .right] {
+            let pill = g.idle(timer: side, activity: false)
+            require(side == .left ? pill.maxX == camera.maxX : pill.minX == camera.minX,
+                    "\(side): opposite edge stays at housing at \(scale)x")
+            require(pill.width == camera.width + NotchGeometry.timerWing,
+                    "\(side): only one timer wing grows at \(scale)x")
+            require(abs((pill.minY - camera.minY) * scale - (scale == 1 ? 1.5 : 1)) < 0.001,
+                    "\(side): bottom is at least one pixel above housing at \(scale)x")
+            require(abs(pill.minY * scale - (pill.minY * scale).rounded()) < 0.001,
+                    "\(side): bottom lands on a device pixel at \(scale)x")
+        }
+        require(g.idle(timer: nil, activity: true).minY < camera.minY,
+                "activity still extends below housing at \(scale)x")
+    }
+    let g = NotchGeometry(screen: display, backingScaleFactor: 2)
+    let state = NotchScreenState(id: 99, geometry: g)
+    model.screenID = state.id
+    model.geometry = g
+    store.updatePrefs { $0.notchOnMonitors = true }
+    for name in ["idle", "left", "right", "hidden", "long", "activity"] {
+        _ = store.apply { e in
+            e.planner.tasks = []
+            e.planner.focus = nil
+            if name != "idle" && name != "activity" {
+                let task = try e.addTasks(["Release timer check"], on: .day(e.today))[0]
+                _ = try e.startTimer(task: task.id.uuidString, minutes: name == "long" ? 120 : 5)
+                try e.pauseTimer()
+                e.planner.focus?.banked = 16
+            }
+            e.planner.preferences.notchTimerPlacement = name == "left" ? .left : name == "hidden" ? .hidden : .right
+        }
+        model.activity = name == "activity" ? NotchActivity(kind: .message, title: "Release reminder", subtitle: "Activity remains below the housing") : nil
+        let side = NotchModel.timerShowing(store)
+        require(name == "idle" || name == "hidden" || name == "activity" ? side == nil : side != nil,
+                "\(name): timer visibility follows focus and placement")
+        try await snapshot(NotchRootView().environmentObject(store).environmentObject(model)
+            .environmentObject(services).environmentObject(state).environment(\.motionPolicy, MotionPolicy(reduceMotion: true)),
+            name: "notch-hug-\(name)", size: g.window.size, output: output)
+    }
+    model.activity = nil
+    _ = store.apply { e in e.planner.tasks = []; e.planner.focus = nil }
+}
+
+@MainActor
 func runProbe() async throws {
     let output = URL(fileURLWithPath: ProcessInfo.processInfo.environment["INTEGRATION_OUTPUT"]!)
     let store = PlannerStore()
     let model = NotchModel()
     let services = Services(store: store)
     services.attach(model: model)
+    try await checkClosedNotch(store: store, model: model, services: services, output: output)
     let hour = Calendar.current.component(.hour, from: Date())
     store.updatePrefs { $0.resetHour = hour < 23 ? hour + 1 : 23 }
     require(store.today == store.engine.today, "store follows logical-day engine")
