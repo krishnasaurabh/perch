@@ -6,8 +6,8 @@ import PlannerCore
 // MARK: - Notch activity timeline
 
 /// Drives `NotchModel.activity` from the pure `NotchActivityTimeline`, with no polling: each pass shows what the
-/// timeline says is visible now, rings reminders that just started, and sleeps until the next boundary that changes
-/// either. Planner, calendar, wake, clock and day changes run a pass early.
+/// timeline says is visible now and sleeps until the next presentation boundary. OS reminders
+/// are scheduled independently by ReminderService. Planner, calendar, wake and clock changes refresh the strip.
 @MainActor
 final class NotchTimelineDriver {
     private typealias Activity = PerchUI.NotchActivity
@@ -21,8 +21,6 @@ final class NotchTimelineDriver {
     private var observers: [NSObjectProtocol] = []
     /// Closed by the user: hidden for the rest of their window.
     private var dismissed = Set<String>()
-    /// Reminders already rung (sound and notification), so no pass rings one twice.
-    private var rung = Set<String>()
     /// What the timeline showed on the previous pass, to tell a transition from a refresh.
     private var lastShowing: String?
     /// The timeline activity now in the model, keyed to the UI activity that shows it.
@@ -41,7 +39,7 @@ final class NotchTimelineDriver {
     func start(model: NotchModel) {
         self.model = model
         model.$activity.sink { [weak self] new in self?.activityChanged(to: new) }.store(in: &cancellables)
-        // Only reminder changes matter here; focus checkpoints do not rebuild the timeline.
+        // The running focus timer rewrites the planner every second; only reminder changes matter here.
         // `@Published` emits before storing, so hop the run loop and let the pass read the stored values.
         let alarms = store.$planner.map { NotchActivityTimeline.triggers(planner: $0) }.removeDuplicates().map { _ in ()
         }
@@ -75,19 +73,10 @@ final class NotchTimelineDriver {
         let timeline = NotchActivityTimeline(planner: store.planner, events: events)
         let live = Set(timeline.activities.map(\.id))
         dismissed.formIntersection(live)
-        rung.formIntersection(live)
-
-        let alarms = timeline.activities.filter { $0.kind == .reminder }
-        for a in alarms where a.date <= now && now < a.end && !rung.contains(a.id) {
-            rung.insert(a.id)
-            ring(a)
-        }
         let showing = timeline.showing(at: now, dismissed: dismissed)
         present(showing, in: model, now: now)
 
-        // A reminder hidden behind a higher-priority activity is not a visible change, but it still has to ring.
-        let nextRing = alarms.first { $0.date > now }?.date
-        nextWake = [timeline.nextChange(after: now, dismissed: dismissed), nextRing].compactMap { $0 }.min()
+        nextWake = timeline.nextChange(after: now, dismissed: dismissed)
         if let at = nextWake {
             let t = Timer(fire: at, interval: 0, repeats: false) { [weak self] _ in
                 Task { @MainActor in self?.refresh() }
@@ -160,8 +149,4 @@ final class NotchTimelineDriver {
             ?? "Reminder for \(a.title). Choose an action below."
     }
 
-    private func ring(_ a: Activity) {
-        NSSound(named: "Glass")?.play()
-        reminders.notify(id: a.id, title: a.title, body: body(for: a))
-    }
 }

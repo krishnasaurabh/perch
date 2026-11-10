@@ -151,6 +151,7 @@ final class PlannerStore: ObservableObject {
             lifecycleDay = today
             needsLaunch = false
         }
+        renewReminderHorizon()
     }
 
     func openDay(_ day: DayKey) {
@@ -169,6 +170,7 @@ final class PlannerStore: ObservableObject {
             }
         }
         if result != nil { lifecycleDay = today }
+        renewReminderHorizon()
     }
 
     func materializeRepeats(on days: [DayKey]) {
