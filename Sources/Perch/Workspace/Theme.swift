@@ -125,7 +125,9 @@ enum Motion {
     /// `.animation` modifiers from adding their own spatial animation to this transaction.
     @discardableResult
     static func animate<R>(_ a: Animation, policy: MotionPolicy = .system, _ body: () throws -> R) rethrows -> R {
-        try withTransaction(policy.transaction(a), body)
+        let transaction = policy.transaction(a)
+        MotionScript.recordTransaction(transaction, stage: "explicit-action")
+        return try withTransaction(transaction, body)
     }
 }
 
@@ -192,7 +194,10 @@ private struct MotionModifier<V: Equatable>: ViewModifier {
 private struct MotionBoundary: ViewModifier {
     @Environment(\.motionPolicy) private var policy
     func body(content: Content) -> some View {
-        content.transaction { policy.enforce(on: &$0) }
+        content.transaction {
+            policy.enforce(on: &$0)
+            MotionScript.recordTransaction($0, stage: "motion-boundary-after-enforce")
+        }
     }
 }
 

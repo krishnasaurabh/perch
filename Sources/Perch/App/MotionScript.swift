@@ -30,6 +30,15 @@ enum MotionScript {
     }
     static var environmentPolicy: [String: Any] = [:]
     static var transactions: [[String: Any]] = []
+    nonisolated static func recordTransaction(_ transaction: Transaction, stage: String) {
+        guard CommandLine.arguments.contains("--motion-script") else { return }
+        MainActor.assumeIsolated {
+            guard transactions.count < 2000 else { return }
+            transactions.append(["t": Date().timeIntervalSince1970, "stage": stage,
+                "animation": String(describing: transaction.animation),
+                "disables_animations": transaction.disablesAnimations])
+        }
+    }
     struct PolicyProbe: ViewModifier {
         @Environment(\.accessibilityReduceMotion) var systemReduced
         @Environment(\.motionPolicy) var policy
@@ -39,13 +48,7 @@ enum MotionScript {
                     guard CommandLine.arguments.contains("--motion-script") else { return }
                     MotionScript.environmentPolicy = ["swiftui_reduce_motion": systemReduced,
                         "resolved_reduce_motion": policy.reduceMotion]
-                    var enforced = transaction
-                    policy.enforce(on: &enforced)
-                    MotionScript.transactions.append(["t": Date().timeIntervalSince1970,
-                        "animation": String(describing: transaction.animation),
-                        "disables_animations": transaction.disablesAnimations,
-                        "policy_projection_animation": String(describing: enforced.animation),
-                        "policy_projection_disables_animations": enforced.disablesAnimations])
+                    MotionScript.recordTransaction(transaction, stage: "host-incoming")
                 }
             }
         }
