@@ -13,7 +13,84 @@ private final class RuntimeCounters: @unchecked Sendable {
     var value: (Int, Bool) { lock.lock(); defer { lock.unlock() }; return (reads, offMain) }
 }
 
+@MainActor
+private final class RuntimeScheduler: AppScheduling {
+    final class Token: AppScheduledAction {
+        var cancelled = false
+        func cancel() { cancelled = true }
+    }
+    var time = Date(timeIntervalSince1970: 1_800_000_000)
+    var jobs: [(Date, Token, @MainActor () -> Void)] = []
+    var wakeups = 0
+    func schedule(after delay: TimeInterval, action: @escaping @MainActor () -> Void) -> any AppScheduledAction {
+        let token = Token()
+        jobs.append((time.addingTimeInterval(delay), token, action))
+        return token
+    }
+    func advance(_ interval: TimeInterval) {
+        let end = time.addingTimeInterval(interval)
+        while let next = jobs.filter({ !$0.1.cancelled && $0.0 <= end }).min(by: { $0.0 < $1.0 }) {
+            jobs.removeAll { $0.1 === next.1 || $0.1.cancelled }
+            time = next.0
+            wakeups += 1
+            next.2()
+        }
+        time = end
+    }
+}
+
 final class RuntimeObservationTests: XCTestCase {
+    func testPointerHasNoIdleWakeupsAndStopsAtRelease() async {
+        await MainActor.run {
+            let scheduler = RuntimeScheduler()
+            var pressed = true
+            let pointer = DragPointerObservation(
+                scheduler: scheduler, now: { scheduler.time },
+                pressed: { pressed }, sample: {})
+            scheduler.advance(600)
+            XCTAssertEqual(scheduler.wakeups, 0)
+            pointer.begin()
+            scheduler.advance(1)
+            XCTAssertGreaterThanOrEqual(pointer.samples, 14)
+            XCTAssertLessThanOrEqual(pointer.samples, 15)
+            pressed = false
+            scheduler.advance(1)
+            let stopped = scheduler.wakeups
+            scheduler.advance(600)
+            XCTAssertEqual(scheduler.wakeups, stopped)
+            print("pointer-wakeups idle=0 dragSamples=\(pointer.samples) afterRelease=0")
+        }
+    }
+
+    func testMissingMouseUpCannotPollForever() async {
+        await MainActor.run {
+            let scheduler = RuntimeScheduler()
+            let pointer = DragPointerObservation(
+                scheduler: scheduler, now: { scheduler.time },
+                pressed: { true }, sample: {})
+            pointer.begin()
+            scheduler.advance(121)
+            let stopped = scheduler.wakeups
+            scheduler.advance(600)
+            XCTAssertEqual(scheduler.wakeups, stopped)
+            XCTAssertLessThanOrEqual(pointer.samples, 1_800)
+            pointer.begin()
+            scheduler.advance(1)
+            XCTAssertGreaterThan(scheduler.wakeups, stopped)
+            pointer.stop()
+            let beforeCancel = scheduler.wakeups
+            scheduler.advance(600)
+            XCTAssertEqual(scheduler.wakeups, beforeCancel)
+        }
+    }
+
+    func testFullscreenFallbackIsBoundedWhenAXIsUnavailable() async {
+        await MainActor.run {
+            XCTAssertEqual(FullscreenObservation.recoveryCadence(registeredNotifications: 0), 5)
+            XCTAssertEqual(FullscreenObservation.recoveryCadence(registeredNotifications: 4), 30)
+        }
+    }
+
     private func root() throws -> URL {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
@@ -122,6 +199,36 @@ final class RuntimeObservationTests: XCTestCase {
         try Data("changed".utf8).write(to: url, options: .atomic)
         await fulfillment(of: [event], timeout: 3)
         withExtendedLifetime(observer) {}
+    }
+
+    func testMissedEventRecoveryCoalescesBurstAndDoesNotRereadUnchangedData() async throws {
+        let root = try root()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let counters = RuntimeCounters()
+        var io = PlannerFile.IO()
+        io.read = { url in
+            counters.read(); return try Data(contentsOf: url)
+        }
+        let file = PlannerFile(
+            url: root.appendingPathComponent("planner.json"), io: io,
+            preferences: MemoryPlannerPreferences())
+        let store = await MainActor.run { PlannerStore(file: file, watching: false) }
+        let initial = counters.value.0
+        var planner = Planner()
+        planner.tasks = [PlanTask(title: "Recovered synthetic edit", day: "2027-01-15")]
+        try PlannerFile.encoder.encode(PlannerDiskDocument(planner)).write(to: file.url, options: .atomic)
+        let loaded = expectation(description: "missed event recovered")
+        let subscription = await MainActor.run {
+            store.$planner.sink { if !$0.tasks.isEmpty { loaded.fulfill() } }
+        }
+        await MainActor.run { for _ in 0..<20 { store.recoverObservation() } }
+        await fulfillment(of: [loaded], timeout: 3)
+        subscription.cancel()
+        XCTAssertEqual(counters.value.0 - initial, 1)
+        await MainActor.run { for _ in 0..<20 { store.recoverObservation() } }
+        try await Task.sleep(nanoseconds: 300_000_000)
+        XCTAssertEqual(counters.value.0 - initial, 1)
+        withExtendedLifetime(store) {}
     }
 
     func testStoreIdleDoesNotPublishOrDecodeEverySecond() async throws {

@@ -93,8 +93,7 @@ final class NotchController {
     private var monitors: [Any] = []
     private var closeWork: DispatchWorkItem?
     private var openWork: DispatchWorkItem?
-    private var dragTimer: Timer?
-    private var dragDeadline: Date?
+    private lazy var dragObservation = DragPointerObservation { [weak self] in self?.trackPointer() }
     private var fullscreenObservation: FullscreenObservation?
     private var cancellables = Set<AnyCancellable>()
     private var hotKey: GlobalHotKey?
@@ -115,15 +114,23 @@ final class NotchController {
         }.store(in: &cancellables)
 
         let mask: NSEvent.EventTypeMask = [.mouseMoved, .leftMouseDragged, .leftMouseDown, .leftMouseUp]
-        monitors.append(
-            NSEvent.addGlobalMonitorForEvents(matching: mask) { [weak self] e in
+        if let monitor = NSEvent.addGlobalMonitorForEvents(
+            matching: mask,
+            handler: { [weak self] e in
                 Task { @MainActor in self?.handle(e) }
-            } as Any)
-        monitors.append(
-            NSEvent.addLocalMonitorForEvents(matching: mask) { [weak self] e in
+            })
+        {
+            monitors.append(monitor)
+        }
+        if let monitor = NSEvent.addLocalMonitorForEvents(
+            matching: mask,
+            handler: { [weak self] e in
                 Task { @MainActor in self?.handle(e) }
                 return e
-            } as Any)
+            })
+        {
+            monitors.append(monitor)
+        }
         // Ordinary pointer movement is event-driven. Only a live drag needs a short-lived
         // fallback because other applications can consume their drag-session events.
 
@@ -408,11 +415,11 @@ final class NotchController {
 
     private func handle(_ e: NSEvent) {
         if e.type == .leftMouseUp {
-            dragTimer?.invalidate(); dragTimer = nil; dragDeadline = nil
+            dragObservation.stop()
             trackPointer()
             return
         }
-        if e.type == .leftMouseDown || e.type == .leftMouseDragged { startDragFallback() }
+        if e.type == .leftMouseDown || e.type == .leftMouseDragged { dragObservation.begin() }
         let p = NSEvent.mouseLocation
         updateMouseRouting(at: p)
         let prefs = store.prefs
@@ -489,29 +496,7 @@ final class NotchController {
         }
     }
 
-    /// A missing mouse-up cannot leave a high-frequency poll running indefinitely.
-    /// Fresh drag events renew the bound; an inactive pointer never starts a timer.
-    private func startDragFallback() {
-        dragDeadline = Date().addingTimeInterval(120)
-        guard dragTimer == nil else { return }
-        dragTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / 15, repeats: true) { [weak self] _ in
-            Task { @MainActor in
-                guard let self else { return }
-                guard NSEvent.pressedMouseButtons & 1 != 0,
-                    self.dragDeadline.map({ Date() < $0 }) == true
-                else {
-                    self.dragTimer?.invalidate(); self.dragTimer = nil
-                    self.dragDeadline = nil
-                    return
-                }
-                self.trackPointer()
-            }
-        }
-        dragTimer?.tolerance = 0.02
-    }
-
     deinit {
-        dragTimer?.invalidate()
         for monitor in monitors { NSEvent.removeMonitor(monitor) }
         closeWork?.cancel(); openWork?.cancel()
     }

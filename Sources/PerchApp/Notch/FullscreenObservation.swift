@@ -76,7 +76,7 @@ final class FullscreenObservation {
                 CFRunLoopAddSource(CFRunLoopGetMain(), AXObserverGetRunLoopSource(created), .commonModes)
             }
         }
-        recoveryInterval = registrations.isEmpty ? 5 : 30
+        recoveryInterval = Self.recoveryCadence(registeredNotifications: registrations.count)
         timer?.invalidate()
         timer = Timer.scheduledTimer(withTimeInterval: recoveryInterval, repeats: true) { [weak self] _ in
             Task { @MainActor in
@@ -84,6 +84,10 @@ final class FullscreenObservation {
             }
         }
         timer?.tolerance = recoveryInterval / 5
+    }
+
+    static func recoveryCadence(registeredNotifications: Int) -> TimeInterval {
+        registeredNotifications == 0 ? 5 : 30
     }
 
     private func register(_ element: AXUIElement, _ name: CFString) {

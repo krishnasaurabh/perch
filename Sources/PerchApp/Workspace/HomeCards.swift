@@ -5,7 +5,6 @@ import SwiftUI
 /// The running focus timer, on the lavender time card. On Today it appears only while a session is active.
 struct FocusCard: View {
     @EnvironmentObject var store: PlannerStore
-    @EnvironmentObject var model: NotchModel
     @State private var minutes = 25
 
     var body: some View {

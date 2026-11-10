@@ -109,10 +109,9 @@ struct HomePage: View {
 private struct HomeBody: View {
     @ObservedObject var calendar: CalendarService
     @EnvironmentObject var store: PlannerStore
-    @EnvironmentObject var model: NotchModel
 
     var body: some View {
-        TimelineView(.explicit(calendar.events.map(\.end))) { context in
+        TimelineView(.explicit(calendar.events.map(\.end).sorted())) { context in
             content(at: context.date)
         }
     }

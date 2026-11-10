@@ -274,8 +274,7 @@ final class PlannerStore: ObservableObject {
         // This metadata-only safety net also reinstalls watches after a missing directory returns.
         recoveryTimer = Timer.scheduledTimer(withTimeInterval: 30, repeats: true) { [weak self] _ in
             Task { @MainActor in
-                self?.observer?.repair()
-                self?.requestReload()
+                self?.recoverObservation()
             }
         }
         recoveryTimer?.tolerance = 5
@@ -348,6 +347,11 @@ final class PlannerStore: ObservableObject {
         }
     }
 
+    func recoverObservation() {
+        observer?.repair()
+        requestReload()
+    }
+
     /// Notification and vnode bursts share one bounded reload, never one main-thread decode per event.
     func requestReload() {
         guard reloadWork == nil else { return }
@@ -405,7 +409,7 @@ final class PlannerStore: ObservableObject {
             report(error)
             loadFailureMessage = lastError
         }
-        advanceLifecycle()
+        if runtimeEnabled && (lifecycleDay != nil || needsLaunch) { advanceLifecycle() }
         scheduleBoundaries()
     }
 

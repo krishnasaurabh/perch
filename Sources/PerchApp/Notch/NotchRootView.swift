@@ -135,7 +135,6 @@ struct TimerPillLayer: View {
     let side: NotchTimerPlacement
     let bounds: NSRect
     @EnvironmentObject var store: PlannerStore
-    @EnvironmentObject var model: NotchModel
 
     var body: some View {
         let n = geometry.tuckedNotch, p = geometry.pill(side: side)
@@ -184,7 +183,7 @@ struct ActivityStrip: View {
             VStack(alignment: .leading, spacing: 1) {
                 Text(activity.title).font(.system(size: 12.5, weight: .semibold)).foregroundStyle(Theme.text).lineLimit(
                     1)
-                LocalClock(running: needsCountdown, interval: 60) { now in
+                LocalClock(running: needsCountdown) { now in
                     Text(services.timeline.subtitle(for: activity, now: now)).font(.system(size: 11)).foregroundStyle(
                         Theme.secondary
                     ).lineLimit(1)
