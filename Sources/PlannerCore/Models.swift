@@ -117,7 +117,7 @@ public struct DayKey: Codable, Hashable, Comparable, Sendable, CustomStringConve
     }
     public init(_ date: Date, resetHour: Int = 0, calendar: Calendar = .current) {
         let calendar = calendar.plannerStorage
-        let boundary = calendar.date(bySettingHour: min(23, max(0, resetHour)), minute: 0, second: 0, of: date)!
+        let boundary = DayKey.wallTime(on: date, hour: min(23, max(0, resetHour)), calendar: calendar)
         let logicalDate = date < boundary ? calendar.date(byAdding: .day, value: -1, to: calendar.startOfDay(for: date))! : date
         let c = calendar.dateComponents([.year, .month, .day], from: logicalDate)
         raw = String(format: "%04d-%02d-%02d", c.year!, c.month!, c.day!)
@@ -155,6 +155,26 @@ public struct DayKey: Codable, Hashable, Comparable, Sendable, CustomStringConve
         return components
     }
 
+    /// Resolve a local wall time, using the first valid instant after a DST gap.
+    private static func wallTime(on date: Date, hour: Int, minute: Int = 0, calendar: Calendar) -> Date {
+        let matched = calendar.date(bySettingHour: hour, minute: minute, second: 0, of: date)!
+        if calendar.isDate(matched, inSameDayAs: date) { return matched }
+
+        // Exact-time matching can skip a whole day for a non-hour DST gap.
+        // Component construction stays on the civil day but preserves missing
+        // minutes; clamp to the transition to retain the next-valid-time policy.
+        var components = calendar.dateComponents([.era, .year, .month, .day], from: date)
+        components.hour = hour
+        components.minute = minute
+        components.second = 0
+        let normalized = calendar.date(from: components)!
+        if let transition = calendar.timeZone.nextDaylightSavingTimeTransition(after: calendar.startOfDay(for: date)),
+           transition <= normalized, calendar.isDate(transition, inSameDayAs: date) {
+            return transition
+        }
+        return normalized
+    }
+
     /// Midnight at the start of this day.
     public func date(calendar: Calendar = .current) -> Date {
         calendar.plannerStorage.date(from: DayKey.parse(raw)!)!
@@ -162,13 +182,13 @@ public struct DayKey: Codable, Hashable, Comparable, Sendable, CustomStringConve
     /// The start of a planner day, using local wall time even across daylight saving changes.
     public func start(resetHour: Int, calendar: Calendar = .current) -> Date {
         let calendar = calendar.plannerStorage
-        return calendar.date(bySettingHour: min(23, max(0, resetHour)), minute: 0, second: 0, of: date(calendar: calendar))!
+        return DayKey.wallTime(on: date(calendar: calendar), hour: min(23, max(0, resetHour)), calendar: calendar)
     }
 
     func reminderDate(hour: Int, minute: Int, resetHour: Int, calendar: Calendar) -> Date {
         let calendar = calendar.plannerStorage
         let civilDay = hour < resetHour ? adding(days: 1, calendar: calendar) : self
-        return calendar.date(bySettingHour: hour, minute: minute, second: 0, of: civilDay.date(calendar: calendar))!
+        return DayKey.wallTime(on: civilDay.date(calendar: calendar), hour: hour, minute: minute, calendar: calendar)
     }
 
     public func adding(days n: Int, calendar: Calendar = .current) -> DayKey {
