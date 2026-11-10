@@ -23,16 +23,30 @@ struct WeekPage: View {
                 Text("Drop tasks onto a day, or park them in the Inbox.").font(.system(size: 10.5)).foregroundStyle(Theme.tertiary)
             }
             // Changing weeks crossfades the day columns in place, like a page switch (`Motion.page`).
-            ZStack(alignment: .top) {
-                HStack(alignment: .top, spacing: 6) {
-                    ForEach(days, id: \.self) { d in
-                        column(title: d.date().formatted(.dateTime.weekday(.abbreviated)), subtitle: d.date().formatted(.dateTime.day()),
-                               ref: .day(d), isToday: d == store.today, past: d < store.today)
-                    }
-                    column(title: "Inbox", subtitle: "", ref: .inbox, isToday: false, past: false).frame(width: 130)
+            GeometryReader { geometry in
+                // Give a busy day room for ordinary titles. Below the useful minimum, pan the week
+                // horizontally instead of compressing every title; each day's Add stays outside its list.
+                let widths = days.map { day -> CGFloat in
+                    let count = store.engine.tasks(on: .day(day)).count
+                    return count > 4 ? 180 : (count > 0 ? 104 : 88)
                 }
-                .id(anchor)
-                .transition(.opacity)
+                let minimum = widths.reduce(118 + 7 * 6, +)
+                let extra = max(0, geometry.size.width - minimum) / 8
+                ScrollView(.horizontal) {
+                    HStack(alignment: .top, spacing: 6) {
+                        ForEach(Array(days.enumerated()), id: \.element) { index, d in
+                            column(title: d.date().formatted(.dateTime.weekday(.abbreviated)), subtitle: d.date().formatted(.dateTime.day()),
+                                   ref: .day(d), isToday: d == store.today, past: d < store.today)
+                                .frame(width: widths[index] + extra)
+                        }
+                        column(title: "Inbox", subtitle: "", ref: .inbox, isToday: false, past: false)
+                            .frame(width: 118 + extra)
+                    }
+                    .frame(height: geometry.size.height - 12)
+                    .id(anchor)
+                    .transition(.opacity)
+                }
+                .scrollIndicators(.visible)
             }
         }
         .showsDays(days)
@@ -46,17 +60,19 @@ struct WeekPage: View {
         return VStack(alignment: .leading, spacing: 5) {
             // Day, date and count each keep one line at their natural width; a Spacer would otherwise be offered
             // a share of the row and squeeze the day name into two lines ("MO" / "N").
-            HStack(spacing: 4) {
-                Text(title.uppercased()).font(.system(size: 10, weight: .bold)).tracking(0.6)
-                    .foregroundStyle(isToday ? Theme.accent : Theme.secondary)
-                    .lineLimit(1).fixedSize()
-                Text(subtitle).font(.system(size: 10, weight: .semibold)).foregroundStyle(isToday ? Theme.accent : Theme.tertiary)
-                    .lineLimit(1).fixedSize()
-                Spacer(minLength: 2)
-                if !tasks.isEmpty {
-                    Text("\(tasks.filter(\.done).count)/\(tasks.count)").font(.system(size: 9.5).monospacedDigit()).foregroundStyle(Theme.tertiary)
-                        .lineLimit(1).minimumScaleFactor(0.8)
+            VStack(alignment: .leading, spacing: 3) {
+                HStack(spacing: 4) {
+                    Text(title.uppercased()).font(.system(size: 10, weight: .bold)).tracking(0.6)
+                        .foregroundStyle(isToday ? Theme.accent : Theme.secondary)
+                        .lineLimit(1).fixedSize()
+                    Text(subtitle).font(.system(size: 10, weight: .semibold)).foregroundStyle(isToday ? Theme.accent : Theme.tertiary)
+                        .lineLimit(1).fixedSize()
                 }
+                // A dedicated line prevents the day label from squeezing or scaling the count.
+                Text("\(tasks.filter(\.done).count)/\(tasks.count) done")
+                    .font(.system(size: 11, weight: .medium).monospacedDigit()).foregroundStyle(Theme.secondary)
+                    .lineLimit(1).fixedSize(horizontal: true, vertical: false)
+                    .accessibilityLabel("\(tasks.filter(\.done).count) of \(tasks.count) tasks complete")
             }
             WeekDayList(tasks: tasks, ref: ref, past: past)
             // Pinned under the list, so a busy day never scrolls its Add away.
@@ -81,7 +97,7 @@ struct WeekPage: View {
     }
 }
 
-/// One day's chips. When they overflow, the list fades out at the bottom and a quiet "+N more" says how many
+/// One day's chips. When they overflow, the list fades out at the bottom and "+N more" says how many
 /// chips sit below the fold; scrolling to the end clears both.
 private struct WeekDayList: View {
     let tasks: [PlanTask]
@@ -128,7 +144,7 @@ private struct WeekDayList: View {
                 }
             }
             if let more = WeekColumnLayout.overflowLabel(hidden: hidden) {
-                Text(more).font(.system(size: 9.5, weight: .medium)).foregroundStyle(Theme.tertiary)
+                Text(more).font(.system(size: 11, weight: .semibold)).foregroundStyle(Theme.tertiary)
                     .frame(maxWidth: .infinity, alignment: .center)
                     .accessibilityLabel("\(hidden) more \(hidden == 1 ? "task" : "tasks") below")
                     .transition(.opacity)
@@ -150,22 +166,16 @@ struct WeekChip: View {
     let past: Bool
     @EnvironmentObject var store: PlannerStore
     @EnvironmentObject var model: NotchModel
-    @State private var titleWidth: CGFloat = 0
 
     var body: some View {
-        let fit = WeekColumnLayout.titleFit(widestWord: Self.widestWord(task.title, repeating: task.repeatRule != nil),
-                                            available: Double(titleWidth) - 1)
         HStack(alignment: .firstTextBaseline, spacing: 5) {
             Circle().fill(task.done ? Theme.done : (task.priority == .none ? Theme.tertiary : Theme.priority(task.priority))).frame(width: 6, height: 6)
                 .alignmentGuide(.firstTextBaseline) { $0[.bottom] - 0.5 }
-            title(size: fit.size)
-                .lineLimit(fit.lines).truncationMode(.tail)
-                // The title takes the whole row: it wraps only between words, and a word wider than the row
-                // steps the type down (see `WeekColumnLayout.titleFit`) rather than breaking inside the word.
+            title(size: WeekColumnLayout.titleSize)
+                .lineLimit(2).truncationMode(.tail)
+                // Never shrink text to make a day fit. Width belongs to the column, not the font.
+                .fixedSize(horizontal: false, vertical: true)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .background(GeometryReader { g in
-                    Color.clear.onAppear { titleWidth = g.size.width }.onChange(of: g.size.width) { _, w in titleWidth = w }
-                })
                 .layoutPriority(1)
         }
         .padding(.horizontal, 6).padding(.vertical, 5)
@@ -186,17 +196,6 @@ struct WeekChip: View {
         return glyph + Text(" ") + words
     }
 
-    /// Width of the title's widest word at the regular chip size; the first word also carries the repeat glyph.
-    private static func widestWord(_ title: String, repeating: Bool) -> Double {
-        let font = NSFont.systemFont(ofSize: CGFloat(WeekColumnLayout.titleSize))
-        let glyph: CGFloat = repeating ? 14 : 0
-        var widest: CGFloat = 0
-        for (i, word) in title.split(whereSeparator: { $0.isWhitespace }).enumerated() {
-            let w = (String(word) as NSString).size(withAttributes: [.font: font]).width + (i == 0 ? glyph : 0)
-            widest = max(widest, w)
-        }
-        return Double(widest)
-    }
 }
 
 struct MiniComposer: View {
