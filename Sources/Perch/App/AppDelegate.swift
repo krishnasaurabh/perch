@@ -116,25 +116,36 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc func openSettings() { SettingsWindow.show(store: store, services: services) }
 
     // perch://add?title=Buy%20milk   perch://open?page=week
+    var externalTaskConfirmation: ExternalTaskConfirming = ExternalTaskConfirmationController()
+    private var pendingExternalTask: UUID?
+
     private func setupURLScheme() {
         NSAppleEventManager.shared().setEventHandler(self, andSelector: #selector(handleURL(_:reply:)),
                                                      forEventClass: AEEventClass(kInternetEventClass), andEventID: AEEventID(kAEGetURL))
     }
 
     @objc func handleURL(_ event: NSAppleEventDescriptor, reply: NSAppleEventDescriptor) {
-        guard let s = event.paramDescriptor(forKeyword: keyDirectObject)?.stringValue, let url = URLComponents(string: s) else { return }
-        let q = Dictionary((url.queryItems ?? []).map { ($0.name, $0.value ?? "") }, uniquingKeysWith: { a, _ in a })
-        switch url.host {
-        case "add":
-            if let title = q["title"], !title.isEmpty {
-                let day = try? DayRef.parse(q["date"], now: Date(), resetHour: store.prefs.resetHour)
-                if let added = store.apply({ try $0.addTasks([title], on: day) }), let t = added.first {
-                    model.show(.init(kind: .message, title: "Added", subtitle: t.title), for: 2.5)
+        guard let store, let raw = event.paramDescriptor(forKeyword: keyDirectObject)?.stringValue,
+              let request = ExternalURLRequest.parse(raw, now: store.engine.now(), resetHour: store.prefs.resetHour) else { return }
+        switch request {
+        case .add(let task):
+            // One visible request at a time. Neither another URL nor a repeated callback can
+            // replace what the person reviewed, approve it, or perform the write twice.
+            guard pendingExternalTask == nil else { return }
+            let token = UUID()
+            pendingExternalTask = token
+            externalTaskConfirmation.present(task) { [weak self] confirmed in
+                guard let self, self.pendingExternalTask == token else { return }
+                self.pendingExternalTask = nil
+                guard confirmed else { return }
+                if store.apply({ try $0.addTasks([task.title], on: task.day, literal: true) }) != nil {
+                    // Keep untrusted task text out of status/agent messages.
+                    self.model?.show(.init(kind: .message, title: "Task added", subtitle: "Confirmed external request"), for: 2.5)
                 }
             }
-        case "open":
-            NotificationCenter.default.post(name: .perchOpenWorkspace, object: q["page"].flatMap(NotchPage.init(rawValue:)) ?? .home)
-        default: break
+        case .open(let page):
+            guard let destination = NotchPage(rawValue: page) else { return }
+            NotificationCenter.default.post(name: .perchOpenWorkspace, object: destination)
         }
     }
 
