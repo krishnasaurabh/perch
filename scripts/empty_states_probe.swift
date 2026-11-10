@@ -74,7 +74,7 @@ func probeWeekBars(_ focusOnly: Insights, output: URL) async {
         let x = Int((10 + 6 * (col + 14) + col / 2) * scale)
         var planned: Int?, completed: Int?
         // Match the actual Planned token composited over this fixture's white background.
-        let plannedInk = NSColor(Theme.insightsPlanned).usingColorSpace(.deviceRGB)!
+        let plannedInk = NSColor(Theme.insightsPlanned).usingColorSpace(.sRGB)!
         let plannedValue = (plannedInk.redComponent + plannedInk.greenComponent + plannedInk.blueComponent) / 3
             * plannedInk.alphaComponent + (1 - plannedInk.alphaComponent)
         var plannedRows = 0
@@ -86,7 +86,10 @@ func probeWeekBars(_ focusOnly: Insights, output: URL) async {
             }
             let v = (c.redComponent + c.greenComponent + c.blueComponent) / 3
             if completed == nil, v < 0.3 { completed = y }
-            if abs(v - plannedValue) <= 0.05 {
+            // Convert the sampled pixel too: device RGB has a different transfer curve.
+            guard let plannedPixel = c.usingColorSpace(.sRGB) else { plannedRows = 0; continue }
+            let plannedBrightness = (plannedPixel.redComponent + plannedPixel.greenComponent + plannedPixel.blueComponent) / 3
+            if abs(plannedBrightness - plannedValue) <= 0.05 {
                 plannedRows += 1
                 // Reject isolated antialias pixels from Completed's rounded edge.
                 if planned == nil, plannedRows >= 3 { planned = y - plannedRows + 1 }
