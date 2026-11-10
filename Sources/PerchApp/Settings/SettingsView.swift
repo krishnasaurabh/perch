@@ -222,12 +222,12 @@ struct SettingsView: View {
                         }
                     }))
             Text(
-                "Perch maintains its own “Perch” list in Reminders covering today and upcoming days. Edits flow both directions, so checking something off on your phone or watch checks it off here. No other list is touched."
+                "Perch creates a separate Reminders list and mirrors task details for today and upcoming days. Completing today's reminder also completes its task. Remote text edits, reopening, deletion and future-day completion are not imported; conflicting changes pause sync. Existing reminders and other lists are not adopted. Undo or Redo pauses sync until you turn it off and on again."
             )
             .font(.caption).foregroundStyle(.secondary)
             Toggle("Alert on iPhone and Apple Watch too", isOn: pref(\.ringOnPhone)).disabled(
                 !store.prefs.remindersSync)
-            if let e = services.remindersSync.lastError { Text(e).font(.caption).foregroundStyle(.red) }
+            ReminderSyncStatus(sync: services.remindersSync)
         }
         Section("Permissions") {
             Button("Request notification permission") { Task { await services.reminders.requestAuthorization() } }

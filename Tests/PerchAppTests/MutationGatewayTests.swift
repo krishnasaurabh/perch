@@ -7,14 +7,6 @@ import XCTest
 @testable import PerchApp
 
 @MainActor
-private final class FakeReminders: RemindersAccess {
-    var hasAccess = true
-    var result = ReminderSyncResult()
-    func requestAccess() async throws {}
-    func synchronize(_ planner: Planner, today: DayKey) throws -> ReminderSyncResult { result }
-}
-
-@MainActor
 private final class FakeNotifications: NotificationAccess {
     var authorized = false
     var messages: [String] = []
@@ -108,28 +100,28 @@ final class MutationGatewayTests: XCTestCase {
         }
     }
 
-    func testFakeRemindersUseBackgroundGatewayWithoutClearingRedo() async throws {
-        try await MainActor.run {
-            let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-            defer { try? FileManager.default.removeItem(at: root) }
-            let store = PlannerStore(
-                file: PlannerFile(url: root.appendingPathComponent("planner.json")), watching: false)
-            let id = try XCTUnwrap(
-                store.send(.addTasks(["Original"], day: nil, literal: true, agentID: nil))?.tasks.first?.id)
-            store.updatePrefs { $0.remindersSync = true }
-            store.send(.rename(id, "Changed"))
-            store.undo()
-            let source = FakeReminders()
-            source.result = ReminderSyncResult(links: [id: "synthetic-link"], completed: [id])
-            let sync = RemindersSync(store: store, source: source)
-            sync.sync()
-            XCTAssertTrue(store.canRedo)
-            XCTAssertEqual(store.planner.tasks[0].reminderLink, "synthetic-link")
-            XCTAssertTrue(store.planner.tasks[0].done)
-            store.redo()
-            XCTAssertEqual(store.planner.tasks[0].title, "Changed")
-            XCTAssertTrue(store.planner.tasks[0].done)
-        }
+    @MainActor func testFakeRemindersUseBackgroundGatewayWithoutClearingRedo() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = PlannerStore(file: PlannerFile(url: root.appendingPathComponent("planner.json")), watching: false)
+        let id = try XCTUnwrap(
+            store.send(.addTasks(["Original"], day: nil, literal: true, agentID: nil))?.tasks.first?.id)
+        store.updatePrefs { $0.remindersSync = true }
+        store.send(.rename(id, "Changed")); store.undo()
+        let source = FakeReminders(), ledger = TestReminderLedger()
+        ledger.ledger.enabled = true
+        let sync = RemindersSync(store: store, source: source, storage: ledger, observing: false)
+        let granted = await sync.requestAccess(); XCTAssertTrue(granted)
+        await sync.reconcileNow()
+        source.completeFirst()
+        await sync.reconcileNow()
+        XCTAssertTrue(store.canRedo)
+        XCTAssertNil(store.planner.tasks[0].reminderLink)
+        XCTAssertNotNil(ledger.ledger.links[id]?.remoteID)
+        XCTAssertTrue(store.planner.tasks[0].done)
+        store.redo()
+        XCTAssertEqual(store.planner.tasks[0].title, "Changed")
+        XCTAssertTrue(store.planner.tasks[0].done)
     }
 
     func testCalendarAndClipboardCanBeFakedWithoutSystemState() async throws {

@@ -1,74 +1,122 @@
 import EventKit
 import Foundation
-import PlannerCore
-
-struct ReminderSyncResult {
-    var links: [UUID: String] = [:]
-    var completed: [UUID] = []
-}
+import PerchReminders
 
 @MainActor
-protocol RemindersAccess {
-    var hasAccess: Bool { get }
+protocol RemindersAccess: ReminderRepository {
     func requestAccess() async throws
-    func synchronize(_ planner: Planner, today: DayKey) throws -> ReminderSyncResult
 }
 
+/// EventKit transport only. Reconciliation and persisted ownership are platform independent.
 @MainActor
 final class SystemRemindersAccess: RemindersAccess {
-    private let ek = EKEventStore()
+    private let ek: EKEventStore
+    init(eventStore: EKEventStore = EKEventStore()) { ek = eventStore }
     var hasAccess: Bool { EKEventStore.authorizationStatus(for: .reminder) == .fullAccess }
     func requestAccess() async throws { _ = try await ek.requestFullAccessToReminders() }
-    private func list() throws -> EKCalendar {
-        if let c = ek.calendars(for: .reminder).first(where: { $0.title == RemindersSync.listName }) { return c }
-        let c = EKCalendar(for: .reminder, eventStore: ek)
-        c.title = RemindersSync.listName
+
+    func createCalendar() throws -> String {
+        try requireAccess()
+        // A title is not proof of ownership. Never adopt a user's existing list, even with the same name.
+        let calendar = EKCalendar(for: .reminder, eventStore: ek)
+        calendar.title = "Perch"
         guard
             let source = ek.defaultCalendarForNewReminders()?.source
                 ?? ek.sources.first(where: { $0.sourceType == .calDAV || $0.sourceType == .local })
-        else { throw PlannerError("Perch found no Reminders account on this Mac.") }
-        c.source = source
-        try ek.saveCalendar(c, commit: true)
-        return c
+        else {
+            throw ReminderSyncError.stopped("No Reminders account is available on this Mac.")
+        }
+        calendar.source = source
+        try ek.saveCalendar(calendar, commit: true)
+        return calendar.calendarIdentifier
     }
 
-    func synchronize(_ planner: Planner, today: DayKey) throws -> ReminderSyncResult {
-        let cal = try list()
-        let pred = ek.predicateForReminders(in: [cal])
-        var fetched: [EKReminder] = []
-        let sem = DispatchSemaphore(value: 0)
-        ek.fetchReminders(matching: pred) { r in
-            fetched = r ?? []; sem.signal()
+    func fetch(calendarID: String) async throws -> [ReminderSyncRecord] {
+        try requireAccess()
+        guard let calendar = ek.calendar(withIdentifier: calendarID) else {
+            throw ReminderSyncError.stopped(
+                "The Perch Reminders list was removed or moved. Sync is stopped; no replacement list was created.")
         }
-        sem.wait()
-        let byID = Dictionary(fetched.map { ($0.calendarItemIdentifier, $0) }, uniquingKeysWith: { a, _ in a })
-        var links: [UUID: String] = [:]
-        var completedRemotely: [UUID] = []
+        let predicate = ek.predicateForReminders(in: [calendar])
+        let reminders: [EKReminder] = try await withCheckedThrowingContinuation { continuation in
+            ek.fetchReminders(matching: predicate) { reminders in
+                if let reminders {
+                    continuation.resume(returning: reminders)
+                } else {
+                    continuation.resume(
+                        throwing: ReminderSyncError.stopped(
+                            "Reminders could not be read. Retry after checking permission."))
+                }
+            }
+        }
+        try requireAccess()
+        return reminders.map(snapshot)
+    }
 
-        for t in planner.tasks {
-            guard let d = t.day, d >= today else { continue }
-            let r = t.reminderLink.flatMap { byID[$0] }
-            if let r, r.isCompleted, !t.done, d == today { completedRemotely.append(t.id); continue }
-            if t.done {
-                if let r, !r.isCompleted { r.isCompleted = true; try? ek.save(r, commit: false) }; continue
-            }
-            let rem = r ?? EKReminder(eventStore: ek)
-            rem.calendar = cal
-            rem.title = t.title
-            rem.notes = t.notes.isEmpty ? nil : t.notes
-            rem.priority = [.high: 1, .medium: 5, .low: 9, .none: 0][t.priority]!
-            var comps = Calendar.current.dateComponents([.year, .month, .day], from: d.date())
-            if let at = t.remindAt {
-                comps = Calendar.current.dateComponents([.year, .month, .day, .hour, .minute], from: at)
-                rem.alarms = planner.preferences.ringOnPhone ? [EKAlarm(absoluteDate: at)] : nil
-            } else {
-                rem.alarms = nil
-            }
-            rem.dueDateComponents = comps
-            try ek.save(rem, commit: false)
-            if t.reminderLink != rem.calendarItemIdentifier { links[t.id] = rem.calendarItemIdentifier }
+    func save(fields: ReminderFields, owner: ReminderOwner, calendarID: String, replacing expected: ReminderSyncRecord?)
+        throws -> ReminderSyncRecord
+    {
+        try requireAccess()
+        let reminder: EKReminder
+        if let expected {
+            reminder = try current(expected)
+            guard expected.owner == owner else { throw conflict() }
+            if expected.fields == fields { return expected }
+        } else {
+            guard let calendar = ek.calendar(withIdentifier: calendarID) else { throw conflict() }
+            reminder = EKReminder(eventStore: ek)
+            reminder.calendar = calendar
+            reminder.url = owner.url
         }
-        try ek.commit()
-        return ReminderSyncResult(links: links, completed: completedRemotely)
+        reminder.title = fields.title
+        reminder.notes = fields.notes
+        reminder.priority = fields.priority
+        reminder.dueDateComponents = fields.due
+        reminder.alarms = fields.alarm.map { [EKAlarm(absoluteDate: $0)] }
+        reminder.isCompleted = fields.completed
+        // Commit individually. Errors surface; a later retry fetches committed records by their ownership marker.
+        do { try ek.save(reminder, commit: true) } catch { ek.reset(); throw error }
+        return snapshot(reminder)
+    }
+
+    func remove(_ expected: ReminderSyncRecord) throws {
+        try requireAccess()
+        let reminder = try current(expected)
+        guard expected.owner != nil else { throw conflict() }
+        do { try ek.remove(reminder, commit: true) } catch { ek.reset(); throw error }
+    }
+
+    private func current(_ expected: ReminderSyncRecord) throws -> EKReminder {
+        guard let reminder = ek.calendarItem(withIdentifier: expected.id) as? EKReminder,
+            snapshot(reminder) == expected
+        else { throw conflict() }
+        return reminder
+    }
+
+    private func requireAccess() throws {
+        guard hasAccess else {
+            throw ReminderSyncError.stopped(
+                "Reminders permission was revoked. Grant access in System Settings and retry.")
+        }
+    }
+    private func conflict() -> ReminderSyncError {
+        .stopped("A reminder changed during sync. Nothing else was overwritten; retry to review the latest version.")
+    }
+    private func snapshot(_ reminder: EKReminder) -> ReminderSyncRecord {
+        let alarms = reminder.alarms ?? []
+        let unsupported =
+            !(reminder.recurrenceRules ?? []).isEmpty || alarms.count > 1
+            || alarms.contains { $0.absoluteDate == nil || $0.structuredLocation != nil }
+            || !(reminder.location ?? "").isEmpty || reminder.startDateComponents != nil
+            || (reminder.dueDateComponents?.second ?? 0) != 0
+        return ReminderSyncRecord(
+            id: reminder.calendarItemIdentifier, calendarID: reminder.calendar.calendarIdentifier,
+            owner: ReminderOwner(url: reminder.url),
+            fields: ReminderFields(
+                title: reminder.title ?? "", notes: reminder.notes?.isEmpty == true ? nil : reminder.notes,
+                priority: reminder.priority, due: reminder.dueDateComponents, alarm: alarms.first?.absoluteDate,
+                completed: reminder.isCompleted),
+            revision: reminder.lastModifiedDate.map { String($0.timeIntervalSinceReferenceDate) } ?? "",
+            unsupported: unsupported)
     }
 }
