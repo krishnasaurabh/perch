@@ -52,7 +52,7 @@ enum AISorter {
                             store.send(
                                 .suggest(t.id, priority: s.priority.taskPriority, projectID: project),
                                 origin: .background)
-                            PlatformLog.sorting.debug("sort completed id=\(t.id.uuidString, privacy: .public)")
+                            PlatformLog.sorting.debug("sort completed id=\(t.id.uuidString, privacy: .private)")
                         } catch {
                             PlatformLog.sorting.error(
                                 "sort failed code=\(PlatformLog.errorCode(error), privacy: .public)")

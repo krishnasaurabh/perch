@@ -36,7 +36,7 @@ final class SystemRemindersAccess: RemindersAccess {
         }
         calendar.source = source
         try ek.saveCalendar(calendar, commit: true)
-        PlatformLog.reminders.info("calendar created id=\(calendar.calendarIdentifier, privacy: .public)")
+        PlatformLog.reminders.info("calendar created id=\(calendar.calendarIdentifier, privacy: .private)")
         return calendar.calendarIdentifier
     }
 
@@ -101,7 +101,7 @@ final class SystemRemindersAccess: RemindersAccess {
             PlatformLog.reminders.error("remove failed code=\(PlatformLog.errorCode(error), privacy: .public)")
             ek.reset(); throw error
         }
-        PlatformLog.reminders.debug("remove completed id=\(expected.id, privacy: .public)")
+        PlatformLog.reminders.debug("remove completed id=\(expected.id, privacy: .private)")
     }
 
     private func current(_ expected: ReminderSyncRecord) throws -> EKReminder {

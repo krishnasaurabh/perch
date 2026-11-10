@@ -39,14 +39,15 @@ final class SystemNotificationAccess: NotificationAccess {
     }
     func pendingReminders() async -> [ScheduledReminder] {
         guard Bundle.main.bundleIdentifier != nil else { return [] }
-        let reminders = await UNUserNotificationCenter.current().pendingNotificationRequests().compactMap { request in
-            guard request.identifier.hasPrefix(ScheduledReminder.prefix),
-                let stamp = request.content.userInfo["due"] as? Double
-            else { return nil }
-            return ScheduledReminder(
-                id: request.identifier, date: Date(timeIntervalSinceReferenceDate: stamp),
-                title: request.content.title, body: request.content.body)
-        }
+        let reminders: [ScheduledReminder] = await UNUserNotificationCenter.current().pendingNotificationRequests()
+            .compactMap { request in
+                guard request.identifier.hasPrefix(ScheduledReminder.prefix),
+                    let stamp = request.content.userInfo["due"] as? Double
+                else { return nil }
+                return ScheduledReminder(
+                    id: request.identifier, date: Date(timeIntervalSinceReferenceDate: stamp),
+                    title: request.content.title, body: request.content.body)
+            }
         PlatformLog.notifications.debug("pending loaded count=\(reminders.count, privacy: .public)")
         return reminders
     }
@@ -60,7 +61,7 @@ final class SystemNotificationAccess: NotificationAccess {
         guard Bundle.main.bundleIdentifier != nil else { return }
         do {
             try await UNUserNotificationCenter.current().add(Self.request(for: reminder))
-            PlatformLog.notifications.debug("scheduled id=\(reminder.id, privacy: .public)")
+            PlatformLog.notifications.debug("scheduled id=\(reminder.id, privacy: .private)")
         } catch {
             PlatformLog.notifications.error("schedule failed code=\(PlatformLog.errorCode(error), privacy: .public)")
             throw error
@@ -95,7 +96,7 @@ final class SystemNotificationAccess: NotificationAccess {
             if let error {
                 PlatformLog.notifications.error("post failed code=\(PlatformLog.errorCode(error), privacy: .public)")
             } else {
-                PlatformLog.notifications.debug("post completed id=\(id, privacy: .public)")
+                PlatformLog.notifications.debug("post completed id=\(id, privacy: .private)")
             }
         }
     }

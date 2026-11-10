@@ -123,11 +123,12 @@ final class GlobalHotKey {
         let status = RegisterEventHotKey(
             key.keyCode, key.modifiers.carbon, hkID, GetApplicationEventTarget(), 0, &newRef)
         guard status == noErr, let newRef else {
-            PlatformLog.hotKey.error("register failed id=\(id, privacy: .public) status=\(status, privacy: .public)")
+            PlatformLog.hotKey.error(
+                "register failed id=\(self.id, privacy: .public) status=\(status, privacy: .public)")
             return false
         }
         ref = newRef
-        PlatformLog.hotKey.debug("register succeeded id=\(id, privacy: .public)")
+        PlatformLog.hotKey.debug("register succeeded id=\(self.id, privacy: .public)")
         return true
     }
 

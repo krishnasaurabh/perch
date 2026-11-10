@@ -33,7 +33,7 @@ extension NSPasteboard: PasteboardAccess {
             succeeded = setData(data, forType: .png); kind = "image"
         }
         PlatformLog.pasteboard.debug(
-            "replace kind=\(kind, privacy: .public) succeeded=\(succeeded, privacy: .public) changeCount=\(changeCount, privacy: .public)"
+            "replace kind=\(kind, privacy: .public) succeeded=\(succeeded, privacy: .public) changeCount=\(self.changeCount, privacy: .public)"
         )
     }
 }
