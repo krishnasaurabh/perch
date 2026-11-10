@@ -5,7 +5,7 @@ import SwiftUI
 
 /// CI motion capture driver (scripts/motion_capture.sh). Additive and inert unless the flag is passed.
 ///
-///   Perch --motion-script <markers.json>                      drive five transitions on a fixed timeline
+///   Perch --motion-script <markers.json>                      drive six clips on a fixed timeline
 ///   Perch --motion-script <markers.json> --motion-snapshots <dir>
 ///                                                             also render the notch window every 16 ms around
 ///                                                             each transition (in-process fallback, not
@@ -124,8 +124,39 @@ enum MotionScript {
                 Step(name: "timer", wait: 2.4, capture: true) { self.requiredPress("Start focus") },
                 Step(name: "timer-stop", wait: 2.4, capture: false) { self.requiredPress("End focus session") },
                 Step(name: "end", wait: 2.4, capture: false) { [model] in model.close(); return "NotchModel.close" },
+                // A separate closed-state clip, appended so the five existing actions/timings are untouched.
+                // Exercise the production store/engine path, as an external timer request would, not view state.
+                Step(name: "closed-timer", wait: 2.4, capture: true) { self.closedTimer() },
+                Step(name: "closed-timer-end", wait: 2.4, capture: false) { "closed-timer-complete" },
             ]
             schedule(steps[...], extra: ["page": target.rawValue])
+        }
+
+        private var closedTimerStart: [String: Any] = [:]
+
+        private func closedTimer() -> String {
+            guard !model.expanded, model.activity == nil, store.planner.focus == nil else {
+                return "FAILED:closed-timer-precondition"
+            }
+            guard store.apply({ try $0.startTimer(task: nil, minutes: 5) }) != nil else {
+                return "FAILED:closed-timer-start"
+            }
+            closedTimerStart = ["observed_epoch": Date().timeIntervalSince1970,
+                "expanded": model.expanded, "activity_nil": model.activity == nil,
+                "timer_present": store.planner.focus != nil,
+                "placement": store.prefs.notchTimerPlacement.rawValue]
+            // Both edges fit the existing 1.25 s clip window; 650 ms leaves a settled hold.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.65) { [self] in
+                let t = Date().timeIntervalSince1970
+                let stopped = store.apply { $0.stopTimer() } != nil
+                if let index = markers.firstIndex(where: { $0["name"] as? String == "closed-timer" }) {
+                    markers[index]["timer_stop"] = ["t": t, "via": "PlannerStore.apply:stopTimer",
+                        "interaction_ok": stopped, "expanded": model.expanded,
+                        "activity_nil": model.activity == nil, "timer_present": store.planner.focus != nil]
+                    write()
+                }
+            }
+            return "PlannerStore.apply:startTimer"
         }
 
         private func schedule(_ rest: ArraySlice<Step>, extra: [String: String]) {
@@ -148,6 +179,7 @@ enum MotionScript {
                     "on_console": session[kCGSessionOnConsoleKey as String] ?? "unknown", "app_active": NSApp.isActive,
                     "key_window": NSApp.keyWindow != nil, "expanded": model.expanded,
                     "page": model.page.rawValue, "timer_present": store.planner.focus != nil,
+                    "activity_nil": model.activity == nil,
                     "completed_tasks": store.planner.tasks.filter(\.done).count]
                 let t = Date().timeIntervalSince1970
                 // Frame 0 of every captured clip is grabbed just BEFORE the action runs (t ~ 0), so each clip has a
@@ -156,6 +188,7 @@ enum MotionScript {
                 let via = step.action()
                 var m: [String: Any] = ["name": step.name, "t": t, "uptime": ProcessInfo.processInfo.systemUptime, "via": via]
                 if step.name == "page" { m["target"] = extra["page"] ?? "" }
+                if step.name == "closed-timer" { m["timer_start"] = closedTimerStart }
                 m["ax_nodes"] = axNodes
                 m["policy"] = policy
                 m["session"] = state
