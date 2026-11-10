@@ -24,11 +24,12 @@ jobs:
   swift-format:
     name: Swift format
     runs-on: ubuntu-24.04
+    # Official Swift 6.4.2 image; pin the linux/amd64 image as well as the version.
+    container:
+      image: swift:6.4.2-noble@sha256:b7816e49fa73b2132ef9e598357c5c26ebc3b0e55390ded2295fda2486645b88
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
-      - uses: swift-actions/setup-swift@v2
-        with: { swift-version: "6.4.2" }
       # Layout only: keep syntax-rewriting rules disabled in .swift-format.
       # To apply: git ls-files -z -- '*.swift' | xargs -0 swift format format --configuration .swift-format --in-place
       - name: Check pinned formatter and all tracked Swift files
