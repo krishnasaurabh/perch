@@ -124,7 +124,7 @@ MainActor.assumeIsolated {
                 window.isReleasedWhenClosed = false
                 let root = NSHostingView(rootView: WorkspaceView(notchHeight: 0)
                     .environmentObject(store).environmentObject(delegate.model).environmentObject(delegate.services)
-                    .environment(\.colorScheme, .dark))
+                    .environment(\.colorScheme, .dark).background(Color.black))
                 window.contentView = root
                 window.makeKeyAndOrderFront(nil); NSApp.activate(ignoringOtherApps: true)
                 await settle(); await wakeAX(); await settle()
@@ -197,7 +197,8 @@ MainActor.assumeIsolated {
                                 "axNodes": nodes(root).count, "defaultMinutes": store.prefs.defaultFocusMinutes])
                 window.orderOut(nil)
             }
-            // Existing task focus: dispatch AppKit tracking events to the real row, then press its real hover button.
+            print("Keyboard activation before task route: \(keyboardVerified)")
+            // Existing task focus: ask the real hosted row for its context menu, then activate its actual item.
             store.apply { e in e.planner.tasks = []; e.planner.focus = nil }
             let linked = store.apply { try $0.addTasks(["Verify a single linked task"], on: .day(store.today)) }![0]
             store.updateTask(linked.id) { $0.minutes = 12 }
@@ -206,26 +207,27 @@ MainActor.assumeIsolated {
             let rowRoot = NSHostingView(rootView: TaskRow(task: store.planner.tasks[0]).environmentObject(store).environmentObject(delegate.model))
             rowWindow.contentView = rowRoot; rowWindow.makeKeyAndOrderFront(nil)
             await settle(); await wakeAX(); await settle()
-            var trackingEvents = 0
+            let contextEvent = NSEvent.mouseEvent(with: .rightMouseDown, location: NSPoint(x: 120, y: 40), modifierFlags: [],
+                                                   timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: rowWindow.windowNumber,
+                                                   context: nil, eventNumber: 1, clickCount: 1, pressure: 1)!
+            var taskMenu: NSMenu?
             for view in views(rowRoot) {
-                for area in view.trackingAreas {
-                    if let owner = area.owner as? NSResponder {
-                        let event = NSEvent.enterExitEvent(with: .mouseEntered, location: .zero, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
-                                                          windowNumber: rowWindow.windowNumber, context: nil, eventNumber: 0, trackingNumber: 0, userData: nil)!
-                        owner.mouseEntered(with: event); trackingEvents += 1
-                    }
+                if let menu = view.menu(for: contextEvent), menu.items.contains(where: { $0.title == "Start focusing" }) {
+                    taskMenu = menu; break
                 }
             }
+            require(taskMenu != nil, "existing task context menu exposes Start focusing")
+            let index = taskMenu!.items.firstIndex { $0.title == "Start focusing" }!
+            require(taskMenu!.items[index].isEnabled, "existing task menu item enabled")
+            taskMenu!.performActionForItem(at: index)
             await settle()
-            require(trackingEvents > 0 && control("Focus on this", in: rowRoot) != nil, "existing task hover control appears from AppKit tracking event")
-            press("Focus on this", in: rowRoot); await settle()
             require(store.planner.focus?.taskID == linked.id && store.planner.focus?.limit == 720, "task hover action retains exact ID and 12-minute estimate")
             require(store.planner.tasks.count == 1 && store.planner.tasks[0].id == linked.id && store.planner.tasks[0].minutes == 12,
                     "task action does not change task identity or estimate")
             snapshot(rowRoot, "task-hover", into: output)
             require(store.lastError == nil, "no store error during UI lifecycle")
             let report: [String: Any] = ["metrics": metrics, "keyboardActivation": keyboardVerified ? "verified-in-process-Tab-Space" : "unverified-on-this-runner",
-                "activation": "real-own-process-AX-press-no-model-fallback", "taskActivation": "AppKit-tracking-event-then-real-AX-press",
+                "activation": "real-own-process-AX-press-no-model-fallback", "taskActivation": "real-NSMenu-item-action-from-hosted-row",
                 "screenshots": "own-window-cacheDisplay-not-compositor", "physicalNotch": "unverified", "voiceOverSpeech": "unverified"]
             try! JSONSerialization.data(withJSONObject: report, options: [.prettyPrinted, .sortedKeys]).write(to: output.appendingPathComponent("results.json"))
             print("Keyboard activation: \(report["keyboardActivation"]!)")
