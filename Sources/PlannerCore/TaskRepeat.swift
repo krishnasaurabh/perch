@@ -90,18 +90,26 @@ public struct TaskRepeat: Codable, Equatable, Sendable, CustomStringConvertible 
     static let weekdayAlt = "sunday|monday|tuesday|wednesday|thursday|friday|saturday|tues|thurs|thur|sun|mon|tue|wed|thu|fri|sat"
     static let weekdayListPattern = "(?:\(weekdayAlt))s?\\b(?:(?:\\s*,\\s*(?:and\\s+)?|\\s*&\\s*|\\s+and\\s+)(?:\(weekdayAlt))s?\\b)*"
 
-    /// Matches a repeat phrase inside free text ("every 3 weeks on mon, thu", "every! 4 days", "daily").
+    /// Matches explicit repeat phrases in free text ("every 3 weeks on mon, thu", "every! 4 days").
     static let pattern = try! NSRegularExpression(
-        pattern: "\\b(?:every(?<bang>!)?\\s*(?:(?<count>other|\\d{1,3}|two|three|four|five|six|seven|eight|nine|ten)\\s+)?"
+        pattern: "\\b(?:every(?<bang>!)?\\s+(?:(?<count>other|\\d{1,3}|two|three|four|five|six|seven|eight|nine|ten)\\s+)?"
             + "(?:(?<unit>day|month)s?\\b|(?<week>week)s?\\b(?:\\s+on\\s+(?<on>\(weekdayListPattern)))?"
             + "|(?<weekday>weekday)s?\\b|(?<list>\(weekdayListPattern)))"
-            + "|(?<word>daily|weekly|monthly|weekdays))",
+            + ")",
         options: [.caseInsensitive])
 
     /// Parses a standalone rule like `daily`, `every mon, wed`, `none` (returns `.some(nil)` for none).
     public static func parseRule(_ text: String) -> TaskRepeat?? {
         let t = text.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         if t == "none" || t == "never" || t.isEmpty { return .some(nil) }
+        // Aliases are unambiguous in a dedicated repeat field, not in a task title.
+        switch t {
+        case "daily": return .some(.daily)
+        case "weekly": return .some(.weekly)
+        case "monthly": return .some(.monthly)
+        case "weekdays": return .some(.weekdaysRule)
+        default: break
+        }
         guard let (rule, range) = find(in: t), range.location == 0, range.length == (t as NSString).length else { return nil }
         return .some(rule)
     }
@@ -113,14 +121,6 @@ public struct TaskRepeat: Codable, Equatable, Sendable, CustomStringConvertible 
         func g(_ name: String) -> String? {
             let r = m.range(withName: name)
             return r.location == NSNotFound ? nil : ns.substring(with: r).lowercased()
-        }
-        if let word = g("word") {
-            switch word {
-            case "daily": return (.daily, m.range)
-            case "weekly": return (.weekly, m.range)
-            case "monthly": return (.monthly, m.range)
-            default: return (.weekdaysRule, m.range)
-            }
         }
         let bang = g("bang") != nil
         var count = 1

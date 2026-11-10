@@ -173,7 +173,7 @@ final class RepeatLineageTests: XCTestCase {
         let tools = AgentTools(file: file, now: { Fixture.now }, calendar: Fixture.calendar)
         _ = try tools.call("add_tasks", ["titles": ["standup every day"]])
         for _ in 0..<2 {
-            XCTAssertTrue(try tools.call("list_tasks", ["date": "2026-11-12"]).contains("Standup"))
+            XCTAssertTrue(try tools.call("list_tasks", ["date": "2026-11-12"]).contains("standup"))
         }
         XCTAssertEqual(try file.load().tasks.count, 2)
     }
