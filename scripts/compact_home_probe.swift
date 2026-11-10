@@ -165,12 +165,12 @@ MainActor.assumeIsolated {
                         }
                         let entry = controlFrame("Start focus", in: root)
                         require(running ? entry == nil : entry != nil, "\(name): expected Start focus visibility")
-                        func taskList() -> NSScrollView {
+                        @MainActor func taskList() -> NSScrollView {
                             descendants(root).compactMap { $0 as? NSScrollView }
                                 .filter { $0.frame.height > 70 && $0.frame.width > 100 }
                                 .min { $0.convert($0.bounds, to: nil).minX < $1.convert($1.bounds, to: nil).minX }!
                         }
-                        func fade() -> NSView? {
+                        @MainActor func fade() -> NSView? {
                             descendants(taskList()).first { $0.identifier?.rawValue == "today-continuation-fade" }
                         }
                         if !geometryOnly {
