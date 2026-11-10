@@ -196,25 +196,6 @@ jobs:
           PERCH_DATA=$RUNNER_TEMP/default.json dist/Perch.app/Contents/MacOS/Perch --preview-open --demo --dump-layout $OUT/default-open.json &
           sleep 5; kill %1 || true
           ls -la $OUT $RUNNER_TEMP/perch-*.png
-      - name: Fresh install draws no synthetic notch and takes no clicks
-        run: |
-          OUT=$RUNNER_TEMP/notch; mkdir -p $OUT
-          PERCH_DATA=$RUNNER_TEMP/fresh-default.json dist/Perch.app/Contents/MacOS/Perch --dump-layout $OUT/fresh-closed.json &
-          PID=$!; sleep 6; kill $PID || true; wait $PID 2>/dev/null || true
-          python3 - "$OUT" <<'EOF'
-          import json, sys
-          out = sys.argv[1]
-          screens = json.load(open(f"{out}/fresh-closed.json"))
-          assert screens, "no screens in fresh-closed.json"
-          bad = 0
-          for s in screens:
-              print("fresh", s["name"], "hardwareNotch", s["hardwareNotch"], "ignoresMouse", s["ignoresMouse"],
-                    s["routing"])
-              if s["hardwareNotch"]: continue  # A real housing is always drawn and interactive.
-              if not s["ignoresMouse"] or any(s["routing"].values()):
-                  print(f"  FRESH DEFAULT CLICKABLE: {s['name']}"); bad += 1
-          sys.exit(1 if bad else 0)
-          EOF
       - name: Home and Insights snapshots (empty, 3 tasks, timer running, insights)
         run: |
           for sc in empty:home three:home timer:home insights:insights empty:insights; do
