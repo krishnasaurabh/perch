@@ -69,6 +69,9 @@ import SwiftUI
 import PlannerCore
 import Vision
 
+func require(_ condition: Bool, _ message: String = "Week assertion failed") {
+    guard condition else { fputs("Week assertion failed: \(message)\n", stderr); exit(1) }
+}
 @MainActor var measurements: [String: NSView] = [:]
 struct WeekMeasure: NSViewRepresentable {
     let key: String
@@ -129,7 +132,7 @@ MainActor.assumeIsolated {
     let store = PlannerStore(), model = NotchModel(motionPolicy: MotionPolicy(reduceMotion: true))
     let today = store.today.raw
     let tasks = store.engine.tasks(on: .day(store.today))
-    precondition(tasks.count >= 10 && tasks.contains { $0.repeatRule != nil })
+    require(tasks.count >= 10 && tasks.contains { $0.repeatRule != nil })
     let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 820, height: 300),
                           styleMask: [.borderless], backing: .buffered, defer: false)
     window.isReleasedWhenClosed = false
@@ -154,10 +157,10 @@ MainActor.assumeIsolated {
                 let addBefore = frame("add:\(today)", in: host)
                 let countRead = try recognize(bitmap(host, rect: frame("count:\(today)", in: host)))
                 let countWanted = "\(tasks.filter(\.done).count)/\(tasks.count) done"
-                precondition(normalized(countRead) == normalized(countWanted), "Unreadable count: \(countRead)")
+                require(normalized(countRead) == normalized(countWanted), "Unreadable count: \(countRead)")
                 let addRead = try recognize(bitmap(host, rect: addBefore))
-                precondition(normalized(addRead) == "addatask", "Unreadable Add: \(addRead)")
-                precondition(host.bounds.contains(addBefore), "Add is outside the page")
+                require(normalized(addRead) == "addatask", "Unreadable Add: \(addRead)")
+                require(host.bounds.contains(addBefore), "Add is outside the page")
                 var titles: [[String: Any]] = [], scores: [Int] = []
                 for task in store.planner.tasks {
                     guard let marker = measurements["title:\(task.id)"], marker.window != nil else { continue }
@@ -172,29 +175,35 @@ MainActor.assumeIsolated {
                                    "required": min(12, length), "rect": [rect.minX, rect.minY, rect.width, rect.height]])
                 }
                 scores.sort()
-                precondition(scores.count >= 5, "Missing title coverage: \(titles)")
+                require(scores.count >= 5, "Missing title coverage: \(titles)")
                 let median = Double(scores[(scores.count - 1) / 2] + scores[scores.count / 2]) / 2
-                precondition(median >= 12, "Short median \(median): \(titles)")
+                require(median >= 12, "Short median \(median): \(titles)")
                 let scroll = scrollParent("title:\(tasks[0].id)")
                 let oldOffset = scroll.contentView.bounds.origin
                 scroll.contentView.scroll(to: NSPoint(x: 0, y: scroll.documentView!.bounds.height))
                 scroll.reflectScrolledClipView(scroll.contentView)
                 await settle()
                 let addAfter = frame("add:\(today)", in: host)
-                precondition(abs(scroll.contentView.bounds.origin.y - oldOffset.y) > 20, "List did not scroll")
-                precondition(abs(addBefore.minY - addAfter.minY) < 0.5 && abs(addBefore.height - addAfter.height) < 0.5,
+                require(abs(scroll.contentView.bounds.origin.y - oldOffset.y) > 20, "List did not scroll")
+                require(abs(addBefore.minY - addAfter.minY) < 0.5 && abs(addBefore.height - addAfter.height) < 0.5,
                              "Add moved with the list")
                 let afterRead = try recognize(bitmap(host, rect: addAfter))
-                precondition(normalized(afterRead) == "addatask")
+                require(normalized(afterRead) == "addatask")
                 try save(host, out.appendingPathComponent("heavy-\(width)-scrolled.png"))
-                guard let horizontal = allScrolls(host).first(where: {
-                    ($0.documentView?.bounds.width ?? 0) > $0.contentView.bounds.width + 20
-                }) else { fatalError("Missing horizontal Week viewport") }
-                horizontal.contentView.scroll(to: NSPoint(x: horizontal.documentView!.bounds.width, y: 0))
+                let scrolls = allScrolls(host)
+                let diagnostic = scrolls.map { "horizontal=\($0.hasHorizontalScroller) vertical=\($0.hasVerticalScroller) document=\($0.documentView?.frame ?? .zero) clip=\($0.contentView.bounds)" }.joined(separator: "\n")
+                try diagnostic.write(to: out.appendingPathComponent("scrolls-\(width).txt"), atomically: true, encoding: .utf8)
+                guard let horizontal = scrolls.first(where: { $0.hasHorizontalScroller && !$0.hasVerticalScroller })
+                    ?? scrolls.first(where: { ($0.documentView?.frame.width ?? 0) > $0.contentView.bounds.width + 20 })
+                else { fputs("Missing horizontal Week viewport: \(diagnostic)\n", stderr); exit(1) }
+                let rightEdge = max(0, horizontal.documentView!.frame.width - horizontal.contentView.bounds.width)
+                horizontal.contentView.scroll(to: NSPoint(x: rightEdge, y: 0))
                 horizontal.reflectScrolledClipView(horizontal.contentView)
                 await settle()
-                precondition(host.bounds.contains(frame("add:inbox", in: host)), "Inbox unreachable")
                 try save(host, out.appendingPathComponent("heavy-\(width)-inbox.png"))
+                let inboxFrame = frame("add:inbox", in: host)
+                require(host.bounds.insetBy(dx: -0.5, dy: -0.5).contains(inboxFrame),
+                             "Inbox unreachable: \(inboxFrame), host \(host.bounds), scroll \(horizontal.contentView.bounds)")
                 results.append(["width": width, "medianVisibleCharacters": median, "titles": titles,
                                 "countOCR": countRead, "addOCR": addRead, "addPinned": true, "inboxReachable": true])
                 print("PASS Week \(width): median \(median), \(titles.count) title crops; count \(countRead); Add pinned; Inbox reachable")
