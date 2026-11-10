@@ -1,6 +1,8 @@
 // Temporary CI entry point using the real controller/views and an isolated planner.
 import AppKit
 import PlannerCore
+import SwiftUI
+import ApplicationServices
 
 @MainActor
 func require(_ condition: @autoclosure () -> Bool, _ message: String) {
@@ -12,6 +14,45 @@ func settle() async { try? await Task.sleep(nanoseconds: 800_000_000) }
 @MainActor
 func descendants(_ view: NSView) -> [NSView] { [view] + view.subviews.flatMap(descendants) }
 
+func wakeAX() async {
+    await Task.detached {
+        let app = AXUIElementCreateApplication(getpid())
+        var value: CFTypeRef?
+        _ = AXUIElementCopyAttributeValue(app, kAXWindowsAttribute as CFString, &value)
+        for window in (value as? [AXUIElement]) ?? [] {
+            var children: CFTypeRef?
+            _ = AXUIElementCopyAttributeValue(window, kAXChildrenAttribute as CFString, &children)
+        }
+    }.value
+}
+@MainActor
+func attribute(_ node: NSObject, _ name: String) -> Any? {
+    let selector = NSSelectorFromString(name)
+    return node.responds(to: selector) ? node.perform(selector)?.takeUnretainedValue() : nil
+}
+@MainActor
+func axNodes(_ root: NSObject) -> [NSObject] {
+    var seen = Set<ObjectIdentifier>()
+    func walk(_ node: NSObject) -> [NSObject] {
+        guard seen.insert(ObjectIdentifier(node)).inserted else { return [] }
+        return [node] + ((attribute(node, "accessibilityChildren") as? [NSObject]) ?? []).flatMap(walk)
+    }
+    return walk(root)
+}
+@MainActor
+func controlFrame(_ label: String, in root: NSView) -> CGRect? {
+    guard let node = axNodes(root).first(where: { attribute($0, "accessibilityLabel") as? String == label }),
+          let value = node.value(forKey: "accessibilityFrame") as? NSValue else { return nil }
+    return value.rectValue
+}
+@MainActor
+func snapshot(_ root: NSView, _ name: String, into output: URL) {
+    root.layoutSubtreeIfNeeded()
+    let rep = root.bitmapImageRepForCachingDisplay(in: root.bounds)!
+    root.cacheDisplay(in: root.bounds, to: rep)
+    try! rep.representation(using: .png, properties: [:])!.write(to: output.appendingPathComponent(name + ".png"))
+}
+
 MainActor.assumeIsolated {
     let app = NSApplication.shared
     let delegate = AppDelegate()
@@ -22,6 +63,8 @@ MainActor.assumeIsolated {
     DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
         Task { @MainActor in
             var metrics: [[String: Any]] = []
+            let geometryOnly = ProcessInfo.processInfo.environment["COMPACT_HOME_GEOMETRY_ONLY"] == "1"
+            if !geometryOnly {
             for scenario in ["empty", "three", "timer", "long-title", "dense", "timer-notepad"] {
                 delegate.model.close()
                 delegate.store.apply { e in
@@ -94,6 +137,86 @@ MainActor.assumeIsolated {
             delegate.model.page = .insights
             await settle()
             delegate.notch.snapshot(into: output.appendingPathComponent("momentum"))
+            }
+            if !baseline {
+                delegate.model.close()
+                delegate.model.page = .home
+                // Same real Home at both supported widths, including its narrower running-focus column.
+                for width in [CGFloat(820), CGFloat(620)] {
+                    for running in [false, true] {
+                        delegate.store.apply { e in
+                            e.planner.tasks = []; e.planner.focus = nil
+                            e.planner.preferences.hiddenWorkspaceCards = ["notepad"]
+                            if running { _ = try e.startTimer(task: nil, minutes: 45) }
+                        }
+                        let name = "width-\(Int(width))-\(running ? "running" : "resting")"
+                        let window = NSWindow(contentRect: CGRect(x: 30, y: 100, width: width, height: 351),
+                                              styleMask: [.titled], backing: .buffered, defer: false)
+                        window.isReleasedWhenClosed = false
+                        let root = NSHostingView(rootView: WorkspaceView(notchHeight: 0)
+                            .environmentObject(delegate.store).environmentObject(delegate.model).environmentObject(delegate.services)
+                            .environment(\.colorScheme, .dark).background(Color.black))
+                        window.contentView = root
+                        window.makeKeyAndOrderFront(nil); NSApp.activate(ignoringOtherApps: true)
+                        await settle(); await wakeAX(); await settle()
+                        require(axNodes(root).count > 10, "\(name): AX populated before bounds checks")
+                        guard let capture = controlFrame("Add a task", in: root) else {
+                            require(false, "\(name): capture bounds exist"); return
+                        }
+                        let entry = controlFrame("Start focus", in: root)
+                        require(running ? entry == nil : entry != nil, "\(name): expected Start focus visibility")
+                        func taskList() -> NSScrollView {
+                            descendants(root).compactMap { $0 as? NSScrollView }
+                                .filter { $0.frame.height > 70 && $0.frame.width > 100 }
+                                .min { $0.convert($0.bounds, to: nil).minX < $1.convert($1.bounds, to: nil).minX }!
+                        }
+                        func fade() -> NSView? {
+                            descendants(taskList()).first { $0.identifier?.rawValue == "today-continuation-fade" }
+                        }
+                        if !geometryOnly {
+                            require(fade() != nil && fade()!.isHidden, "\(name): no fade when empty")
+                        }
+                        delegate.store.apply { try $0.addTasks(["Inspect one short checklist"], on: .day($0.today)) }
+                        await settle()
+                        if !geometryOnly { require(fade()!.isHidden, "\(name): no fade for fitting rows") }
+                        delegate.store.apply { e in
+                            e.planner.tasks = []
+                            _ = try e.addTasks((1...24).map {
+                                "Inspect release group \($0)\nVerify the checklist notes and handoff details for this group"
+                            }, on: .day(e.today))
+                        }
+                        await settle(); await wakeAX(); await settle()
+                        let list = taskList(), document = taskList().documentView!
+                        require(document.frame.height > list.contentSize.height, "\(name): multiline dense rows overflow")
+                        require(controlFrame("Add a task", in: root) == capture, "\(name): dense capture unchanged")
+                        require(controlFrame("Start focus", in: root) == entry, "\(name): dense Start focus unchanged")
+                        if !geometryOnly {
+                            guard let cue = fade() else { require(false, "\(name): continuation cue installed"); return }
+                            require(!cue.isHidden, "\(name): fade visible during overflow")
+                            require(cue.frame.height == 20 && list.bounds.contains(cue.frame), "\(name): short cue contained in viewport")
+                            require(cue.hitTest(NSPoint(x: 4, y: 4)) == nil, "\(name): cue does not intercept clicks")
+                        }
+                        snapshot(root, name + "-dense", into: output)
+                        document.scroll(NSPoint(x: 0, y: document.isFlipped ? document.bounds.maxY : document.bounds.minY))
+                        await settle()
+                        let visible = document.convert(list.contentView.bounds, from: list.contentView)
+                        require(document.isFlipped ? visible.maxY >= document.bounds.maxY - 1 : visible.minY <= document.bounds.minY + 1,
+                                "\(name): actual scroll end reached")
+                        if !geometryOnly { require(fade()!.isHidden, "\(name): fade absent at scroll end") }
+                        require(controlFrame("Add a task", in: root) == capture, "\(name): scroll capture unchanged")
+                        require(controlFrame("Start focus", in: root) == entry, "\(name): scroll Start focus unchanged")
+                        snapshot(root, name + "-end", into: output)
+                        metrics.append(["scenario": name, "capture": NSStringFromRect(capture),
+                                        "startFocus": entry.map(NSStringFromRect) ?? "absent",
+                                        "taskViewport": NSStringFromRect(list.convert(list.bounds, to: nil))])
+                        // Shrinking content must also clear the cue without any user scroll.
+                        delegate.store.apply { $0.planner.tasks = [] }
+                        await settle()
+                        if !geometryOnly { require(fade()!.isHidden, "\(name): fade clears after content removal") }
+                        window.orderOut(nil)
+                    }
+                }
+            }
             let data = try! JSONSerialization.data(withJSONObject: metrics, options: [.prettyPrinted, .sortedKeys])
             try! data.write(to: output.appendingPathComponent("layout-metrics.json"))
             print("Compact Home layout probes passed.")
