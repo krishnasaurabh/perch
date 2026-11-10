@@ -215,7 +215,8 @@ public final class PlannerFile: @unchecked Sendable {
                 .flatMap(\.indexedSegments).sorted { $0.0 < $1.0 }.map { $0.1 }
             planner.focusSegments += records(FocusSegment.self, in: c, key: .focusSegments)
             planner.focusSegments += records(FocusSegment.self, in: c, key: .focusLog)
-            let order = records(UUID.self, in: c, key: .taskOrder)
+            // Order IDs are an index over tasks, not additional recovered user records.
+            let order = value([UUID].self, in: c, key: .taskOrder, default: [])
             let ranks = Dictionary(
                 order.enumerated().map { ($0.element, $0.offset) }, uniquingKeysWith: { first, _ in first })
             planner.tasks = planner.tasks.enumerated().sorted {

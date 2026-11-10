@@ -263,6 +263,24 @@ final class DiskSchemaTests: XCTestCase {
         XCTAssertTrue(try file.load().preferences.catchCopies)
     }
 
+    func testVersionTwoRecoveryCountsTasksOnceRatherThanCountingTheirOrderIndex() throws {
+        let file = file()
+        var p = Planner()
+        p.tasks = [PlanTask(title: "Retain", day: nil, createdAt: Fixture.now)]
+        var json = try object(PlannerFile.encoder.encode(PlannerDiskDocument(p)))
+        json["notes"] = [false]
+        let raw = try JSONSerialization.data(withJSONObject: json)
+        try raw.write(to: file.url)
+        var recovery: PlannerRecoveryError?
+        XCTAssertThrowsError(try file.load()) { recovery = $0 as? PlannerRecoveryError }
+        let draft = try XCTUnwrap(recovery)
+        XCTAssertEqual(draft.keptCount, 1)
+        XCTAssertEqual(draft.quarantinedCount, 1)
+        XCTAssertEqual(draft.recoveredPlanner.tasks, p.tasks)
+        XCTAssertEqual(try Data(contentsOf: file.url), raw)
+        XCTAssertEqual(try Data(contentsOf: draft.originalURL), raw)
+    }
+
     func testLegacyCompletionFocusAndCalendarFactsAreReconciledWithoutInventedDates() throws {
         let file = file()
         var p = Planner()
