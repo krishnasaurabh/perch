@@ -79,6 +79,12 @@ public enum NotchLayout {
         enabled && !screen.isBuiltIn && camera(screen: screen) == nil
     }
 
+    /// Whether this screen shows a closed notch at all: its own camera housing, or an enabled drawn notch.
+    /// Both the drawn shape and the mouse-routing gate use this, so a suppressed notch never takes clicks.
+    public static func closedNotchVisible(screen: Screen, enabled: Bool) -> Bool {
+        camera(screen: screen) != nil || shouldDrawFakeNotch(screen: screen, enabled: enabled)
+    }
+
     /// A notch to draw on a screen without one: centered, as tall as the menu bar.
     public static func drawnNotch(screen: Screen, menuBarHeight: CGFloat? = nil) -> CGRect {
         var h = menuBarHeight ?? screen.menuBarHeight

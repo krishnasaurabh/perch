@@ -76,11 +76,9 @@ struct NotchRootView: View {
         .motionBoundary()
     }
 
-    /// Flat screen without an enabled external-display notch: nothing until it opens or shows something there.
+    /// No housing and no enabled drawn notch: nothing until it opens or shows something there.
     private var hidden: Bool {
-        !screen.geometry.hasHardwareNotch
-            && !NotchLayout.shouldDrawFakeNotch(
-                screen: screen.geometry.screen, enabled: store.prefs.notchOnMonitors)
+        !NotchLayout.closedNotchVisible(screen: screen.geometry.screen, enabled: store.prefs.notchOnMonitors)
             && !expanded && activity == nil
     }
 

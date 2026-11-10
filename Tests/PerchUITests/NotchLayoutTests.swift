@@ -137,6 +137,21 @@ final class NotchLayoutTests: XCTestCase {
         XCTAssertTrue(NotchLayout.shouldDrawFakeNotch(screen: Screens.hd1080, enabled: true))
     }
 
+    func testClosedNotchVisibilityGatesClicksOnWhatIsDrawn() {
+        // Fresh default: nothing drawn, so nothing may be clickable, on a housing-less screen of either kind.
+        XCTAssertFalse(
+            NotchLayout.closedNotchVisible(screen: Screens.flat1440, enabled: Preferences().notchOnMonitors))
+        XCTAssertFalse(NotchLayout.closedNotchVisible(screen: Screens.hd1080, enabled: Preferences().notchOnMonitors))
+        // An older saved preference must not leave an invisible click target on a built-in screen.
+        XCTAssertFalse(
+            NotchLayout.closedNotchVisible(screen: Screens.flat1440, enabled: true),
+            "A built-in screen never takes clicks for a notch it does not draw")
+        XCTAssertTrue(NotchLayout.closedNotchVisible(screen: Screens.hd1080, enabled: true))
+        // The real housing is always drawn and always takes its own clicks.
+        XCTAssertTrue(NotchLayout.closedNotchVisible(screen: Screens.mbp14, enabled: false))
+        XCTAssertTrue(NotchLayout.closedNotchVisible(screen: Screens.mbp14, enabled: true))
+    }
+
     func testNotchPrefersTheRealHousing() {
         XCTAssertEqual(NotchLayout.notch(screen: Screens.mbp14), NotchLayout.camera(screen: Screens.mbp14))
         XCTAssertEqual(NotchLayout.notch(screen: Screens.hd1080), NotchLayout.drawnNotch(screen: Screens.hd1080))
