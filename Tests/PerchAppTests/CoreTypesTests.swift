@@ -33,10 +33,14 @@ final class CoreTypesTests: XCTestCase {
     }
 
     func testKnownErrorsKeepAdapterSpecificPresentation() {
+        XCTAssertEqual(PerchAppError.planner("Storage unavailable").message, "Storage unavailable")
         XCTAssertEqual(PerchAppError.reminderScheduling("Denied").message, "Reminder scheduling failed: Denied")
         XCTAssertEqual(
             PerchAppError.loginItem("Denied").message, "Perch couldn't update the login item: Denied")
         XCTAssertEqual(PerchAppError.aiSorting("Unavailable").message, "AI sorting failed: Unavailable")
+        XCTAssertEqual(
+            PerchAppError.remindersPermission.message,
+            "Perch has no Reminders permission. Grant it under System Settings › Privacy & Security › Reminders.")
         XCTAssertEqual(
             ReminderServiceError.authorization("Denied").message, "Notification permission failed: Denied")
         XCTAssertEqual(
