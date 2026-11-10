@@ -135,7 +135,6 @@ struct TimerPillLayer: View {
     let side: NotchTimerPlacement
     let bounds: NSRect
     @EnvironmentObject var store: PlannerStore
-    @EnvironmentObject var model: NotchModel
 
     var body: some View {
         let n = geometry.tuckedNotch, p = geometry.pill(side: side)
@@ -152,10 +151,12 @@ struct TimerPillLayer: View {
 
     @ViewBuilder private func digits(width: CGFloat, height: CGFloat) -> some View {
         if let f = store.planner.focus, f.state != .finished {
-            let text = TimerText.clock(f.remaining(at: model.now) ?? f.elapsed(at: model.now))
-            DotMatrixText(
-                text: text, dot: Self.dot(for: text, width: width - 24, height: height * 0.52),
-                color: Color.white.opacity(f.state == .running ? 0.95 : 0.6), unlit: .clear)
+            LocalClock(running: f.state == .running) { now in
+                let text = TimerText.clock(f.remaining(at: now) ?? f.elapsed(at: now))
+                DotMatrixText(
+                    text: text, dot: Self.dot(for: text, width: width - 24, height: height * 0.52),
+                    color: Color.white.opacity(f.state == .running ? 0.95 : 0.6), unlit: .clear)
+            }
         }
     }
 
@@ -182,14 +183,21 @@ struct ActivityStrip: View {
             VStack(alignment: .leading, spacing: 1) {
                 Text(activity.title).font(.system(size: 12.5, weight: .semibold)).foregroundStyle(Theme.text).lineLimit(
                     1)
-                Text(services.timeline.subtitle(for: activity, now: model.now)).font(.system(size: 11)).foregroundStyle(
-                    Theme.secondary
-                ).lineLimit(1)
+                LocalClock(running: needsCountdown) { now in
+                    Text(services.timeline.subtitle(for: activity, now: now)).font(.system(size: 11)).foregroundStyle(
+                        Theme.secondary
+                    ).lineLimit(1)
+                }
             }
             Spacer(minLength: 6)
             actions
             GlassButton(symbol: "xmark", help: "Dismiss", size: 22) { model.dismissActivity() }
         }
+    }
+
+    private var needsCountdown: Bool {
+        if case .eventSoon = activity.kind { return true }
+        return false
     }
 
     private var icon: String {

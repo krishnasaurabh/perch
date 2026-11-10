@@ -102,8 +102,10 @@ public final class PlannerFile: @unchecked Sendable {
         var write: (Data, URL) throws -> Void = { try $0.write(to: $1, options: .atomic) }
         var copy: (URL, URL) throws -> Void = { try FileManager.default.copyItem(at: $0, to: $1) }
         var remove: (URL) throws -> Void = { try FileManager.default.removeItem(at: $0) }
+        var didDecode: () -> Void = {}
     }
     private let io: IO
+    private let waitsForLock: Bool
     private let preferences: any PlannerPreferencesAdapter
     /// Immutable, byte-for-byte inputs to each migration, outside rolling retention.
     public var migrationDirectory: URL { url.appendingPathExtension("migrations") }
@@ -120,9 +122,16 @@ public final class PlannerFile: @unchecked Sendable {
         self.init(url: url, io: IO(), preferences: preferences)
     }
 
-    init(url: URL, io: IO, preferences: (any PlannerPreferencesAdapter)? = nil) {
+    /// A facade sharing the same data and preferences, but never waiting for another process.
+    /// Interactive callers can retain their drafts and report contention instead of freezing the UI.
+    public func avoidingLockWaits() -> PlannerFile {
+        PlannerFile(url: url, io: io, preferences: preferences, waitsForLock: false)
+    }
+
+    init(url: URL, io: IO, preferences: (any PlannerPreferencesAdapter)? = nil, waitsForLock: Bool = true) {
         self.url = url
         self.io = io
+        self.waitsForLock = waitsForLock
         self.preferences = preferences ?? Self.preferencesAdapter(for: url)
         lockURL = url.appendingPathExtension("lock")
         try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
@@ -159,7 +168,10 @@ public final class PlannerFile: @unchecked Sendable {
         try decoder.decode(PlannerDiskDocument.self, from: data).planner
     }
 
-    private static func decode(_ data: Data) throws -> Planner { try decodeDocument(data) }
+    private func decode(_ data: Data) throws -> Planner {
+        io.didDecode()
+        return try Self.decodeDocument(data)
+    }
 
     private static func preferencesAdapter(for url: URL) -> any PlannerPreferencesAdapter {
         if ProcessInfo.processInfo.environment["PERCH_DATA"] == nil, url == Self.defaultURL {
@@ -348,7 +360,7 @@ public final class PlannerFile: @unchecked Sendable {
     public func snapshot() throws -> Planner {
         guard let data = try readIfPresent(url) else { return try applyingPreferences(to: Planner()) }
         let decoded: Planner
-        do { decoded = try Self.decode(data) } catch let error as PlannerSchemaError { throw error } catch {
+        do { decoded = try decode(data) } catch let error as PlannerSchemaError { throw error } catch {
             throw PlannerError("Unable to load planner data.")
         }
         return try applyingPreferences(to: decoded)
@@ -356,7 +368,7 @@ public final class PlannerFile: @unchecked Sendable {
 
     private func loadLocked() throws -> Planner {
         guard let data = try readIfPresent(url) else { return Planner() }
-        do { return try Self.decode(data) } catch let error as PlannerSchemaError { throw error } catch {
+        do { return try decode(data) } catch let error as PlannerSchemaError { throw error } catch {
             let copy = try preserveCorruptCurrent(data)
             guard let draft = try? Self.decoder.decode(RecoveryDraft.self, from: data), !draft.issues.isEmpty else {
                 throw PlannerDataError.corrupt(
@@ -367,7 +379,7 @@ public final class PlannerFile: @unchecked Sendable {
             let issues = copy.deletingPathExtension().appendingPathExtension("issues.json")
             do {
                 let encoded = try Self.encoder.encode(draft.planner)
-                _ = try Self.decode(encoded)
+                _ = try decode(encoded)
                 try writeRecoveryFile(encoded, to: recovered)
                 try writeRecoveryFile(Self.encoder.encode(draft.issues), to: issues)
             } catch {
@@ -395,11 +407,14 @@ public final class PlannerFile: @unchecked Sendable {
     private func saveLocked(_ planner: Planner) throws {
         let data = try Self.encoder.encode(PlannerDiskDocument(planner))
         // Validate both representations before any side effect, including preference migration.
-        _ = try Self.decode(data)
+        _ = try decode(data)
         let current = try readIfPresent(url)
         if let current {
             let document: PlannerDiskDocument
-            do { document = try Self.decoder.decode(PlannerDiskDocument.self, from: current) } catch let error
+            do {
+                io.didDecode()
+                document = try Self.decoder.decode(PlannerDiskDocument.self, from: current)
+            } catch let error
                 as PlannerSchemaError
             { throw error } catch {
                 throw PlannerDataError.corrupt(
@@ -478,7 +493,7 @@ public final class PlannerFile: @unchecked Sendable {
             // Verify the actual snapshot, not only the source buffer or a successful write call.
             let copied = try io.read(backup)
             guard copied == data else { throw PlannerError("Planner backup verification failed.") }
-            _ = try Self.decode(copied)
+            _ = try decode(copied)
         } catch {
             try? io.remove(backup)
             throw PlannerError("Planner backup failed: \(error.localizedDescription). The original was not changed.")
@@ -504,7 +519,7 @@ public final class PlannerFile: @unchecked Sendable {
         try withLock {
             var candidate: (Data, Planner)?
             for backup in try backupURLsLocked() {
-                if let data = try? io.read(backup), let planner = try? Self.decode(data) {
+                if let data = try? io.read(backup), let planner = try? decode(data) {
                     candidate = (data, planner)
                     break
                 }
@@ -515,10 +530,10 @@ public final class PlannerFile: @unchecked Sendable {
             let restored = try applyingPreferences(to: planner)
             if let current = try readIfPresent(url) {
                 // A newer schema is not corrupt and must never be downgraded by restore.
-                do { _ = try Self.decode(current) } catch let error as PlannerSchemaError { throw error } catch
+                do { _ = try decode(current) } catch let error as PlannerSchemaError { throw error } catch
                 { /* Corrupt current data is preserved below before explicit restore. */  }
                 if current == data { return restored }
-                if (try? Self.decode(current)) != nil {
+                if (try? decode(current)) != nil {
                     try backUpLocked(current)
                 } else {
                     _ = try preserveCorruptCurrent(current)
@@ -550,7 +565,8 @@ public final class PlannerFile: @unchecked Sendable {
         let fd = open(lockURL.path, O_CREAT | O_RDWR, 0o600)
         guard fd >= 0 else { throw PlannerError("Planner storage lock could not be opened.") }
         defer { close(fd) }
-        while flock(fd, LOCK_EX) != 0 {
+        while flock(fd, waitsForLock ? LOCK_EX : LOCK_EX | LOCK_NB) != 0 {
+            if !waitsForLock && (errno == EWOULDBLOCK || errno == EAGAIN) { throw PlannerStorageBusy() }
             guard errno == EINTR else { throw PlannerError("Planner storage lock could not be acquired.") }
         }
         defer { _ = flock(fd, LOCK_UN) }
