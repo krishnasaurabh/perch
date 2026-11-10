@@ -104,6 +104,9 @@ public final class PlannerFile: @unchecked Sendable {
         var remove: (URL) throws -> Void = { try FileManager.default.removeItem(at: $0) }
     }
     private let io: IO
+    private let preferences: any PlannerPreferencesAdapter
+    /// Immutable, byte-for-byte inputs to each migration, outside rolling retention.
+    public var migrationDirectory: URL { url.appendingPathExtension("migrations") }
 
     public static var defaultURL: URL {
         if let override = ProcessInfo.processInfo.environment["PERCH_DATA"] { return URL(fileURLWithPath: override) }
@@ -113,13 +116,14 @@ public final class PlannerFile: @unchecked Sendable {
         return base.appendingPathComponent("Perch/planner.json")
     }
 
-    public convenience init(url: URL = PlannerFile.defaultURL) {
-        self.init(url: url, io: IO())
+    public convenience init(url: URL = PlannerFile.defaultURL, preferences: (any PlannerPreferencesAdapter)? = nil) {
+        self.init(url: url, io: IO(), preferences: preferences)
     }
 
-    init(url: URL, io: IO) {
+    init(url: URL, io: IO, preferences: (any PlannerPreferencesAdapter)? = nil) {
         self.url = url
         self.io = io
+        self.preferences = preferences ?? Self.preferencesAdapter(for: url)
         lockURL = url.appendingPathExtension("lock")
         try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
     }
@@ -148,8 +152,30 @@ public final class PlannerFile: @unchecked Sendable {
         return d
     }
 
-    private static func decode(_ data: Data) throws -> Planner {
-        try decoder.decode(Planner.self, from: data)
+    private struct SchemaVersion: Decodable { var version: Int? }
+
+    /// Decode a disk document or a legacy export without touching storage or device preferences.
+    public static func decodeDocument(_ data: Data) throws -> Planner {
+        try decoder.decode(PlannerDiskDocument.self, from: data).planner
+    }
+
+    private static func decode(_ data: Data) throws -> Planner { try decodeDocument(data) }
+
+    private static func preferencesAdapter(for url: URL) -> any PlannerPreferencesAdapter {
+        if ProcessInfo.processInfo.environment["PERCH_DATA"] == nil, url == Self.defaultURL {
+            return UserDefaultsPlannerPreferences()
+        }
+        // Explicit/synthetic data files never read or write the user's live preferences.
+        let key = url.standardizedFileURL.path.utf8.reduce(UInt64(0xcbf29ce484222325)) {
+            ($0 ^ UInt64($1)) &* 0x100000001b3
+        }
+        return UserDefaultsPlannerPreferences(defaults: UserDefaults(suiteName: "perch.isolated.\(key)")!)
+    }
+
+    private func applyingPreferences(to source: Planner) throws -> Planner {
+        var planner = source
+        try preferences.load()?.apply(to: &planner.preferences)
+        return planner
     }
 
     /// Recovery is a separate path, never the decoder used to validate a save.
@@ -162,7 +188,8 @@ public final class PlannerFile: @unchecked Sendable {
         var quarantinedCount = 0
         var quarantinedFieldCount = 0
         enum Keys: String, CodingKey {
-            case version, tasks, projects, notes, focusSegments, focus, dismissedOverdue
+            case version, tasks, taskOrder, projects, notes, focusSegments, focusHistory, focusLog, focus,
+                dismissedOverdue
             case repeatOccurrences, completedCalendarEventIDs, completedCalendarEventDays, preferences
         }
         private struct StringKey: CodingKey {
@@ -177,11 +204,24 @@ public final class PlannerFile: @unchecked Sendable {
             // A malformed version cannot be inferred. Unsupported versions never
             // enter recovery: their data may be valid in another schema.
             planner.version = try c.decodeMissing(Int.self, forKey: .version, default: Planner.currentVersion)
-            guard planner.version == Planner.currentVersion else { throw PlannerSchemaError(version: planner.version) }
+            guard (1...PlannerDiskDocument.currentVersion).contains(planner.version) else {
+                throw PlannerSchemaError(version: planner.version)
+            }
+            planner.version = Planner.currentVersion
             planner.tasks = records(PlanTask.self, in: c, key: .tasks)
             planner.projects = records(TaskProject.self, in: c, key: .projects)
             planner.notes = records(QuickNote.self, in: c, key: .notes)
-            planner.focusSegments = records(FocusSegment.self, in: c, key: .focusSegments)
+            planner.focusSegments = records(PackedFocusHistory.self, in: c, key: .focusHistory)
+                .flatMap(\.indexedSegments).sorted { $0.0 < $1.0 }.map { $0.1 }
+            planner.focusSegments += records(FocusSegment.self, in: c, key: .focusSegments)
+            planner.focusSegments += records(FocusSegment.self, in: c, key: .focusLog)
+            // Order IDs are an index over tasks, not additional recovered user records.
+            let order = value([UUID].self, in: c, key: .taskOrder, default: [])
+            let ranks = Dictionary(
+                order.enumerated().map { ($0.element, $0.offset) }, uniquingKeysWith: { first, _ in first })
+            planner.tasks = planner.tasks.enumerated().sorted {
+                (ranks[$0.element.id] ?? order.count + $0.offset) < (ranks[$1.element.id] ?? order.count + $1.offset)
+            }.map(\.element)
             planner.repeatOccurrences = records(RepeatOccurrence.self, in: c, key: .repeatOccurrences)
             planner.dismissedOverdue = records(UUID.self, in: c, key: .dismissedOverdue)
             planner.completedCalendarEventIDs = Set(records(String.self, in: c, key: .completedCalendarEventIDs))
@@ -302,14 +342,16 @@ public final class PlannerFile: @unchecked Sendable {
 
     /// Missing data starts empty; a recoverable error carries valid records for
     /// read-only display. No normal load ever returns a silently reduced list.
-    public func load() throws -> Planner { try withLock { try loadLocked() } }
+    public func load() throws -> Planner { try withLock { try applyingPreferences(to: loadLocked()) } }
 
     /// Atomic replacement makes this a consistent read without lock/recovery side effects.
     public func snapshot() throws -> Planner {
-        guard let data = try readIfPresent(url) else { return Planner() }
-        do { return try Self.decode(data) } catch let error as PlannerSchemaError { throw error } catch {
+        guard let data = try readIfPresent(url) else { return try applyingPreferences(to: Planner()) }
+        let decoded: Planner
+        do { decoded = try Self.decode(data) } catch let error as PlannerSchemaError { throw error } catch {
             throw PlannerError("Unable to load planner data.")
         }
+        return try applyingPreferences(to: decoded)
     }
 
     private func loadLocked() throws -> Planner {
@@ -351,19 +393,50 @@ public final class PlannerFile: @unchecked Sendable {
     func save(_ planner: Planner) throws { try withLock { try saveLocked(planner) } }
 
     private func saveLocked(_ planner: Planner) throws {
-        let data = try Self.encoder.encode(planner)
-        // Reject non-finite dates or other values that cannot survive decoding.
+        let data = try Self.encoder.encode(PlannerDiskDocument(planner))
+        // Validate both representations before any side effect, including preference migration.
         _ = try Self.decode(data)
-        if let current = try readIfPresent(url) {
-            do { _ = try Self.decode(current) } catch let error as PlannerSchemaError { throw error } catch {
+        let current = try readIfPresent(url)
+        if let current {
+            let document: PlannerDiskDocument
+            do { document = try Self.decoder.decode(PlannerDiskDocument.self, from: current) } catch let error
+                as PlannerSchemaError
+            { throw error } catch {
                 throw PlannerDataError.corrupt(
                     url: url, quarantineURL: nil,
                     reason: "Reload to inspect preserved records before saving")
             }
-            if current == data { return }
-            try backUpLocked(current)
+            if document.sourceVersion < PlannerDiskDocument.currentVersion {
+                try preserveMigrationLocked(current)
+            }
+            if current != data { try backUpLocked(current) }
         }
-        try io.write(data, url)
+        let previous = try preferences.load()
+        let desired = DevicePreferences(planner.preferences)
+        if previous != desired { try preferences.save(desired) }
+        do {
+            if current != data { try io.write(data, url) }
+        } catch {
+            // Normal write failures must not commit a preference-only half transaction.
+            do { if previous != desired { try preferences.save(previous) } } catch {
+                throw PlannerError("Planner write and preference rollback failed. Recovery backups were retained.")
+            }
+            throw error
+        }
+    }
+
+    private func preserveMigrationLocked(_ data: Data) throws {
+        try FileManager.default.createDirectory(at: migrationDirectory, withIntermediateDirectories: true)
+        for existing in try FileManager.default.contentsOfDirectory(
+            at: migrationDirectory, includingPropertiesForKeys: nil)
+        where existing.pathExtension == "json" {
+            if (try? io.read(existing)) == data { return }
+        }
+        let copy = migrationDirectory.appendingPathComponent("version-1-\(UUID().uuidString).json")
+        try io.write(data, copy)
+        guard try io.read(copy) == data else {
+            throw PlannerError("Migration backup verification failed. The original was not changed.")
+        }
     }
 
     /// Immutable raw-byte snapshots, newest first. Unrelated files are never pruned.
@@ -439,11 +512,12 @@ public final class PlannerFile: @unchecked Sendable {
             guard let (data, planner) = candidate else {
                 throw PlannerError("No readable, valid planner backup is available.")
             }
+            let restored = try applyingPreferences(to: planner)
             if let current = try readIfPresent(url) {
                 // A newer schema is not corrupt and must never be downgraded by restore.
                 do { _ = try Self.decode(current) } catch let error as PlannerSchemaError { throw error } catch
                 { /* Corrupt current data is preserved below before explicit restore. */  }
-                if current == data { return planner }
+                if current == data { return restored }
                 if (try? Self.decode(current)) != nil {
                     try backUpLocked(current)
                 } else {
@@ -451,7 +525,7 @@ public final class PlannerFile: @unchecked Sendable {
                 }
             }
             try io.write(data, url)
-            return planner
+            return restored
         }
     }
 
@@ -459,10 +533,15 @@ public final class PlannerFile: @unchecked Sendable {
     @discardableResult
     func mutate<T>(_ body: (inout Planner) throws -> T) throws -> T {
         try withLock {
-            var p = try loadLocked()
+            var p = try applyingPreferences(to: loadLocked())
             let before = p
             let result = try body(&p)
-            if p != before { try saveLocked(p) }
+            let needsMigration =
+                try readIfPresent(url).map {
+                    (try Self.decoder.decode(SchemaVersion.self, from: $0).version ?? 1)
+                        < PlannerDiskDocument.currentVersion
+                } ?? false
+            if p != before || needsMigration { try saveLocked(p) }
             return result
         }
     }
@@ -487,9 +566,9 @@ public final class PlannerFile: @unchecked Sendable {
         try withLock {
             let planner = try loadLocked()
             if dest.standardizedFileURL == url.standardizedFileURL {
-                try saveLocked(planner)
+                try saveLocked(applyingPreferences(to: planner))
             } else {
-                try Self.encoder.encode(planner).write(to: dest, options: .atomic)
+                try Self.encoder.encode(PlannerExportDocument(planner: planner)).write(to: dest, options: .atomic)
             }
         }
     }

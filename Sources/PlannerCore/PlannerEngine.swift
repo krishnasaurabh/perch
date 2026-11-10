@@ -477,15 +477,11 @@ public struct PlannerEngine {
                 dismissOverdue([id])
                 continue
             }
-            var copy = t
-            copy.id = UUID(); copy.day = day; copy.carriedFrom = from; copy.createdAt = now()
-            copy.carryCount += 1
+            let copy = t.carryInstance(to: day, from: from, at: now())
             if t.repeatRule != nil {
-                copy.repeatedFrom = t.repeatSeriesID
                 let occurrence = RepeatOccurrence(seriesID: t.repeatSeriesID, day: day)
                 if !planner.repeatOccurrences.contains(occurrence) { planner.repeatOccurrences.append(occurrence) }
             }
-            copy.remindAt = nil; copy.focusedSeconds = 0; copy.reminderLink = nil
             planner.tasks.append(copy)
             dismissOverdue([id])
             out.append(copy)

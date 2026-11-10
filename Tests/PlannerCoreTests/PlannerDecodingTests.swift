@@ -175,7 +175,7 @@ final class PlannerDecodingTests: XCTestCase {
     }
 
     func testNewSchemaHasNoRecoverySideEffectsEvenWithMalformedRecords() throws {
-        let raw = Data(#"{"version":2,"tasks":[{}]}"#.utf8)
+        let raw = Data(#"{"version":3,"tasks":[{}]}"#.utf8)
         try raw.write(to: file.url)
         let before = try FileManager.default.contentsOfDirectory(atPath: directory.path)
         XCTAssertThrowsError(try file.load()) { XCTAssertTrue($0 is PlannerSchemaError) }
