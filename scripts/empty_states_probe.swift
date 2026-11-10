@@ -73,12 +73,26 @@ func probeWeekBars(_ focusOnly: Insights, output: URL) async {
         let inner = size.width - 20, col = (inner - 6 * 14) / 7
         let x = Int((10 + 6 * (col + 14) + col / 2) * scale)
         var planned: Int?, completed: Int?
+        // Match the actual Planned token composited over this fixture's white background.
+        let plannedInk = NSColor(Theme.insightsPlanned).usingColorSpace(.deviceRGB)!
+        let plannedValue = (plannedInk.redComponent + plannedInk.greenComponent + plannedInk.blueComponent) / 3
+            * plannedInk.alphaComponent + (1 - plannedInk.alphaComponent)
+        var plannedRows = 0
         // Scan only the plot: the day labels below the baseline are dark text too.
         for y in 0..<Int((size.height - 48) * scale) {
-            guard let c = rep.colorAt(x: x, y: y)?.usingColorSpace(.deviceRGB) else { continue }
+            guard let c = rep.colorAt(x: x, y: y)?.usingColorSpace(.deviceRGB) else {
+                plannedRows = 0
+                continue
+            }
             let v = (c.redComponent + c.greenComponent + c.blueComponent) / 3
             if completed == nil, v < 0.3 { completed = y }
-            if planned == nil, v > 0.6, v < 0.9 { planned = y }
+            if abs(v - plannedValue) <= 0.05 {
+                plannedRows += 1
+                // Reject isolated antialias pixels from Completed's rounded edge.
+                if planned == nil, plannedRows >= 3 { planned = y - plannedRows + 1 }
+            } else {
+                plannedRows = 0
+            }
         }
         return (planned.map { CGFloat($0) / scale }, completed.map { CGFloat($0) / scale })
     }
