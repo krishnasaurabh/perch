@@ -161,7 +161,9 @@ struct TimerPillLayer: View {
                         .offset(x: p.minX - bounds.minX, y: bounds.maxY - p.maxY)
                         .id(side)
                         .transition(motionPolicy.reduceMotion ? .identity :
-                            .opacity.combined(with: .offset(x: side == .left ? 6 : -6)))
+                            .opacity.combined(with: .modifier(
+                                active: TimerPillReveal(offset: side == .left ? 6 : -6),
+                                identity: TimerPillReveal(offset: 0))))
                         .zIndex(1)
                 }
             }
@@ -175,6 +177,18 @@ struct TimerPillLayer: View {
         let colons = CGFloat(text.filter { $0 == ":" }.count), digits = CGFloat(text.count) - colons
         let units = digits * 3.9 + colons + CGFloat(max(0, text.count - 1)) * 1.2
         return max(1, min(width / units, height / 6.8, 2.2))
+    }
+}
+
+/// Separate projection channel: a transition offset can coalesce with the capsule's absolute offset.
+private struct TimerPillReveal: GeometryEffect {
+    var offset: CGFloat
+    var animatableData: CGFloat {
+        get { offset }
+        set { offset = newValue }
+    }
+    func effectValue(size: CGSize) -> ProjectionTransform {
+        ProjectionTransform(CGAffineTransform(translationX: offset, y: 0))
     }
 }
 
