@@ -13,8 +13,11 @@ extension NotchLayout.Screen {
 /// The notch frames for one screen. A thin AppKit-side view of `NotchLayout`; every number comes from there.
 struct NotchGeometry: Equatable {
     static let workspaceSize = WorkspaceLayout.preferredSize()
-    /// Wing widths either side of the notch: owl + task count, or owl + running timer.
-    static let wing: CGFloat = 32, timerWing: CGFloat = 85
+    /// Width of the timer pill that grows out of one side of the notch. Nothing else widens the closed notch.
+    static let timerWing: CGFloat = 85
+    /// With nothing to show, the drawn shape tucks this far inside the camera housing (sides and bottom), so it is
+    /// fully hidden behind the hardware and never peeks out by a rounding pixel.
+    static let tuck: CGFloat = 1
     /// An activity strip hangs this far below the notch, at least this wide.
     static let activityDepth: CGFloat = 62, activityWidth: CGFloat = 400, activityWing: CGFloat = 100
 
@@ -33,34 +36,60 @@ struct NotchGeometry: Equatable {
     /// The open workspace hangs from the top edge beside a housing, and floats below the menu bar on a flat screen.
     var workspaceAttached: Bool { NotchLayout.workspaceAttached(screen: screen) }
 
-    func idle(timer: Bool, activity: Bool) -> NSRect {
+    /// The closed shape. Nothing to show: exactly the housing (tucked inside it), so the notch looks untouched.
+    /// A running timer: a pill on its side only. A nudge: a strip below.
+    func idle(timer: NotchTimerPlacement?, activity: Bool) -> NSRect {
         if activity {
             return NotchLayout.idleFrame(screen: screen, leftWing: Self.activityWing, rightWing: Self.activityWing,
                                          below: Self.activityDepth, minWidth: Self.activityWidth)
         }
-        let w = timer ? Self.timerWing : Self.wing
-        return NotchLayout.idleFrame(screen: screen, leftWing: w, rightWing: w)
+        if let side = timer {
+            let w = wings(timer: side)
+            return pixelAligned(NotchLayout.idleFrame(screen: screen, leftWing: w.left, rightWing: w.right))
+        }
+        if let cam = camera {
+            return NSRect(x: cam.minX + Self.tuck, y: cam.minY + Self.tuck, width: cam.width - 2 * Self.tuck, height: cam.height - Self.tuck)
+        }
+        return notchRect
+    }
+
+    /// Wing widths for the closed timer pill: only the chosen side grows.
+    func wings(timer: NotchTimerPlacement?) -> (left: CGFloat, right: CGFloat) {
+        switch timer {
+        case .left?: return (Self.timerWing, 0)
+        case .right?: return (0, Self.timerWing)
+        default: return (0, 0)
+        }
+    }
+
+    /// The pill's bottom edge sits one device pixel above the housing's: `safeAreaTop` includes the housing's
+    /// anti-aliased lip, so matching it exactly reads as a pixel lower than the hardware (seen on a 14" M3 Air).
+    private func pixelAligned(_ r: NSRect) -> NSRect {
+        let scale: CGFloat = 2, top = r.maxY
+        let h = ((r.height * scale).rounded(.down) - 1) / scale
+        return NSRect(x: r.minX, y: top - h, width: r.width, height: h)
     }
 
     /// The visible shape in global coordinates.
-    func shape(expanded: Bool, timer: Bool, activity: Bool) -> NSRect {
+    func shape(expanded: Bool, timer: NotchTimerPlacement?, activity: Bool) -> NSRect {
         expanded ? workspace : idle(timer: timer, activity: activity)
     }
 
     /// Where hovering opens the notch (closed), or keeps it open (expanded: exactly the workspace).
-    func hover(expanded: Bool, timer: Bool, activity: Bool) -> NSRect {
+    func hover(expanded: Bool, timer: NotchTimerPlacement?, activity: Bool) -> NSRect {
         NotchLayout.hoverFrame(idle: idle(timer: timer, activity: activity), workspace: workspace, expanded: expanded, screen: screen)
     }
 
     /// Open on a flat screen: the strip of menu bar between the notch and the floating workspace. The pointer may
     /// cross it without the workspace closing; clicks there still reach the menu bar.
-    func openBridge(timer: Bool, activity: Bool) -> NSRect? {
+    func openBridge(timer: NotchTimerPlacement?, activity: Bool) -> NSRect? {
         NotchLayout.openBridge(idle: idle(timer: timer, activity: activity), workspace: workspace, screen: screen)
     }
 
     /// The transparent window: fixed per screen and large enough for every shape, so it never moves while animating.
     var window: NSRect {
-        NotchLayout.windowFrame(screen: screen, containing: [idle(timer: true, activity: true), idle(timer: true, activity: false), workspace])
+        NotchLayout.windowFrame(screen: screen, containing: [idle(timer: nil, activity: true), idle(timer: .left, activity: false),
+                                                                idle(timer: .right, activity: false), workspace])
     }
 
     static func radii(expanded: Bool) -> (top: CGFloat, bottom: CGFloat) { expanded ? (10, 26) : (6, 12) }
@@ -74,7 +103,7 @@ struct NotchGeometry: Equatable {
     }
 
     /// Exact hit test against the drawn shape (not its bounding box). Global coordinates, y up.
-    func shapeContains(_ p: NSPoint, expanded: Bool, timer: Bool, activity: Bool) -> Bool {
+    func shapeContains(_ p: NSPoint, expanded: Bool, timer: NotchTimerPlacement?, activity: Bool) -> Bool {
         let r = shape(expanded: expanded, timer: timer, activity: activity)
         guard NotchLayout.contains(r, pointer: p) else { return false }
         let path = outline(expanded: expanded).path(in: CGRect(origin: .zero, size: r.size))
