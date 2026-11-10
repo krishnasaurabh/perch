@@ -68,7 +68,7 @@ func checkClosedNotch(store: PlannerStore, model: NotchModel, services: Services
         require(name == "idle" || name == "hidden" || name == "activity" ? side == nil : side != nil,
                 "\(name): timer visibility follows focus and placement")
         try await snapshot(NotchRootView().environmentObject(store).environmentObject(model)
-            .environmentObject(services).environmentObject(state).environment(\.motionPolicy, MotionPolicy(reduceMotion: true)),
+            .environmentObject(services).environmentObject(state).environment(\.motionPolicyOverride, MotionPolicy(reduceMotion: true)),
             name: "notch-hug-\(name)", size: g.window.size, output: output)
     }
     model.activity = nil
