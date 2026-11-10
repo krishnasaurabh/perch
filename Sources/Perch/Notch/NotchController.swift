@@ -265,6 +265,7 @@ final class NotchController {
         let state = NotchScreenState(id: id, geometry: g)
         let panel = NotchPanel(frame: g.window)
         let root = NotchRootView()
+            .modifier(MotionScript.PolicyProbe())
             .environment(\.motionPolicyOverride, model.motionPolicyOverride)
             .environmentObject(store).environmentObject(model).environmentObject(services).environmentObject(state)
         let host = NotchHostingView(rootView: root)

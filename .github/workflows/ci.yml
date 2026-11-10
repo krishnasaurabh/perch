@@ -25,6 +25,8 @@ jobs:
       - uses: actions/checkout@v4
       - uses: swift-actions/setup-swift@v2
         with: { swift-version: "6.1" }
+      - name: Motion evidence classification regression
+        run: python3 -m unittest discover -s scripts -p test_motion_evidence.py
       - run: swift test
       - run: swift build -c release --product perch-cli
       - name: MCP end-to-end with the official Python SDK
@@ -188,7 +190,10 @@ jobs:
         # Evidence only: never blocks a branch. Errors land in summary.md / capture.log inside the artifact.
         continue-on-error: true
         timeout-minutes: 12
-        run: scripts/motion_capture.sh "$RUNNER_TEMP/motion" dist/Perch.app
+        run: |
+          for policy in production normal reduced; do
+            PERCH_MOTION_POLICY=$policy scripts/motion_capture.sh "$RUNNER_TEMP/motion/$policy" dist/Perch.app || exit $?
+          done
       - uses: actions/upload-artifact@v4
         if: always()
         with:

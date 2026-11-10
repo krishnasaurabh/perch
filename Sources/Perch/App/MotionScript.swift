@@ -14,11 +14,42 @@ import SwiftUI
 /// The screen itself is recorded externally. Transitions go through the app's own entry points: the
 /// "open workspace" notification (menu / ⌥N path), `NotchModel.close()` (Esc path), and the real SwiftUI
 /// buttons pressed through this process's own accessibility tree (no Accessibility permission needed).
-/// When a button can't be found, the step falls back to the same mutation the button makes and says so
-/// in the markers file (`via`).
+/// Missing controls fail closed; no model fallback can count as UI evidence.
 @MainActor
 enum MotionScript {
     private static var runner: Runner?
+    // Ordinary launches retain live OS policy; two explicit flags are required.
+    nonisolated static var policyOverride: MotionPolicy? {
+        let args = CommandLine.arguments
+        guard args.contains("--motion-script"), let i = args.firstIndex(of: "--motion-policy"), i + 1 < args.count else { return nil }
+        switch args[i + 1] {
+        case "normal": return MotionPolicy(reduceMotion: false)
+        case "reduced": return MotionPolicy(reduceMotion: true)
+        default: return nil
+        }
+    }
+    static var environmentPolicy: [String: Any] = [:]
+    static var transactions: [[String: Any]] = []
+    struct PolicyProbe: ViewModifier {
+        @Environment(\.accessibilityReduceMotion) var systemReduced
+        @Environment(\.motionPolicy) var policy
+        func body(content: Content) -> some View {
+            content.transaction { transaction in
+                MainActor.assumeIsolated {
+                    guard CommandLine.arguments.contains("--motion-script") else { return }
+                    MotionScript.environmentPolicy = ["swiftui_reduce_motion": systemReduced,
+                        "resolved_reduce_motion": policy.reduceMotion]
+                    var enforced = transaction
+                    policy.enforce(on: &enforced)
+                    MotionScript.transactions.append(["t": Date().timeIntervalSince1970,
+                        "animation": String(describing: transaction.animation),
+                        "disables_animations": transaction.disablesAnimations,
+                        "enforced_animation": String(describing: enforced.animation),
+                        "enforced_disables_animations": enforced.disablesAnimations])
+                }
+            }
+        }
+    }
 
     static func startIfRequested(store: PlannerStore, model: NotchModel) {
         let args = CommandLine.arguments
@@ -61,11 +92,11 @@ enum MotionScript {
             let target = NotchPage.week
             let steps: [Step] = [
                 Step(name: "ready", wait: 4.0, capture: false) { "launch" },  // long still lead-in for alignment
-                Step(name: "open", wait: 1.6, capture: true) {
+                Step(name: "open", wait: 2.4, capture: true) {
                     NotificationCenter.default.post(name: .perchOpenWorkspace, object: NotchPage.home); return "perchOpenWorkspace"
                 },
-                Step(name: "close", wait: 1.6, capture: true) { [model] in model.close(); return "NotchModel.close" },
-                Step(name: "reopen", wait: 1.4, capture: false) {
+                Step(name: "close", wait: 2.4, capture: true) { [model] in model.close(); return "NotchModel.close" },
+                Step(name: "reopen", wait: 2.4, capture: false) {
                     NSApp.activate(ignoringOtherApps: true)
                     // SwiftUI builds its macOS accessibility tree lazily, on the first request from an accessibility
                     // client. A CI VM has none (no VoiceOver, no automation), so the panel's tree stays at 0 nodes
@@ -84,34 +115,12 @@ enum MotionScript {
                     NotificationCenter.default.post(name: .perchOpenWorkspace, object: NotchPage.home); return "perchOpenWorkspace"
                 },
                 // 2.4 s (was 1.4): settle time for SwiftUI to publish the tree after the wake.
-                Step(name: "page", wait: 2.4, capture: true) { [model] in
-                    self.press(target.title, orElse: {
-                        // Same mutation and spring as the picker button. On a locked session the animated
-                        // transaction never commits inside the capture window, so there it is set plainly.
-                        if Self.screenLocked { model.page = target; return "direct:model.page=\(target.rawValue)" }
-                        withAnimation(.spring(response: 0.3)) { model.page = target }
-                        return "direct-spring:model.page=\(target.rawValue)"
-                    })
-                },
-                Step(name: "page-back", wait: 1.2, capture: false) { [model] in
-                    self.press(NotchPage.home.title, orElse: { model.page = .home; return "direct:model.page=home" })
-                },
-                Step(name: "tick", wait: 1.6, capture: true) { [store] in
-                    // The real row button owns tick/fade choreography. The fallback only completes the task;
-                    // main no longer has a Confetti API, so do not reintroduce synthetic celebration here.
-                    self.press("Check off task", orElse: {
-                        guard let t = store.engine.tasks(on: .day(store.today)).first(where: { !$0.done }) else { return "none" }
-                        store.apply { try $0.complete(t.id.uuidString) }
-                        return "direct:complete"
-                    })
-                },
-                Step(name: "timer", wait: 1.6, capture: true) { [store] in
-                    self.press("Start", orElse: {
-                        store.apply { try $0.startTimer(task: nil, minutes: 25) }
-                        return "direct:startTimer"
-                    })
-                },
-                Step(name: "end", wait: 1.0, capture: false) { [model] in model.close(); return "NotchModel.close" },
+                Step(name: "page", wait: 2.4, capture: true) { self.requiredPress(target.title) },
+                Step(name: "page-back", wait: 2.4, capture: false) { self.requiredPress(NotchPage.home.title) },
+                Step(name: "tick", wait: 2.4, capture: true) { self.requiredPress("Check off task") },
+                Step(name: "timer", wait: 2.4, capture: true) { self.requiredPress("Start focus") },
+                Step(name: "timer-stop", wait: 2.4, capture: false) { self.requiredPress("End focus session") },
+                Step(name: "end", wait: 2.4, capture: false) { [model] in model.close(); return "NotchModel.close" },
             ]
             schedule(steps[...], extra: ["page": target.rawValue])
         }
@@ -124,6 +133,17 @@ enum MotionScript {
                 // How much of the AX tree is visible right before the action (counted before `t`, so it doesn't
                 // shift the action). `close` is the pre-wake baseline with the workspace open.
                 let axNodes = axCount()
+                let session = CGSessionCopyCurrentDictionary() as? [String: Any] ?? [:]
+                let policy: [String: Any] = MotionScript.environmentPolicy.merging([
+                    "nsworkspace_reduce_motion": NSWorkspace.shared.accessibilityDisplayShouldReduceMotion,
+                    "explicit_reduce_motion": model.motionPolicy.reduceMotion,
+                    "mode": MotionScript.policyOverride.map { $0.reduceMotion ? "diagnostic-reduced" : "diagnostic-normal" } ?? "production"
+                ]) { _, rhs in rhs }
+                let state: [String: Any] = ["screen_locked": Self.screenLocked,
+                    "lock_key_present": session["CGSSessionScreenIsLocked"] != nil,
+                    "on_console": session["kCGSSessionOnConsoleKey"] ?? "unknown", "app_active": NSApp.isActive,
+                    "key_window": NSApp.keyWindow != nil, "expanded": model.expanded,
+                    "page": model.page.rawValue, "timer_present": store.planner.focus != nil]
                 let t = Date().timeIntervalSince1970
                 // Frame 0 of every captured clip is grabbed just BEFORE the action runs (t ~ 0), so each clip has a
                 // before/after pair even when the host can't animate.
@@ -132,6 +152,10 @@ enum MotionScript {
                 var m: [String: Any] = ["name": step.name, "t": t, "uptime": ProcessInfo.processInfo.systemUptime, "via": via]
                 if step.name == "page" { m["target"] = extra["page"] ?? "" }
                 m["ax_nodes"] = axNodes
+                m["policy"] = policy
+                m["session"] = state
+                m["interaction_ok"] = !via.hasPrefix("FAILED:")
+                m["action_end_epoch"] = Date().timeIntervalSince1970
                 if step.name == "reopen" {
                     m["ax_wake_mode"] = ProcessInfo.processInfo.environment["PERCH_MOTION_AX_WAKE"] ?? "none"
                     m["ax_trusted"] = AXIsProcessTrusted()
@@ -148,7 +172,9 @@ enum MotionScript {
         }
 
         private func write() {
-            let doc: [String: Any] = ["markers": markers, "screens": NSScreen.screens.map { ["w": $0.frame.width, "h": $0.frame.height, "scale": $0.backingScaleFactor] }]
+            let doc: [String: Any] = ["schema": 2, "candidate_sha": ProcessInfo.processInfo.environment["PERCH_CANDIDATE_SHA"] ?? "unknown",
+                "source_kind": snapshotDir == nil ? "compositor-driver" : "own-window-driver",
+                "transactions": MotionScript.transactions, "markers": markers, "screens": NSScreen.screens.map { ["w": $0.frame.width, "h": $0.frame.height, "scale": $0.backingScaleFactor] }]
             if let d = try? JSONSerialization.data(withJSONObject: doc, options: [.prettyPrinted, .sortedKeys]) { try? d.write(to: markersURL) }
         }
 
@@ -156,7 +182,10 @@ enum MotionScript {
 
         /// Presses the first element labelled `label` in a visible notch window. Returns the `via` string, or nil.
         /// Uses the ObjC accessibility methods directly, so it works for NSViews and SwiftUI's private AX nodes alike.
-        private func press(_ label: String, orElse fallback: () -> String) -> String { press(label) ?? fallback() }
+        private func requiredPress(_ label: String) -> String {
+            let requested = ProcessInfo.processInfo.environment["PERCH_MOTION_MISSING_CONTROL"] == label ? "missing-control" : label
+            return press(requested) ?? "FAILED:missing-control:\(label)"
+        }
 
         static var screenLocked: Bool {
             (CGSessionCopyCurrentDictionary() as? [String: Any])?["CGSSessionScreenIsLocked"] as? Bool ?? false

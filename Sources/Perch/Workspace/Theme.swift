@@ -134,7 +134,7 @@ enum Motion {
 /// travel or repeating effects may ride on a transaction intended only for opacity.
 struct MotionPolicy: Equatable {
     let reduceMotion: Bool
-    static var system: Self { Self(reduceMotion: NSWorkspace.shared.accessibilityDisplayShouldReduceMotion) }
+    static var system: Self { MotionScript.policyOverride ?? Self(reduceMotion: NSWorkspace.shared.accessibilityDisplayShouldReduceMotion) }
 
     func animation(_ normal: Animation) -> Animation? { reduceMotion ? nil : normal }
 
