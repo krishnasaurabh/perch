@@ -168,7 +168,7 @@ final class ReminderService: NSObject, UNUserNotificationCenterDelegate {
 /// either. Planner, calendar, wake, clock and day changes run a pass early.
 @MainActor
 final class NotchTimelineDriver {
-    private typealias Activity = PlannerCore.NotchActivity
+    private typealias Activity = PerchUI.NotchActivity
 
     private let store: PlannerStore
     private let calendar: CalendarService

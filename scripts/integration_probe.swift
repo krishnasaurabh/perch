@@ -4,6 +4,9 @@ import PlannerCore
     @testable import PerchApp
     import PerchUI
     import PerchMCP
+    private typealias ProbeActivity = PerchApp.NotchActivity
+#else
+    private typealias ProbeActivity = NotchActivity
 #endif
 import SwiftUI
 
@@ -106,7 +109,7 @@ func checkClosedNotch(store: PlannerStore, model: NotchModel, services: Services
         }
         model.activity =
             name == "activity"
-            ? NotchActivity(kind: .message, title: "Release reminder", subtitle: "Activity remains below the housing")
+            ? ProbeActivity(kind: .message, title: "Release reminder", subtitle: "Activity remains below the housing")
             : nil
         let side = NotchModel.timerShowing(store)
         require(
