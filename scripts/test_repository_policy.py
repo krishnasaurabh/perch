@@ -50,6 +50,21 @@ class RepositoryPolicyTests(unittest.TestCase):
         self.stage("docs/usage.md", "# Usage\n")
         self.assertEqual(self.check().returncode, 0)
 
+    def test_documentation_image_is_allowed(self):
+        self.stage("docs/images/today.png", "png")
+        self.assertEqual(self.check().returncode, 0)
+
+    def test_documentation_images_stay_narrow(self):
+        for name in ("docs/today.png", "docs/images/run/today.png", "docs/images/notes.txt", "docs/images/build.log"):
+            with self.subTest(name=name):
+                self.stage(name, "data")
+                self.assertEqual(self.check().returncode, 1)
+                self.git("rm", "-q", "-f", name)
+
+    def test_oversized_documentation_image_is_blocked(self):
+        self.stage("docs/images/today.png", "x" * (1024 * 1024 + 1))
+        self.assertIn("exceeds 1 MiB", self.check().stderr)
+
     def test_swift_format_config_is_allowed(self):
         self.stage(".swift-format", '{"version": 1, "indentation": {"spaces": 4}}\n')
         self.assertEqual(self.check().returncode, 0)
