@@ -1,4 +1,5 @@
 import Foundation
+import Combine
 import EventKit
 import PerchReminders
 import PlannerCore
@@ -149,6 +150,49 @@ final class RemindersSyncTests: XCTestCase {
         let granted = await sync.requestAccess(); XCTAssertTrue(granted)
         await sync.reconcileNow()
         XCTAssertEqual(source.saves, 1)
+    }
+
+    @MainActor func testDeleteUndoPreservesRemoteIdentityWithoutWrites() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = PlannerStore(file: PlannerFile(url: root.appendingPathComponent("planner.json")), watching: false)
+        store.updatePrefs { $0.remindersSync = true }
+        let id = try XCTUnwrap(
+            store.send(.addTasks(["Synthetic"], day: nil, literal: true, agentID: nil))?.tasks.first?.id)
+        let source = FakeReminders(), ledger = TestReminderLedger()
+        ledger.ledger.enabled = true
+        let sync = RemindersSync(store: store, source: source, storage: ledger)
+        await sync.reconcileNow()
+        let link = try XCTUnwrap(ledger.ledger.links[id])
+        store.send(.delete(id)); store.undo()
+        await sync.reconcileNow()
+        XCTAssertEqual(ledger.ledger.links[id], link)
+        XCTAssertEqual(source.saves, 1); XCTAssertEqual(source.removals, 0)
+        XCTAssertEqual(store.planner.tasks[0].id, id)
+        let granted = await sync.requestAccess(); XCTAssertTrue(granted)
+        await sync.reconcileNow()
+        XCTAssertEqual(source.saves, 1); XCTAssertEqual(source.records[0].id, link.remoteID)
+    }
+
+    @MainActor func testPermissionFailurePublishesWithoutPlannerMutation() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = PlannerStore(file: PlannerFile(url: root.appendingPathComponent("planner.json")), watching: false)
+        store.updatePrefs { $0.remindersSync = true }
+        _ = store.send(.addTasks(["Synthetic"], day: nil, literal: true, agentID: nil))
+        let source = FakeReminders(), ledger = TestReminderLedger()
+        ledger.ledger.enabled = true
+        let sync = RemindersSync(store: store, source: source, storage: ledger, observing: false)
+        await sync.reconcileNow()
+        let before = try Data(contentsOf: store.file.url)
+        var errors: [String] = []
+        let subscription = sync.$lastError.compactMap { $0 }.sink { errors.append($0) }
+        source.hasAccess = false
+        await sync.reconcileNow()
+        XCTAssertTrue(errors.contains { $0.contains("permission") })
+        XCTAssertEqual(try Data(contentsOf: store.file.url), before)
+        XCTAssertEqual(source.saves, 1)
+        withExtendedLifetime(subscription) {}
     }
 
     @MainActor func testConcurrentPlannerWriterCannotBeOverwrittenByRemoteCompletion() async throws {

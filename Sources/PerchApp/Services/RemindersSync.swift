@@ -154,6 +154,9 @@ final class RemindersSync: ObservableObject {
                     self.applyingCompletion = true
                     defer { self.applyingCompletion = false }
                     let applied: Bool? = self.store.performMutation(origin: .background) { commands in
+                        guard Input(commands.planner) == Input(baseline) else {
+                            throw ReminderSyncError.stopped("Planner changed before remote completion could be saved.")
+                        }
                         let current = try commands.task(expected.id)
                         guard current.day == expected.day, current.day == commands.today,
                             ReminderFields(task: current, ringOnPhone: commands.planner.preferences.ringOnPhone)
@@ -170,6 +173,7 @@ final class RemindersSync: ObservableObject {
                             self.store.lastError ?? "Remote completion could not be saved. Retry sync.")
                     }
                     baseline = self.store.planner
+                    self.pending = true
                 })
             retryCount = 0; lastError = nil
         } catch {

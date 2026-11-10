@@ -274,6 +274,39 @@ final class ReminderReconcilerTests: XCTestCase {
         XCTAssertEqual(f.repository.saves, 0)
     }
 
+    @MainActor func testFailedCompletionIsRetriedWithoutAcknowledgingOrWritingRemote() async throws {
+        let f = Fixture(); try await f.run(); f.repository.change { $0.completed = true }
+        let baseline = f.storage.value
+        do {
+            try await f.engine.reconcile(
+                f.planner, today: f.today,
+                complete: { _ in
+                    throw ReminderSyncError.stopped("planner could not save")
+                })
+            XCTFail("must surface local persistence failure")
+        } catch {}
+        XCTAssertEqual(f.storage.value, baseline)
+        XCTAssertEqual(f.repository.saves, 1)
+        var completions = 0
+        try await f.engine.reconcile(f.planner, today: f.today, complete: { _ in completions += 1 })
+        XCTAssertEqual(completions, 1)
+    }
+
+    @MainActor func testEventKitComponentDecorationDoesNotCreateAFalseDiff() async throws {
+        let f = Fixture()
+        f.planner.tasks[0].remindAt = f.today.date().addingTimeInterval(36_000)
+        let desired = ReminderFields(task: f.planner.tasks[0], ringOnPhone: false)
+        var decorated = try XCTUnwrap(desired.due)
+        decorated.calendar = .current; decorated.era = 1; decorated.second = 0
+        let returned = ReminderFields(
+            title: desired.title, notes: desired.notes, priority: desired.priority,
+            due: decorated, alarm: desired.alarm, completed: desired.completed)
+        XCTAssertEqual(desired, returned)
+        XCTAssertEqual(
+            ReminderOwner(url: ReminderOwner(installation: UUID(), task: UUID()).url)?.url.scheme, "perch-reminder")
+        XCTAssertNil(ReminderOwner(url: URL(string: "https://example.invalid/not-owned")))
+    }
+
     @MainActor func testDurableLedgerRoundTripLockAndCorruptionFailClosed() async throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: root) }
