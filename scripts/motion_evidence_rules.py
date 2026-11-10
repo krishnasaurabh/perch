@@ -1,7 +1,7 @@
 """Conservative evidence qualification, independent of codecs and presentation frames."""
 import math
 
-CLIPS = ('open', 'close', 'page', 'tick', 'timer')
+CLIPS = ('open', 'close', 'page', 'tick', 'timer', 'closed-timer')
 EXPECTED = {'page': 'ax-press:Week', 'tick': 'ax-press:Check off task', 'timer': 'ax-press:Start focus'}
 
 def qualify(marker, sha):
@@ -34,6 +34,28 @@ def qualify(marker, sha):
         reasons.append('tick-not-observed')
     if name == 'timer' and after.get('timer_present') is not True:
         reasons.append('timer-not-observed')
+    if name == 'closed-timer':
+        before = marker.get('session', {})
+        started = marker.get('timer_start', {})
+        stopped = marker.get('timer_stop', {})
+        if (marker.get('via') != 'PlannerStore.apply:startTimer'
+                or marker.get('interaction_ok') is not True
+                or before.get('expanded') is not False or before.get('activity_nil') is not True
+                or before.get('timer_present') is not False
+                or started.get('expanded') is not False or started.get('activity_nil') is not True
+                or started.get('timer_present') is not True
+                or started.get('placement') not in ('left', 'right')):
+            reasons.append('closed-timer-start-not-observed')
+        if (stopped.get('via') != 'PlannerStore.apply:stopTimer'
+                or stopped.get('interaction_ok') is not True
+                or stopped.get('expanded') is not False or stopped.get('activity_nil') is not True
+                or stopped.get('timer_present') is not False
+                or after.get('expanded') is not False or after.get('timer_present') is not False):
+            reasons.append('closed-timer-stop-not-observed')
+        times = (marker.get('t'), started.get('observed_epoch'), stopped.get('t'))
+        if (not all(isinstance(t, (float, int)) and math.isfinite(t) for t in times)
+                or not times[0] <= times[1] < times[2] < times[0] + 1.25):
+            reasons.append('closed-timer-edges-outside-window')
     if marker.get('name') in EXPECTED and marker.get('via') != EXPECTED[marker['name']]:
         reasons.append('missing-real-control')
     if marker.get('interaction_ok') is False:

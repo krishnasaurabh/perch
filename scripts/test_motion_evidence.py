@@ -70,4 +70,68 @@ class EvidenceRulesTests(unittest.TestCase):
         args = ([0,.1,.2], [b'\x00', b'\x10', b'\x20'])
         self.assertEqual(json.dumps(candidate_stats(*args)), json.dumps(candidate_stats(*args)))
 
+class ClosedTimerEvidenceTests(unittest.TestCase):
+    def marker(self):
+        m = EvidenceRulesTests().marker()
+        m.update(name='closed-timer', via='PlannerStore.apply:startTimer', t=10.0,
+                 timer_start=dict(observed_epoch=10.01, expanded=False, activity_nil=True,
+                                  timer_present=True, placement='right'),
+                 timer_stop=dict(t=10.66, via='PlannerStore.apply:stopTimer', interaction_ok=True,
+                                 expanded=False, activity_nil=True, timer_present=False),
+                 settled_state=dict(expanded=False, timer_present=False))
+        m['session'].update(expanded=False, activity_nil=True, timer_present=False)
+        return m
+
+    def test_closed_timer_registration_is_additive(self):
+        import ast
+        from pathlib import Path
+        from motion_evidence_rules import CLIPS
+        expected = ('open', 'close', 'page', 'tick', 'timer', 'closed-timer')
+        self.assertEqual(CLIPS, expected)
+        tree = ast.parse(Path(__file__).with_name('motion_evidence.py').read_text())
+        registered = next(ast.literal_eval(n.value) for n in tree.body
+                          if isinstance(n, ast.Assign) and any(isinstance(t, ast.Name) and t.id == 'CLIPS' for t in n.targets))
+        self.assertEqual(tuple(registered), expected)
+
+    def test_closed_timer_qualifies_all_policies_and_sides(self):
+        for mode, reduced in (('production', False), ('production', True),
+                              ('diagnostic-normal', False), ('diagnostic-reduced', True)):
+            for side in ('left', 'right'):
+                m = self.marker(); m['timer_start']['placement'] = side
+                m['policy'] = dict(nsworkspace_reduce_motion=reduced, swiftui_reduce_motion=reduced,
+                                   resolved_reduce_motion=reduced, explicit_reduce_motion=reduced, mode=mode)
+                self.assertEqual(qualify(m, 'a'*40), {'qualified': True, 'reasons': []})
+
+    def test_closed_timer_rejects_missing_or_wrong_edge_state(self):
+        cases = [('session', 'expanded', True), ('session', 'activity_nil', False),
+                 ('session', 'timer_present', True), ('timer_start', 'expanded', True),
+                 ('timer_start', 'activity_nil', False), ('timer_start', 'timer_present', False),
+                 ('timer_start', 'placement', 'hidden'), ('timer_stop', 'expanded', True),
+                 ('timer_stop', 'activity_nil', False), ('timer_stop', 'timer_present', True),
+                 ('timer_stop', 'interaction_ok', False), ('settled_state', 'timer_present', True)]
+        for section, key, value in cases:
+            for missing in (False, True):
+                with self.subTest(section=section, key=key, missing=missing):
+                    m = self.marker()
+                    if missing: del m[section][key]
+                    else: m[section][key] = value
+                    self.assertFalse(qualify(m, 'a'*40)['qualified'])
+
+    def test_closed_timer_requires_real_store_edges(self):
+        for section, key in ((None, 'via'), ('timer_stop', 'via')):
+            for value in ('direct:view-state', 'none', 'FAILED:store'):
+                m = self.marker(); (m if section is None else m[section])[key] = value
+                self.assertFalse(qualify(m, 'a'*40)['qualified'])
+        for field in ('timer_start', 'timer_stop'):
+            m = self.marker(); del m[field]
+            self.assertFalse(qualify(m, 'a'*40)['qualified'])
+
+    def test_closed_timer_requires_ordered_edges_within_existing_window(self):
+        for section, key, value in (('timer_start', 'observed_epoch', 9.9),
+                                    ('timer_stop', 't', 10.0), ('timer_stop', 't', 11.25),
+                                    ('timer_stop', 't', float('nan')), ('timer_stop', 't', '10.66')):
+            m = self.marker(); m[section][key] = value
+            self.assertFalse(qualify(m, 'a'*40)['qualified'])
+
+
 if __name__ == '__main__': unittest.main()

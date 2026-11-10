@@ -28,11 +28,15 @@ struct NotchRootView: View {
         let outline = g.outline(expanded: expanded)
 
         ZStack(alignment: .topLeading) {
-            if let side = pillSide {
-                TimerPillLayer(geometry: g, side: side, bounds: shape)
-                    .frame(width: shape.width, height: shape.height, alignment: .topLeading)
-                    .offset(x: shape.minX - window.minX, y: window.maxY - shape.maxY)
+            if !expanded && activity == nil {
+                // Keep the housing and coordinate space stable while only the capsule comes and goes.
+                TimerPillLayer(geometry: g, side: pillSide, bounds: window)
+                    .frame(width: window.width, height: window.height, alignment: .topLeading)
                     .transition(.opacity)
+                    .onDrop(of: [.fileURL, .url, .plainText, .image], isTargeted: nil) { providers in
+                        guard pillSide == nil else { return false }
+                        handleDrop(providers); return true
+                    }
             } else {
             ZStack(alignment: .top) {
                 // The open shell is drawn without a shadow.
@@ -131,29 +135,38 @@ struct ClosedNotchView: View {
 /// time in dot-matrix digits. No icon, no accent, no border: one piece of information.
 struct TimerPillLayer: View {
     let geometry: NotchGeometry
-    let side: NotchTimerPlacement
+    let side: NotchTimerPlacement?
     let bounds: NSRect
     @EnvironmentObject var store: PlannerStore
     @EnvironmentObject var model: NotchModel
+    @Environment(\.motionPolicy) private var motionPolicy
 
     var body: some View {
-        let n = geometry.tuckedNotch, p = geometry.pill(side: side)
+        let n = geometry.tuckedNotch
         ZStack(alignment: .topLeading) {
             geometry.outline(expanded: false).fill(Theme.notchBlack)
                 .frame(width: n.width, height: n.height)
                 .offset(x: n.minX - bounds.minX, y: bounds.maxY - n.maxY)
-            Capsule(style: .continuous).fill(Theme.notchBlack)
-                .overlay(digits(width: p.width, height: p.height))
-                .frame(width: p.width, height: p.height)
-                .offset(x: p.minX - bounds.minX, y: bounds.maxY - p.maxY)
-        }
-    }
-
-    @ViewBuilder private func digits(width: CGFloat, height: CGFloat) -> some View {
-        if let f = store.planner.focus, f.state != .finished {
-            let text = TimerText.clock(f.remaining(at: model.now) ?? f.elapsed(at: model.now))
-            DotMatrixText(text: text, dot: Self.dot(for: text, width: width - 24, height: height * 0.52),
-                          color: Color.white.opacity(f.state == .running ? 0.95 : 0.6), unlit: .clear)
+            ZStack(alignment: .topLeading) {
+                if let side, let focus = store.planner.focus, focus.state != .finished {
+                    let p = geometry.pill(side: side)
+                    let text = TimerText.clock(focus.remaining(at: model.now) ?? focus.elapsed(at: model.now))
+                    // Capture presentation values here: the exiting capsule must not read a cleared live timer.
+                    Capsule(style: .continuous).fill(Theme.notchBlack)
+                        .overlay {
+                            DotMatrixText(text: text, dot: Self.dot(for: text, width: p.width - 24, height: p.height * 0.52),
+                                          color: Color.white.opacity(focus.state == .running ? 0.95 : 0.6), unlit: .clear)
+                        }
+                        .frame(width: p.width, height: p.height)
+                        .offset(x: p.minX - bounds.minX, y: bounds.maxY - p.maxY)
+                        .id(side)
+                        .transition(motionPolicy.reduceMotion ? .identity :
+                            .opacity.combined(with: .offset(x: side == .left ? 6 : -6)))
+                        .zIndex(1)
+                }
+            }
+            .frame(width: bounds.width, height: bounds.height, alignment: .topLeading)
+            .motion(Motion.card, value: side)
         }
     }
 

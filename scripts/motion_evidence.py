@@ -1,7 +1,7 @@
 import glob, hashlib, json, math, os, shutil, statistics, subprocess, sys
 from motion_evidence_rules import qualify, window_bounds, candidate_stats, provenance_errors
 out = sys.argv[1]
-CLIPS = ["open", "close", "page", "tick", "timer"]
+CLIPS = ["open", "close", "page", "tick", "timer", "closed-timer"]
 PRE, POST = 0.3, 1.25             # clip window around each marker, seconds
 GRID_FPS = 60                     # fixed output timeline per clip (deterministic frame count)
 GRID_N = round((PRE + POST) * GRID_FPS)  # 93 frames per clip
