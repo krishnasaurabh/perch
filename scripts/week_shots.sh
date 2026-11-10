@@ -221,5 +221,20 @@ MainActor.assumeIsolated {
     withExtendedLifetime((window, store, model)) { app.run() }
 }
 SWIFT
+# The instrumented Week view is in the app library, so its measurement helper must
+# live there too. Keep one shared registry; the executable reads it with @testable.
+python3 - "$PROBE" <<'PY'
+from pathlib import Path
+import sys
+root = Path(sys.argv[1])
+entry = root / 'Sources/Perch/main.swift'
+source = entry.read_text()
+start = source.index('@MainActor var measurements:')
+end = source.index('@MainActor func settle()', start)
+helper = source[start:end]
+(root / 'Sources/PerchApp/Workspace/WeekMeasure.swift').write_text(
+    'import AppKit\nimport SwiftUI\n\n' + helper)
+entry.write_text(source[:start] + source[end:])
+PY
 swift build -Xswiftc -enable-testing --package-path "$PROBE" -c release --product Perch
 PERCH_DATA="$DATA" WEEK_OUTPUT="$OUT" "$PROBE/.build/release/Perch"
