@@ -278,6 +278,8 @@ jobs:
         run: bash scripts/check_focus_entry.sh "$RUNNER_TEMP/notch/focus-entry"
       - name: Integrated store, repeats, clips and settings
         run: bash scripts/check_integration.sh "$RUNNER_TEMP/integration"
+      - name: Recovery stays read-only with synthetic data
+        run: bash scripts/check_recovery.sh "$RUNNER_TEMP/notch/recovery"
       - name: Reduced motion policy and nested transaction regression
         run: bash scripts/check_motion.sh "$RUNNER_TEMP/motion-policy"
       - name: Empty states and capture focus

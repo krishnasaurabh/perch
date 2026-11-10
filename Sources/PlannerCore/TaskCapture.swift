@@ -23,7 +23,7 @@ public struct TaskCapture {
     public let resetHour: Int
 
     public init(now: Date = Date(), resetHour: Int = 0, calendar: Calendar = .current) {
-        self.now = now; self.calendar = calendar; self.resetHour = min(23, max(0, resetHour))
+        self.now = now; self.calendar = calendar.plannerStorage; self.resetHour = min(23, max(0, resetHour))
     }
 
     var today: DayKey { DayKey(now, resetHour: resetHour, calendar: calendar) }

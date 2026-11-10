@@ -45,6 +45,7 @@ public struct TaskRepeat: Codable, Equatable, Sendable, CustomStringConvertible 
     ///   - planned: the day the current copy was planned on.
     ///   - completed: the day it was completed (used for `every!`).
     public func next(after planned: DayKey, completed: DayKey, calendar: Calendar = .current) -> DayKey {
+        let calendar = calendar.plannerStorage
         let base = fromCompletion ? completed : planned
         if weekdaysOnly {
             var d = base.adding(days: 1, calendar: calendar)

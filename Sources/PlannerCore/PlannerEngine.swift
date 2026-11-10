@@ -76,7 +76,7 @@ public struct PlannerEngine {
     public var calendar: Calendar
 
     public init(planner: Planner, now: @escaping () -> Date = Date.init, calendar: Calendar = .current) {
-        self.planner = planner; self.now = now; self.calendar = calendar
+        self.planner = planner; self.now = now; self.calendar = calendar.plannerStorage
     }
 
     public func dayKey(_ date: Date) -> DayKey {
