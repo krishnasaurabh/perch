@@ -282,7 +282,7 @@ MainActor.assumeIsolated {
                 "a new completion does not resurrect the hidden tab selection")
             delegate.store.seedFixture { engine in
                 engine.planner.tasks = []
-                _ = engine.startStopwatch(taskID: nil)
+                _ = try engine.startStopwatch(taskID: nil)
                 let later = Date().addingTimeInterval(60)
                 engine.now = { later }
                 _ = engine.stopTimer()
