@@ -52,6 +52,7 @@ struct TasksCard: View {
                     .frame(maxWidth: .infinity)
                     .frame(minHeight: shown.isEmpty ? viewport.size.height : 0, alignment: .bottom)
                     .motion(Motion.row, value: shown.map(\.id))
+                    .background(TasksContinuationObserver())
                 }
                 .scrollIndicators(.never)
             }
@@ -109,6 +110,66 @@ struct TasksCard: View {
         items.first?.loadObject(ofClass: NSString.self) { s, _ in
             guard let s = s as? String, let id = UUID(uuidString: s), id != target else { return }
             Task { @MainActor in store.apply { $0.reorder(id, before: target) } }
+        }
+    }
+}
+
+/// Observe the native viewport without changing the SwiftUI list's size or scroll insets.
+/// The existing AppKit fade draws over hosted rows and never intercepts their clicks.
+private struct TasksContinuationObserver: NSViewRepresentable {
+    func makeNSView(context: Context) -> Marker { Marker() }
+    func updateNSView(_ view: Marker, context: Context) { view.attach() }
+
+    final class Marker: NSView {
+        private weak var scroll: NSScrollView?
+        private let fade = OverflowFadeView(frame: .zero)
+
+        override init(frame: NSRect) {
+            super.init(frame: frame)
+            fade.identifier = NSUserInterfaceItemIdentifier("today-continuation-fade")
+            fade.color = NSColor(CardTone.tasks.fill)
+            fade.isHidden = true
+        }
+        required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+        override func hitTest(_ point: NSPoint) -> NSView? { nil }
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            DispatchQueue.main.async { [weak self] in self?.attach() }
+        }
+        override func layout() { super.layout(); attach() }
+        deinit { NotificationCenter.default.removeObserver(self) }
+
+        func attach() {
+            guard let enclosing = enclosingScrollView else { return }
+            if scroll !== enclosing {
+                NotificationCenter.default.removeObserver(self)
+                fade.removeFromSuperview()
+                scroll = enclosing
+                enclosing.addSubview(fade, positioned: .above, relativeTo: nil)
+                let clip = enclosing.contentView
+                clip.postsBoundsChangedNotifications = true
+                clip.postsFrameChangedNotifications = true
+                enclosing.documentView?.postsFrameChangedNotifications = true
+                for (name, view) in [(NSView.boundsDidChangeNotification, clip),
+                                     (NSView.frameDidChangeNotification, clip),
+                                     (NSView.frameDidChangeNotification, enclosing.documentView)] {
+                    if let view { NotificationCenter.default.addObserver(self, selector: #selector(refresh), name: name, object: view) }
+                }
+            }
+            refresh()
+        }
+
+        @objc private func refresh() {
+            guard let scroll, let document = scroll.documentView else { return }
+            let clip = scroll.contentView
+            let viewport = scroll.convert(clip.bounds, from: clip)
+            let height = min(CGFloat(20), viewport.height)
+            fade.frame = NSRect(x: viewport.minX, y: scroll.isFlipped ? viewport.maxY - height : viewport.minY,
+                                width: viewport.width, height: height)
+            let visible = document.convert(clip.bounds, from: clip)
+            let offset = document.isFlipped ? visible.minY - document.bounds.minY : document.bounds.maxY - visible.maxY
+            fade.isHidden = !EdgeFade.showsBottomFade(contentHeight: Double(document.bounds.height),
+                                                      visibleOffset: Double(offset), visibleHeight: Double(visible.height))
         }
     }
 }
