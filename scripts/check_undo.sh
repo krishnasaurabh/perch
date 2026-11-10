@@ -11,4 +11,9 @@ cp "$ROOT/Package.swift" "$PROBE/"
 cp -R "$ROOT/Sources" "$ROOT/Tests" "$PROBE/"
 cp "$ROOT/scripts/undo_probe.swift" "$PROBE/Sources/Perch/App/main.swift"
 swift build --package-path "$PROBE" -j 2 -c release --product Perch
-PERCH_DATA="$OUT/planner.json" "$PROBE/.build/release/Perch"
+python3 - "$PROBE/.build/release/Perch" "$OUT" <<'PY'
+import os, pathlib, subprocess, sys, tempfile
+binary, output = sys.argv[1:]
+data = pathlib.Path(tempfile.mkdtemp(prefix='data-', dir=output)) / 'planner.json'
+subprocess.run([binary], env=dict(os.environ, PERCH_DATA=str(data)), check=True, timeout=60)
+PY

@@ -121,9 +121,7 @@ struct FocusProgress: View {
 struct NotepadCard: View {
     var day: DayKey?
     @EnvironmentObject var store: PlannerStore
-    @State private var text = ""
-    @State private var loadedFor: DayKey?
-    @State private var saveWork: DispatchWorkItem?
+    @FocusState private var editing: Bool
     @State private var flash: String?
 
     var body: some View {
@@ -132,30 +130,20 @@ struct NotepadCard: View {
         VStack(alignment: .leading, spacing: 8) {
             CardHeading("Notepad", trailing: AnyView(
                 Text(flash ?? "⌘↩ makes a task").font(Theme.meta).foregroundStyle(flash == nil ? Theme.tertiary : Theme.accent)))
-            ScratchpadEditor(text: $text, isEditable: !readOnly, placeholder: "Jot a note", surface: CardTone.tile.fill, onCommandReturn: { line in
+            ScratchpadEditor(text: Binding(get: { store.text(for: .notepad(d)) },
+                                          set: { store.setText($0, for: .notepad(d)) }), isEditable: !readOnly, placeholder: "Jot a note", surface: CardTone.tile.fill, onCommandReturn: { line in
                 let clean = line.trimmingCharacters(in: .whitespaces)
                 guard !clean.isEmpty, let t = store.apply({ try $0.lineToTask(clean, day: max(d, store.today)) }) ?? nil else { return }
                 flash = "Added “\(t.title)”"
                 DispatchQueue.main.asyncAfter(deadline: .now() + 2) { flash = nil }
-            })
+            }, onEndEditing: { store.flushPendingText() })
+            .focused($editing)
         }
         .card(.tile)
-        .onAppear { load(d) }
-        .onChange(of: d) { _, nd in load(nd) }
-        .onChange(of: store.planner.notes) { _, _ in
-            // Reflect an agent's write_notepad unless the user is mid-edit.
-            if saveWork == nil { let fresh = store.engine.notepad(on: d); if fresh != text { text = fresh } }
-        }
-        .onChange(of: text) { _, new in
-            guard loadedFor == d, !readOnly, new != store.engine.notepad(on: d) else { return }
-            saveWork?.cancel()
-            let w = DispatchWorkItem { store.apply { $0.setNotepad(on: d, text: new) }; saveWork = nil }
-            saveWork = w
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5, execute: w)
-        }
+        .onChange(of: d) { _, _ in store.flushPendingText() }
+        .onChange(of: editing) { _, active in if !active { store.flushPendingText() } }
+        .onDisappear { store.flushPendingText() }
     }
-
-    func load(_ d: DayKey) { text = store.engine.notepad(on: d); loadedFor = d }
 }
 
 /// NSTextView so ⌘↩ can read the line under the cursor. Lives on a dark tile, so its ink is white.
@@ -166,6 +154,7 @@ struct ScratchpadEditor: NSViewRepresentable {
     /// The surface the editor sits on. Overflow fades into this colour, so it must be the card's own fill token.
     var surface: Color = CardTone.tile.fill
     var onCommandReturn: (String) -> Void
+    var onEndEditing: () -> Void = {}
 
     /// Height of the bottom fade drawn over overflowing text.
     static let fadeHeight: CGFloat = 24
@@ -241,6 +230,8 @@ struct ScratchpadEditor: NSViewRepresentable {
                                                       visibleOffset: Double(visible.minY),
                                                       visibleHeight: Double(visible.height))
         }
+
+        func textDidEndEditing(_ n: Notification) { parent.onEndEditing() }
 
         func textDidChange(_ n: Notification) {
             guard let tv = n.object as? NSTextView else { return }
