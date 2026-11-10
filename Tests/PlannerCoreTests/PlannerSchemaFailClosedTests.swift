@@ -71,7 +71,7 @@ final class PlannerSchemaFailClosedTests: XCTestCase {
     }
 
     func testEveryUnsupportedVersionFailsClosedWithItsOwnTypedError() throws {
-        for version in [0, -1, 2, 999, 1_000_000] {
+        for version in [0, -1, 3, 999, 1_000_000] {
             let raw = Data("{\"version\":\(version),\"tasks\":[],\"preferences\":{}}".utf8)
             try raw.write(to: file.url)
             let beforeFingerprint = fingerprint(try Data(contentsOf: file.url))

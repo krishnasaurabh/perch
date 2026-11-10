@@ -101,19 +101,19 @@ final class RepeatLineageTests: XCTestCase {
         XCTAssertTrue(engine.planner.tasks.allSatisfy { $0.repeatRule == nil })
     }
 
-    func testCarryIncrementsCountPreservesAgentAndDoesNotDuplicate() {
+    func testCarryIncrementsCountClearsAgentAndDoesNotDuplicate() {
         let root = PlanTask(title: "work", day: "2026-11-07", agentID: "claude-code")
         engine.planner.tasks = [root]
         let copy = engine.carryForward([root.id, root.id], to: "2026-11-08")
         XCTAssertEqual(copy.count, 1)
         XCTAssertEqual(copy.first?.carryCount, 1)
-        XCTAssertEqual(copy.first?.agentID, "claude-code")
+        XCTAssertNil(copy.first?.agentID)
         XCTAssertTrue(engine.carryForward([root.id], to: "2026-11-08").isEmpty)
         let next = engine.carryForward([copy[0].id], to: "2026-11-09")
         XCTAssertEqual(next.first?.carryCount, 2)
     }
 
-    func testRepeatsCarryAgentButNotCarryCountAndUseResetForReminder() {
+    func testRepeatsClearAgentAndCarryCountAndUseResetForReminder() {
         var p = Planner(); p.preferences.resetHour = 4
         let root = PlanTask(
             title: "work", day: "2026-11-09", remindAt: Fixture.date("2026-11-10 01:00"),
@@ -122,7 +122,7 @@ final class RepeatLineageTests: XCTestCase {
         var e = PlannerEngine(planner: p, now: { Fixture.now }, calendar: Fixture.calendar)
         let copy = e.applyRepeats(on: "2026-11-10")[0]
         XCTAssertEqual(Fixture.hm(copy.remindAt), "2026-11-11 01:00")
-        XCTAssertEqual(copy.agentID, "cursor")
+        XCTAssertNil(copy.agentID)
         XCTAssertEqual(copy.carryCount, 0)
     }
 

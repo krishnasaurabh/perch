@@ -119,12 +119,12 @@ final class PlannerPersistenceCycleTests: XCTestCase {
         XCTAssertEqual(backups.count, PlannerFile.backupLimit, "Backups must stay bounded")
         for backup in backups {
             let data = try Data(contentsOf: backup)
-            XCTAssertNoThrow(try PlannerFile.decoder.decode(Planner.self, from: data))
+            XCTAssertNoThrow(try PlannerFile.decodeDocument(data))
         }
         // Newest first: the previous revision is exactly one record pair smaller than the current one.
         let current = try file.load()
         let newest = try XCTUnwrap(backups.first)
-        let previous = try PlannerFile.decoder.decode(Planner.self, from: Data(contentsOf: newest))
+        let previous = try PlannerFile.decodeDocument(Data(contentsOf: newest))
         XCTAssertEqual(previous.notes.count, current.notes.count - 1)
         XCTAssertEqual(previous.tasks.count, current.tasks.count - 1)
         XCTAssertTrue(FileManager.default.fileExists(atPath: file.url.path))
