@@ -14,11 +14,11 @@ cp "$ROOT/scripts/clips_layout_probe.swift" "$PROBE/Sources/Perch/main.swift"
 # Optional before evidence uses the same probe and the exact pre-fix view, never a hand-drawn substitute.
 # Export that file to CLIPS_BEFORE_SOURCE to capture it without bringing old history into this branch.
 if [[ -n ${CLIPS_BEFORE_SOURCE:-} ]]; then
-    cp "$PROBE/Sources/PerchApp/Workspace/WeekAndClips.swift" "$PROBE/after.swift"
-    cp "$CLIPS_BEFORE_SOURCE" "$PROBE/Sources/PerchApp/Workspace/WeekAndClips.swift"
+    cp "$PROBE/Sources/PerchApp/Workspace/ClipsPage.swift" "$PROBE/after.swift"
+    cp "$CLIPS_BEFORE_SOURCE" "$PROBE/Sources/PerchApp/Workspace/ClipsPage.swift"
     swift build -Xswiftc -enable-testing --package-path "$PROBE" -c release --product Perch
     python3 "$ROOT/scripts/run_clips_probe.py" "$PROBE/.build/release/Perch" "$OUT/before"
-    mv "$PROBE/after.swift" "$PROBE/Sources/PerchApp/Workspace/WeekAndClips.swift"
+    mv "$PROBE/after.swift" "$PROBE/Sources/PerchApp/Workspace/ClipsPage.swift"
 fi
 # The old view has no ClipPreview type; enable the new pixel regressions only for the exact-head view.
 swift build -Xswiftc -enable-testing --package-path "$PROBE" -c release --product Perch -Xswiftc -DCLIPS_PREVIEW_REGRESSION
