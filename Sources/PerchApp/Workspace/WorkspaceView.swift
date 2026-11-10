@@ -109,11 +109,16 @@ struct HomePage: View {
 private struct HomeBody: View {
     @ObservedObject var calendar: CalendarService
     @EnvironmentObject var store: PlannerStore
-    @EnvironmentObject var model: NotchModel
 
     var body: some View {
+        TimelineView(.explicit(calendar.events.map(\.end).sorted())) { context in
+            content(at: context.date)
+        }
+    }
+
+    @ViewBuilder private func content(at now: Date) -> some View {
         let timer = store.planner.focus.map { $0.state != .finished } ?? false
-        let events = calendar.hasAccess && calendar.events.contains { $0.end > model.now }
+        let events = calendar.hasAccess && calendar.events.contains { $0.end > now }
         let side = HomeLayout.sideCards(store.prefs, timerActive: timer, hasEvents: events)
         VStack(spacing: Theme.gutter) {
             OverdueBanner()

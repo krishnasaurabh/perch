@@ -5,7 +5,6 @@ import SwiftUI
 /// The running focus timer, on the lavender time card. On Today it appears only while a session is active.
 struct FocusCard: View {
     @EnvironmentObject var store: PlannerStore
-    @EnvironmentObject var model: NotchModel
     @State private var minutes = 25
 
     var body: some View {
@@ -17,12 +16,14 @@ struct FocusCard: View {
             CardHeading(active ? (task?.title ?? "Just focusing") : "Focus", trailing: AnyView(styleMenu))
             // When the timer is the only card beside the tasks it fills the column; the face centres in it.
             Spacer(minLength: 0)
-            VStack(spacing: 6) {
-                face(f)
-                if let f, active {
-                    Text(status(f)).font(Theme.meta).foregroundStyle(Theme.secondary)
-                    if let limit = f.limit {
-                        FocusProgress(fraction: min(1, f.elapsed(at: model.now) / limit)).frame(width: 150)
+            LocalClock(running: f?.state == .running) { now in
+                VStack(spacing: 6) {
+                    face(f, at: now)
+                    if let f, active {
+                        Text(status(f)).font(Theme.meta).foregroundStyle(Theme.secondary)
+                        if let limit = f.limit {
+                            FocusProgress(fraction: min(1, f.elapsed(at: now) / limit)).frame(width: 150)
+                        }
                     }
                 }
             }
@@ -39,10 +40,10 @@ struct FocusCard: View {
         return f.limit == nil ? "Elapsed" : "Remaining"
     }
 
-    @ViewBuilder func face(_ f: FocusSession?) -> some View {
+    @ViewBuilder func face(_ f: FocusSession?, at now: Date) -> some View {
         let secs: Double = {
             guard let f, f.state != .finished else { return Double(minutes * 60) }
-            return f.remaining(at: model.now) ?? f.elapsed(at: model.now)
+            return f.remaining(at: now) ?? f.elapsed(at: now)
         }()
         let text = TimerText.clock(secs)
         let dim = f?.state == .paused
