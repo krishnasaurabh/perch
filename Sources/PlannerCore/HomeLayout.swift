@@ -28,6 +28,8 @@ public enum HomeLayout {
     }
 
     public static func sideCards(_ prefs: Preferences, timerActive: Bool, hasEvents: Bool) -> [String] {
-        sideCards(order: prefs.workspaceCardOrder, hidden: prefs.hiddenWorkspaceCards, timerActive: timerActive, hasEvents: hasEvents)
+        sideCards(
+            order: prefs.workspaceCardOrder, hidden: prefs.hiddenWorkspaceCards, timerActive: timerActive,
+            hasEvents: hasEvents)
     }
 }

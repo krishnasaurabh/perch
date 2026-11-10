@@ -21,7 +21,8 @@ enum MotionScript {
     // Ordinary launches retain live OS policy; two explicit flags are required.
     nonisolated static var policyOverride: MotionPolicy? {
         let args = CommandLine.arguments
-        guard args.contains("--motion-script"), let i = args.firstIndex(of: "--motion-policy"), i + 1 < args.count else { return nil }
+        guard args.contains("--motion-script"), let i = args.firstIndex(of: "--motion-policy"), i + 1 < args.count
+        else { return nil }
         switch args[i + 1] {
         case "normal": return MotionPolicy(reduceMotion: false)
         case "reduced": return MotionPolicy(reduceMotion: true)
@@ -34,9 +35,11 @@ enum MotionScript {
         guard CommandLine.arguments.contains("--motion-script") else { return }
         MainActor.assumeIsolated {
             guard transactions.count < 2000 else { return }
-            transactions.append(["t": Date().timeIntervalSince1970, "stage": stage,
+            transactions.append([
+                "t": Date().timeIntervalSince1970, "stage": stage,
                 "animation": String(describing: transaction.animation),
-                "disables_animations": transaction.disablesAnimations])
+                "disables_animations": transaction.disablesAnimations,
+            ])
         }
     }
     struct PolicyProbe: ViewModifier {
@@ -46,8 +49,10 @@ enum MotionScript {
             content.transaction { transaction in
                 MainActor.assumeIsolated {
                     guard CommandLine.arguments.contains("--motion-script") else { return }
-                    MotionScript.environmentPolicy = ["swiftui_reduce_motion": systemReduced,
-                        "resolved_reduce_motion": policy.reduceMotion]
+                    MotionScript.environmentPolicy = [
+                        "swiftui_reduce_motion": systemReduced,
+                        "resolved_reduce_motion": policy.reduceMotion,
+                    ]
                     MotionScript.recordTransaction(transaction, stage: "host-incoming")
                 }
             }
@@ -58,7 +63,9 @@ enum MotionScript {
         let args = CommandLine.arguments
         guard let i = args.firstIndex(of: "--motion-script"), i + 1 < args.count else { return }
         var snapshots: URL?
-        if let j = args.firstIndex(of: "--motion-snapshots"), j + 1 < args.count { snapshots = URL(fileURLWithPath: args[j + 1]) }
+        if let j = args.firstIndex(of: "--motion-snapshots"), j + 1 < args.count {
+            snapshots = URL(fileURLWithPath: args[j + 1])
+        }
         let r = Runner(store: store, model: model, markers: URL(fileURLWithPath: args[i + 1]), snapshots: snapshots)
         runner = r
         r.seed()
@@ -96,9 +103,12 @@ enum MotionScript {
             let steps: [Step] = [
                 Step(name: "ready", wait: 4.0, capture: false) { "launch" },  // long still lead-in for alignment
                 Step(name: "open", wait: 2.4, capture: true) {
-                    NotificationCenter.default.post(name: .perchOpenWorkspace, object: NotchPage.home); return "perchOpenWorkspace"
+                    NotificationCenter.default.post(name: .perchOpenWorkspace, object: NotchPage.home);
+                    return "perchOpenWorkspace"
                 },
-                Step(name: "close", wait: 2.4, capture: true) { [model] in model.close(); return "NotchModel.close" },
+                Step(name: "close", wait: 2.4, capture: true) { [model] in
+                    model.close(); return "NotchModel.close"
+                },
                 Step(name: "reopen", wait: 2.4, capture: false) {
                     NSApp.activate(ignoringOtherApps: true)
                     // SwiftUI builds its macOS accessibility tree lazily, on the first request from an accessibility
@@ -115,7 +125,8 @@ enum MotionScript {
                             Task { @MainActor in self.axWake = r }
                         }
                     }
-                    NotificationCenter.default.post(name: .perchOpenWorkspace, object: NotchPage.home); return "perchOpenWorkspace"
+                    NotificationCenter.default.post(name: .perchOpenWorkspace, object: NotchPage.home);
+                    return "perchOpenWorkspace"
                 },
                 // 2.4 s (was 1.4): settle time for SwiftUI to publish the tree after the wake.
                 Step(name: "page", wait: 2.4, capture: true) { self.requiredPress(target.title) },
@@ -123,7 +134,9 @@ enum MotionScript {
                 Step(name: "tick", wait: 2.4, capture: true) { self.requiredPress("Check off task") },
                 Step(name: "timer", wait: 2.4, capture: true) { self.requiredPress("Start focus") },
                 Step(name: "timer-stop", wait: 2.4, capture: false) { self.requiredPress("End focus session") },
-                Step(name: "end", wait: 2.4, capture: false) { [model] in model.close(); return "NotchModel.close" },
+                Step(name: "end", wait: 2.4, capture: false) { [model] in
+                    model.close(); return "NotchModel.close"
+                },
             ]
             schedule(steps[...], extra: ["page": target.rawValue])
         }
@@ -140,21 +153,27 @@ enum MotionScript {
                 let policy: [String: Any] = MotionScript.environmentPolicy.merging([
                     "nsworkspace_reduce_motion": NSWorkspace.shared.accessibilityDisplayShouldReduceMotion,
                     "explicit_reduce_motion": model.motionPolicy.reduceMotion,
-                    "mode": MotionScript.policyOverride.map { $0.reduceMotion ? "diagnostic-reduced" : "diagnostic-normal" } ?? "production"
+                    "mode": MotionScript.policyOverride.map {
+                        $0.reduceMotion ? "diagnostic-reduced" : "diagnostic-normal"
+                    } ?? "production",
                 ]) { _, rhs in rhs }
-                let state: [String: Any] = ["screen_locked": Self.screenLocked,
+                let state: [String: Any] = [
+                    "screen_locked": Self.screenLocked,
                     "lock_key_present": session["CGSSessionScreenIsLocked"] != nil,
                     "session_available": !session.isEmpty,
                     "on_console": session[kCGSessionOnConsoleKey as String] ?? "unknown", "app_active": NSApp.isActive,
                     "key_window": NSApp.keyWindow != nil, "expanded": model.expanded,
                     "page": model.page.rawValue, "timer_present": store.planner.focus != nil,
-                    "completed_tasks": store.planner.tasks.filter(\.done).count]
+                    "completed_tasks": store.planner.tasks.filter(\.done).count,
+                ]
                 let t = Date().timeIntervalSince1970
                 // Frame 0 of every captured clip is grabbed just BEFORE the action runs (t ~ 0), so each clip has a
                 // before/after pair even when the host can't animate.
                 if step.capture, snapshotDir != nil { preGrab(start: t) }
                 let via = step.action()
-                var m: [String: Any] = ["name": step.name, "t": t, "uptime": ProcessInfo.processInfo.systemUptime, "via": via]
+                var m: [String: Any] = [
+                    "name": step.name, "t": t, "uptime": ProcessInfo.processInfo.systemUptime, "via": via,
+                ]
                 if step.name == "page" { m["target"] = extra["page"] ?? "" }
                 m["ax_nodes"] = axNodes
                 m["policy"] = policy
@@ -174,13 +193,17 @@ enum MotionScript {
                 let markerIndex = markers.count - 1
                 write()
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { [self] in
-                    markers[markerIndex]["settled_state"] = ["observed_epoch": Date().timeIntervalSince1970, "expanded": model.expanded,
+                    markers[markerIndex]["settled_state"] = [
+                        "observed_epoch": Date().timeIntervalSince1970, "expanded": model.expanded,
                         "page": model.page.rawValue, "timer_present": store.planner.focus != nil,
-                        "completed_tasks": store.planner.tasks.filter(\.done).count]
+                        "completed_tasks": store.planner.tasks.filter(\.done).count,
+                    ]
                     write()
                 }
                 if step.capture, let dir = snapshotDir {
-                    burst(name: step.name, into: dir.appendingPathComponent(step.name), start: t) { self.schedule(rest.dropFirst(), extra: extra) }
+                    burst(name: step.name, into: dir.appendingPathComponent(step.name), start: t) {
+                        self.schedule(rest.dropFirst(), extra: extra)
+                    }
                 } else {
                     schedule(rest.dropFirst(), extra: extra)
                 }
@@ -188,10 +211,17 @@ enum MotionScript {
         }
 
         private func write() {
-            let doc: [String: Any] = ["schema": 2, "candidate_sha": ProcessInfo.processInfo.environment["PERCH_CANDIDATE_SHA"] ?? "unknown",
+            let doc: [String: Any] = [
+                "schema": 2, "candidate_sha": ProcessInfo.processInfo.environment["PERCH_CANDIDATE_SHA"] ?? "unknown",
                 "source_kind": snapshotDir == nil ? "compositor-driver" : "own-window-driver",
-                "transactions": MotionScript.transactions, "markers": markers, "screens": NSScreen.screens.map { ["w": $0.frame.width, "h": $0.frame.height, "scale": $0.backingScaleFactor] }]
-            if let d = try? JSONSerialization.data(withJSONObject: doc, options: [.prettyPrinted, .sortedKeys]) { try? d.write(to: markersURL) }
+                "transactions": MotionScript.transactions, "markers": markers,
+                "screens": NSScreen.screens.map {
+                    ["w": $0.frame.width, "h": $0.frame.height, "scale": $0.backingScaleFactor]
+                },
+            ]
+            if let d = try? JSONSerialization.data(withJSONObject: doc, options: [.prettyPrinted, .sortedKeys]) {
+                try? d.write(to: markersURL)
+            }
         }
 
         // MARK: Pressing real buttons through our own accessibility tree
@@ -199,7 +229,8 @@ enum MotionScript {
         /// Presses the first element labelled `label` in a visible notch window. Returns the `via` string, or nil.
         /// Uses the ObjC accessibility methods directly, so it works for NSViews and SwiftUI's private AX nodes alike.
         private func requiredPress(_ label: String) -> String {
-            let requested = ProcessInfo.processInfo.environment["PERCH_MOTION_MISSING_CONTROL"] == label ? "missing-control" : label
+            let requested =
+                ProcessInfo.processInfo.environment["PERCH_MOTION_MISSING_CONTROL"] == label ? "missing-control" : label
             return press(requested) ?? "FAILED:missing-control:\(label)"
         }
 
@@ -259,7 +290,8 @@ enum MotionScript {
 
         private func burst(name: String, into dir: URL, start: TimeInterval, done: @escaping @MainActor () -> Void) {
             try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-            guard let panel = NSApp.windows.compactMap({ $0 as? NotchPanel }).first(where: { $0.isVisible }), let view = panel.contentView
+            guard let panel = NSApp.windows.compactMap({ $0 as? NotchPanel }).first(where: { $0.isVisible }),
+                let view = panel.contentView
             else { done(); return }
             grab(view, start: start)
             let timer = Timer(timeInterval: 0.016, repeats: true) { [weak self, weak view] _ in
@@ -271,12 +303,16 @@ enum MotionScript {
                 var meta: [[String: Any]] = []
                 for (i, f) in burstFrames.enumerated() {
                     let file = String(format: "f%03d.png", i)
-                    if let png = f.1.representation(using: .png, properties: [:]) { try? png.write(to: dir.appendingPathComponent(file)) }
+                    if let png = f.1.representation(using: .png, properties: [:]) {
+                        try? png.write(to: dir.appendingPathComponent(file))
+                    }
                     meta.append(["i": i, "t": f.0, "file": file])
                 }
                 burstFrames = []
-                let doc: [String: Any] = ["clip": name, "kind": "in-process-snapshot", "interval_requested_ms": 16,
-                                          "pixelsWide": Int(view.bounds.width * panel.backingScaleFactor), "frames": meta]
+                let doc: [String: Any] = [
+                    "clip": name, "kind": "in-process-snapshot", "interval_requested_ms": 16,
+                    "pixelsWide": Int(view.bounds.width * panel.backingScaleFactor), "frames": meta,
+                ]
                 if let d = try? JSONSerialization.data(withJSONObject: doc, options: [.prettyPrinted, .sortedKeys]) {
                     try? d.write(to: dir.appendingPathComponent("frames.json"))
                 }
@@ -297,7 +333,9 @@ private enum AX {
     }
 
     static func label(_ o: NSObject) -> String? { object(o, "accessibilityLabel") as? String }
-    static func children(_ o: NSObject) -> [NSObject] { (object(o, "accessibilityChildren") as? [Any])?.compactMap { $0 as? NSObject } ?? [] }
+    static func children(_ o: NSObject) -> [NSObject] {
+        (object(o, "accessibilityChildren") as? [Any])?.compactMap { $0 as? NSObject } ?? []
+    }
 
     /// Reads this process's windows and their children through the public AX client API, which is the request
     /// that makes SwiftUI build its tree. Must run off the main thread (the main thread answers it). Returns the

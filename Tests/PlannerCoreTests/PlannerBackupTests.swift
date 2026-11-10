@@ -58,7 +58,9 @@ final class PlannerBackupTests: XCTestCase {
         for revision in 1...12 { try file.save(planner(revision)) }
         let backups = try file.backupURLs()
         XCTAssertEqual(backups.count, PlannerFile.backupLimit)
-        let revisions = try backups.map { try PlannerFile.decoder.decode(Planner.self, from: Data(contentsOf: $0)).preferences.defaultFocusMinutes }
+        let revisions = try backups.map {
+            try PlannerFile.decoder.decode(Planner.self, from: Data(contentsOf: $0)).preferences.defaultFocusMinutes
+        }
         XCTAssertEqual(revisions, [11, 10, 9, 8, 7])
         XCTAssertEqual(try snapshots(), backups)
     }
@@ -70,10 +72,11 @@ final class PlannerBackupTests: XCTestCase {
         let before = try file.backupURLs()
         try file.save(planner(2))
         try file.mutate { _ in }
-        XCTAssertThrowsError(try file.mutate { p in
-            p = planner(3)
-            throw PlannerError("Cancelled synthetic edit")
-        })
+        XCTAssertThrowsError(
+            try file.mutate { p in
+                p = planner(3)
+                throw PlannerError("Cancelled synthetic edit")
+            })
         XCTAssertEqual(try file.backupURLs(), before)
         XCTAssertEqual(try file.load(), planner(2))
     }
@@ -83,8 +86,10 @@ final class PlannerBackupTests: XCTestCase {
         try file.save(planner(2))
         let backup = try XCTUnwrap(file.backupURLs().first)
         let bytes = try Data(contentsOf: backup)
-        for corrupt in ["{truncated", "{\"tasks\":[{\"title\":\"Missing identifier\"}]}",
-                        "{\"focusSegments\":[{}]}", "{\"notes\":42}"] {
+        for corrupt in [
+            "{truncated", "{\"tasks\":[{\"title\":\"Missing identifier\"}]}",
+            "{\"focusSegments\":[{}]}", "{\"notes\":42}",
+        ] {
             try Data(corrupt.utf8).write(to: file.url)
             XCTAssertThrowsError(try file.load())
             XCTAssertThrowsError(try file.mutate { $0 = planner(3) })
@@ -268,8 +273,9 @@ final class PlannerBackupTests: XCTestCase {
         try file.save(p)
         try file.save(planner(4))
         let restored = try file.restoreLatestBackup()
-        XCTAssertEqual(try XCTUnwrap(restored.tasks.first).createdAt.timeIntervalSinceReferenceDate,
-                       timestamp.timeIntervalSinceReferenceDate, accuracy: 0.000000001)
+        XCTAssertEqual(
+            try XCTUnwrap(restored.tasks.first).createdAt.timeIntervalSinceReferenceDate,
+            timestamp.timeIntervalSinceReferenceDate, accuracy: 0.000000001)
     }
 
     func testFailedEncodeDoesNotRotateOrReplace() throws {
@@ -325,7 +331,9 @@ final class PlannerBackupTests: XCTestCase {
             do {
                 try target.mutate { p in
                     entered.signal()
-                    guard release.wait(timeout: .now() + 10) == .success else { throw PlannerError("Lock fixture timed out") }
+                    guard release.wait(timeout: .now() + 10) == .success else {
+                        throw PlannerError("Lock fixture timed out")
+                    }
                     p.preferences.defaultFocusMinutes = 2
                 }
             } catch { failures.add(error) }
@@ -334,15 +342,16 @@ final class PlannerBackupTests: XCTestCase {
         group.enter()
         DispatchQueue.global().async {
             defer { group.leave(); saved.signal() }
-            do { try PlannerFile(url: target.url).save(replacement) }
-            catch { failures.add(error) }
+            do { try PlannerFile(url: target.url).save(replacement) } catch { failures.add(error) }
         }
         XCTAssertEqual(saved.wait(timeout: .now() + 0.1), .timedOut)
         release.signal()
         XCTAssertEqual(group.wait(timeout: .now() + 10), .success)
         XCTAssertTrue(failures.values.isEmpty)
         XCTAssertEqual(try file.load(), replacement)
-        let revisions = try file.backupURLs().map { try PlannerFile.decoder.decode(Planner.self, from: Data(contentsOf: $0)).preferences.defaultFocusMinutes }
+        let revisions = try file.backupURLs().map {
+            try PlannerFile.decoder.decode(Planner.self, from: Data(contentsOf: $0)).preferences.defaultFocusMinutes
+        }
         XCTAssertEqual(revisions, [2, 1])
     }
 
@@ -376,7 +385,9 @@ final class PlannerBackupTests: XCTestCase {
             XCTAssertEqual(process.terminationStatus, 0)
         }
         XCTAssertEqual(try file.load().tasks.count, 8)
-        let counts = try file.backupURLs().map { try PlannerFile.decoder.decode(Planner.self, from: Data(contentsOf: $0)).tasks.count }
+        let counts = try file.backupURLs().map {
+            try PlannerFile.decoder.decode(Planner.self, from: Data(contentsOf: $0)).tasks.count
+        }
         XCTAssertEqual(counts, [7, 6, 5, 4, 3])
     }
 }

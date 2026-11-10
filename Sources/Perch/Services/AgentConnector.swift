@@ -14,7 +14,9 @@ enum AgentConnector {
 
     static let serverName = "perch"
     static var home: URL { FileManager.default.homeDirectoryForCurrentUser }
-    static var claudeDesktopConfig: URL { home.appendingPathComponent("Library/Application Support/Claude/claude_desktop_config.json") }
+    static var claudeDesktopConfig: URL {
+        home.appendingPathComponent("Library/Application Support/Claude/claude_desktop_config.json")
+    }
     static var cursorConfig: URL { home.appendingPathComponent(".cursor/mcp.json") }
     static var claudeCodeConfig: URL { home.appendingPathComponent(".claude.json") }
 
@@ -35,11 +37,15 @@ enum AgentConnector {
             guard claudeBinary != nil else { return .notInstalled }
             return jsonHasServer(claudeCodeConfig, path: ["mcpServers"]) ? .connected : .notConnected
         case .claudeApp:
-            let installed = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.anthropic.claudefordesktop") != nil
-            guard installed || FileManager.default.fileExists(atPath: claudeDesktopConfig.path) else { return .notInstalled }
+            let installed =
+                NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.anthropic.claudefordesktop") != nil
+            guard installed || FileManager.default.fileExists(atPath: claudeDesktopConfig.path) else {
+                return .notInstalled
+            }
             return jsonHasServer(claudeDesktopConfig, path: ["mcpServers"]) ? .connected : .notConnected
         case .cursor:
-            let installed = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.todesktop.230313mzl4w4u92") != nil
+            let installed =
+                NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.todesktop.230313mzl4w4u92") != nil
             guard installed || FileManager.default.fileExists(atPath: cursorConfig.path) else { return .notInstalled }
             return jsonHasServer(cursorConfig, path: ["mcpServers"]) ? .connected : .notConnected
         }
@@ -47,7 +53,9 @@ enum AgentConnector {
 
     /// Returns a message for the user.
     static func connect(_ app: App) throws -> String {
-        guard AppInfo.isInApplications else { throw PlannerError("Install Perch in Applications before connecting an agent.") }
+        guard AppInfo.isInApplications else {
+            throw PlannerError("Install Perch in Applications before connecting an agent.")
+        }
         switch app {
         case .claudeCode:
             guard let bin = claudeBinary else { throw PlannerError("Claude Code isn't installed.") }
@@ -62,7 +70,8 @@ enum AgentConnector {
             if p.terminationStatus != 0 {
                 let msg = String(decoding: err.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
                 if msg.contains("already exists") { return "Perch is already connected to Claude Code." }
-                throw PlannerError("Adding Perch to Claude Code failed. \(msg.trimmingCharacters(in: .whitespacesAndNewlines))")
+                throw PlannerError(
+                    "Adding Perch to Claude Code failed. \(msg.trimmingCharacters(in: .whitespacesAndNewlines))")
             }
             return "Open a fresh Claude Code session, then ask it something like:"
         case .claudeApp:
@@ -99,7 +108,8 @@ enum AgentConnector {
             try? FileManager.default.removeItem(at: url.appendingPathExtension("perch-backup"))
             try? FileManager.default.copyItem(at: url, to: url.appendingPathExtension("perch-backup"))
         }
-        try JSONSerialization.data(withJSONObject: root, options: [.prettyPrinted, .sortedKeys]).write(to: url, options: .atomic)
+        try JSONSerialization.data(withJSONObject: root, options: [.prettyPrinted, .sortedKeys]).write(
+            to: url, options: .atomic)
     }
 
     static func removeServer(from url: URL) throws {
@@ -108,7 +118,8 @@ enum AgentConnector {
         var servers = root["mcpServers"] as? [String: Any] ?? [:]
         servers[serverName] = nil
         root["mcpServers"] = servers
-        try JSONSerialization.data(withJSONObject: root, options: [.prettyPrinted, .sortedKeys]).write(to: url, options: .atomic)
+        try JSONSerialization.data(withJSONObject: root, options: [.prettyPrinted, .sortedKeys]).write(
+            to: url, options: .atomic)
     }
 
     static func readConfig(_ url: URL) throws -> [String: Any] {

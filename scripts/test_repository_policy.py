@@ -50,6 +50,39 @@ class RepositoryPolicyTests(unittest.TestCase):
         self.stage("docs/usage.md", "# Usage\n")
         self.assertEqual(self.check().returncode, 0)
 
+    def test_swift_format_config_is_allowed(self):
+        self.stage(".swift-format", '{"version": 1, "indentation": {"spaces": 4}}\n')
+        self.assertEqual(self.check().returncode, 0)
+
+    def test_swift_format_config_near_names_are_blocked(self):
+        for name in (".swift-format.json", ".swift-format.local", ".swift-format-backup", ".swiftlint.yml"):
+            with self.subTest(name=name):
+                self.stage(name, "{}\n")
+                self.assertEqual(self.check().returncode, 1)
+                self.git("rm", "-f", name)
+
+    def test_swift_format_config_still_obeys_ignore_rules(self):
+        self.stage(".gitignore", ".swift-format\n")
+        self.stage(".swift-format", "{}\n")
+        self.assertIn("tracked despite ignore rule", self.check().stderr)
+
+    def test_swift_format_config_still_obeys_content_rules(self):
+        self.stage(".swift-format", '{"value": "' + "ghp_" + "a" * 36 + '"}\n')
+        result = self.check()
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("access token", result.stderr)
+        self.assertNotIn("a" * 36, result.stderr)
+
+    def test_deleted_private_swift_format_config_in_history_still_fails(self):
+        self.stage(".swift-format", '{"value": "' + "ghp_" + "a" * 36 + '"}\n')
+        self.git("commit", "-qm", "Initial")
+        self.git("rm", ".swift-format")
+        self.git("commit", "-qm", "Remove config")
+        result = self.check("--history", "HEAD")
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("access token", result.stderr)
+        self.assertNotIn("a" * 36, result.stderr)
+
     def test_unlisted_root_is_blocked(self):
         self.stage("notes.md", "Private notes")
         self.assertEqual(self.check().returncode, 1)

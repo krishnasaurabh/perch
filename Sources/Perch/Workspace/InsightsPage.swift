@@ -25,7 +25,9 @@ struct InsightsPage: View {
             }
             .onAppear {
                 // Focus logged but nothing finished this week: open on the chart that has something to show.
-                if i.lastSeven.allSatisfy({ $0.completed == 0 && $0.planned == 0 }) && i.lastSeven.contains(where: { $0.focusSeconds > 0 }) {
+                if i.lastSeven.allSatisfy({ $0.completed == 0 && $0.planned == 0 })
+                    && i.lastSeven.contains(where: { $0.focusSeconds > 0 })
+                {
                     metric = .focus
                 }
             }
@@ -41,8 +43,10 @@ struct InsightsPage: View {
             HStack(spacing: 10) {
                 SegmentPills(items: [(Metric.tasks, "Tasks"), (Metric.focus, "Focus")], selection: $metric)
                 Spacer()
-                Text("\(first.formatted(.dateTime.day().month(.abbreviated))) – \(last.formatted(.dateTime.day().month(.abbreviated)))")
-                    .font(Theme.meta).foregroundStyle(Theme.secondary)
+                Text(
+                    "\(first.formatted(.dateTime.day().month(.abbreviated))) – \(last.formatted(.dateTime.day().month(.abbreviated)))"
+                )
+                .font(Theme.meta).foregroundStyle(Theme.secondary)
             }
             WeekBars(days: days, metric: metric, today: store.today)
                 .id(metric)  // switching metric regrows the bars
@@ -74,8 +78,10 @@ struct InsightsPage: View {
         let focus = i.lastSeven.reduce(0) { $0 + $1.focusSeconds }
         return VStack(alignment: .leading, spacing: 12) {
             CardHeading(headline(done: done, before: before))
-            Text(subline(done: done, before: before, focusThisWeek: focus)).font(Theme.body).foregroundStyle(Theme.secondary)
-                .fixedSize(horizontal: false, vertical: true)
+            Text(subline(done: done, before: before, focusThisWeek: focus)).font(Theme.body).foregroundStyle(
+                Theme.secondary
+            )
+            .fixedSize(horizontal: false, vertical: true)
             Spacer(minLength: 0)
             VStack(alignment: .leading, spacing: 8) {
                 stat("\(done)", "tasks done this week")
@@ -84,7 +90,9 @@ struct InsightsPage: View {
                 stat("\(i.today.completed)/\(i.today.planned)", "done today")
                 if i.allTimeCompletedCalendarEvents > 0 {
                     stat("\(i.today.completedCalendarEvents)", "calendar events checked off today")
-                        .help("Checked off in Perch. \(i.allTimeCompletedCalendarEvents) all time; Calendar is unchanged.")
+                        .help(
+                            "Checked off in Perch. \(i.allTimeCompletedCalendarEvents) all time; Calendar is unchanged."
+                        )
                 }
             }
         }
@@ -99,10 +107,15 @@ struct InsightsPage: View {
     }
 
     private func subline(done: Int, before: Int, focusThisWeek: Double) -> String {
-        if done == 0 { return focusThisWeek > 0 ? "Focus is logged. Finish a task to fill in the week." : "Finish one task and your week starts here." }
+        if done == 0 {
+            return focusThisWeek > 0
+                ? "Focus is logged. Finish a task to fill in the week." : "Finish one task and your week starts here."
+        }
         let noun = done == 1 ? "task" : "tasks"
         if before == 0 { return "\(done) \(noun) done this week." }
-        return done > before ? "\(done) \(noun) done, up from \(before) the week before." : "\(done) \(noun) done, against \(before) the week before."
+        return done > before
+            ? "\(done) \(noun) done, up from \(before) the week before."
+            : "\(done) \(noun) done, against \(before) the week before."
     }
 
     private func stat(_ value: String, _ label: String) -> some View {
@@ -220,7 +233,8 @@ struct WeekBars: View {
                                 bar(.planned, planned[i] / top * h, color: Theme.chartPlanned, index: i)
                             }
                             // A zero day keeps a 2 pt stub on the baseline so it reads as "none", not missing data.
-                            bar(.completed, max(values[i] / top * h, planned[i] > 0 || values[i] > 0 ? 2 : 0),
+                            bar(
+                                .completed, max(values[i] / top * h, planned[i] > 0 || values[i] > 0 ? 2 : 0),
                                 color: Theme.chartCompleted, index: i)
                         }
                         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
@@ -229,8 +243,12 @@ struct WeekBars: View {
                     }
                 }
                 if empty {
-                    Text(metric == .tasks ? "Your week will fill in as you finish tasks." : "Time a session and your minutes show up here.")
-                        .font(Theme.meta).foregroundStyle(Theme.secondary)
+                    Text(
+                        metric == .tasks
+                            ? "Your week will fill in as you finish tasks."
+                            : "Time a session and your minutes show up here."
+                    )
+                    .font(Theme.meta).foregroundStyle(Theme.secondary)
                 }
             }
         }

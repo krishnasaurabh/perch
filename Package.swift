@@ -12,20 +12,20 @@ var targets: [Target] = [
 ]
 
 #if os(macOS)
-products.append(.executable(name: "Perch", targets: ["Perch"]))
-targets.append(
-    .executableTarget(
-        name: "Perch",
-        dependencies: ["PlannerCore"],
-        path: "Sources/Perch",
-        linkerSettings: [
-            .linkedFramework("AppKit"), .linkedFramework("SwiftUI"), .linkedFramework("EventKit"),
-            .linkedFramework("Speech"), .linkedFramework("AVFoundation"), .linkedFramework("Carbon"),
-            .linkedFramework("UserNotifications"), .linkedFramework("ServiceManagement"),
-            .linkedFramework("QuickLookThumbnailing"),
-        ]
+    products.append(.executable(name: "Perch", targets: ["Perch"]))
+    targets.append(
+        .executableTarget(
+            name: "Perch",
+            dependencies: ["PlannerCore"],
+            path: "Sources/Perch",
+            linkerSettings: [
+                .linkedFramework("AppKit"), .linkedFramework("SwiftUI"), .linkedFramework("EventKit"),
+                .linkedFramework("Speech"), .linkedFramework("AVFoundation"), .linkedFramework("Carbon"),
+                .linkedFramework("UserNotifications"), .linkedFramework("ServiceManagement"),
+                .linkedFramework("QuickLookThumbnailing"),
+            ]
+        )
     )
-)
 #endif
 
 let package = Package(

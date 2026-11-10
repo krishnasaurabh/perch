@@ -21,7 +21,8 @@ struct WorkspaceView: View {
         .padding(.horizontal, 8)
         .padding(.bottom, WorkspaceLayout.bottomInset)
         .foregroundStyle(Theme.text)
-        .sheet(item: Binding(get: { model.detailsTaskID.map(IDBox.init) }, set: { model.detailsTaskID = $0?.id })) { box in
+        .sheet(item: Binding(get: { model.detailsTaskID.map(IDBox.init) }, set: { model.detailsTaskID = $0?.id })) {
+            box in
             TaskDetailsSheet(taskID: box.id).environmentObject(store).environmentObject(model)
         }
     }
@@ -56,7 +57,9 @@ struct WorkspaceView: View {
         HStack(spacing: 0) {
             ForEach(NotchPage.allCases) { p in
                 let on = model.page == p
-                Button { Motion.animate(Motion.page) { model.page = p } } label: {
+                Button {
+                    Motion.animate(Motion.page) { model.page = p }
+                } label: {
                     Text(p.title)
                         .font(.system(size: 11.5, weight: on ? .semibold : .medium))
                         .padding(.horizontal, 9).padding(.vertical, 5)
@@ -203,15 +206,18 @@ struct OverdueBanner: View {
 
     private var policyMenu: some View {
         Menu {
-            Picker("Overdue tasks", selection: Binding(
-                get: { store.prefs.carryMode },
-                set: { mode in
-                    store.apply { engine in
-                        engine.planner.preferences.carryMode = mode
-                        engine.applyCarryMode()
+            Picker(
+                "Overdue tasks",
+                selection: Binding(
+                    get: { store.prefs.carryMode },
+                    set: { mode in
+                        store.apply { engine in
+                            engine.planner.preferences.carryMode = mode
+                            engine.applyCarryMode()
+                        }
                     }
-                }
-            )) {
+                )
+            ) {
                 Text("Ask each time").tag(CarryMode.ask)
                 Text("Automatically bring to today").tag(CarryMode.auto)
                 Text("Never carry; leave in history").tag(CarryMode.never)
@@ -256,7 +262,9 @@ struct PillStyle: ButtonStyle {
         configuration.label
             .font(.system(size: 11, weight: .semibold))
             .padding(.horizontal, 10).padding(.vertical, 5)
-            .background(Capsule().fill(prominent ? Theme.prominent : (configuration.isPressed ? Theme.fillStrong : Theme.fill)))
+            .background(
+                Capsule().fill(prominent ? Theme.prominent : (configuration.isPressed ? Theme.fillStrong : Theme.fill))
+            )
             .opacity(prominent && configuration.isPressed ? 0.8 : 1)
             .foregroundStyle(prominent ? Theme.onAccent : Theme.text)
     }

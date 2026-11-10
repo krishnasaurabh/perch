@@ -1,6 +1,6 @@
 import Foundation
 #if canImport(CoreGraphics)
-import CoreGraphics
+    import CoreGraphics
 #endif
 import XCTest
 @testable import PlannerCore
@@ -10,48 +10,60 @@ import XCTest
 enum Screens {
     /// 14-inch MacBook Pro at the default 1512 x 982: a 185 x 32 pt housing with 663 pt of menu bar to its left and 664
     /// to its right (published NSScreen measurements, M1 Pro 2021). The housing is half a point off-center, on purpose.
-    static let mbp14 = NotchLayout.Screen(frame: CGRect(x: 0, y: 0, width: 1512, height: 982),
-                                          visibleFrame: CGRect(x: 0, y: 0, width: 1512, height: 950),
-                                          safeAreaTop: 32, auxiliaryLeftWidth: 663, auxiliaryRightWidth: 664)
+    static let mbp14 = NotchLayout.Screen(
+        frame: CGRect(x: 0, y: 0, width: 1512, height: 982),
+        visibleFrame: CGRect(x: 0, y: 0, width: 1512, height: 950),
+        safeAreaTop: 32, auxiliaryLeftWidth: 663, auxiliaryRightWidth: 664)
     /// 16-inch MacBook Pro at 1800 x 1169 (published NSScreen measurement: a 220 x 38 pt housing).
-    static let mbp16 = NotchLayout.Screen(frame: CGRect(x: 0, y: 0, width: 1800, height: 1169),
-                                          visibleFrame: CGRect(x: 0, y: 0, width: 1800, height: 1131),
-                                          safeAreaTop: 38, auxiliaryLeftWidth: 790, auxiliaryRightWidth: 790)
+    static let mbp16 = NotchLayout.Screen(
+        frame: CGRect(x: 0, y: 0, width: 1800, height: 1169),
+        visibleFrame: CGRect(x: 0, y: 0, width: 1800, height: 1131),
+        safeAreaTop: 38, auxiliaryLeftWidth: 790, auxiliaryRightWidth: 790)
     /// 15-inch MacBook Air M3 at its default 1710 x 1112, measured with NSScreen on real hardware (macOS 27.0.1):
     /// safeAreaInsets.top 37.5, auxiliary areas 751 wide each, visibleFrame top 1074.
-    static let mba15 = NotchLayout.Screen(frame: CGRect(x: 0, y: 0, width: 1710, height: 1112),
-                                          visibleFrame: CGRect(x: 0, y: 0, width: 1710, height: 1074),
-                                          safeAreaTop: 37.5, auxiliaryLeftWidth: 751, auxiliaryRightWidth: 751)
+    static let mba15 = NotchLayout.Screen(
+        frame: CGRect(x: 0, y: 0, width: 1710, height: 1112),
+        visibleFrame: CGRect(x: 0, y: 0, width: 1710, height: 1074),
+        safeAreaTop: 37.5, auxiliaryLeftWidth: 751, auxiliaryRightWidth: 751)
     /// 14-inch at its smallest scaled resolution (1024 x 665, 22 pt housing): narrower than the workspace.
-    static let mbp14Small = NotchLayout.Screen(frame: CGRect(x: 0, y: 0, width: 1024, height: 665),
-                                               visibleFrame: CGRect(x: 0, y: 0, width: 1024, height: 643),
-                                               safeAreaTop: 22, auxiliaryLeftWidth: 450, auxiliaryRightWidth: 450)
+    static let mbp14Small = NotchLayout.Screen(
+        frame: CGRect(x: 0, y: 0, width: 1024, height: 665),
+        visibleFrame: CGRect(x: 0, y: 0, width: 1024, height: 643),
+        safeAreaTop: 22, auxiliaryLeftWidth: 450, auxiliaryRightWidth: 450)
     /// 1080p monitor to the right of the MacBook, bottoms aligned, 24 pt menu bar.
-    static let hd1080 = NotchLayout.Screen(frame: CGRect(x: 1512, y: 0, width: 1920, height: 1080),
-                                           visibleFrame: CGRect(x: 1512, y: 0, width: 1920, height: 1056))
+    static let hd1080 = NotchLayout.Screen(
+        frame: CGRect(x: 1512, y: 0, width: 1920, height: 1080),
+        visibleFrame: CGRect(x: 1512, y: 0, width: 1920, height: 1056))
     /// 4K monitor at "looks like 2560 x 1440", to the left (negative x), Dock on its left edge.
-    static let uhd4k = NotchLayout.Screen(frame: CGRect(x: -2560, y: -200, width: 2560, height: 1440),
-                                          visibleFrame: CGRect(x: -2480, y: -200, width: 2480, height: 1416))
+    static let uhd4k = NotchLayout.Screen(
+        frame: CGRect(x: -2560, y: -200, width: 2560, height: 1440),
+        visibleFrame: CGRect(x: -2480, y: -200, width: 2480, height: 1416))
     /// 4K monitor at native 1x, menu bar set to hide automatically (visibleFrame reaches the top).
-    static let uhd4kNative = NotchLayout.Screen(frame: CGRect(x: 1512, y: 0, width: 3840, height: 2160),
-                                                visibleFrame: CGRect(x: 1512, y: 0, width: 3840, height: 2160))
+    static let uhd4kNative = NotchLayout.Screen(
+        frame: CGRect(x: 1512, y: 0, width: 3840, height: 2160),
+        visibleFrame: CGRect(x: 1512, y: 0, width: 3840, height: 2160))
     /// 34-inch ultrawide (3440 x 1440) stacked above the MacBook.
-    static let ultrawide = NotchLayout.Screen(frame: CGRect(x: -964, y: 982, width: 3440, height: 1440),
-                                              visibleFrame: CGRect(x: -964, y: 982, width: 3440, height: 1415))
+    static let ultrawide = NotchLayout.Screen(
+        frame: CGRect(x: -964, y: 982, width: 3440, height: 1440),
+        visibleFrame: CGRect(x: -964, y: 982, width: 3440, height: 1415))
     /// A notch-less screen at the 14-inch size (safe area 0, no auxiliary areas), e.g. an Intel MacBook.
-    static let mbp14FullScreenSpace = NotchLayout.Screen(frame: CGRect(x: 0, y: 0, width: 1512, height: 982),
-                                                         visibleFrame: CGRect(x: 0, y: 0, width: 1512, height: 982))
+    static let mbp14FullScreenSpace = NotchLayout.Screen(
+        frame: CGRect(x: 0, y: 0, width: 1512, height: 982),
+        visibleFrame: CGRect(x: 0, y: 0, width: 1512, height: 982))
 
     /// The GitHub macOS runner's only display: flat 1024 x 768 with a 24 pt menu bar (CI `perch-open.png`).
-    static let ci1024 = NotchLayout.Screen(frame: CGRect(x: 0, y: 0, width: 1024, height: 768),
-                                           visibleFrame: CGRect(x: 0, y: 0, width: 1024, height: 744))
+    static let ci1024 = NotchLayout.Screen(
+        frame: CGRect(x: 0, y: 0, width: 1024, height: 768),
+        visibleFrame: CGRect(x: 0, y: 0, width: 1024, height: 744))
     /// A larger flat built-in screen: a notchless 13-inch MacBook Air at 1440 x 900, 25 pt menu bar.
-    static let flat1440 = NotchLayout.Screen(frame: CGRect(x: 0, y: 0, width: 1440, height: 900),
-                                             visibleFrame: CGRect(x: 0, y: 0, width: 1440, height: 875))
+    static let flat1440 = NotchLayout.Screen(
+        frame: CGRect(x: 0, y: 0, width: 1440, height: 900),
+        visibleFrame: CGRect(x: 0, y: 0, width: 1440, height: 875))
 
     static let all: [(String, NotchLayout.Screen)] = [
         ("mbp14", mbp14), ("mbp16", mbp16), ("mba15", mba15), ("mbp14Small", mbp14Small), ("hd1080", hd1080),
-        ("uhd4k", uhd4k), ("uhd4kNative", uhd4kNative), ("ultrawide", ultrawide), ("mbp14FullScreenSpace", mbp14FullScreenSpace),
+        ("uhd4k", uhd4k), ("uhd4kNative", uhd4kNative), ("ultrawide", ultrawide),
+        ("mbp14FullScreenSpace", mbp14FullScreenSpace),
         ("ci1024", ci1024), ("flat1440", flat1440),
     ]
 }
@@ -187,8 +199,9 @@ final class NotchLayoutTests: XCTestCase {
     }
 
     func testWorkspaceShrinksToFitASmallScreen() {
-        let tiny = NotchLayout.Screen(frame: CGRect(x: 0, y: 0, width: 800, height: 400),
-                                      visibleFrame: CGRect(x: 0, y: 0, width: 800, height: 376))
+        let tiny = NotchLayout.Screen(
+            frame: CGRect(x: 0, y: 0, width: 800, height: 400),
+            visibleFrame: CGRect(x: 0, y: 0, width: 800, height: 376))
         let w = NotchLayout.workspaceFrame(screen: tiny, size: workspaceSize)
         XCTAssertEqual(w, CGRect(x: 8, y: 8, width: 784, height: 360))
     }
@@ -213,11 +226,27 @@ final class NotchLayoutTests: XCTestCase {
     /// where the clock sits stay apart: nothing Perch draws or hit-tests while open overlaps the menu bar except the
     /// notch-wide bridge, which only keeps it open (clicks there pass through).
     func testFlatScreensKeepTheClockAndStatusItemsClear() {
-        let flats: [(String, NotchLayout.Screen)] = Screens.all.filter { !NotchLayout.workspaceAttached(screen: $0.1) } + [
-            ("1280x800", .init(frame: CGRect(x: 0, y: 0, width: 1280, height: 800), visibleFrame: CGRect(x: 0, y: 0, width: 1280, height: 776))),
-            ("1680x1050", .init(frame: CGRect(x: 0, y: 0, width: 1680, height: 1050), visibleFrame: CGRect(x: 0, y: 0, width: 1680, height: 1025))),
-            ("2560x1440", .init(frame: CGRect(x: 0, y: 0, width: 2560, height: 1440), visibleFrame: CGRect(x: 0, y: 0, width: 2560, height: 1415))),
-        ]
+        let flats: [(String, NotchLayout.Screen)] =
+            Screens.all.filter { !NotchLayout.workspaceAttached(screen: $0.1) } + [
+                (
+                    "1280x800",
+                    .init(
+                        frame: CGRect(x: 0, y: 0, width: 1280, height: 800),
+                        visibleFrame: CGRect(x: 0, y: 0, width: 1280, height: 776))
+                ),
+                (
+                    "1680x1050",
+                    .init(
+                        frame: CGRect(x: 0, y: 0, width: 1680, height: 1050),
+                        visibleFrame: CGRect(x: 0, y: 0, width: 1680, height: 1025))
+                ),
+                (
+                    "2560x1440",
+                    .init(
+                        frame: CGRect(x: 0, y: 0, width: 2560, height: 1440),
+                        visibleFrame: CGRect(x: 0, y: 0, width: 2560, height: 1415))
+                ),
+            ]
         XCTAssertTrue(flats.contains { $0.0 == "ci1024" } && flats.contains { $0.0 == "flat1440" })
         for (name, s) in flats {
             let bar = s.menuBarHeight > 0 ? s.menuBarHeight : NotchLayout.fallbackMenuBarHeight
@@ -245,7 +274,10 @@ final class NotchLayoutTests: XCTestCase {
         let s = Screens.flat1440
         let w = NotchLayout.workspaceFrame(screen: s, size: workspaceSize)
         XCTAssertEqual(w, CGRect(x: 310, y: 397, width: 820, height: 470), "25 pt menu bar + 8 gap")
-        XCTAssertEqual(NotchLayout.openBridge(idle: NotchLayout.idleFrame(screen: s, leftWing: 32, rightWing: 32), workspace: w, screen: s)?.height, 33)
+        XCTAssertEqual(
+            NotchLayout.openBridge(
+                idle: NotchLayout.idleFrame(screen: s, leftWing: 32, rightWing: 32), workspace: w, screen: s)?.height,
+            33)
     }
 
     func testAutoHiddenMenuBarStillGetsClearance() {
@@ -272,15 +304,18 @@ final class NotchLayoutTests: XCTestCase {
         XCTAssertEqual(b?.maxY, s.frame.maxY)
         // Attached workspaces need no bridge.
         let m = Screens.mbp14
-        XCTAssertNil(NotchLayout.openBridge(idle: NotchLayout.idleFrame(screen: m, leftWing: 32, rightWing: 32),
-                                            workspace: NotchLayout.workspaceFrame(screen: m, size: workspaceSize), screen: m))
+        XCTAssertNil(
+            NotchLayout.openBridge(
+                idle: NotchLayout.idleFrame(screen: m, leftWing: 32, rightWing: 32),
+                workspace: NotchLayout.workspaceFrame(screen: m, size: workspaceSize), screen: m))
     }
 
     func testWorkspaceStaysOnScreenWhenTheNotchIsNearAnEdge() {
         // A hypothetical housing near the left edge: the workspace slides right rather than leave the screen.
-        let s = NotchLayout.Screen(frame: CGRect(x: 0, y: 0, width: 1512, height: 982),
-                                   visibleFrame: CGRect(x: 0, y: 0, width: 1512, height: 950),
-                                   safeAreaTop: 32, auxiliaryLeftWidth: 100, auxiliaryRightWidth: 1227)
+        let s = NotchLayout.Screen(
+            frame: CGRect(x: 0, y: 0, width: 1512, height: 982),
+            visibleFrame: CGRect(x: 0, y: 0, width: 1512, height: 950),
+            safeAreaTop: 32, auxiliaryLeftWidth: 100, auxiliaryRightWidth: 1227)
         let w = NotchLayout.workspaceFrame(screen: s, size: workspaceSize)
         XCTAssertEqual(w.minX, NotchLayout.screenMargin)
     }
@@ -319,7 +354,8 @@ final class NotchLayoutTests: XCTestCase {
 
     func testScreenUnderPointerAcrossArrangements() {
         let all = [Screens.mbp14, Screens.hd1080, Screens.uhd4k, Screens.ultrawide]
-        XCTAssertEqual(NotchLayout.screenIndex(at: CGPoint(x: 755, y: 982), in: all), 0, "laptop top edge, ultrawide above")
+        XCTAssertEqual(
+            NotchLayout.screenIndex(at: CGPoint(x: 755, y: 982), in: all), 0, "laptop top edge, ultrawide above")
         XCTAssertEqual(NotchLayout.screenIndex(at: CGPoint(x: 755, y: 982.5), in: all), 3)
         XCTAssertEqual(NotchLayout.screenIndex(at: CGPoint(x: 1512, y: 500), in: all), 1)
         XCTAssertEqual(NotchLayout.screenIndex(at: CGPoint(x: -1, y: 500), in: all), 2)
@@ -367,7 +403,10 @@ final class NotchLayoutTests: XCTestCase {
                 XCTAssertTrue(w.contains(n) || w.width < n.width, name)
             } else {
                 // Never on the menu bar (nor where an auto-hidden one slides in).
-                XCTAssertLessThanOrEqual(w.maxY, min(s.visibleFrame.maxY, s.frame.maxY - NotchLayout.fallbackMenuBarHeight) - NotchLayout.menuBarGap, name)
+                XCTAssertLessThanOrEqual(
+                    w.maxY,
+                    min(s.visibleFrame.maxY, s.frame.maxY - NotchLayout.fallbackMenuBarHeight) - NotchLayout.menuBarGap,
+                    name)
             }
         }
     }
@@ -379,7 +418,9 @@ final class NotchLayoutTests: XCTestCase {
     func cg(_ s: NotchLayout.Screen) -> CGRect { NotchLayout.cgRect(s.frame, primaryHeight: primary) }
     func menuBar(_ s: NotchLayout.Screen) -> NotchLayout.Window {
         let r = cg(s)
-        return .init(bounds: CGRect(x: r.minX, y: r.minY, width: r.width, height: s.menuBarHeight > 0 ? s.menuBarHeight : 24), layer: 24)
+        return .init(
+            bounds: CGRect(x: r.minX, y: r.minY, width: r.width, height: s.menuBarHeight > 0 ? s.menuBarHeight : 24),
+            layer: 24)
     }
 
     func testCGCoordinatesFlipAroundThePrimaryDisplay() {
@@ -408,7 +449,8 @@ final class NotchLayoutTests: XCTestCase {
         XCTAssertFalse(NotchLayout.isFullScreen(screen: s, windows: [menuBar(s), zoomed], primaryHeight: primary))
         // On a flat screen a zoomed window starts under the menu bar.
         let m = Screens.hd1080, r = cg(m)
-        let z2 = NotchLayout.Window(bounds: CGRect(x: r.minX, y: r.minY + 24, width: r.width, height: r.height - 24), layer: 0)
+        let z2 = NotchLayout.Window(
+            bounds: CGRect(x: r.minX, y: r.minY + 24, width: r.width, height: r.height - 24), layer: 0)
         XCTAssertFalse(NotchLayout.isFullScreen(screen: m, windows: [z2], primaryHeight: primary))
     }
 
@@ -424,17 +466,22 @@ final class NotchLayoutTests: XCTestCase {
     func testAMenuBarOnAnotherScreenDoesNotVetoThisOne() {
         let laptop = Screens.mbp14, monitor = Screens.hd1080
         let fs = NotchLayout.Window(bounds: CGRect(x: 0, y: 32, width: 1512, height: 950), layer: 0)
-        XCTAssertTrue(NotchLayout.isFullScreen(screen: laptop, windows: [menuBar(monitor), fs], primaryHeight: primary))
+        XCTAssertTrue(
+            NotchLayout.isFullScreen(screen: laptop, windows: [menuBar(monitor), fs], primaryHeight: primary))
     }
 
     func testOwnWindowsOtherLayersAndPartialWindowsDoNotCount() {
         let s = Screens.hd1080, r = cg(s)
         let own = NotchLayout.Window(bounds: r, layer: 0, isOwn: true)
         let overlay = NotchLayout.Window(bounds: r, layer: 25)
-        let half = NotchLayout.Window(bounds: CGRect(x: r.minX, y: r.minY, width: r.width / 2, height: r.height), layer: 0)
-        let short = NotchLayout.Window(bounds: CGRect(x: r.minX, y: r.minY, width: r.width, height: r.height - 100), layer: 0)
+        let half = NotchLayout.Window(
+            bounds: CGRect(x: r.minX, y: r.minY, width: r.width / 2, height: r.height), layer: 0)
+        let short = NotchLayout.Window(
+            bounds: CGRect(x: r.minX, y: r.minY, width: r.width, height: r.height - 100), layer: 0)
         let elsewhere = NotchLayout.Window(bounds: cg(Screens.mbp14), layer: 0)
-        XCTAssertFalse(NotchLayout.isFullScreen(screen: s, windows: [own, overlay, half, short, elsewhere], primaryHeight: primary))
+        XCTAssertFalse(
+            NotchLayout.isFullScreen(
+                screen: s, windows: [own, overlay, half, short, elsewhere], primaryHeight: primary))
         XCTAssertFalse(NotchLayout.isFullScreen(screen: s, windows: [], primaryHeight: primary))
     }
 
@@ -458,10 +505,13 @@ final class NotchLayoutTests: XCTestCase {
             let timer = NotchLayout.idleFrame(screen: s, leftWing: 85, rightWing: 85)
             let act = NotchLayout.idleFrame(screen: s, leftWing: 32, rightWing: 32, below: 62, minWidth: 400)
             let w = WorkspaceLayout.frame(screen: s)
-            return Row(name: name, camera: NotchLayout.camera(screen: s).map(LayoutRect.init),
-                       notch: .init(NotchLayout.notch(screen: s)), idle: .init(idle), idleTimer: .init(timer), idleActivity: .init(act),
-                       workspace: .init(w), hoverClosed: .init(NotchLayout.hoverFrame(idle: idle, workspace: w, expanded: false, screen: s)),
-                       window: .init(NotchLayout.windowFrame(screen: s, containing: [timer, act, w])))
+            return Row(
+                name: name, camera: NotchLayout.camera(screen: s).map(LayoutRect.init),
+                notch: .init(NotchLayout.notch(screen: s)), idle: .init(idle), idleTimer: .init(timer),
+                idleActivity: .init(act),
+                workspace: .init(w),
+                hoverClosed: .init(NotchLayout.hoverFrame(idle: idle, workspace: w, expanded: false, screen: s)),
+                window: .init(NotchLayout.windowFrame(screen: s, containing: [timer, act, w])))
         }
         XCTAssertEqual(rows.count, Screens.all.count)
         let enc = JSONEncoder()

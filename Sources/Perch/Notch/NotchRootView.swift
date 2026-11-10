@@ -34,34 +34,34 @@ struct NotchRootView: View {
                     .offset(x: shape.minX - window.minX, y: window.maxY - shape.maxY)
                     .transition(.opacity)
             } else {
-            ZStack(alignment: .top) {
-                // The open shell is drawn without a shadow.
-                outline
-                    .fill(Theme.notchBlack)
+                ZStack(alignment: .top) {
+                    // The open shell is drawn without a shadow.
+                    outline
+                        .fill(Theme.notchBlack)
 
-                Group {
-                    if expanded {
-                        // Normal mode scales/fades with the shell; reduced mode inserts at final geometry.
-                        WorkspaceView(notchHeight: g.notchSize.height)
-                            // Retain the disappearing content above the opaque shell during removal.
-                            // Otherwise ZStack can draw its still-running transition behind the fill.
-                            .zIndex(1)
-                            .transition(motionPolicy.workspaceTransition)
-                    } else {
-                        ClosedNotchView(notch: g.notchSize, activity: activity)
-                            .transition(.opacity)
+                    Group {
+                        if expanded {
+                            // Normal mode scales/fades with the shell; reduced mode inserts at final geometry.
+                            WorkspaceView(notchHeight: g.notchSize.height)
+                                // Retain the disappearing content above the opaque shell during removal.
+                                // Otherwise ZStack can draw its still-running transition behind the fill.
+                                .zIndex(1)
+                                .transition(motionPolicy.workspaceTransition)
+                        } else {
+                            ClosedNotchView(notch: g.notchSize, activity: activity)
+                                .transition(.opacity)
+                        }
                     }
+                    .padding(.horizontal, expanded ? 10 : 0)
                 }
-                .padding(.horizontal, expanded ? 10 : 0)
-            }
-            .frame(width: shape.width, height: shape.height)
-            .clipShape(outline)
-            .contentShape(outline)
-            .onDrop(of: [.fileURL, .url, .plainText, .image], isTargeted: nil) { providers in
-                handleDrop(providers); return true
-            }
-            // The window is flush with the screen top; the shape is too, except an open workspace on a flat screen.
-            .offset(x: shape.minX - window.minX, y: window.maxY - shape.maxY)
+                .frame(width: shape.width, height: shape.height)
+                .clipShape(outline)
+                .contentShape(outline)
+                .onDrop(of: [.fileURL, .url, .plainText, .image], isTargeted: nil) { providers in
+                    handleDrop(providers); return true
+                }
+                // The window is flush with the screen top; the shape is too, except an open workspace on a flat screen.
+                .offset(x: shape.minX - window.minX, y: window.maxY - shape.maxY)
             }
         }
         .frame(width: window.width, height: window.height, alignment: .topLeading)
@@ -152,8 +152,9 @@ struct TimerPillLayer: View {
     @ViewBuilder private func digits(width: CGFloat, height: CGFloat) -> some View {
         if let f = store.planner.focus, f.state != .finished {
             let text = TimerText.clock(f.remaining(at: model.now) ?? f.elapsed(at: model.now))
-            DotMatrixText(text: text, dot: Self.dot(for: text, width: width - 24, height: height * 0.52),
-                          color: Color.white.opacity(f.state == .running ? 0.95 : 0.6), unlit: .clear)
+            DotMatrixText(
+                text: text, dot: Self.dot(for: text, width: width - 24, height: height * 0.52),
+                color: Color.white.opacity(f.state == .running ? 0.95 : 0.6), unlit: .clear)
         }
     }
 
@@ -178,8 +179,11 @@ struct ActivityStrip: View {
             Image(systemName: icon)
                 .font(.system(size: 15, weight: .semibold)).foregroundStyle(Theme.accent)
             VStack(alignment: .leading, spacing: 1) {
-                Text(activity.title).font(.system(size: 12.5, weight: .semibold)).foregroundStyle(Theme.text).lineLimit(1)
-                Text(services.timeline.subtitle(for: activity, now: model.now)).font(.system(size: 11)).foregroundStyle(Theme.secondary).lineLimit(1)
+                Text(activity.title).font(.system(size: 12.5, weight: .semibold)).foregroundStyle(Theme.text).lineLimit(
+                    1)
+                Text(services.timeline.subtitle(for: activity, now: model.now)).font(.system(size: 11)).foregroundStyle(
+                    Theme.secondary
+                ).lineLimit(1)
             }
             Spacer(minLength: 6)
             actions
@@ -204,13 +208,25 @@ struct ActivityStrip: View {
                 store.apply { try $0.startTimer(task: id.uuidString, minutes: nil) }
                 model.dismissActivity()
             }
-            pill("Snooze 5 min") { store.apply { try $0.snooze(id.uuidString, minutes: 5) }; model.dismissActivity() }
-            pill("Done") { store.apply { try $0.complete(id.uuidString) }; model.dismissActivity() }
+            pill("Snooze 5 min") {
+                store.apply { try $0.snooze(id.uuidString, minutes: 5) }; model.dismissActivity()
+            }
+            pill("Done") {
+                store.apply { try $0.complete(id.uuidString) }; model.dismissActivity()
+            }
         case .focusDone(let id):
-            if let id { pill("Mark done") { store.apply { try $0.complete(id.uuidString) }; model.dismissActivity() } }
-            pill("+5 min") { store.apply { $0.extendTimer(minutes: 5) }; model.dismissActivity() }
+            if let id {
+                pill("Mark done") {
+                    store.apply { try $0.complete(id.uuidString) }; model.dismissActivity()
+                }
+            }
+            pill("+5 min") {
+                store.apply { $0.extendTimer(minutes: 5) }; model.dismissActivity()
+            }
         case .clip:
-            pill("Open line") { model.dismissActivity(); model.open(page: .clips) }
+            pill("Open line") {
+                model.dismissActivity(); model.open(page: .clips)
+            }
         default: EmptyView()
         }
     }

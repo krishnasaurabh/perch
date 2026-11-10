@@ -12,8 +12,10 @@ enum WindowHost {
 
     static func show<V: View>(_ id: String, title: String, size: CGSize, @ViewBuilder content: () -> V) {
         if let w = windows[id] { NSApp.activate(ignoringOtherApps: true); w.makeKeyAndOrderFront(nil); return }
-        let w = NSWindow(contentRect: NSRect(origin: .zero, size: size), styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
-                         backing: .buffered, defer: false)
+        let w = NSWindow(
+            contentRect: NSRect(origin: .zero, size: size),
+            styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
+            backing: .buffered, defer: false)
         w.title = title
         w.titlebarAppearsTransparent = true
         w.isReleasedWhenClosed = false
@@ -51,9 +53,15 @@ struct SettingsView: View {
     @EnvironmentObject var services: Services
     @State private var section: Pane = .general
     enum Pane: String, CaseIterable, Identifiable {
-        case general = "General", workspace = "Workspace", focus = "Focus timer", agents = "AI agents", system = "System"
+        case general = "General", workspace = "Workspace", focus = "Focus timer", agents = "AI agents", system =
+            "System"
         var id: String { rawValue }
-        var symbol: String { ["General": "gearshape", "Workspace": "rectangle.3.group", "Focus timer": "timer", "AI agents": "sparkles", "System": "lock.shield"][rawValue]! }
+        var symbol: String {
+            [
+                "General": "gearshape", "Workspace": "rectangle.3.group", "Focus timer": "timer",
+                "AI agents": "sparkles", "System": "lock.shield",
+            ][rawValue]!
+        }
     }
 
     var body: some View {
@@ -87,20 +95,33 @@ struct SettingsView: View {
             }
             ShortcutPreferenceRow()
             Text("Works anywhere, even when Perch isn't the front app.").font(.caption).foregroundStyle(.secondary)
-            Toggle("Open at login", isOn: Binding(get: { SMAppService.mainApp.status == .enabled }, set: { on in
-                do { on ? try SMAppService.mainApp.register() : try SMAppService.mainApp.unregister() }
-                catch { store.lastError = "Perch couldn't update the login item: \(error.localizedDescription)" }
-            }))
+            Toggle(
+                "Open at login",
+                isOn: Binding(
+                    get: { SMAppService.mainApp.status == .enabled },
+                    set: { on in
+                        do { on ? try SMAppService.mainApp.register() : try SMAppService.mainApp.unregister() } catch {
+                            store.lastError = "Perch couldn't update the login item: \(error.localizedDescription)"
+                        }
+                    }))
         }
         Section("Displays") {
-            Picker("Show Perch on", selection: Binding(get: { store.prefs.showOnDisplay ?? "" }, set: { v in store.updatePrefs { $0.showOnDisplay = v.isEmpty ? nil : v } })) {
+            Picker(
+                "Show Perch on",
+                selection: Binding(
+                    get: { store.prefs.showOnDisplay ?? "" },
+                    set: { v in store.updatePrefs { $0.showOnDisplay = v.isEmpty ? nil : v } })
+            ) {
                 Text("Automatic").tag("")
                 Text("Built-in display").tag("builtIn")
-                ForEach(NSScreen.screens.filter { !$0.isBuiltIn }, id: \.displayID) { s in Text(s.localizedName).tag(s.localizedName) }
+                ForEach(NSScreen.screens.filter { !$0.isBuiltIn }, id: \.displayID) { s in
+                    Text(s.localizedName).tag(s.localizedName)
+                }
             }
             Text("Choose Automatic to follow the pointer between displays.").font(.caption).foregroundStyle(.secondary)
             Toggle("Draw a notch on external displays", isOn: pref(\.notchOnMonitors))
-            Text("Behaves like the built-in notch and hides while an app is full screen.").font(.caption).foregroundStyle(.secondary)
+            Text("Behaves like the built-in notch and hides while an app is full screen.").font(.caption)
+                .foregroundStyle(.secondary)
         }
         Section("Day") {
             Stepper(value: pref(\.resetHour), in: 0...6) {
@@ -114,10 +135,12 @@ struct SettingsView: View {
         }
         Section("Apple Intelligence") {
             Toggle("Auto-sort new tasks", isOn: pref(\.sortWithAI)).disabled(!AISorter.isSupported)
-            Text(AISorter.isSupported
-                 ? "Uses the on-device model to suggest a priority and project for new tasks. Your explicit #project and !priority choices take precedence."
-                 : AISorter.unavailableReason)
-                .font(.caption).foregroundStyle(.secondary)
+            Text(
+                AISorter.isSupported
+                    ? "Uses the on-device model to suggest a priority and project for new tasks. Your explicit #project and !priority choices take precedence."
+                    : AISorter.unavailableReason
+            )
+            .font(.caption).foregroundStyle(.secondary)
         }
     }
 
@@ -125,19 +148,42 @@ struct SettingsView: View {
         Section("Beside today's tasks") {
             ForEach(HomeLayout.ordered(store.prefs.workspaceCardOrder), id: \.self) { id in
                 HStack {
-                    Toggle(cardName(id), isOn: Binding(get: { !store.prefs.hiddenWorkspaceCards.contains(id) }, set: { show in
-                        store.updatePrefs { p in
-                            if show { p.hiddenWorkspaceCards.removeAll { $0 == id } } else if !p.hiddenWorkspaceCards.contains(id) { p.hiddenWorkspaceCards.append(id) }
-                        }
-                    }))
+                    Toggle(
+                        cardName(id),
+                        isOn: Binding(
+                            get: { !store.prefs.hiddenWorkspaceCards.contains(id) },
+                            set: { show in
+                                store.updatePrefs { p in
+                                    if show {
+                                        p.hiddenWorkspaceCards.removeAll { $0 == id }
+                                    } else if !p.hiddenWorkspaceCards.contains(id) {
+                                        p.hiddenWorkspaceCards.append(id)
+                                    }
+                                }
+                            }))
                     Spacer()
-                    Button { moveCard(id, -1) } label: { Image(systemName: "chevron.up") }.buttonStyle(.borderless)
-                    Button { moveCard(id, 1) } label: { Image(systemName: "chevron.down") }.buttonStyle(.borderless)
+                    Button {
+                        moveCard(id, -1)
+                    } label: {
+                        Image(systemName: "chevron.up")
+                    }.buttonStyle(.borderless)
+                    Button {
+                        moveCard(id, 1)
+                    } label: {
+                        Image(systemName: "chevron.down")
+                    }.buttonStyle(.borderless)
                 }
             }
-            Button("Reset to default") { store.updatePrefs { $0.workspaceCardOrder = Preferences().workspaceCardOrder; $0.hiddenWorkspaceCards = Preferences().hiddenWorkspaceCards } }
-            Text("Today always shows your tasks. The focus timer appears while it runs and the agenda when you have events. Insights has its own tab.")
-                .font(.caption).foregroundStyle(.secondary)
+            Button("Reset to default") {
+                store.updatePrefs {
+                    $0.workspaceCardOrder = Preferences().workspaceCardOrder;
+                    $0.hiddenWorkspaceCards = Preferences().hiddenWorkspaceCards
+                }
+            }
+            Text(
+                "Today always shows your tasks. The focus timer appears while it runs and the agenda when you have events. Insights has its own tab."
+            )
+            .font(.caption).foregroundStyle(.secondary)
         }
         Section("Clips") {
             Toggle("Add new screenshots to Clips", isOn: pref(\.catchScreenshots))
@@ -147,23 +193,34 @@ struct SettingsView: View {
         Section("Calendar") {
             if services.calendar.hasAccess {
                 ForEach(services.calendar.calendars, id: \.calendarIdentifier) { c in
-                    Toggle(c.title, isOn: Binding(get: { !store.prefs.hiddenCalendarIDs.contains(c.calendarIdentifier) }, set: { on in
-                        store.updatePrefs { p in
-                            if on { p.hiddenCalendarIDs.removeAll { $0 == c.calendarIdentifier } } else { p.hiddenCalendarIDs.append(c.calendarIdentifier) }
-                        }
-                        services.calendar.refresh()
-                    }))
+                    Toggle(
+                        c.title,
+                        isOn: Binding(
+                            get: { !store.prefs.hiddenCalendarIDs.contains(c.calendarIdentifier) },
+                            set: { on in
+                                store.updatePrefs { p in
+                                    if on {
+                                        p.hiddenCalendarIDs.removeAll { $0 == c.calendarIdentifier }
+                                    } else {
+                                        p.hiddenCalendarIDs.append(c.calendarIdentifier)
+                                    }
+                                }
+                                services.calendar.refresh()
+                            }))
                 }
             } else {
                 Button("Allow Calendar Access") { Task { await services.calendar.requestAccess() } }
-                Text("Read your schedule alongside the task list. Calendar access is read-only.").font(.caption).foregroundStyle(.secondary)
+                Text("Read your schedule alongside the task list. Calendar access is read-only.").font(.caption)
+                    .foregroundStyle(.secondary)
             }
         }
     }
 
     @ViewBuilder var focus: some View {
         Section("Focus timer") {
-            Stepper(value: pref(\.defaultFocusMinutes), in: 5...180, step: 5) { LabeledContent("Default length", value: "\(store.prefs.defaultFocusMinutes) min") }
+            Stepper(value: pref(\.defaultFocusMinutes), in: 5...180, step: 5) {
+                LabeledContent("Default length", value: "\(store.prefs.defaultFocusMinutes) min")
+            }
             Text("Tasks with their own time budget use that instead.").font(.caption).foregroundStyle(.secondary)
             Toggle("Chime when the timer ends", isOn: pref(\.focusCompletionSound))
             Picker("Timer in the notch", selection: pref(\.notchTimerPlacement)) {
@@ -181,22 +238,36 @@ struct SettingsView: View {
 
     @ViewBuilder var system: some View {
         Section("Apple Reminders") {
-            Toggle("Mirror tasks to Apple Reminders", isOn: Binding(get: { store.prefs.remindersSync }, set: { on in
-                Task {
-                    if on { guard await services.remindersSync.requestAccess() else {
-                        store.lastError = "Perch has no Reminders permission. Grant it under System Settings › Privacy & Security › Reminders."; return } }
-                    store.updatePrefs { $0.remindersSync = on }
-                    services.remindersSync.sync()
-                }
-            }))
-            Text("Perch maintains its own “Perch” list in Reminders covering today and upcoming days. Edits flow both directions, so checking something off on your phone or watch checks it off here. No other list is touched.")
-                .font(.caption).foregroundStyle(.secondary)
-            Toggle("Alert on iPhone and Apple Watch too", isOn: pref(\.ringOnPhone)).disabled(!store.prefs.remindersSync)
+            Toggle(
+                "Mirror tasks to Apple Reminders",
+                isOn: Binding(
+                    get: { store.prefs.remindersSync },
+                    set: { on in
+                        Task {
+                            if on {
+                                guard await services.remindersSync.requestAccess() else {
+                                    store.lastError =
+                                        "Perch has no Reminders permission. Grant it under System Settings › Privacy & Security › Reminders.";
+                                    return
+                                }
+                            }
+                            store.updatePrefs { $0.remindersSync = on }
+                            services.remindersSync.sync()
+                        }
+                    }))
+            Text(
+                "Perch maintains its own “Perch” list in Reminders covering today and upcoming days. Edits flow both directions, so checking something off on your phone or watch checks it off here. No other list is touched."
+            )
+            .font(.caption).foregroundStyle(.secondary)
+            Toggle("Alert on iPhone and Apple Watch too", isOn: pref(\.ringOnPhone)).disabled(
+                !store.prefs.remindersSync)
             if let e = services.remindersSync.lastError { Text(e).font(.caption).foregroundStyle(.red) }
         }
         Section("Permissions") {
             Button("Request notification permission") { Task { await services.reminders.requestAuthorization() } }
-            Button("Privacy settings…") { NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security")!) }
+            Button("Privacy settings…") {
+                NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security")!)
+            }
         }
         Section("Your data") {
             LabeledContent("Stored at", value: store.file.url.path).textSelection(.enabled)
@@ -204,8 +275,10 @@ struct SettingsView: View {
                 Button("Show in Finder") { NSWorkspace.shared.activateFileViewerSelecting([store.file.url]) }
                 Button("Export JSON backup…") { exportBackup() }
             }
-            Text("Perch has no account, no server and no analytics. Nothing leaves this Mac unless you turn on Reminders sync (via iCloud) or connect an AI app.")
-                .font(.caption).foregroundStyle(.secondary)
+            Text(
+                "Perch has no account, no server and no analytics. Nothing leaves this Mac unless you turn on Reminders sync (via iCloud) or connect an AI app."
+            )
+            .font(.caption).foregroundStyle(.secondary)
         }
         Section("About") {
             LabeledContent("Version", value: AppInfo.version)
@@ -215,12 +288,17 @@ struct SettingsView: View {
 
     /// "Midnight" for 0, otherwise the hour in the user's clock style ("4 AM" or "04:00").
     static func hourLabel(_ hour: Int) -> String {
-        guard hour > 0, let d = Calendar.current.date(bySettingHour: hour, minute: 0, second: 0, of: Date()) else { return "Midnight" }
+        guard hour > 0, let d = Calendar.current.date(bySettingHour: hour, minute: 0, second: 0, of: Date()) else {
+            return "Midnight"
+        }
         return d.formatted(date: .omitted, time: .shortened)
     }
 
     func cardName(_ id: String) -> String {
-        ["focus": "Focus timer (while running)", "notepad": "Notepad", "events": "Today's agenda (when there are events)"][id] ?? id
+        [
+            "focus": "Focus timer (while running)", "notepad": "Notepad",
+            "events": "Today's agenda (when there are events)",
+        ][id] ?? id
     }
 
     func moveCard(_ id: String, _ delta: Int) {
@@ -261,7 +339,9 @@ struct ShortcutPreferenceRow: View {
                             .frame(width: 104, height: 24)
                         Text("Press the keys you want. Esc cancels.").font(.caption).foregroundStyle(.secondary)
                     } else {
-                        Button { problem = nil; recording = true } label: {
+                        Button {
+                            problem = nil; recording = true
+                        } label: {
                             Text(shortcut.display)
                                 .font(.system(size: 13, weight: .semibold, design: .rounded))
                                 .frame(minWidth: 64)
@@ -290,7 +370,7 @@ struct ShortcutPreferenceRow: View {
         recording = false
         problem = nil
         shortcut = key
-        ShortcutStore.save(key)   // the running hot key re-registers on this change, no relaunch
+        ShortcutStore.save(key)  // the running hot key re-registers on this change, no relaunch
     }
 }
 
@@ -356,10 +436,15 @@ struct AgentsSettings: View {
 
     var body: some View {
         Section("Connect AI agents") {
-            Text("One-time setup that lets Claude read and edit your plan, tick tasks off and run timers. The MCP server runs inside Perch on this Mac, with no network hop.")
-                .font(.caption).foregroundStyle(.secondary)
+            Text(
+                "One-time setup that lets Claude read and edit your plan, tick tasks off and run timers. The MCP server runs inside Perch on this Mac, with no network hop."
+            )
+            .font(.caption).foregroundStyle(.secondary)
             if !AppInfo.isInApplications {
-                Label("Agent setup requires Perch to be installed in Applications.", systemImage: "exclamationmark.triangle").foregroundStyle(.orange)
+                Label(
+                    "Agent setup requires Perch to be installed in Applications.",
+                    systemImage: "exclamationmark.triangle"
+                ).foregroundStyle(.orange)
             }
             ForEach(AgentConnector.App.allCases) { app in
                 HStack {
@@ -368,10 +453,14 @@ struct AgentsSettings: View {
                     switch statuses[app] ?? .notInstalled {
                     case .connected:
                         Label("Connected", systemImage: "checkmark.circle.fill").foregroundStyle(.green)
-                        Button("Disconnect") { try? AgentConnector.disconnect(app); refresh() }
+                        Button("Disconnect") {
+                            try? AgentConnector.disconnect(app); refresh()
+                        }
                     case .notConnected:
                         Button("Connect") {
-                            do { message = try AgentConnector.connect(app) } catch { message = (error as? PlannerError)?.message ?? error.localizedDescription }
+                            do { message = try AgentConnector.connect(app) } catch {
+                                message = (error as? PlannerError)?.message ?? error.localizedDescription
+                            }
                             refresh()
                         }
                     case .notInstalled:
@@ -384,7 +473,9 @@ struct AgentsSettings: View {
         }
         Section("Or use Terminal") {
             HStack {
-                Text(AgentConnector.terminalCommand).font(.system(size: 11, design: .monospaced)).textSelection(.enabled).lineLimit(2)
+                Text(AgentConnector.terminalCommand).font(.system(size: 11, design: .monospaced)).textSelection(
+                    .enabled
+                ).lineLimit(2)
                 Spacer()
                 Button(copied == "cmd" ? "Copied" : "Copy") { copy(AgentConnector.terminalCommand, "cmd") }
             }
@@ -392,11 +483,17 @@ struct AgentsSettings: View {
         }
         Section("Try one of these") {
             ForEach(AgentConnector.examplePrompts, id: \.self) { p in
-                Button { copy(p, p) } label: {
-                    HStack { Text(p); Spacer(); if copied == p { Text("Copied").foregroundStyle(.secondary) } }
+                Button {
+                    copy(p, p)
+                } label: {
+                    HStack {
+                        Text(p); Spacer(); if copied == p { Text("Copied").foregroundStyle(.secondary) }
+                    }
                 }.buttonStyle(.plain)
             }
-            Text("Click a prompt to copy it and paste it into Claude. Its edits appear in the notch immediately; ⌘Z reverts them.").font(.caption).foregroundStyle(.secondary)
+            Text(
+                "Click a prompt to copy it and paste it into Claude. Its edits appear in the notch immediately; ⌘Z reverts them."
+            ).font(.caption).foregroundStyle(.secondary)
         }
         .onAppear(perform: refresh)
     }
@@ -414,7 +511,9 @@ struct AgentsSettings: View {
 struct DashboardView: View {
     @EnvironmentObject var store: PlannerStore
     @State private var tab: Tab = .insights
-    enum Tab: String, CaseIterable { case upcoming = "Upcoming", history = "History", insights = "Insights", projects = "Projects" }
+    enum Tab: String, CaseIterable {
+        case upcoming = "Upcoming", history = "History", insights = "Insights", projects = "Projects"
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -442,7 +541,9 @@ struct UpcomingList: View {
         let future = store.planner.tasks.filter { ($0.day.map { $0 > store.today } ?? false) }
         let groups = Dictionary(grouping: future, by: { $0.day! }).sorted { $0.key < $1.key }
         VStack(alignment: .leading, spacing: 16) {
-            if groups.isEmpty { Text("Nothing planned ahead. Add “tomorrow” or a day to a task.").foregroundStyle(.secondary) }
+            if groups.isEmpty {
+                Text("Nothing planned ahead. Add “tomorrow” or a day to a task.").foregroundStyle(.secondary)
+            }
             ForEach(groups, id: \.key) { day, tasks in
                 VStack(alignment: .leading, spacing: 4) {
                     Text(day.date().formatted(.dateTime.weekday(.wide).month().day())).font(.headline)
@@ -480,7 +581,10 @@ struct HistoryList: View {
                     }
                 }.frame(width: 150)
             }
-            if groups.isEmpty { Text(query.isEmpty ? "Finished days show up here." : "No matches. Change the search text.").foregroundStyle(.secondary) }
+            if groups.isEmpty {
+                Text(query.isEmpty ? "Finished days show up here." : "No matches. Change the search text.")
+                    .foregroundStyle(.secondary)
+            }
             ForEach(groups, id: \.key) { day, tasks in
                 VStack(alignment: .leading, spacing: 4) {
                     HStack {
@@ -501,13 +605,18 @@ struct DashboardTaskLine: View {
     @EnvironmentObject var store: PlannerStore
     var body: some View {
         HStack(spacing: 8) {
-            Image(systemName: task.done ? "checkmark.circle.fill" : "circle").foregroundStyle(task.done ? .green : .secondary)
+            Image(systemName: task.done ? "checkmark.circle.fill" : "circle").foregroundStyle(
+                task.done ? .green : .secondary)
             Text(task.title).strikethrough(task.done)
-            if let p = store.engine.project(id: task.projectID) { Text("#\(p.name)").foregroundStyle(Color(hex: p.colorHex)).font(.caption) }
+            if let p = store.engine.project(id: task.projectID) {
+                Text("#\(p.name)").foregroundStyle(Color(hex: p.colorHex)).font(.caption)
+            }
             if let agent = task.agentID, let name = AgentName.short(agent) {
                 Text("via " + name).font(.caption).foregroundStyle(.secondary).help(agent)
             }
-            if task.focusedSeconds > 0 { Text(TimerText.short(task.focusedSeconds)).font(.caption).foregroundStyle(.secondary) }
+            if task.focusedSeconds > 0 {
+                Text(TimerText.short(task.focusedSeconds)).font(.caption).foregroundStyle(.secondary)
+            }
             if let c = task.carriedFrom { Text("carried from \(c.raw)").font(.caption).foregroundStyle(.tertiary) }
         }
     }
@@ -517,21 +626,27 @@ struct InsightsDashboard: View {
     @EnvironmentObject var store: PlannerStore
     var body: some View {
         let i = store.engine.insights()
-        let lastDone = i.lastSeven.reduce(0) { $0 + $1.completed }, prevDone = i.previousSeven.reduce(0) { $0 + $1.completed }
-        let lastFocus = i.lastSeven.reduce(0) { $0 + $1.focusSeconds }, prevFocus = i.previousSeven.reduce(0) { $0 + $1.focusSeconds }
+        let lastDone = i.lastSeven.reduce(0) { $0 + $1.completed },
+            prevDone = i.previousSeven.reduce(0) { $0 + $1.completed }
+        let lastFocus = i.lastSeven.reduce(0) { $0 + $1.focusSeconds },
+            prevFocus = i.previousSeven.reduce(0) { $0 + $1.focusSeconds }
         VStack(alignment: .leading, spacing: 20) {
             HStack(spacing: 14) {
                 tile("Streak", "\(i.streak) day\(i.streak == 1 ? "" : "s")", "flame.fill")
                 tile("Done this week", "\(lastDone)", "checkmark.circle", delta: lastDone - prevDone)
-                tile("Focus this week", TimerText.short(lastFocus), "timer", delta: Int((lastFocus - prevFocus) / 60), unit: "m")
+                tile(
+                    "Focus this week", TimerText.short(lastFocus), "timer", delta: Int((lastFocus - prevFocus) / 60),
+                    unit: "m")
                 tile("All time", "\(i.allTimeCompleted) tasks", "trophy")
             }
             VStack(alignment: .leading) {
                 Text("Planned vs. done, last 7 days").font(.headline)
                 Chart {
                     ForEach(i.lastSeven, id: \.day) { d in
-                        BarMark(x: .value("Day", d.day.date(), unit: .day), y: .value("Planned", d.planned)).foregroundStyle(.gray.opacity(0.35))
-                        BarMark(x: .value("Day", d.day.date(), unit: .day), y: .value("Completed", d.completed)).foregroundStyle(Theme.accent)
+                        BarMark(x: .value("Day", d.day.date(), unit: .day), y: .value("Planned", d.planned))
+                            .foregroundStyle(.gray.opacity(0.35))
+                        BarMark(x: .value("Day", d.day.date(), unit: .day), y: .value("Completed", d.completed))
+                            .foregroundStyle(Theme.accent)
                     }
                 }.frame(height: 170)
             }
@@ -545,8 +660,14 @@ struct InsightsDashboard: View {
                 }.frame(height: 150)
             }
             if !i.peakHours.isEmpty {
-                Text("Your peak hours: " + i.peakHours.map { Calendar.current.date(bySettingHour: $0, minute: 0, second: 0, of: Date())!.formatted(date: .omitted, time: .shortened) }.joined(separator: ", "))
-                    .font(.callout)
+                Text(
+                    "Your peak hours: "
+                        + i.peakHours.map {
+                            Calendar.current.date(bySettingHour: $0, minute: 0, second: 0, of: Date())!.formatted(
+                                date: .omitted, time: .shortened)
+                        }.joined(separator: ", ")
+                )
+                .font(.callout)
             } else {
                 Text("No focus sessions yet. Run a timer to see your best hours.").foregroundStyle(.secondary)
             }
@@ -558,8 +679,10 @@ struct InsightsDashboard: View {
             Label(label, systemImage: symbol).font(.caption).foregroundStyle(.secondary)
             Text(value).font(.system(size: 22, weight: .bold, design: .rounded))
             if let delta {
-                Text(delta == 0 ? "same as the week before" : "\(delta > 0 ? "+" : "")\(delta)\(unit) vs the week before")
-                    .font(.caption2).foregroundStyle(delta >= 0 ? .green : .orange)
+                Text(
+                    delta == 0 ? "same as the week before" : "\(delta > 0 ? "+" : "")\(delta)\(unit) vs the week before"
+                )
+                .font(.caption2).foregroundStyle(delta >= 0 ? .green : .orange)
             }
         }
         .padding(12).frame(maxWidth: .infinity, alignment: .leading)
@@ -571,7 +694,9 @@ struct ProjectsList: View {
     @EnvironmentObject var store: PlannerStore
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            if store.planner.projects.isEmpty { Text("No projects yet. Add #project to a new task.").foregroundStyle(.secondary) }
+            if store.planner.projects.isEmpty {
+                Text("No projects yet. Add #project to a new task.").foregroundStyle(.secondary)
+            }
             ForEach(store.planner.projects) { p in
                 let tasks = store.planner.tasks.filter { $0.projectID == p.id }
                 let open = tasks.filter { !$0.done && ($0.day == nil || $0.day! >= store.today) }
@@ -584,7 +709,9 @@ struct ProjectsList: View {
                         Button("Delete Project", role: .destructive) {
                             store.apply { e in
                                 e.planner.projects.removeAll { $0.id == p.id }
-                                for i in e.planner.tasks.indices where e.planner.tasks[i].projectID == p.id { e.planner.tasks[i].projectID = nil }
+                                for i in e.planner.tasks.indices where e.planner.tasks[i].projectID == p.id {
+                                    e.planner.tasks[i].projectID = nil
+                                }
                             }
                         }.buttonStyle(.borderless)
                     }
@@ -592,7 +719,8 @@ struct ProjectsList: View {
                 }
             }
             if !store.planner.projects.isEmpty {
-                Text("Deleting a project keeps its tasks, without a project. ⌘Z undoes it.").font(.caption).foregroundStyle(.secondary)
+                Text("Deleting a project keeps its tasks, without a project. ⌘Z undoes it.").font(.caption)
+                    .foregroundStyle(.secondary)
             }
         }.frame(maxWidth: .infinity, alignment: .leading)
     }

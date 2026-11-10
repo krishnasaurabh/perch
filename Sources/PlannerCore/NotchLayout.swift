@@ -1,6 +1,6 @@
 import Foundation
 #if canImport(CoreGraphics)
-import CoreGraphics
+    import CoreGraphics
 #endif
 
 /// Pure notch geometry, so every frame the app draws or hit-tests can be unit tested on any platform.
@@ -19,8 +19,10 @@ public enum NotchLayout {
         public var auxiliaryLeftWidth: CGFloat?
         public var auxiliaryRightWidth: CGFloat?
 
-        public init(frame: CGRect, visibleFrame: CGRect, safeAreaTop: CGFloat = 0,
-                    auxiliaryLeftWidth: CGFloat? = nil, auxiliaryRightWidth: CGFloat? = nil) {
+        public init(
+            frame: CGRect, visibleFrame: CGRect, safeAreaTop: CGFloat = 0,
+            auxiliaryLeftWidth: CGFloat? = nil, auxiliaryRightWidth: CGFloat? = nil
+        ) {
             self.frame = frame; self.visibleFrame = visibleFrame; self.safeAreaTop = safeAreaTop
             self.auxiliaryLeftWidth = auxiliaryLeftWidth; self.auxiliaryRightWidth = auxiliaryRightWidth
         }
@@ -35,7 +37,9 @@ public enum NotchLayout {
         public var layer: Int
         /// Belongs to this app (our own notch windows never count as full screen).
         public var isOwn: Bool
-        public init(bounds: CGRect, layer: Int, isOwn: Bool = false) { self.bounds = bounds; self.layer = layer; self.isOwn = isOwn }
+        public init(bounds: CGRect, layer: Int, isOwn: Bool = false) {
+            self.bounds = bounds; self.layer = layer; self.isOwn = isOwn
+        }
     }
 
     /// `kCGMainMenuWindowLevel`: the menu bar window. It is absent from a full-screen space.
@@ -55,10 +59,13 @@ public enum NotchLayout {
 
     /// The real camera housing: the gap between the two auxiliary areas, `safeAreaTop` tall. nil on a flat screen.
     public static func camera(screen: Screen) -> CGRect? {
-        guard screen.safeAreaTop > 0, let l = screen.auxiliaryLeftWidth, let r = screen.auxiliaryRightWidth else { return nil }
+        guard screen.safeAreaTop > 0, let l = screen.auxiliaryLeftWidth, let r = screen.auxiliaryRightWidth else {
+            return nil
+        }
         let minX = screen.frame.minX + l, maxX = screen.frame.maxX - r
         guard maxX - minX >= 1 else { return nil }
-        return CGRect(x: minX, y: screen.frame.maxY - screen.safeAreaTop, width: maxX - minX, height: screen.safeAreaTop)
+        return CGRect(
+            x: minX, y: screen.frame.maxY - screen.safeAreaTop, width: maxX - minX, height: screen.safeAreaTop)
     }
 
     /// A notch to draw on a screen without one: centered, as tall as the menu bar.
@@ -78,8 +85,10 @@ public enum NotchLayout {
 
     /// The closed shape: wings either side of the notch, measured from the housing's real edges (not the screen center).
     /// `below` grows it downward (an activity strip); `minWidth` widens both wings equally. Always inside the screen.
-    public static func idleFrame(screen: Screen, leftWing: CGFloat, rightWing: CGFloat,
-                                 below: CGFloat = 0, minWidth: CGFloat = 0) -> CGRect {
+    public static func idleFrame(
+        screen: Screen, leftWing: CGFloat, rightWing: CGFloat,
+        below: CGFloat = 0, minWidth: CGFloat = 0
+    ) -> CGRect {
         let n = notch(screen: screen)
         var minX = n.minX - max(0, leftWing), maxX = n.maxX + max(0, rightWing)
         if maxX - minX < minWidth {
@@ -113,9 +122,12 @@ public enum NotchLayout {
 
     /// Where the pointer counts as "on the notch". Open: exactly the workspace. Closed: the idle shape plus a little slop
     /// to the sides and below (never above the screen's top edge, so it can't leak onto a screen stacked above).
-    public static func hoverFrame(idle: CGRect, workspace: CGRect, expanded: Bool, slop: CGFloat = 6, screen: Screen) -> CGRect {
+    public static func hoverFrame(idle: CGRect, workspace: CGRect, expanded: Bool, slop: CGFloat = 6, screen: Screen)
+        -> CGRect
+    {
         if expanded { return workspace }
-        let r = CGRect(x: idle.minX - slop, y: idle.minY - slop, width: idle.width + 2 * slop, height: idle.height + slop)
+        let r = CGRect(
+            x: idle.minX - slop, y: idle.minY - slop, width: idle.width + 2 * slop, height: idle.height + slop)
         return clamp(r, into: screen.frame)
     }
 
@@ -124,7 +136,9 @@ public enum NotchLayout {
         guard var u = shapes.first else { return .zero }
         for s in shapes.dropFirst() { u = u.union(s) }
         let p = shadowPadding
-        let padded = CGRect(x: u.minX - p.horizontal, y: u.minY - p.bottom, width: u.width + 2 * p.horizontal, height: u.height + p.bottom)
+        let padded = CGRect(
+            x: u.minX - p.horizontal, y: u.minY - p.bottom, width: u.width + 2 * p.horizontal,
+            height: u.height + p.bottom)
         return padded.intersection(screen.frame)
     }
 
@@ -150,7 +164,9 @@ public enum NotchLayout {
     /// (from below the camera housing, where macOS puts full-screen windows on notched Macs, to the bottom edge)
     /// and the screen has no menu bar window, which a full-screen space removes. The menu-bar check keeps a
     /// zoomed window on a desktop from counting.
-    public static func isFullScreen(screen: Screen, windows: [Window], primaryHeight: CGFloat, tolerance: CGFloat = 1) -> Bool {
+    public static func isFullScreen(screen: Screen, windows: [Window], primaryHeight: CGFloat, tolerance: CGFloat = 1)
+        -> Bool
+    {
         let s = cgRect(screen.frame, primaryHeight: primaryHeight)
         let housing = camera(screen: screen)?.height ?? 0
         let hasMenuBar = windows.contains { w in

@@ -34,10 +34,13 @@ MainActor.assumeIsolated {
     DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
         Task { @MainActor in
             require(delegate.store.planner.tasks.isEmpty, "isolated planner starts empty")
-            delegate.store.updatePrefs { $0.catchCopies = false; $0.catchScreenshots = false }
+            delegate.store.updatePrefs {
+                $0.catchCopies = false; $0.catchScreenshots = false
+            }
             // Another app-owned window keeps the keyboard during passive reveals, as in the empty-state probe.
-            let other = NSPanel(contentRect: NSRect(x: 80, y: 80, width: 180, height: 80),
-                                styleMask: [.titled], backing: .buffered, defer: false)
+            let other = NSPanel(
+                contentRect: NSRect(x: 80, y: 80, width: 180, height: 80),
+                styleMask: [.titled], backing: .buffered, defer: false)
             let otherField = NSTextField(frame: NSRect(x: 10, y: 10, width: 160, height: 24))
             other.contentView?.addSubview(otherField)
 
@@ -54,7 +57,8 @@ MainActor.assumeIsolated {
                 await settle()
                 require(delegate.model.captureFocusRequest == nil, "\(name): passive reveal requests no capture focus")
                 // The fixture's own text field holds a field editor, so check which window owns the keyboard.
-                require(other.isKeyWindow && NSApp.keyWindow === other, "\(name): passive reveal leaves capture unfocused")
+                require(
+                    other.isKeyWindow && NSApp.keyWindow === other, "\(name): passive reveal leaves capture unfocused")
                 delegate.notch.snapshot(into: output.appendingPathComponent(name))
                 other.orderOut(nil)
             }
@@ -74,20 +78,25 @@ MainActor.assumeIsolated {
             await explicit("empty-home-focused")
 
             // Three tasks for today. No clock times: once 2pm/5pm have passed, the parser rolls those to tomorrow.
-            delegate.store.apply { try $0.addTasks(["Prep slides for the review !high #work", "Call mom", "Buy flowers"], on: nil) }
+            delegate.store.apply {
+                try $0.addTasks(["Prep slides for the review !high #work", "Call mom", "Buy flowers"], on: nil)
+            }
             await settle()
             require(delegate.store.engine.tasks(on: .day(delegate.store.today)).count == 3, "three tasks for today")
             await passive("three-home-unfocused")
             await explicit("three-home-focused")
 
             // Typing still reaches capture and adds through the parser after the prompt restyle.
-            captureEditor()?.insertText("Call the dentist tomorrow at 9am", replacementRange: NSRange(location: NSNotFound, length: 0))
+            captureEditor()?.insertText(
+                "Call the dentist tomorrow at 9am", replacementRange: NSRange(location: NSNotFound, length: 0))
             await settle()
             delegate.notch.snapshot(into: output.appendingPathComponent("three-home-typed"))
             if let window = NSApp.keyWindow,
-               let enter = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0,
-                                            windowNumber: window.windowNumber, context: nil, characters: "\r",
-                                            charactersIgnoringModifiers: "\r", isARepeat: false, keyCode: 36) {
+                let enter = NSEvent.keyEvent(
+                    with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0,
+                    windowNumber: window.windowNumber, context: nil, characters: "\r",
+                    charactersIgnoringModifiers: "\r", isARepeat: false, keyCode: 36)
+            {
                 NSApp.sendEvent(enter)
             }
             await settle()
@@ -101,12 +110,17 @@ MainActor.assumeIsolated {
             await settle()
             delegate.notch.snapshot(into: output.appendingPathComponent("week"))
             require(delegate.store.lastError == nil, "no store error")
-            for name in ["empty-home-unfocused", "empty-home-focused", "three-home-unfocused", "three-home-focused",
-                         "three-home-typed", "week"] {
-                let files = (try? FileManager.default.contentsOfDirectory(at: output.appendingPathComponent(name),
-                                                                         includingPropertiesForKeys: nil)) ?? []
-                require(files.contains { $0.pathExtension == "png" && NSImage(contentsOf: $0) != nil },
-                        "snapshot exists and decodes: \(name)")
+            for name in [
+                "empty-home-unfocused", "empty-home-focused", "three-home-unfocused", "three-home-focused",
+                "three-home-typed", "week",
+            ] {
+                let files =
+                    (try? FileManager.default.contentsOfDirectory(
+                        at: output.appendingPathComponent(name),
+                        includingPropertiesForKeys: nil)) ?? []
+                require(
+                    files.contains { $0.pathExtension == "png" && NSImage(contentsOf: $0) != nil },
+                    "snapshot exists and decodes: \(name)")
             }
             print("Capture contrast probe passed. Snapshots: \(output.path)")
             exit(0)

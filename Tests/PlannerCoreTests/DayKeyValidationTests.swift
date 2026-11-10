@@ -12,7 +12,7 @@ final class DayKeyValidationTests: XCTestCase {
             "", "2026-02-29", "2026-04-31", "2026-12-32", "2026-13-01",
             "2026-11-9", "2026/11/09", "+026-11-09", "2026-11-09 ",
             " 2026-11-09", "2026-11-09\n", "2026-11-09\u{0}",
-            "٢٠٢٦-١١-٠٩", "2026–11–09"
+            "٢٠٢٦-١١-٠٩", "2026–11–09",
         ]
         for raw in invalid {
             // A runtime String exercises the failable initializer, not the literal overload.
@@ -29,7 +29,8 @@ final class DayKeyValidationTests: XCTestCase {
 
     func testEveryTaskDayFieldRetainsItsCorruptionPath() throws {
         for key in ["day", "deadline", "carriedFrom", "repeatAnchor"] {
-            let data = Data("""
+            let data = Data(
+                """
                 {"id":"00000000-0000-0000-0000-000000000001",
                  "title":"Synthetic date validation", "createdAt":"2026-11-09T12:00:00Z",
                  "\(key)":"2026-02-30"}
@@ -48,7 +49,7 @@ final class DayKeyValidationTests: XCTestCase {
             .gregorian, .buddhist, .chinese, .coptic, .ethiopicAmeteMihret,
             .ethiopicAmeteAlem, .hebrew, .iso8601, .indian, .islamic,
             .islamicCivil, .japanese, .persian, .republicOfChina,
-            .islamicTabular, .islamicUmmAlQura
+            .islamicTabular, .islamicUmmAlQura,
         ]
         let instant = try XCTUnwrap(ISO8601DateFormatter().date(from: "2024-02-29T12:00:00Z"))
         for identifier in identifiers {
@@ -112,7 +113,8 @@ final class DayKeyValidationTests: XCTestCase {
         for (raw, expectedDuration) in [("2026-04-05", 24.5 * 3600), ("2026-10-04", 23.5 * 3600)] {
             let day = try XCTUnwrap(DayKey(raw))
             let next = day.adding(days: 1, calendar: calendar)
-            XCTAssertEqual(next.date(calendar: calendar).timeIntervalSince(day.date(calendar: calendar)), expectedDuration)
+            XCTAssertEqual(
+                next.date(calendar: calendar).timeIntervalSince(day.date(calendar: calendar)), expectedDuration)
             XCTAssertEqual(DayKey(day.start(resetHour: 2, calendar: calendar), resetHour: 2, calendar: calendar), day)
             XCTAssertEqual(next.adding(days: -1, calendar: calendar), day)
         }

@@ -16,8 +16,9 @@ final class ExternalTaskConfirmationController: NSObject, ExternalTaskConfirming
     func present(_ request: ExternalTaskRequest, completion: @escaping @MainActor (Bool) -> Void) {
         guard window == nil else { completion(false); return }
         self.completion = completion
-        let panel = ExternalTaskPanel(contentRect: NSRect(x: 0, y: 0, width: 540, height: 440),
-                                      styleMask: [.titled, .closable], backing: .buffered, defer: false)
+        let panel = ExternalTaskPanel(
+            contentRect: NSRect(x: 0, y: 0, width: 540, height: 440),
+            styleMask: [.titled, .closable], backing: .buffered, defer: false)
         panel.title = "Review external task"
         panel.isReleasedWhenClosed = false
         panel.hidesOnDeactivate = false
@@ -31,7 +32,9 @@ final class ExternalTaskConfirmationController: NSObject, ExternalTaskConfirming
             return field
         }
         let heading = label("Add this task to Perch?", size: 19, bold: true)
-        let warning = label("An external link supplied this task. Review it before adding. Its contents are text, not instructions to Perch.", size: 13)
+        let warning = label(
+            "An external link supplied this task. Review it before adding. Its contents are text, not instructions to Perch.",
+            size: 13)
         warning.textColor = .secondaryLabelColor
         let titleLabel = label("Task text (literal)", size: 13, bold: true)
         let text = NSTextView()
@@ -55,7 +58,9 @@ final class ExternalTaskConfirmationController: NSObject, ExternalTaskConfirming
         scroll.documentView = text
         let date = label("Date: \(request.dateLabel)", size: 14, bold: true)
         date.identifier = NSUserInterfaceItemIdentifier("external-task-date")
-        let note = label("Only this text and date will be saved. Dates, tags and commands inside the text will not be interpreted.", size: 12)
+        let note = label(
+            "Only this text and date will be saved. Dates, tags and commands inside the text will not be interpreted.",
+            size: 12)
         note.textColor = .secondaryLabelColor
         let cancel = NSButton(title: "Cancel", target: self, action: #selector(cancelRequest))
         cancel.identifier = NSUserInterfaceItemIdentifier("external-task-cancel")
@@ -80,7 +85,7 @@ final class ExternalTaskConfirmationController: NSObject, ExternalTaskConfirming
             scroll.widthAnchor.constraint(equalTo: stack.widthAnchor),
             scroll.heightAnchor.constraint(greaterThanOrEqualToConstant: 160),
             warning.widthAnchor.constraint(equalTo: stack.widthAnchor),
-            note.widthAnchor.constraint(equalTo: stack.widthAnchor)
+            note.widthAnchor.constraint(equalTo: stack.widthAnchor),
         ])
         window = panel
         panel.center()

@@ -26,8 +26,9 @@ public enum ClipsLineLayout {
         /// The point at `t` in 0...1 along the curve.
         public func point(at t: Double) -> Point {
             let u = 1 - t
-            return Point(x: u * u * start.x + 2 * u * t * control.x + t * t * end.x,
-                         y: u * u * start.y + 2 * u * t * control.y + t * t * end.y)
+            return Point(
+                x: u * u * start.x + 2 * u * t * control.x + t * t * end.x,
+                y: u * u * start.y + 2 * u * t * control.y + t * t * end.y)
         }
     }
 
@@ -36,9 +37,10 @@ public enum ClipsLineLayout {
     /// at twice the sag). Nil when the container is too narrow to draw a rope at all, such as before layout.
     public static func rope(width: Double) -> Rope? {
         guard width.isFinite, width > inset * 2 + 1 else { return nil }
-        return Rope(start: Point(x: inset, y: endY),
-                    control: Point(x: width / 2, y: endY + sag * 2),
-                    end: Point(x: width - inset, y: endY))
+        return Rope(
+            start: Point(x: inset, y: endY),
+            control: Point(x: width / 2, y: endY + sag * 2),
+            end: Point(x: width - inset, y: endY))
     }
 
     /// The click / double-click / drag hints only mean something once a clip is on the line.

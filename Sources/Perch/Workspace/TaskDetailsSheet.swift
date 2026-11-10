@@ -16,12 +16,16 @@ struct TaskDetailsSheet: View {
             let readOnly = (t.day.map { $0 < store.today }) ?? false
             VStack(alignment: .leading, spacing: 14) {
                 HStack {
-                    TextField("Title", text: textBinding(.title(t.id))).textFieldStyle(.plain).font(.system(size: 16, weight: .semibold))
-                        .focused($textField, equals: "title").onSubmit { store.flushPendingText() }
+                    TextField("Title", text: textBinding(.title(t.id))).textFieldStyle(.plain).font(
+                        .system(size: 16, weight: .semibold)
+                    )
+                    .focused($textField, equals: "title").onSubmit { store.flushPendingText() }
                     Spacer()
                     Button("Done") { if store.flushPendingText() { dismiss() } }.keyboardShortcut(.defaultAction)
                 }
-                if readOnly { Text("Older days stay unchanged in your history.").font(.caption).foregroundStyle(.secondary) }
+                if readOnly {
+                    Text("Older days stay unchanged in your history.").font(.caption).foregroundStyle(.secondary)
+                }
 
                 Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 10) {
                     GridRow {
@@ -43,14 +47,27 @@ struct TaskDetailsSheet: View {
                         label("Reminder")
                         HStack {
                             if let r = t.remindAt {
-                                DatePicker("", selection: Binding(get: { r }, set: { v in store.updateTask(t.id) { $0.remindAt = v; $0.day = store.dayKey(v) } }))
-                                    .labelsHidden()
+                                DatePicker(
+                                    "",
+                                    selection: Binding(
+                                        get: { r },
+                                        set: { v in
+                                            store.updateTask(t.id) {
+                                                $0.remindAt = v; $0.day = store.dayKey(v)
+                                            }
+                                        })
+                                )
+                                .labelsHidden()
                                 Button("Remove") { store.updateTask(t.id) { $0.remindAt = nil } }
                             } else {
                                 Button("Remind me") {
                                     let base = t.day?.date() ?? Date()
-                                    let at = max(Date().addingTimeInterval(3600), Calendar.current.date(bySettingHour: 9, minute: 0, second: 0, of: base)!)
-                                    store.updateTask(t.id) { $0.remindAt = at; $0.day = store.dayKey(at) }
+                                    let at = max(
+                                        Date().addingTimeInterval(3600),
+                                        Calendar.current.date(bySettingHour: 9, minute: 0, second: 0, of: base)!)
+                                    store.updateTask(t.id) {
+                                        $0.remindAt = at; $0.day = store.dayKey(at)
+                                    }
                                 }.disabled(t.day == nil || t.done)
                             }
                         }
@@ -59,23 +76,37 @@ struct TaskDetailsSheet: View {
                         label("Deadline")
                         HStack {
                             if let d = t.deadline {
-                                DatePicker("", selection: Binding(get: { d.date() }, set: { v in store.updateTask(t.id) { $0.deadline = DayKey(v) } }), displayedComponents: .date)
-                                    .labelsHidden()
+                                DatePicker(
+                                    "",
+                                    selection: Binding(
+                                        get: { d.date() },
+                                        set: { v in store.updateTask(t.id) { $0.deadline = DayKey(v) } }),
+                                    displayedComponents: .date
+                                )
+                                .labelsHidden()
                                 Button("Remove") { store.updateTask(t.id) { $0.deadline = nil } }
                             } else {
-                                Button("Add deadline") { store.updateTask(t.id) { $0.deadline = (t.day ?? store.today).adding(days: 2) } }
+                                Button("Add deadline") {
+                                    store.updateTask(t.id) { $0.deadline = (t.day ?? store.today).adding(days: 2) }
+                                }
                             }
                         }
                     }
                     GridRow {
                         label("Priority")
                         Picker("", selection: binding(\.priority, t)) {
-                            ForEach(TaskPriority.allCases.reversed(), id: \.self) { Text($0 == .none ? "None" : $0.rawValue.capitalized).tag($0) }
+                            ForEach(TaskPriority.allCases.reversed(), id: \.self) {
+                                Text($0 == .none ? "None" : $0.rawValue.capitalized).tag($0)
+                            }
                         }.pickerStyle(.segmented).labelsHidden()
                     }
                     GridRow {
                         label("Project")
-                        Picker("", selection: Binding(get: { t.projectID }, set: { v in store.updateTask(t.id) { $0.projectID = v } })) {
+                        Picker(
+                            "",
+                            selection: Binding(
+                                get: { t.projectID }, set: { v in store.updateTask(t.id) { $0.projectID = v } })
+                        ) {
                             Text("None").tag(UUID?.none)
                             ForEach(store.planner.projects) { p in Text("#\(p.name)").tag(UUID?.some(p.id)) }
                         }.labelsHidden().fixedSize()
@@ -94,7 +125,12 @@ struct TaskDetailsSheet: View {
                     }
                     GridRow {
                         label("Time limit")
-                        Stepper(value: Binding(get: { t.minutes ?? 0 }, set: { v in store.updateTask(t.id) { $0.minutes = v == 0 ? nil : v } }), in: 0...720, step: 5) {
+                        Stepper(
+                            value: Binding(
+                                get: { t.minutes ?? 0 },
+                                set: { v in store.updateTask(t.id) { $0.minutes = v == 0 ? nil : v } }), in: 0...720,
+                            step: 5
+                        ) {
                             Text(t.minutes.map { "\($0) min" } ?? "None").monospacedDigit()
                         }
                     }
@@ -105,11 +141,23 @@ struct TaskDetailsSheet: View {
                     label("Steps")
                     ForEach(t.steps) { s in
                         HStack {
-                            Toggle(isOn: Binding(get: { s.done }, set: { v in store.updateTask(t.id) { tt in
-                                if let i = tt.steps.firstIndex(where: { $0.id == s.id }) { tt.steps[i].done = v }
-                            } })) { Text(s.title).strikethrough(s.done) }
+                            Toggle(
+                                isOn: Binding(
+                                    get: { s.done },
+                                    set: { v in
+                                        store.updateTask(t.id) { tt in
+                                            if let i = tt.steps.firstIndex(where: { $0.id == s.id }) {
+                                                tt.steps[i].done = v
+                                            }
+                                        }
+                                    })
+                            ) { Text(s.title).strikethrough(s.done) }
                             Spacer()
-                            Button { store.updateTask(t.id) { $0.steps.removeAll { $0.id == s.id } } } label: { Image(systemName: "minus.circle") }.buttonStyle(.plain)
+                            Button {
+                                store.updateTask(t.id) { $0.steps.removeAll { $0.id == s.id } }
+                            } label: {
+                                Image(systemName: "minus.circle")
+                            }.buttonStyle(.plain)
                         }
                     }
                     TextField("Add a step", text: $newStep).textFieldStyle(.roundedBorder).onSubmit {
@@ -131,7 +179,9 @@ struct TaskDetailsSheet: View {
                 .disabled(readOnly)
 
                 HStack {
-                    if t.focusedSeconds > 0 { Text("Focused \(TimerText.short(t.focusedSeconds))").font(.caption).foregroundStyle(.secondary) }
+                    if t.focusedSeconds > 0 {
+                        Text("Focused \(TimerText.short(t.focusedSeconds))").font(.caption).foregroundStyle(.secondary)
+                    }
                     Spacer()
                     Button("Delete Task", role: .destructive) {
                         store.apply { try $0.delete(t.id.uuidString, on: t.day.map { .day($0) } ?? .inbox) }
@@ -150,7 +200,8 @@ struct TaskDetailsSheet: View {
     }
 
     func label(_ s: String) -> some View {
-        Text(s).font(.system(size: 11.5, weight: .semibold)).foregroundStyle(.secondary).frame(width: 74, alignment: .leading)
+        Text(s).font(.system(size: 11.5, weight: .semibold)).foregroundStyle(.secondary).frame(
+            width: 74, alignment: .leading)
     }
 
     func textBinding(_ target: PlannerStore.TextTarget) -> Binding<String> {
@@ -158,8 +209,9 @@ struct TaskDetailsSheet: View {
     }
 
     func binding<V>(_ kp: WritableKeyPath<PlanTask, V>, _ t: PlanTask) -> Binding<V> {
-        Binding(get: { store.planner.tasks.first { $0.id == t.id }?[keyPath: kp] ?? t[keyPath: kp] },
-                set: { v in store.updateTask(t.id) { $0[keyPath: kp] = v } })
+        Binding(
+            get: { store.planner.tasks.first { $0.id == t.id }?[keyPath: kp] ?? t[keyPath: kp] },
+            set: { v in store.updateTask(t.id) { $0[keyPath: kp] = v } })
     }
 
     func move(_ t: PlanTask, _ to: DayRef) {

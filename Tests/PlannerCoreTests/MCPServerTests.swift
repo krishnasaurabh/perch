@@ -7,8 +7,9 @@ final class MCPServerTests: XCTestCase {
 
     override func setUp() {
         dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-        let tools = AgentTools(file: PlannerFile(url: dir.appendingPathComponent("planner.json")),
-                               now: { Fixture.now }, calendar: Fixture.calendar)
+        let tools = AgentTools(
+            file: PlannerFile(url: dir.appendingPathComponent("planner.json")),
+            now: { Fixture.now }, calendar: Fixture.calendar)
         server = MCPServer(tools: tools, version: "test")
     }
 
@@ -18,13 +19,17 @@ final class MCPServerTests: XCTestCase {
     }
 
     func call(_ name: String, _ args: JSON = [:]) -> (String, Bool) {
-        let r = server.handle(["jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": ["name": .string(name), "arguments": args]])!
+        let r = server.handle([
+            "jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": ["name": .string(name), "arguments": args],
+        ])!
         let content = r["result"]!["content"]!.array![0]["text"]!.string!
         return (content, r["result"]!["isError"]!.bool!)
     }
 
     func testInitializeNegotiatesVersion() {
-        let r = server.handle(["jsonrpc": "2.0", "id": 0, "method": "initialize", "params": ["protocolVersion": "2025-03-26"]])!
+        let r = server.handle([
+            "jsonrpc": "2.0", "id": 0, "method": "initialize", "params": ["protocolVersion": "2025-03-26"],
+        ])!
         XCTAssertEqual(r["result"]?["protocolVersion"]?.string, "2025-03-26")
         XCTAssertEqual(r["result"]?["serverInfo"]?["name"]?.string, "perch")
         XCTAssertNil(server.handle(["jsonrpc": "2.0", "method": "notifications/initialized"]))
@@ -33,18 +38,23 @@ final class MCPServerTests: XCTestCase {
     func testToolsListHasEveryTool() {
         let r = server.handle(["jsonrpc": "2.0", "id": 2, "method": "tools/list"])!
         let names = r["result"]!["tools"]!.array!.compactMap { $0["name"]?.string }
-        XCTAssertEqual(Set(names), [
-            "add_tasks", "list_tasks", "get_task", "complete_task", "reopen_task", "rename_task", "delete_task",
-            "move_task", "update_task", "snooze_reminder", "start_timer", "pause_timer", "resume_timer", "stop_timer",
-            "read_notepad", "write_notepad", "get_insights", "list_projects",
-        ])
+        XCTAssertEqual(
+            Set(names),
+            [
+                "add_tasks", "list_tasks", "get_task", "complete_task", "reopen_task", "rename_task", "delete_task",
+                "move_task", "update_task", "snooze_reminder", "start_timer", "pause_timer", "resume_timer",
+                "stop_timer",
+                "read_notepad", "write_notepad", "get_insights", "list_projects",
+            ])
     }
 
     func testAgentFlow() {
-        var (text, err) = call("add_tasks", ["titles": ["text dad tomorrow at 5pm !high #home", "finish the report", "gym"]])
+        var (text, err) = call(
+            "add_tasks", ["titles": ["text dad tomorrow at 5pm !high #home", "finish the report", "gym"]])
         XCTAssertFalse(err); XCTAssertTrue(text.contains("Added 3 tasks"), text)
         (text, _) = call("list_tasks")
-        XCTAssertTrue(text.contains("finish the report")); XCTAssertTrue(text.contains("Planned ahead: 2026-11-10 (1)"), text)
+        XCTAssertTrue(text.contains("finish the report"));
+        XCTAssertTrue(text.contains("Planned ahead: 2026-11-10 (1)"), text)
         (text, _) = call("list_tasks", ["date": "tomorrow"])
         XCTAssertTrue(text.contains("text dad") && text.contains("high priority") && text.contains("#Home"), text)
         (text, err) = call("start_timer", ["task": "gym", "minutes": 30])
@@ -55,7 +65,12 @@ final class MCPServerTests: XCTestCase {
         XCTAssertFalse(err)
         (text, err) = call("stop_timer")
         XCTAssertTrue(err); XCTAssertEqual(text, "Start a focus session first.")
-        (text, err) = call("update_task", ["task": "finish the report", "steps": ["outline", "draft"], "done_steps": ["outline"], "remind_at": "in 20 minutes"])
+        (text, err) = call(
+            "update_task",
+            [
+                "task": "finish the report", "steps": ["outline", "draft"], "done_steps": ["outline"],
+                "remind_at": "in 20 minutes",
+            ])
         XCTAssertFalse(err, text); XCTAssertTrue(text.contains("[x] outline") && text.contains("15:20"), text)
         (text, err) = call("write_notepad", ["text": "ideas: weekly review"])
         XCTAssertFalse(err)
@@ -101,7 +116,8 @@ final class MCPServerTests: XCTestCase {
             }
             let (text, error) = call("snooze_reminder", ["task": "bounds probe", "minutes": value])
             XCTAssertFalse(error, text)
-            XCTAssertEqual(try file.load().tasks.first?.remindAt, Fixture.now.addingTimeInterval(Double(value.int!) * 60))
+            XCTAssertEqual(
+                try file.load().tasks.first?.remindAt, Fixture.now.addingTimeInterval(Double(value.int!) * 60))
         }
         for name in ["start_timer", "snooze_reminder"] {
             let (_, error) = call(name, ["task": "bounds probe", "minutes": 0])
@@ -116,9 +132,10 @@ final class MCPServerTests: XCTestCase {
     }
 
     func testNonJSONNumbersReturnParseErrorsWithoutStoppingStdio() throws {
-        let lines = ["NaN", "Infinity", "-Infinity", "1e999"].map {
-            "{\"id\":1,\"method\":\"tools/call\",\"params\":{\"name\":\"start_timer\",\"arguments\":{\"minutes\":\($0)}}}"
-        } + [#"{"id":2,"method":"ping"}"#]
+        let lines =
+            ["NaN", "Infinity", "-Infinity", "1e999"].map {
+                "{\"id\":1,\"method\":\"tools/call\",\"params\":{\"name\":\"start_timer\",\"arguments\":{\"minutes\":\($0)}}}"
+            } + [#"{"id":2,"method":"ping"}"#]
         let input = Pipe(), output = Pipe()
         input.fileHandleForWriting.write(Data((lines.joined(separator: "\n") + "\n").utf8))
         input.fileHandleForWriting.closeFile()

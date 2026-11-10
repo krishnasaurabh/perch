@@ -145,8 +145,9 @@ final class FocusSessionEdgeTests: XCTestCase {
         let segments = engine.planner.focusSegments
         XCTAssertEqual(segments.count, 3)
         XCTAssertEqual(segments.map(\.start), [t0, at(180), at(190)])
-        XCTAssertEqual(segments.map(\.end), [at(10), at(190), at(195)],
-                       "exclude the paused gap and cap the final tail at the countdown limit")
+        XCTAssertEqual(
+            segments.map(\.end), [at(10), at(190), at(195)],
+            "exclude the paused gap and cap the final tail at the countdown limit")
         XCTAssertEqual(segments.map(\.seconds), [600, 600, 300])
         XCTAssertTrue(segments.allSatisfy { $0.taskID == engine.planner.tasks[0].id })
         for (previous, next) in zip(segments, segments.dropFirst()) {
@@ -325,7 +326,8 @@ final class FocusSessionEdgeTests: XCTestCase {
         let task = try engine.addTasks(["a"]).first!
         _ = engine.startStopwatch(taskID: task.id)
         setClock(60)
-        XCTAssertEqual(engine.insights().today.focusSeconds, 3600, accuracy: 1, "a running session shows up in Insights")
+        XCTAssertEqual(
+            engine.insights().today.focusSeconds, 3600, accuracy: 1, "a running session shows up in Insights")
         engine.stopTimer()
         XCTAssertEqual(engine.planner.tasks[0].focusedSeconds, 3600, accuracy: 1)
         XCTAssertEqual(engine.insights().today.focusSeconds, 3600, accuracy: 1)

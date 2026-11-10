@@ -12,7 +12,9 @@ public enum DayRef: Equatable, Sendable {
     case day(DayKey)
     case inbox
 
-    public static func parse(_ s: String?, now: Date, resetHour: Int = 0, calendar: Calendar = .current, allowInbox: Bool = true) throws -> DayRef {
+    public static func parse(
+        _ s: String?, now: Date, resetHour: Int = 0, calendar: Calendar = .current, allowInbox: Bool = true
+    ) throws -> DayRef {
         let today = DayKey(now, resetHour: resetHour, calendar: calendar)
         guard let raw = s?.trimmingCharacters(in: .whitespaces).lowercased(), !raw.isEmpty else { return .day(today) }
         switch raw {
@@ -21,7 +23,9 @@ public enum DayRef: Equatable, Sendable {
         case "yesterday": return .day(today.adding(days: -1, calendar: calendar))
         case "inbox" where allowInbox: return .inbox
         default:
-            guard let d = DayKey(raw) else { throw PlannerError("Enter a yyyy-MM-dd date or use today, tomorrow, yesterday.") }
+            guard let d = DayKey(raw) else {
+                throw PlannerError("Enter a yyyy-MM-dd date or use today, tomorrow, yesterday.")
+            }
             return .day(d)
         }
     }
@@ -97,11 +101,17 @@ public struct PlannerEngine {
         if let id = UUID(uuidString: trimmed), let i = planner.tasks.firstIndex(where: { $0.id == id }) { return i }
         // Short ids (first 8 hex chars) are what list_tasks shows.
         let lower = trimmed.lowercased()
-        if lower.count >= 6, let i = planner.tasks.firstIndex(where: { $0.id.uuidString.lowercased().hasPrefix(lower) }) { return i }
-        let pool = planner.tasks.indices.filter { day == .inbox ? planner.tasks[$0].day == nil : planner.tasks[$0].day == day.key }
+        if lower.count >= 6, let i = planner.tasks.firstIndex(where: { $0.id.uuidString.lowercased().hasPrefix(lower) })
+        {
+            return i
+        }
+        let pool = planner.tasks.indices.filter {
+            day == .inbox ? planner.tasks[$0].day == nil : planner.tasks[$0].day == day.key
+        }
         let exact = pool.filter { planner.tasks[$0].title.caseInsensitiveCompare(trimmed) == .orderedSame }
         if exact.count == 1 { return exact[0] }
-        let fuzzy = exact.isEmpty ? pool.filter { planner.tasks[$0].title.localizedCaseInsensitiveContains(trimmed) } : exact
+        let fuzzy =
+            exact.isEmpty ? pool.filter { planner.tasks[$0].title.localizedCaseInsensitiveContains(trimmed) } : exact
         if fuzzy.count == 1 { return fuzzy[0] }
         if fuzzy.count > 1 {
             let names = fuzzy.prefix(5).map { "\"\(planner.tasks[$0].title)\"" }.joined(separator: ", ")
@@ -119,9 +129,13 @@ public struct PlannerEngine {
 
     /// Adds tasks to the end of a day's list (or the Inbox). Each title is parsed like typing it.
     @discardableResult
-    public mutating func addTasks(_ titles: [String], on day: DayRef? = nil, literal: Bool = false, agentID: String? = nil) throws -> [PlanTask] {
-        let lines = titles.flatMap { literal ? [$0.trimmingCharacters(in: .whitespacesAndNewlines)] : TaskCapture.splitLines($0) }
-            .filter { !$0.isEmpty }
+    public mutating func addTasks(
+        _ titles: [String], on day: DayRef? = nil, literal: Bool = false, agentID: String? = nil
+    ) throws -> [PlanTask] {
+        let lines = titles.flatMap {
+            literal ? [$0.trimmingCharacters(in: .whitespacesAndNewlines)] : TaskCapture.splitLines($0)
+        }
+        .filter { !$0.isEmpty }
         guard !lines.isEmpty else { throw PlannerError("Add at least one task title with text.") }
         if let d = day?.key, d < today { throw PlannerError("Can't add tasks on \(d). Choose today or a later date.") }
         let capture = TaskCapture(now: now(), resetHour: planner.preferences.resetHour, calendar: calendar)
@@ -134,7 +148,13 @@ public struct PlannerEngine {
                     throw PlannerError("Add at least one task title with text.")
                 }
                 task.title = c.title
-                if c.inbox { task.day = nil } else if let d = c.day { task.day = d } else if day == .inbox { task.day = nil }
+                if c.inbox {
+                    task.day = nil
+                } else if let d = c.day {
+                    task.day = d
+                } else if day == .inbox {
+                    task.day = nil
+                }
                 if let d = task.day, d < today { throw PlannerError("Choose today or a later date for new tasks.") }
                 task.remindAt = task.day == nil ? nil : c.remindAt
                 task.deadline = c.deadline
@@ -172,7 +192,9 @@ public struct PlannerEngine {
 
     public mutating func complete(_ ref: String, on day: DayRef = .day(DayKey("1970-01-01"))) throws -> PlanTask {
         let i = try index(of: ref, on: resolved(day))
-        guard planner.tasks[i].day == today else { throw PlannerError("Reschedule this task for today before completing it.") }
+        guard planner.tasks[i].day == today else {
+            throw PlannerError("Reschedule this task for today before completing it.")
+        }
         guard !planner.tasks[i].done else { throw PlannerError("Already completed: \(planner.tasks[i].title).") }
         // Stop the timer first so its focus time lands on the task before we copy it.
         if planner.focus?.taskID == planner.tasks[i].id, planner.focus?.state != .finished { _ = stopTimer() }
@@ -180,7 +202,9 @@ public struct PlannerEngine {
         var t = planner.tasks[i]
         t.done = true
         t.completedAt = now()
-        t.steps = t.steps.map { var s = $0; s.done = true; return s }
+        t.steps = t.steps.map {
+            var s = $0; s.done = true; return s
+        }
         planner.tasks[i] = t
         if let nextDay = nextRepeatDay(for: t) { _ = materializeRepeat(t, on: nextDay) }
         return planner.tasks[i]
@@ -229,7 +253,8 @@ public struct PlannerEngine {
             guard t.day != d else { throw PlannerError("No move needed: \(t.title) is scheduled for \(d).") }
             if let r = t.remindAt {
                 let c = calendar.dateComponents([.hour, .minute], from: r)
-                t.remindAt = d.reminderDate(hour: c.hour!, minute: c.minute!, resetHour: planner.preferences.resetHour, calendar: calendar)
+                t.remindAt = d.reminderDate(
+                    hour: c.hour!, minute: c.minute!, resetHour: planner.preferences.resetHour, calendar: calendar)
             }
             t.day = d
         }
@@ -250,7 +275,9 @@ public struct PlannerEngine {
 
     public mutating func update(_ ref: String, on day: DayRef, _ e: TaskEdit) throws -> PlanTask {
         guard !e.isEmpty else {
-            throw PlannerError("Supply a field to update: title, notes, priority, project, remind_at, deadline, repeat, minutes, steps or done_steps.")
+            throw PlannerError(
+                "Supply a field to update: title, notes, priority, project, remind_at, deadline, repeat, minutes, steps or done_steps."
+            )
         }
         let i = try index(of: ref, on: resolved(day))
         preserveRepeatAnchor(of: planner.tasks[i].id)
@@ -264,8 +291,12 @@ public struct PlannerEngine {
             t.title = clean
         }
         if let r = e.remindAt {
-            if r.lowercased() == "none" { t.remindAt = nil } else {
-                guard let d = t.day else { throw PlannerError("Schedule \(t.title) on a date before adding reminders or repeats.") }
+            if r.lowercased() == "none" {
+                t.remindAt = nil
+            } else {
+                guard let d = t.day else {
+                    throw PlannerError("Schedule \(t.title) on a date before adding reminders or repeats.")
+                }
                 guard !t.done else { throw PlannerError("Reopen \(t.title) before setting a reminder.") }
                 let at = try parseReminder(r, on: d)
                 guard at > now() else { throw PlannerError("Choose a reminder after now; \(r) is in the past.") }
@@ -274,13 +305,19 @@ public struct PlannerEngine {
             }
         }
         if let d = e.deadline {
-            if d.lowercased() == "none" { t.deadline = nil } else {
-                guard let k = DayKey(d) else { throw PlannerError("For deadline, enter yyyy-MM-dd or none to clear it.") }
+            if d.lowercased() == "none" {
+                t.deadline = nil
+            } else {
+                guard let k = DayKey(d) else {
+                    throw PlannerError("For deadline, enter yyyy-MM-dd or none to clear it.")
+                }
                 t.deadline = k
             }
         }
         if let p = e.priority {
-            guard let v = TaskPriority(rawValue: p.lowercased()) else { throw PlannerError("Choose priority from: none, low, medium, high.") }
+            guard let v = TaskPriority(rawValue: p.lowercased()) else {
+                throw PlannerError("Choose priority from: none, low, medium, high.")
+            }
             t.priority = v
         }
         if let p = e.project {
@@ -289,7 +326,9 @@ public struct PlannerEngine {
         if let n = e.notes { t.notes = n }
         if let r = e.repeatRule {
             guard let parsed = TaskRepeat.parseRule(r) else {
-                throw PlannerError("Repeat rule not recognized: \(r). Use daily, weekdays, weekly, monthly, every 2 weeks, every tue, thu, every! 4 days, or none.")
+                throw PlannerError(
+                    "Repeat rule not recognized: \(r). Use daily, weekdays, weekly, monthly, every 2 weeks, every tue, thu, every! 4 days, or none."
+                )
             }
             if parsed != nil && t.day == nil {
                 throw PlannerError("Schedule \(t.title) on a date before adding reminders or repeats.")
@@ -305,7 +344,9 @@ public struct PlannerEngine {
             t.repeatRule = parsed
         }
         if let m = e.minutes {
-            guard m == 0 || (1...720).contains(m) else { throw PlannerError("Set minutes to an integer from 1 to 720, or 0 to clear the limit.") }
+            guard m == 0 || (1...720).contains(m) else {
+                throw PlannerError("Set minutes to an integer from 1 to 720, or 0 to clear the limit.")
+            }
             if t.done && m > 0 { throw PlannerError("Reopen \(t.title) before setting a time limit.") }
             t.minutes = m == 0 ? nil : m
         }
@@ -329,9 +370,13 @@ public struct PlannerEngine {
     }
 
     public mutating func snooze(_ ref: String, minutes: Int = 5) throws -> PlanTask {
-        guard (1...1440).contains(minutes) else { throw PlannerError("Set the snooze delay to an integer from 1 to 1440 minutes.") }
+        guard (1...1440).contains(minutes) else {
+            throw PlannerError("Set the snooze delay to an integer from 1 to 1440 minutes.")
+        }
         let i = try index(of: ref, on: .day(today))
-        guard planner.tasks[i].day != nil else { throw PlannerError("Schedule \(planner.tasks[i].title) on a date before snoozing it.") }
+        guard planner.tasks[i].day != nil else {
+            throw PlannerError("Schedule \(planner.tasks[i].title) on a date before snoozing it.")
+        }
         guard !planner.tasks[i].done else { throw PlannerError("Already completed: \(planner.tasks[i].title).") }
         preserveRepeatAnchor(of: planner.tasks[i].id)
         let at = now().addingTimeInterval(Double(minutes) * 60)
@@ -357,7 +402,8 @@ public struct PlannerEngine {
         let withAt = t.range(of: "^\\d", options: .regularExpression) != nil ? "at " + t : t
         if let (time, _) = cap.matchTime(in: withAt) {
             let d = cap.matchDay(in: withAt, anchoredAt: nil)?.0 ?? day
-            return d.reminderDate(hour: time.h, minute: time.m, resetHour: planner.preferences.resetHour, calendar: calendar)
+            return d.reminderDate(
+                hour: time.h, minute: time.m, resetHour: planner.preferences.resetHour, calendar: calendar)
         }
         throw PlannerError("Time not recognized: \(s). Try 18:15, 6:15 pm, 2026-12-01 18:15 or in 15 minutes.")
     }
@@ -395,7 +441,9 @@ public struct PlannerEngine {
         for i in planner.tasks.indices where eligible.contains(planner.tasks[i].id) {
             planner.tasks[i].done = true
             planner.tasks[i].completedAt = completedAt
-            planner.tasks[i].steps = planner.tasks[i].steps.map { var s = $0; s.done = true; return s }
+            planner.tasks[i].steps = planner.tasks[i].steps.map {
+                var s = $0; s.done = true; return s
+            }
             completed.append(planner.tasks[i])
         }
         return completed
@@ -423,8 +471,11 @@ public struct PlannerEngine {
         for id in ids {
             preserveRepeatAnchor(of: id)
             guard let t = planner.tasks.first(where: { $0.id == id }), let from = t.day,
-                  from < day, !t.done, !planner.dismissedOverdue.contains(id) else { continue }
-            if t.repeatRule != nil && planner.tasks.contains(where: { $0.repeatSeriesID == t.repeatSeriesID && $0.day == day }) {
+                from < day, !t.done, !planner.dismissedOverdue.contains(id)
+            else { continue }
+            if t.repeatRule != nil
+                && planner.tasks.contains(where: { $0.repeatSeriesID == t.repeatSeriesID && $0.day == day })
+            {
                 dismissOverdue([id])
                 continue
             }
@@ -448,13 +499,19 @@ public struct PlannerEngine {
 
     @discardableResult
     public mutating func startTimer(task ref: String?, minutes: Int?) throws -> FocusSession {
-        if let m = minutes, !(1...720).contains(m) { throw PlannerError("Set the timer to an integer from 1 to 720 minutes.") }
+        if let m = minutes, !(1...720).contains(m) {
+            throw PlannerError("Set the timer to an integer from 1 to 720 minutes.")
+        }
         var taskID: UUID?
         var limit: Int? = minutes
         if let ref, !ref.isEmpty {
             let i = try index(of: ref, on: .day(today))
-            guard planner.tasks[i].day == today else { throw PlannerError("Schedule this task for today before starting focus.") }
-            guard !planner.tasks[i].done else { throw PlannerError("Reopen this task before starting focus: \(planner.tasks[i].title).") }
+            guard planner.tasks[i].day == today else {
+                throw PlannerError("Schedule this task for today before starting focus.")
+            }
+            guard !planner.tasks[i].done else {
+                throw PlannerError("Reopen this task before starting focus: \(planner.tasks[i].title).")
+            }
             taskID = planner.tasks[i].id
             if let m = minutes { planner.tasks[i].minutes = m }
             limit = minutes ?? planner.tasks[i].minutes ?? planner.preferences.defaultFocusMinutes
@@ -566,13 +623,17 @@ public struct PlannerEngine {
         guard text.count <= 20_000 else { throw PlannerError("Enter note text using 20000 characters or fewer.") }
         let current = notepad(on: day)
         let next = mode == "replace" ? text : (current.isEmpty ? text : current + "\n" + text)
-        if let i = planner.notes.firstIndex(where: { $0.day == day }) { planner.notes[i].text = next } else {
+        if let i = planner.notes.firstIndex(where: { $0.day == day }) {
+            planner.notes[i].text = next
+        } else {
             planner.notes.append(QuickNote(day: day, text: next))
         }
     }
 
     public mutating func setNotepad(on day: DayKey, text: String) {
-        if let i = planner.notes.firstIndex(where: { $0.day == day }) { planner.notes[i].text = text } else {
+        if let i = planner.notes.firstIndex(where: { $0.day == day }) {
+            planner.notes[i].text = text
+        } else {
             planner.notes.append(QuickNote(day: day, text: text))
         }
     }
@@ -592,10 +653,14 @@ public struct PlannerEngine {
         func summary(_ d: DayKey) -> Insights.Day {
             let ts = planner.tasks.filter { $0.day == d }
             let start = d.start(resetHour: planner.preferences.resetHour, calendar: calendar)
-            let end = d.adding(days: 1, calendar: calendar).start(resetHour: planner.preferences.resetHour, calendar: calendar)
-            let focus = focusActivity.reduce(0) { $0 + max(0, min($1.end, end).timeIntervalSince(max($1.start, start))) }
-            return .init(day: d, planned: ts.count, completed: ts.filter(\.done).count,
-                         focusSeconds: focus, completedCalendarEvents: calendarCompletions[d, default: 0])
+            let end = d.adding(days: 1, calendar: calendar).start(
+                resetHour: planner.preferences.resetHour, calendar: calendar)
+            let focus = focusActivity.reduce(0) {
+                $0 + max(0, min($1.end, end).timeIntervalSince(max($1.start, start)))
+            }
+            return .init(
+                day: d, planned: ts.count, completed: ts.filter(\.done).count,
+                focusSeconds: focus, completedCalendarEvents: calendarCompletions[d, default: 0])
         }
         let last = (0..<7).reversed().map { summary(today.adding(days: -$0, calendar: calendar)) }
         let prev = (7..<14).reversed().map { summary(today.adding(days: -$0, calendar: calendar)) }
@@ -607,7 +672,11 @@ public struct PlannerEngine {
         while true {
             let weekend = [1, 7].contains(d.weekday(calendar: calendar))
             let s = summary(d)
-            if s.completed > 0 { streak += 1 } else if !(weekend && !planner.preferences.includeWeekendsInStreak) { break }
+            if s.completed > 0 {
+                streak += 1
+            } else if !(weekend && !planner.preferences.includeWeekendsInStreak) {
+                break
+            }
             d = d.adding(days: -1, calendar: calendar)
             if streak > 3650 { break }
         }

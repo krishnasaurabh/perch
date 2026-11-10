@@ -37,8 +37,11 @@ final class StorageCalendarTests: XCTestCase {
             var calendar = Calendar(identifier: identifier)
             calendar.timeZone = Fixture.calendar.timeZone
             calendar.locale = Locale(identifier: "th_TH")
-            XCTAssertEqual(TaskCapture(now: now, calendar: calendar).parse("Plan on november 20"), expectedCapture, "\(identifier)")
-            XCTAssertEqual(TaskRepeat.monthly.next(after: day, completed: day, calendar: calendar), expectedNext, "\(identifier)")
+            XCTAssertEqual(
+                TaskCapture(now: now, calendar: calendar).parse("Plan on november 20"), expectedCapture, "\(identifier)"
+            )
+            XCTAssertEqual(
+                TaskRepeat.monthly.next(after: day, completed: day, calendar: calendar), expectedNext, "\(identifier)")
             var planner = Planner()
             planner.tasks = [PlanTask(title: "Monthly", day: day, createdAt: now, repeatRule: .monthly)]
             let engine = PlannerEngine(planner: planner, now: { now }, calendar: calendar)
@@ -56,16 +59,22 @@ final class StorageCalendarTests: XCTestCase {
                 ("2026-03-08T10:00:00Z", "2026-03-08"),
                 ("2026-11-01T08:30:00Z", "2026-10-31"),
                 ("2026-11-01T09:30:00Z", "2026-10-31"),
-                ("2026-11-01T10:00:00Z", "2026-11-01")
+                ("2026-11-01T10:00:00Z", "2026-11-01"),
             ] {
                 let date = try XCTUnwrap(clock.date(from: instant))
-                XCTAssertEqual(DayKey(date, resetHour: 2, calendar: calendar).raw, expected, "\(identifier): \(instant)")
+                XCTAssertEqual(
+                    DayKey(date, resetHour: 2, calendar: calendar).raw, expected, "\(identifier): \(instant)")
             }
             let spring: DayKey = "2026-03-08"
             let fall: DayKey = "2026-11-01"
-            XCTAssertEqual(spring.adding(days: 1, calendar: calendar).date(calendar: calendar).timeIntervalSince(spring.date(calendar: calendar)), 23 * 3600)
-            XCTAssertEqual(fall.adding(days: 1, calendar: calendar).date(calendar: calendar).timeIntervalSince(fall.date(calendar: calendar)), 25 * 3600)
-            XCTAssertEqual(DayKey(spring.start(resetHour: 2, calendar: calendar), resetHour: 2, calendar: calendar), spring)
+            XCTAssertEqual(
+                spring.adding(days: 1, calendar: calendar).date(calendar: calendar).timeIntervalSince(
+                    spring.date(calendar: calendar)), 23 * 3600)
+            XCTAssertEqual(
+                fall.adding(days: 1, calendar: calendar).date(calendar: calendar).timeIntervalSince(
+                    fall.date(calendar: calendar)), 25 * 3600)
+            XCTAssertEqual(
+                DayKey(spring.start(resetHour: 2, calendar: calendar), resetHour: 2, calendar: calendar), spring)
             XCTAssertEqual(DayKey(fall.start(resetHour: 2, calendar: calendar), resetHour: 2, calendar: calendar), fall)
         }
     }

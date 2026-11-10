@@ -9,7 +9,8 @@ final class MCPEdgeTests: XCTestCase {
 
     override func setUp() {
         super.setUp()
-        dir = FileManager.default.temporaryDirectory.appendingPathComponent("perch-mcp-\(UUID().uuidString)", isDirectory: true)
+        dir = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "perch-mcp-\(UUID().uuidString)", isDirectory: true)
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         url = dir.appendingPathComponent("planner.json")
         let tools = AgentTools(file: PlannerFile(url: url), now: { Fixture.now }, calendar: Fixture.calendar)
@@ -26,7 +27,9 @@ final class MCPEdgeTests: XCTestCase {
     private func response(_ message: JSON) -> JSON? { server.handle(message) }
 
     private func call(_ name: String, _ args: JSON = [:]) -> (text: String, isError: Bool) {
-        let message: JSON = ["jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": ["name": .string(name), "arguments": args]]
+        let message: JSON = [
+            "jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": ["name": .string(name), "arguments": args],
+        ]
         let r = response(message)!
         if let error = r["error"] {
             return (error["message"]?.string ?? "no message", true)
@@ -58,8 +61,10 @@ final class MCPEdgeTests: XCTestCase {
     // MARK: Numeric safety and read-only storage
 
     func testIntegerDecodingRejectsNonFiniteFractionalAndOverflowValues() {
-        let invalid: [Double] = [.nan, .infinity, -.infinity, 1e19, -1e19,
-                                 Double(Int.max), Double(Int.min).nextDown, 0.5]
+        let invalid: [Double] = [
+            .nan, .infinity, -.infinity, 1e19, -1e19,
+            Double(Int.max), Double(Int.min).nextDown, 0.5,
+        ]
         for value in invalid { XCTAssertNil(JSON.number(value).int, "\(value)") }
         XCTAssertEqual(JSON.number(Double(Int.min)).int, Int.min)
         XCTAssertEqual(JSON.number(Double(Int.max).nextDown).int, Int(exactly: Double(Int.max).nextDown))
@@ -75,20 +80,27 @@ final class MCPEdgeTests: XCTestCase {
         let modified = try FileManager.default.attributesOfItem(atPath: url.path)[.modificationDate] as? Date
         var notifications = 0
         server.onChange = { notifications += 1 }
-        let invalid: [JSON] = [.number(.nan), .number(.infinity), .number(-.infinity),
-                               .number(1e19), .number(-1e19), .number(Double(Int.max)),
-                               .number(Double(Int.min)), .number(1.5), -1,
-                               "NaN", "Infinity", "1e19", "1.5", .null, true, [], [:]]
+        let invalid: [JSON] = [
+            .number(.nan), .number(.infinity), .number(-.infinity),
+            .number(1e19), .number(-1e19), .number(Double(Int.max)),
+            .number(Double(Int.min)), .number(1.5), -1,
+            "NaN", "Infinity", "1e19", "1.5", .null, true, [], [:],
+        ]
         for name in ["start_timer", "snooze_reminder", "update_task"] {
             let maximum = name == "snooze_reminder" ? 1440 : 720
             for value in invalid + [.number(Double(maximum + 1))] {
-                let reply = response(callMessage(name, arguments: ["task": "numeric probe", "minutes": value, "notes": "must not persist"]))
+                let reply = response(
+                    callMessage(
+                        name, arguments: ["task": "numeric probe", "minutes": value, "notes": "must not persist"]))
                 XCTAssertNil(reply?["error"], name)
                 XCTAssertEqual(reply?["result"]?["isError"]?.bool, true, "\(name): \(value)")
                 XCTAssertEqual(reply?["result"]?["content"]?.array?.first?["type"]?.string, "text")
-                XCTAssertTrue(reply?["result"]?["content"]?.array?.first?["text"]?.string?.contains("Invalid argument 'minutes'") ?? false)
+                XCTAssertTrue(
+                    reply?["result"]?["content"]?.array?.first?["text"]?.string?.contains("Invalid argument 'minutes'")
+                        ?? false)
                 XCTAssertEqual(try Data(contentsOf: url), before, name)
-                XCTAssertEqual(try FileManager.default.attributesOfItem(atPath: url.path)[.modificationDate] as? Date, modified)
+                XCTAssertEqual(
+                    try FileManager.default.attributesOfItem(atPath: url.path)[.modificationDate] as? Date, modified)
                 XCTAssertEqual(response(["id": 2, "method": "ping"])?["result"], [:])
             }
         }
@@ -96,9 +108,11 @@ final class MCPEdgeTests: XCTestCase {
     }
 
     private var invalidTimerTasks: [JSON] {
-        [0, 42, -1, .number(1.5), .number(1e19), .number(-1e19),
-         .number(1e308), .number(-1e308), true, false, .null, [], ["task"],
-         [:], ["id": "task"], "", " \t\r\n", "\u{00a0}"]
+        [
+            0, 42, -1, .number(1.5), .number(1e19), .number(-1e19),
+            .number(1e308), .number(-1e308), true, false, .null, [], ["task"],
+            [:], ["id": "task"], "", " \t\r\n", "\u{00a0}",
+        ]
     }
 
     private struct StorageEntry: Equatable {
@@ -137,7 +151,9 @@ final class MCPEdgeTests: XCTestCase {
             XCTAssertNil(reply?["error"], "\(value)")
             XCTAssertEqual(reply?["result"]?["isError"]?.bool, true, "\(value)")
             XCTAssertEqual(reply?["result"]?["content"]?.array?.first?["type"]?.string, "text")
-            XCTAssertTrue(reply?["result"]?["content"]?.array?.first?["text"]?.string?.contains("Invalid argument 'task'") ?? false)
+            XCTAssertTrue(
+                reply?["result"]?["content"]?.array?.first?["text"]?.string?.contains("Invalid argument 'task'")
+                    ?? false)
             XCTAssertEqual(try storageSnapshot(), before, "\(value)")
             XCTAssertEqual(try storedPlanner().focus, active)
             XCTAssertEqual(notifications, 0)
@@ -166,7 +182,9 @@ final class MCPEdgeTests: XCTestCase {
     func testTimerTaskOmissionAndStringReferencesRemainSupported() throws {
         XCTAssertFalse(call("add_tasks", ["titles": ["valid focus task"]]).isError)
         let task = try XCTUnwrap(storedPlanner().tasks.first)
-        for reference in [task.id.uuidString, String(task.id.uuidString.prefix(8)).lowercased(), task.title, "valid focus"] {
+        for reference in [
+            task.id.uuidString, String(task.id.uuidString.prefix(8)).lowercased(), task.title, "valid focus",
+        ] {
             XCTAssertFalse(call("start_timer", ["task": .string(reference), "minutes": 5]).isError, reference)
             XCTAssertEqual(try storedPlanner().focus?.taskID, task.id)
             XCTAssertEqual(try storedPlanner().focus?.limit, 300)
@@ -184,9 +202,10 @@ final class MCPEdgeTests: XCTestCase {
         let before = try storageSnapshot()
         var notifications = 0
         server.onChange = { notifications += 1 }
-        let batch = JSON.array(invalidTimerTasks.map {
-            callMessage("start_timer", arguments: ["task": $0, "minutes": 5])
-        } + [["id": 2, "method": "ping"]])
+        let batch = JSON.array(
+            invalidTimerTasks.map {
+                callMessage("start_timer", arguments: ["task": $0, "minutes": 5])
+            } + [["id": 2, "method": "ping"]])
         let out = runLines([String(decoding: batch.data(), as: UTF8.self), #"{"id":3,"method":"ping"}"#])
         XCTAssertEqual(out.count, 2)
         let replies = try XCTUnwrap(JSON.parse(Data(out[0].utf8)).array)
@@ -199,7 +218,9 @@ final class MCPEdgeTests: XCTestCase {
         XCTAssertEqual(try JSON.parse(Data(out[1].utf8))["id"]?.int, 3)
         XCTAssertEqual(try storageSnapshot(), before)
         XCTAssertEqual(notifications, 0)
-        let valid = runLines([#"{"id":4,"method":"tools/call","params":{"name":"start_timer","arguments":{"task":"batch focus task","minutes":5}}}"#])
+        let valid = runLines([
+            #"{"id":4,"method":"tools/call","params":{"name":"start_timer","arguments":{"task":"batch focus task","minutes":5}}}"#
+        ])
         XCTAssertEqual(try JSON.parse(Data(valid[0].utf8))["result"]?["isError"]?.bool, false)
         XCTAssertEqual(try storedPlanner().focus?.taskID, try storedPlanner().tasks.first?.id)
         XCTAssertEqual(try storedPlanner().focus?.limit, 300)
@@ -207,16 +228,24 @@ final class MCPEdgeTests: XCTestCase {
     }
 
     func testNumericTaskReferencesRejectOverflowWithoutTrapping() {
-        for name in ["get_task", "complete_task", "reopen_task", "rename_task", "delete_task", "move_task", "update_task", "snooze_reminder"] {
-            let reply = response(callMessage(name, arguments: ["task": .number(1e19), "title": "replacement", "to": "inbox", "minutes": 5]))
+        for name in [
+            "get_task", "complete_task", "reopen_task", "rename_task", "delete_task", "move_task", "update_task",
+            "snooze_reminder",
+        ] {
+            let reply = response(
+                callMessage(
+                    name, arguments: ["task": .number(1e19), "title": "replacement", "to": "inbox", "minutes": 5]))
             XCTAssertNil(reply?["error"], name)
             XCTAssertEqual(reply?["result"]?["isError"]?.bool, true, name)
-            XCTAssertTrue(reply?["result"]?["content"]?.array?.first?["text"]?.string?.contains("Identify the task") ?? false, name)
+            XCTAssertTrue(
+                reply?["result"]?["content"]?.array?.first?["text"]?.string?.contains("Identify the task") ?? false,
+                name)
         }
     }
 
     func testInvalidMinutesInBatchPreserveFollowingValidRequest() throws {
-        let batch = #"[{"id":1,"method":"tools/call","params":{"name":"start_timer","arguments":{"minutes":1e19}}},{"id":2,"method":"tools/call","params":{"name":"start_timer","arguments":{"minutes":5}}},{"method":"notifications/initialized"},{"id":3,"method":"ping"}]"#
+        let batch =
+            #"[{"id":1,"method":"tools/call","params":{"name":"start_timer","arguments":{"minutes":1e19}}},{"id":2,"method":"tools/call","params":{"name":"start_timer","arguments":{"minutes":5}}},{"method":"notifications/initialized"},{"id":3,"method":"ping"}]"#
         let out = runLines([batch, #"{"id":4,"method":"ping"}"#])
         XCTAssertEqual(out.count, 2)
         let replies = try XCTUnwrap(JSON.parse(Data(out[0].utf8)).array)
@@ -229,7 +258,10 @@ final class MCPEdgeTests: XCTestCase {
     }
 
     func testDeclaredReadOnlyToolsLeaveDirectoryUnchanged() throws {
-        let names = Set(AgentTools.definitions.filter { $0["annotations"]?["readOnlyHint"]?.bool == true }.compactMap { $0["name"]?.string })
+        let names = Set(
+            AgentTools.definitions.filter { $0["annotations"]?["readOnlyHint"]?.bool == true }.compactMap {
+                $0["name"]?.string
+            })
         XCTAssertEqual(names, ["get_task", "read_notepad", "get_insights", "list_projects"])
         func snapshot() throws -> [String: Data] {
             var result: [String: Data] = [:]
@@ -244,7 +276,8 @@ final class MCPEdgeTests: XCTestCase {
                         continue
                     }
                     result[key] = try Data(contentsOf: file)
-                    let modified = try FileManager.default.attributesOfItem(atPath: file.path)[.modificationDate] as! Date
+                    let modified =
+                        try FileManager.default.attributesOfItem(atPath: file.path)[.modificationDate] as! Date
                     result[key + ".mtime"] = Data(String(modified.timeIntervalSince1970).utf8)
                 }
             }
@@ -263,7 +296,8 @@ final class MCPEdgeTests: XCTestCase {
             let before = try snapshot()
             for name in names {
                 let (text, error) = call(name, ["task": "readonly probe"])
-                XCTAssertEqual(error, state == "corrupt" || (state == "missing" && name == "get_task"), "\(name): \(text)")
+                XCTAssertEqual(
+                    error, state == "corrupt" || (state == "missing" && name == "get_task"), "\(name): \(text)")
                 XCTAssertEqual(try snapshot(), before, "\(name) changed \(state) storage")
             }
         }
@@ -291,14 +325,18 @@ final class MCPEdgeTests: XCTestCase {
 
     func testInitializeNegotiatesEverySupportedVersion() {
         for version in MCPServer.protocolVersions {
-            let r = response(["jsonrpc": "2.0", "id": 1, "method": "initialize", "params": ["protocolVersion": .string(version)]])!
+            let r = response([
+                "jsonrpc": "2.0", "id": 1, "method": "initialize", "params": ["protocolVersion": .string(version)],
+            ])!
             XCTAssertEqual(r["result"]?["protocolVersion"]?.string, version)
             XCTAssertEqual(r["result"]?["serverInfo"]?["name"]?.string, "perch")
             XCTAssertEqual(r["result"]?["serverInfo"]?["version"]?.string, "edge")
             XCTAssertEqual(r["result"]?["capabilities"]?["tools"]?["listChanged"]?.bool, false)
             XCTAssertTrue(r["result"]?["instructions"]?.string?.contains("list_tasks") ?? false)
         }
-        let bogus = response(["jsonrpc": "2.0", "id": 2, "method": "initialize", "params": ["protocolVersion": "1999-01-01"]])!
+        let bogus = response([
+            "jsonrpc": "2.0", "id": 2, "method": "initialize", "params": ["protocolVersion": "1999-01-01"],
+        ])!
         XCTAssertEqual(bogus["result"]?["protocolVersion"]?.string, MCPServer.protocolVersions[0])
         let missing = response(["jsonrpc": "2.0", "id": 3, "method": "initialize"])!
         XCTAssertEqual(missing["result"]?["protocolVersion"]?.string, MCPServer.protocolVersions[0])
@@ -309,20 +347,29 @@ final class MCPEdgeTests: XCTestCase {
     func testPingAndEmptyListings() {
         XCTAssertEqual(response(["jsonrpc": "2.0", "id": 1, "method": "ping"])?["result"], .object([:]))
         XCTAssertEqual(response(["jsonrpc": "2.0", "id": "abc", "method": "ping"])?["id"]?.string, "abc")
-        XCTAssertEqual(response(["jsonrpc": "2.0", "id": 2, "method": "resources/list"])?["result"]?["resources"], .array([]))
-        XCTAssertEqual(response(["jsonrpc": "2.0", "id": 3, "method": "prompts/list"])?["result"]?["prompts"], .array([]))
+        XCTAssertEqual(
+            response(["jsonrpc": "2.0", "id": 2, "method": "resources/list"])?["result"]?["resources"], .array([]))
+        XCTAssertEqual(
+            response(["jsonrpc": "2.0", "id": 3, "method": "prompts/list"])?["result"]?["prompts"], .array([]))
     }
 
     func testProtocolErrors() {
         XCTAssertEqual(errorCode(response(["jsonrpc": "2.0", "id": 1])), -32600)
         XCTAssertEqual(errorCode(response(["jsonrpc": "2.0", "id": 2, "method": "bogus"])), -32601)
-        XCTAssertTrue(errorMessage(response(["jsonrpc": "2.0", "id": 2, "method": "bogus"]))?.contains("bogus") ?? false)
+        XCTAssertTrue(
+            errorMessage(response(["jsonrpc": "2.0", "id": 2, "method": "bogus"]))?.contains("bogus") ?? false)
         XCTAssertNil(response(["jsonrpc": "2.0", "method": "bogus"]), "unknown notifications are silent")
         XCTAssertNil(response(["jsonrpc": "2.0", "method": "notifications/initialized"]))
-        XCTAssertEqual(errorCode(response(["jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": .object([:])])), -32602)
-        XCTAssertEqual(errorMessage(response(["jsonrpc": "2.0", "id": 4, "method": "tools/call", "params": ["name": 42]])), "Missing tool name")
-        XCTAssertEqual(errorMessage(response(["jsonrpc": "2.0", "id": 5, "method": "tools/call", "params": ["name": "rm_rf"]])), "Unknown tool: rm_rf")
-        XCTAssertEqual(errorCode(response(["jsonrpc": "2.0", "id": 6, "method": "tools/call", "params": .array([])])), -32602)
+        XCTAssertEqual(
+            errorCode(response(["jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": .object([:])])), -32602)
+        XCTAssertEqual(
+            errorMessage(response(["jsonrpc": "2.0", "id": 4, "method": "tools/call", "params": ["name": 42]])),
+            "Missing tool name")
+        XCTAssertEqual(
+            errorMessage(response(["jsonrpc": "2.0", "id": 5, "method": "tools/call", "params": ["name": "rm_rf"]])),
+            "Unknown tool: rm_rf")
+        XCTAssertEqual(
+            errorCode(response(["jsonrpc": "2.0", "id": 6, "method": "tools/call", "params": .array([])])), -32602)
     }
 
     func testNullIdNotificationIsAnsweredAsARequest() {
@@ -345,16 +392,21 @@ final class MCPEdgeTests: XCTestCase {
             XCTAssertFalse(tool["description"]?.string?.isEmpty ?? true, "\(name) has no description")
             XCTAssertEqual(tool["inputSchema"]?["type"]?.string, "object", name)
             let props: [String: JSON]
-            if case .object(let declared)? = tool["inputSchema"]?["properties"] { props = declared } else { props = [:] }
+            if case .object(let declared)? = tool["inputSchema"]?["properties"] {
+                props = declared
+            } else {
+                props = [:]
+            }
             let required = tool["inputSchema"]?["required"]?.array?.compactMap(\.string) ?? []
             for key in required {
                 XCTAssertNotNil(props[key], "\(name) requires \(key) but does not declare it")
             }
             XCTAssertNotNil(tool["annotations"]?["readOnlyHint"]?.bool, "\(name) has no readOnlyHint")
         }
-        let requiredByTool = Dictionary(uniqueKeysWithValues: tools.map {
-            ($0["name"]!.string!, $0["inputSchema"]!["required"]!.array!.compactMap(\.string))
-        })
+        let requiredByTool = Dictionary(
+            uniqueKeysWithValues: tools.map {
+                ($0["name"]!.string!, $0["inputSchema"]!["required"]!.array!.compactMap(\.string))
+            })
         XCTAssertEqual(requiredByTool["add_tasks"], ["titles"])
         XCTAssertEqual(requiredByTool["get_task"], ["task"])
         XCTAssertEqual(requiredByTool["rename_task"], ["task", "title"])
@@ -396,7 +448,8 @@ final class MCPEdgeTests: XCTestCase {
     }
 
     func testBatchRequestsReturnOneArrayInOrder() {
-        let batch = #"[{"jsonrpc":"2.0","id":1,"method":"ping"},{"jsonrpc":"2.0","id":2,"method":"ping"},{"jsonrpc":"2.0","method":"notifications/initialized"}]"#
+        let batch =
+            #"[{"jsonrpc":"2.0","id":1,"method":"ping"},{"jsonrpc":"2.0","id":2,"method":"ping"},{"jsonrpc":"2.0","method":"notifications/initialized"}]"#
         let out = runLines([batch])
         XCTAssertEqual(out.count, 1)
         let reply = try! JSON.parse(Data(out[0].utf8))
@@ -406,7 +459,8 @@ final class MCPEdgeTests: XCTestCase {
     }
 
     func testBatchKeepsPerItemErrors() {
-        let batch = #"[{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"rm_rf"}},{"jsonrpc":"2.0","id":2,"method":"bogus"}]"#
+        let batch =
+            #"[{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"rm_rf"}},{"jsonrpc":"2.0","id":2,"method":"bogus"}]"#
         let reply = try! JSON.parse(Data(runLines([batch])[0].utf8))
         XCTAssertEqual(reply.array?.count, 2)
         XCTAssertEqual(reply.array?[0]["error"]?["code"]?.int, -32602)
@@ -414,12 +468,15 @@ final class MCPEdgeTests: XCTestCase {
     }
 
     func testNotificationOnlyBatchIsSilent() {
-        XCTAssertTrue(runLines([#"[{"jsonrpc":"2.0","method":"notifications/initialized"},{"jsonrpc":"2.0","method":"bogus"}]"#]).isEmpty)
+        XCTAssertTrue(
+            runLines([#"[{"jsonrpc":"2.0","method":"notifications/initialized"},{"jsonrpc":"2.0","method":"bogus"}]"#])
+                .isEmpty)
     }
 
     func testHugeBatchIsHandled() {
         let count = 1_000
-        let batch = "[" + (0..<count).map { #"{"jsonrpc":"2.0","id":\#($0),"method":"ping"}"# }.joined(separator: ",") + "]"
+        let batch =
+            "[" + (0..<count).map { #"{"jsonrpc":"2.0","id":\#($0),"method":"ping"}"# }.joined(separator: ",") + "]"
         let out = runLines([batch])
         XCTAssertEqual(out.count, 1)
         let reply = try! JSON.parse(Data(out[0].utf8))

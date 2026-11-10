@@ -10,7 +10,8 @@ func require(_ ok: @autoclosure () -> Bool, _ label: String) {
 
 @MainActor
 func snapshot<V: View>(_ view: V, name: String, size: NSSize, output: URL) async throws {
-    let window = NSWindow(contentRect: NSRect(origin: .zero, size: size), styleMask: [.borderless], backing: .buffered, defer: false)
+    let window = NSWindow(
+        contentRect: NSRect(origin: .zero, size: size), styleMask: [.borderless], backing: .buffered, defer: false)
     window.contentView = NSHostingView(rootView: view.frame(width: size.width, height: size.height))
     window.orderFrontRegardless()
     try await Task.sleep(nanoseconds: 600_000_000)
@@ -23,49 +24,63 @@ func snapshot<V: View>(_ view: V, name: String, size: NSSize, output: URL) async
 
 @MainActor
 func checkClosedNotch(store: PlannerStore, model: NotchModel, services: Services, output: URL) async throws {
-    let display = NotchLayout.Screen(frame: CGRect(x: 0, y: 0, width: 1512, height: 982),
+    let display = NotchLayout.Screen(
+        frame: CGRect(x: 0, y: 0, width: 1512, height: 982),
         visibleFrame: CGRect(x: 0, y: 0, width: 1512, height: 944.5), safeAreaTop: 37.5,
         auxiliaryLeftWidth: 652, auxiliaryRightWidth: 652)
     for scale in [CGFloat(1), CGFloat(2)] {
         let g = NotchGeometry(screen: display, backingScaleFactor: scale)
         let camera = g.camera!
         let idle = g.idle(timer: nil, activity: false)
-        require(camera.contains(idle) && idle.width < camera.width && idle.height < camera.height,
-                "idle housing contains entire painted frame at \(scale)x")
+        require(
+            camera.contains(idle) && idle.width < camera.width && idle.height < camera.height,
+            "idle housing contains entire painted frame at \(scale)x")
         for side in [NotchTimerPlacement.left, .right] {
             let pill = g.pill(side: side)
             let bounds = g.idle(timer: side, activity: false)
-            require(side == .left ? bounds.maxX == idle.maxX : bounds.minX == idle.minX,
-                    "\(side): opposite edge stays tucked inside housing at \(scale)x")
-            require(pill.width == 76 && NotchGeometry.pillWidth == 76,
-                    "\(side): detached timer capsule is 76pt wide at \(scale)x")
+            require(
+                side == .left ? bounds.maxX == idle.maxX : bounds.minX == idle.minX,
+                "\(side): opposite edge stays tucked inside housing at \(scale)x")
+            require(
+                pill.width == 76 && NotchGeometry.pillWidth == 76,
+                "\(side): detached timer capsule is 76pt wide at \(scale)x")
             let gap = side == .left ? camera.minX - pill.maxX : pill.minX - camera.maxX
-            require(gap == 6 && NotchGeometry.pillGap == 6 && bounds == idle.union(pill),
-                    "\(side): only chosen side grows with a 6pt housing gap at \(scale)x")
-            require(abs(pill.height - camera.height * 0.72) <= 0.5 / scale,
-                    "\(side): capsule is 72 percent of housing height, pixel-snapped at \(scale)x")
-            require(pill.minY - camera.minY >= 1 / scale && pill.maxY < camera.maxY,
-                    "\(side): capsule stays at least one pixel above housing bottom at \(scale)x")
-            require(abs(pill.midY - idle.midY) < 1 / scale,
-                    "\(side): capsule is vertically centred within one device pixel at \(scale)x")
+            require(
+                gap == 6 && NotchGeometry.pillGap == 6 && bounds == idle.union(pill),
+                "\(side): only chosen side grows with a 6pt housing gap at \(scale)x")
+            require(
+                abs(pill.height - camera.height * 0.72) <= 0.5 / scale,
+                "\(side): capsule is 72 percent of housing height, pixel-snapped at \(scale)x")
+            require(
+                pill.minY - camera.minY >= 1 / scale && pill.maxY < camera.maxY,
+                "\(side): capsule stays at least one pixel above housing bottom at \(scale)x")
+            require(
+                abs(pill.midY - idle.midY) < 1 / scale,
+                "\(side): capsule is vertically centred within one device pixel at \(scale)x")
             for edge in [pill.minY, pill.maxY] {
-                require(abs(edge * scale - (edge * scale).rounded()) < 0.001,
-                        "\(side): capsule edge lands on a device pixel at \(scale)x")
+                require(
+                    abs(edge * scale - (edge * scale).rounded()) < 0.001,
+                    "\(side): capsule edge lands on a device pixel at \(scale)x")
             }
-            let gapPoint = NSPoint(x: side == .left ? camera.minX - gap / 2 : camera.maxX + gap / 2,
-                                   y: pill.midY)
-            require(!g.shapeContains(gapPoint, expanded: false, timer: side, activity: false),
-                    "\(side): detached gap is click-through at \(scale)x")
+            let gapPoint = NSPoint(
+                x: side == .left ? camera.minX - gap / 2 : camera.maxX + gap / 2,
+                y: pill.midY)
+            require(
+                !g.shapeContains(gapPoint, expanded: false, timer: side, activity: false),
+                "\(side): detached gap is click-through at \(scale)x")
             for rect in [idle, pill] {
-                require(g.shapeContains(NSPoint(x: rect.midX, y: rect.midY), expanded: false, timer: side, activity: false),
-                        "\(side): notch and capsule both accept hits at \(scale)x")
+                require(
+                    g.shapeContains(NSPoint(x: rect.midX, y: rect.midY), expanded: false, timer: side, activity: false),
+                    "\(side): notch and capsule both accept hits at \(scale)x")
                 require(g.window.contains(rect), "\(side): window contains notch and capsule at \(scale)x")
             }
-            require(g.shape(expanded: true, timer: side, activity: false) == g.workspace,
-                    "\(side): expanded workspace geometry is unchanged at \(scale)x")
+            require(
+                g.shape(expanded: true, timer: side, activity: false) == g.workspace,
+                "\(side): expanded workspace geometry is unchanged at \(scale)x")
         }
-        require(g.idle(timer: nil, activity: true).minY < camera.minY,
-                "activity still extends below housing at \(scale)x")
+        require(
+            g.idle(timer: nil, activity: true).minY < camera.minY,
+            "activity still extends below housing at \(scale)x")
     }
     let g = NotchGeometry(screen: display, backingScaleFactor: 2)
     let state = NotchScreenState(id: 99, geometry: g)
@@ -84,16 +99,24 @@ func checkClosedNotch(store: PlannerStore, model: NotchModel, services: Services
             }
             e.planner.preferences.notchTimerPlacement = name == "left" ? .left : name == "hidden" ? .hidden : .right
         }
-        model.activity = name == "activity" ? NotchActivity(kind: .message, title: "Release reminder", subtitle: "Activity remains below the housing") : nil
+        model.activity =
+            name == "activity"
+            ? NotchActivity(kind: .message, title: "Release reminder", subtitle: "Activity remains below the housing")
+            : nil
         let side = NotchModel.timerShowing(store)
-        require(name == "idle" || name == "hidden" || name == "activity" ? side == nil : side != nil,
-                "\(name): timer visibility follows focus and placement")
-        try await snapshot(NotchRootView().environmentObject(store).environmentObject(model)
-            .environmentObject(services).environmentObject(state).environment(\.motionPolicyOverride, MotionPolicy(reduceMotion: true)),
+        require(
+            name == "idle" || name == "hidden" || name == "activity" ? side == nil : side != nil,
+            "\(name): timer visibility follows focus and placement")
+        try await snapshot(
+            NotchRootView().environmentObject(store).environmentObject(model)
+                .environmentObject(services).environmentObject(state).environment(
+                    \.motionPolicyOverride, MotionPolicy(reduceMotion: true)),
             name: "notch-hug-\(name)", size: g.window.size, output: output)
     }
     model.activity = nil
-    _ = store.apply { e in e.planner.tasks = []; e.planner.focus = nil }
+    _ = store.apply { e in
+        e.planner.tasks = []; e.planner.focus = nil
+    }
 }
 
 @MainActor
@@ -116,7 +139,9 @@ func runProbe() async throws {
     let count = store.planner.tasks.count
     let modified = store.file.modificationDate
     store.materializeRepeats(on: [next])
-    require(store.planner.tasks.count == count && store.file.modificationDate == modified, "repeated display is read/write idempotent")
+    require(
+        store.planner.tasks.count == count && store.file.modificationDate == modified,
+        "repeated display is read/write idempotent")
     _ = store.apply { try $0.endRepeat(of: root.id) }
     store.materializeRepeats(on: [next.adding(days: 3)])
     require(store.engine.tasks(on: .day(next.adding(days: 3))).isEmpty, "stop repeating prevents new occurrences")
@@ -155,26 +180,33 @@ func runProbe() async throws {
 
     for dark in [false, true] {
         let scheme: ColorScheme = dark ? .dark : .light
-        try await snapshot(SettingsView().environmentObject(store).environmentObject(services).environment(\.colorScheme, scheme),
-                           name: "settings-\(dark ? "dark" : "light")", size: NSSize(width: 720, height: 600), output: output)
+        try await snapshot(
+            SettingsView().environmentObject(store).environmentObject(services).environment(\.colorScheme, scheme),
+            name: "settings-\(dark ? "dark" : "light")", size: NSSize(width: 720, height: 600), output: output)
     }
     _ = store.apply { e in
-        e.planner.tasks.append(PlanTask(title: "Integration agent history", day: e.today.adding(days: -1), done: true, agentID: "claude-code"))
+        e.planner.tasks.append(
+            PlanTask(
+                title: "Integration agent history", day: e.today.adding(days: -1), done: true, agentID: "claude-code"))
     }
-    try await snapshot(HistoryList().environmentObject(store).padding(20).background(Color.white).environment(\.colorScheme, .light),
-                       name: "history-agent", size: NSSize(width: 800, height: 400), output: output)
-    try await snapshot(ClipsPage().environmentObject(store).environmentObject(services).padding(20).background(Color.black).environment(\.colorScheme, .dark),
-                       name: "clips-kept", size: NSSize(width: 820, height: 300), output: output)
+    try await snapshot(
+        HistoryList().environmentObject(store).padding(20).background(Color.white).environment(\.colorScheme, .light),
+        name: "history-agent", size: NSSize(width: 800, height: 400), output: output)
+    try await snapshot(
+        ClipsPage().environmentObject(store).environmentObject(services).padding(20).background(Color.black)
+            .environment(\.colorScheme, .dark),
+        name: "clips-kept", size: NSSize(width: 820, height: 300), output: output)
     services.clips.sweep()
-    try await snapshot(ClipsPage().environmentObject(store).environmentObject(services).padding(20).background(Color.black).environment(\.colorScheme, .dark),
-                       name: "clips-undo", size: NSSize(width: 820, height: 300), output: output)
+    try await snapshot(
+        ClipsPage().environmentObject(store).environmentObject(services).padding(20).background(Color.black)
+            .environment(\.colorScheme, .dark),
+        name: "clips-undo", size: NSSize(width: 820, height: 300), output: output)
     print("Integration probe passed")
 }
 
 let app = NSApplication.shared
 app.setActivationPolicy(.accessory)
 Task { @MainActor in
-    do { try await runProbe(); exit(0) }
-    catch { fputs("FAIL: \(error)\n", stderr); exit(1) }
+    do { try await runProbe(); exit(0) } catch { fputs("FAIL: \(error)\n", stderr); exit(1) }
 }
 app.run()

@@ -118,7 +118,9 @@ final class PlannerUndoTests: XCTestCase {
 
     func testConflictingFieldIsNotOverwrittenOrRedone() {
         let f = Fixture()
-        f.edit { $0.planner.tasks[0].title = "Local"; $0.planner.tasks[0].notes = "Local note" }
+        f.edit {
+            $0.planner.tasks[0].title = "Local"; $0.planner.tasks[0].notes = "Local note"
+        }
         f.planner.tasks[0].title = "External title"
         f.undo()
         XCTAssertEqual(f.planner.tasks[0].title, "External title")
@@ -147,21 +149,23 @@ final class PlannerUndoTests: XCTestCase {
         let f = Fixture()
         f.edit { $0.planner.tasks[0].title = "Local" }
         let saved = f.planner
-        XCTAssertThrowsError(try f.history.undo { change in
-            var candidate = f.planner
-            change(&candidate)
-            throw Failure.write
-        })
+        XCTAssertThrowsError(
+            try f.history.undo { change in
+                var candidate = f.planner
+                change(&candidate)
+                throw Failure.write
+            })
         XCTAssertEqual(f.planner, saved)
         XCTAssertTrue(f.history.canUndo)
         XCTAssertFalse(f.history.canRedo)
         f.undo()
         let undone = f.planner
-        XCTAssertThrowsError(try f.history.redo { change in
-            var candidate = f.planner
-            change(&candidate)
-            throw Failure.write
-        })
+        XCTAssertThrowsError(
+            try f.history.redo { change in
+                var candidate = f.planner
+                change(&candidate)
+                throw Failure.write
+            })
         XCTAssertEqual(f.planner, undone)
         XCTAssertFalse(f.history.canUndo)
         XCTAssertTrue(f.history.canRedo)
@@ -173,9 +177,13 @@ final class PlannerUndoTests: XCTestCase {
         let f = Fixture()
         f.planner.tasks[0].reminderLink = "retired-synthetic-link"
         f.planner.tasks[0].focusedSeconds = 12
-        f.planner.focusSegments = [FocusSegment(taskID: f.id, start: f.clock.time, end: f.clock.time.addingTimeInterval(12))]
+        f.planner.focusSegments = [
+            FocusSegment(taskID: f.id, start: f.clock.time, end: f.clock.time.addingTimeInterval(12))
+        ]
         f.edit { $0.planner.tasks.removeAll() }
-        f.planner.focusSegments.append(FocusSegment(taskID: f.id, start: f.clock.time.addingTimeInterval(20), end: f.clock.time.addingTimeInterval(25)))
+        f.planner.focusSegments.append(
+            FocusSegment(
+                taskID: f.id, start: f.clock.time.addingTimeInterval(20), end: f.clock.time.addingTimeInterval(25)))
         f.undo()
         XCTAssertNil(f.planner.tasks[0].reminderLink)
         XCTAssertEqual(f.planner.tasks[0].focusedSeconds, 17)
@@ -265,8 +273,9 @@ final class PlannerUndoTests: XCTestCase {
         for focused in [false, true] {
             for edit in edits {
                 let f: Fixture
-                if focused { f = try deletedFocusedFixture() }
-                else {
+                if focused {
+                    f = try deletedFocusedFixture()
+                } else {
                     f = Fixture()
                     f.edit { $0.planner.tasks.removeAll() }
                 }
@@ -369,7 +378,8 @@ final class PlannerUndoTests: XCTestCase {
             }
             if kind == "later-credit" { f.planner.tasks[1].focusedSeconds = 5 }
             if kind == "ledger-only" {
-                f.planner.focusSegments.append(FocusSegment(taskID: added.id, start: f.clock.time, end: f.clock.time.addingTimeInterval(5)))
+                f.planner.focusSegments.append(
+                    FocusSegment(taskID: added.id, start: f.clock.time, end: f.clock.time.addingTimeInterval(5)))
             }
             if kind == "running" || kind == "paused" {
                 try f.edit { _ = try $0.startTimer(task: added.id.uuidString, minutes: 1) }
@@ -387,12 +397,13 @@ final class PlannerUndoTests: XCTestCase {
         let f = try deletedFocusedFixture()
         f.undo()
         let restored = f.planner
-        XCTAssertThrowsError(try f.history.redo { body in
-            var candidate = restored
-            body(&candidate)
-            XCTAssertTrue(candidate.tasks.isEmpty)
-            throw Failure.write
-        })
+        XCTAssertThrowsError(
+            try f.history.redo { body in
+                var candidate = restored
+                body(&candidate)
+                XCTAssertTrue(candidate.tasks.isEmpty)
+                throw Failure.write
+            })
         XCTAssertEqual(f.planner, restored)
         XCTAssertTrue(f.history.canRedo)
         f.redo()

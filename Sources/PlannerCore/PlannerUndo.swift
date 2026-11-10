@@ -39,7 +39,9 @@ public struct PlannerEdit {
                 changes.append { planner in
                     guard !planner.tasks.contains(where: { $0.id == content.id }) else { return }
                     var restored = content
-                    restored.focusedSeconds = planner.focusSegments.filter { $0.taskID == content.id }.reduce(0) { $0 + $1.seconds }
+                    restored.focusedSeconds = planner.focusSegments.filter { $0.taskID == content.id }.reduce(0) {
+                        $0 + $1.seconds
+                    }
                     planner.tasks.insert(restored, at: min(index, planner.tasks.count))
                 }
             }
@@ -52,10 +54,11 @@ public struct PlannerEdit {
             let expectedLedger = reversingRestoration ? after.focusSegments.filter { $0.taskID == added.id } : []
             changes.append { planner in
                 guard let i = planner.tasks.firstIndex(where: { $0.id == content.id }),
-                      Self.content(of: planner.tasks[i]) == content,
-                      planner.tasks[i].focusedSeconds == expectedCredit,
-                      planner.focusSegments.filter({ $0.taskID == content.id }) == expectedLedger,
-                      planner.focus?.taskID != content.id else { return }
+                    Self.content(of: planner.tasks[i]) == content,
+                    planner.tasks[i].focusedSeconds == expectedCredit,
+                    planner.focusSegments.filter({ $0.taskID == content.id }) == expectedLedger,
+                    planner.focus?.taskID != content.id
+                else { return }
                 planner.tasks.remove(at: i)
             }
         }
@@ -117,8 +120,11 @@ public struct PlannerEdit {
         for id in before.completedCalendarEventIDs.symmetricDifference(after.completedCalendarEventIDs) {
             let old = before.completedCalendarEventIDs.contains(id)
             changes.append { planner in
-                if old { planner.completedCalendarEventIDs.insert(id) }
-                else { planner.completedCalendarEventIDs.remove(id) }
+                if old {
+                    planner.completedCalendarEventIDs.insert(id)
+                } else {
+                    planner.completedCalendarEventIDs.remove(id)
+                }
             }
         }
         for id in Set(before.completedCalendarEventDays.keys).union(after.completedCalendarEventDays.keys) {
@@ -143,23 +149,30 @@ public struct PlannerEdit {
         }
     }
 
-    private mutating func taskField<V: Equatable>(_ key: WritableKeyPath<PlanTask, V>, id: UUID, before: PlanTask, after: PlanTask) {
+    private mutating func taskField<V: Equatable>(
+        _ key: WritableKeyPath<PlanTask, V>, id: UUID, before: PlanTask, after: PlanTask
+    ) {
         let old = before[keyPath: key], new = after[keyPath: key]
         guard old != new else { return }
         changes.append { planner in
-            guard let i = planner.tasks.firstIndex(where: { $0.id == id }), planner.tasks[i][keyPath: key] == new else { return }
+            guard let i = planner.tasks.firstIndex(where: { $0.id == id }), planner.tasks[i][keyPath: key] == new else {
+                return
+            }
             planner.tasks[i][keyPath: key] = old
         }
     }
 
-    private mutating func membership<V: Hashable>(_ key: WritableKeyPath<Planner, [V]>, before: Planner, after: Planner) {
+    private mutating func membership<V: Hashable>(_ key: WritableKeyPath<Planner, [V]>, before: Planner, after: Planner)
+    {
         let old = Set(before[keyPath: key]), new = Set(after[keyPath: key])
         for item in old.symmetricDifference(new) {
             let wasPresent = old.contains(item)
             changes.append { planner in
                 if wasPresent {
                     if !planner[keyPath: key].contains(item) { planner[keyPath: key].append(item) }
-                } else { planner[keyPath: key].removeAll { $0 == item } }
+                } else {
+                    planner[keyPath: key].removeAll { $0 == item }
+                }
             }
         }
     }
@@ -203,7 +216,9 @@ public struct PlannerUndoHistory {
         if let inverse { undoStack.append(inverse) }
     }
 
-    private func perform(_ edit: PlannerEdit, transaction: (_ body: (inout Planner) -> Void) throws -> Void) rethrows -> PlannerEdit? {
+    private func perform(_ edit: PlannerEdit, transaction: (_ body: (inout Planner) -> Void) throws -> Void) rethrows
+        -> PlannerEdit?
+    {
         var inverse: PlannerEdit?
         try transaction { planner in
             let before = planner

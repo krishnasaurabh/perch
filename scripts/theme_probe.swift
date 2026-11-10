@@ -14,20 +14,33 @@ struct ColorPair {
     let surface = light ? Theme.sage : Theme.tile
     let strong = light ? Theme.lavender : Theme.tileStrong
     return [
-        ColorPair(name: "card silhouette/body", foreground: light ? Theme.sage : Theme.cardStroke, background: .black, minimum: 3),
-        ColorPair(name: "alternate silhouette/body", foreground: light ? Theme.lavender : Theme.cardStroke, background: .black, minimum: 3),
+        ColorPair(
+            name: "card silhouette/body", foreground: light ? Theme.sage : Theme.cardStroke, background: .black,
+            minimum: 3),
+        ColorPair(
+            name: "alternate silhouette/body", foreground: light ? Theme.lavender : Theme.cardStroke,
+            background: .black, minimum: 3),
         ColorPair(name: "cardStroke/card", foreground: Theme.cardStroke, background: surface, minimum: 3),
         ColorPair(name: "cardStroke/alternate", foreground: Theme.cardStroke, background: strong, minimum: 3),
         ColorPair(name: "inputStroke/card", foreground: Theme.inputStroke, background: surface, minimum: 3),
-        ColorPair(name: "inputStroke/resting", foreground: Theme.inputStroke, background: Theme.inputFill.composited(over: surface), minimum: 3),
-        ColorPair(name: "inputStroke/focused", foreground: Theme.inputStroke, background: Theme.inputFillFocused.composited(over: surface), minimum: 3),
-        ColorPair(name: "inputStroke/miniComposer", foreground: Theme.inputStroke, background: Color.white.opacity(0.05).composited(over: surface), minimum: 3),
-        ColorPair(name: "inputStroke/alternateFocused", foreground: Theme.inputStroke, background: Theme.inputFillFocused.composited(over: strong), minimum: 3),
+        ColorPair(
+            name: "inputStroke/resting", foreground: Theme.inputStroke,
+            background: Theme.inputFill.composited(over: surface), minimum: 3),
+        ColorPair(
+            name: "inputStroke/focused", foreground: Theme.inputStroke,
+            background: Theme.inputFillFocused.composited(over: surface), minimum: 3),
+        ColorPair(
+            name: "inputStroke/miniComposer", foreground: Theme.inputStroke,
+            background: Color.white.opacity(0.05).composited(over: surface), minimum: 3),
+        ColorPair(
+            name: "inputStroke/alternateFocused", foreground: Theme.inputStroke,
+            background: Theme.inputFillFocused.composited(over: strong), minimum: 3),
         ColorPair(name: "rope/card", foreground: Theme.rope, background: surface, minimum: 3),
         ColorPair(name: "rope/alternate", foreground: Theme.rope, background: strong, minimum: 3),
         ColorPair(name: "priority/card", foreground: Theme.priority(.high), background: surface, minimum: 3),
         ColorPair(name: "priority/alternate", foreground: Theme.priority(.high), background: strong, minimum: 3),
-        ColorPair(name: "selected/card (informational)", foreground: Theme.selectedPill, background: surface, minimum: 0),
+        ColorPair(
+            name: "selected/card (informational)", foreground: Theme.selectedPill, background: surface, minimum: 0),
         ColorPair(name: "text/card (unchanged)", foreground: Theme.text, background: surface, minimum: 4.5),
         ColorPair(name: "secondary/card (unchanged)", foreground: Theme.secondary, background: surface, minimum: 4.5),
     ]
@@ -39,15 +52,19 @@ extension Color {
         let fg = NSColor(self).usingColorSpace(.sRGB)!
         let bg = NSColor(color).usingColorSpace(.sRGB)!
         let a = fg.alphaComponent
-        return Color(.sRGB, red: fg.redComponent * a + bg.redComponent * (1-a),
-                     green: fg.greenComponent * a + bg.greenComponent * (1-a),
-                     blue: fg.blueComponent * a + bg.blueComponent * (1-a), opacity: 1)
+        return Color(
+            .sRGB, red: fg.redComponent * a + bg.redComponent * (1 - a),
+            green: fg.greenComponent * a + bg.greenComponent * (1 - a),
+            blue: fg.blueComponent * a + bg.blueComponent * (1 - a), opacity: 1)
     }
 }
 
-@MainActor func render<V: View>(_ view: V, size: CGSize, appearance: NSAppearance? = nil) -> (NSWindow, NSHostingView<V>) {
+@MainActor func render<V: View>(_ view: V, size: CGSize, appearance: NSAppearance? = nil) -> (
+    NSWindow, NSHostingView<V>
+) {
     let host = NSHostingView(rootView: view)
-    let window = NSWindow(contentRect: NSRect(origin: .zero, size: size), styleMask: [.borderless], backing: .buffered, defer: false)
+    let window = NSWindow(
+        contentRect: NSRect(origin: .zero, size: size), styleMask: [.borderless], backing: .buffered, defer: false)
     window.isReleasedWhenClosed = false
     window.appearance = appearance
     window.contentView = host
@@ -71,12 +88,22 @@ MainActor.assumeIsolated {
     Task { @MainActor in
         let store = PlannerStore()
         let services = Services(store: store)
-        guard let seeded = store.apply({ try $0.addTasks(["Sort the field notes !high", "Sketch a reading corner", "Refill the sketch pencils", "Label the spare sketchbook"], on: .day(store.today)) }),
-              seeded.count == 4, seeded.contains(where: { $0.priority == .high }) else { fatalError("Priority fixture missing") }
+        guard
+            let seeded = store.apply({
+                try $0.addTasks(
+                    [
+                        "Sort the field notes !high", "Sketch a reading corner", "Refill the sketch pencils",
+                        "Label the spare sketchbook",
+                    ], on: .day(store.today))
+            }),
+            seeded.count == 4, seeded.contains(where: { $0.priority == .high })
+        else { fatalError("Priority fixture missing") }
         // Keep the real segmented filter visible after empty-Completed suppression.
         _ = store.apply { try $0.complete(seeded.last!.id.uuidString) }
-        let geometry = NotchGeometry(screen: .init(frame: CGRect(x: 0, y: 0, width: 1024, height: 768),
-                                                   visibleFrame: CGRect(x: 0, y: 0, width: 1024, height: 744)))
+        let geometry = NotchGeometry(
+            screen: .init(
+                frame: CGRect(x: 0, y: 0, width: 1024, height: 768),
+                visibleFrame: CGRect(x: 0, y: 0, width: 1024, height: 744)))
         var manifest: [[String: Any]] = []
         for light in [true, false] {
             let mode = light ? "light" : "dark"
@@ -92,7 +119,8 @@ MainActor.assumeIsolated {
                     }.frame(width: 120, height: 30)
                 }
             }.environment(\.colorScheme, light ? .light : .dark)
-            let (swatchWindow, swatchHost) = render(swatches, size: CGSize(width: 120, height: rows.count * 30), appearance: appearance)
+            let (swatchWindow, swatchHost) = render(
+                swatches, size: CGSize(width: 120, height: rows.count * 30), appearance: appearance)
             try? await Task.sleep(nanoseconds: 400_000_000)
             save(swatchHost, output.appendingPathComponent("\(mode)-swatches.png"))
             manifest.append(["appearance": mode, "rows": rows.map { ["name": $0.name, "minimum": $0.minimum] }])
@@ -122,7 +150,8 @@ MainActor.assumeIsolated {
             window.close()
             let settings = SettingsView().environmentObject(store).environmentObject(services)
                 .environment(\.colorScheme, light ? .light : .dark)
-            let (settingsWindow, settingsHost) = render(settings, size: CGSize(width: 620, height: 560), appearance: appearance)
+            let (settingsWindow, settingsHost) = render(
+                settings, size: CGSize(width: 620, height: 560), appearance: appearance)
             settingsWindow.makeKeyAndOrderFront(nil)
             app.activate(ignoringOtherApps: true)
             try? await Task.sleep(nanoseconds: 700_000_000)

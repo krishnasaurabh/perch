@@ -39,8 +39,11 @@ final class Services: ObservableObject {
         let title = p.focus?.taskID.flatMap { id in p.tasks.first { $0.id == id }?.title }
         if p.preferences.focusCompletionSound { NSSound(named: "Glass")?.play() }
         let mins = Int((p.focus?.limit ?? 0) / 60)
-        model?.show(.init(kind: .focusDone(p.focus?.taskID), title: "Timer finished",
-                          subtitle: title.map { "You gave \($0) \(mins) minutes of focus. Mark it done, or take a break." } ?? "\(mins)-minute focus block done."))
+        model?.show(
+            .init(
+                kind: .focusDone(p.focus?.taskID), title: "Timer finished",
+                subtitle: title.map { "You gave \($0) \(mins) minutes of focus. Mark it done, or take a break." }
+                    ?? "\(mins)-minute focus block done."))
         reminders.notify(id: "focus-\(UUID())", title: "Timer finished", body: title ?? "Time for a break.")
     }
 }
@@ -68,7 +71,8 @@ final class CalendarService: ObservableObject {
 
     init(store: PlannerStore) {
         self.store = store
-        NotificationCenter.default.addObserver(forName: .EKEventStoreChanged, object: ek, queue: .main) { [weak self] _ in
+        NotificationCenter.default.addObserver(forName: .EKEventStoreChanged, object: ek, queue: .main) {
+            [weak self] _ in
             Task { @MainActor in self?.refresh() }
         }
         refresh()
@@ -93,10 +97,11 @@ final class CalendarService: ObservableObject {
         let end = Calendar.current.date(byAdding: .day, value: 1, to: start)!
         let pred = ek.predicateForEvents(withStart: start, end: end, calendars: cals)
         events = ek.events(matching: pred).sorted { $0.startDate < $1.startDate }.map {
-            Event(id: $0.calendarItemIdentifier + "\($0.startDate.timeIntervalSince1970)", title: $0.title ?? "Event",
-                  start: $0.startDate, end: $0.endDate, allDay: $0.isAllDay,
-                  colorHex: $0.calendar.cgColor.flatMap { NSColor(cgColor: $0) }.map(SwiftUIColorBridge.hex) ?? "#8E8CF5",
-                  location: $0.location, calendarTitle: $0.calendar.title)
+            Event(
+                id: $0.calendarItemIdentifier + "\($0.startDate.timeIntervalSince1970)", title: $0.title ?? "Event",
+                start: $0.startDate, end: $0.endDate, allDay: $0.isAllDay,
+                colorHex: $0.calendar.cgColor.flatMap { NSColor(cgColor: $0) }.map(SwiftUIColorBridge.hex) ?? "#8E8CF5",
+                location: $0.location, calendarTitle: $0.calendar.title)
         }
     }
 }
@@ -104,7 +109,9 @@ final class CalendarService: ObservableObject {
 enum SwiftUIColorBridge {
     static func hex(_ c: NSColor) -> String {
         let rgb = c.usingColorSpace(.sRGB) ?? .systemPurple
-        return String(format: "#%02X%02X%02X", Int(rgb.redComponent * 255), Int(rgb.greenComponent * 255), Int(rgb.blueComponent * 255))
+        return String(
+            format: "#%02X%02X%02X", Int(rgb.redComponent * 255), Int(rgb.greenComponent * 255),
+            Int(rgb.blueComponent * 255))
     }
 }
 
@@ -145,7 +152,9 @@ final class ReminderService: NSObject, UNUserNotificationCenterDelegate {
         UNUserNotificationCenter.current().add(UNNotificationRequest(identifier: id, content: c, trigger: nil))
     }
 
-    nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter, willPresent notification: UNNotification) async -> UNNotificationPresentationOptions {
+    nonisolated func userNotificationCenter(
+        _ center: UNUserNotificationCenter, willPresent notification: UNNotification
+    ) async -> UNNotificationPresentationOptions {
         // The notch already shows it; don't double up with a banner while the app is frontmost.
         [.sound]
     }
@@ -191,7 +200,8 @@ final class NotchTimelineDriver {
         model.$activity.sink { [weak self] new in self?.activityChanged(to: new) }.store(in: &cancellables)
         // The running focus timer rewrites the planner every second; only reminder changes matter here.
         // `@Published` emits before storing, so hop the run loop and let the pass read the stored values.
-        let alarms = store.$planner.map { NotchActivityTimeline.triggers(planner: $0) }.removeDuplicates().map { _ in () }
+        let alarms = store.$planner.map { NotchActivityTimeline.triggers(planner: $0) }.removeDuplicates().map { _ in ()
+        }
         alarms.merge(with: calendar.$events.removeDuplicates().map { _ in () })
             .receive(on: DispatchQueue.main)
             .sink { [weak self] in self?.refresh() }.store(in: &cancellables)
@@ -216,7 +226,9 @@ final class NotchTimelineDriver {
     func refresh(now: Date = Date()) {
         guard let model else { return }
         wake?.invalidate(); wake = nil
-        let events = calendar.events.map { NotchActivityTimeline.Event(id: $0.id, title: $0.title, start: $0.start, isAllDay: $0.allDay) }
+        let events = calendar.events.map {
+            NotchActivityTimeline.Event(id: $0.id, title: $0.title, start: $0.start, isAllDay: $0.allDay)
+        }
         let timeline = NotchActivityTimeline(planner: store.planner, events: events)
         let live = Set(timeline.activities.map(\.id))
         dismissed.formIntersection(live)
@@ -234,7 +246,9 @@ final class NotchTimelineDriver {
         let nextRing = alarms.first { $0.date > now }?.date
         nextWake = [timeline.nextChange(after: now, dismissed: dismissed), nextRing].compactMap { $0 }.min()
         if let at = nextWake {
-            let t = Timer(fire: at, interval: 0, repeats: false) { [weak self] _ in Task { @MainActor in self?.refresh() } }
+            let t = Timer(fire: at, interval: 0, repeats: false) { [weak self] _ in
+                Task { @MainActor in self?.refresh() }
+            }
             t.tolerance = 0.2
             RunLoop.main.add(t, forMode: .common)
             wake = t
@@ -321,10 +335,13 @@ final class RemindersSync: ObservableObject {
 
     init(store: PlannerStore) {
         self.store = store
-        NotificationCenter.default.addObserver(forName: .EKEventStoreChanged, object: ek, queue: .main) { [weak self] _ in
+        NotificationCenter.default.addObserver(forName: .EKEventStoreChanged, object: ek, queue: .main) {
+            [weak self] _ in
             Task { @MainActor in self?.sync() }
         }
-        cancellable = store.$planner.debounce(for: .seconds(1.5), scheduler: RunLoop.main).sink { [weak self] _ in self?.sync() }
+        cancellable = store.$planner.debounce(for: .seconds(1.5), scheduler: RunLoop.main).sink { [weak self] _ in
+            self?.sync()
+        }
     }
 
     var hasAccess: Bool {
@@ -341,7 +358,9 @@ final class RemindersSync: ObservableObject {
         if let c = ek.calendars(for: .reminder).first(where: { $0.title == Self.listName }) { return c }
         let c = EKCalendar(for: .reminder, eventStore: ek)
         c.title = Self.listName
-        guard let source = ek.defaultCalendarForNewReminders()?.source ?? ek.sources.first(where: { $0.sourceType == .calDAV || $0.sourceType == .local })
+        guard
+            let source = ek.defaultCalendarForNewReminders()?.source
+                ?? ek.sources.first(where: { $0.sourceType == .calDAV || $0.sourceType == .local })
         else { throw PlannerError("Perch found no Reminders account on this Mac.") }
         c.source = source
         try ek.saveCalendar(c, commit: true)
@@ -359,7 +378,9 @@ final class RemindersSync: ObservableObject {
             let pred = ek.predicateForReminders(in: [cal])
             var fetched: [EKReminder] = []
             let sem = DispatchSemaphore(value: 0)
-            ek.fetchReminders(matching: pred) { r in fetched = r ?? []; sem.signal() }
+            ek.fetchReminders(matching: pred) { r in
+                fetched = r ?? []; sem.signal()
+            }
             sem.wait()
             let byID = Dictionary(fetched.map { ($0.calendarItemIdentifier, $0) }, uniquingKeysWith: { a, _ in a })
             let today = store.today
@@ -370,7 +391,9 @@ final class RemindersSync: ObservableObject {
                 guard let d = t.day, d >= today else { continue }
                 let r = t.reminderLink.flatMap { byID[$0] }
                 if let r, r.isCompleted, !t.done, d == today { completedRemotely.append(t.id); continue }
-                if t.done { if let r, !r.isCompleted { r.isCompleted = true; try? ek.save(r, commit: false) }; continue }
+                if t.done {
+                    if let r, !r.isCompleted { r.isCompleted = true; try? ek.save(r, commit: false) }; continue
+                }
                 let rem = r ?? EKReminder(eventStore: ek)
                 rem.calendar = cal
                 rem.title = t.title
@@ -380,7 +403,9 @@ final class RemindersSync: ObservableObject {
                 if let at = t.remindAt {
                     comps = Calendar.current.dateComponents([.year, .month, .day, .hour, .minute], from: at)
                     rem.alarms = store.prefs.ringOnPhone ? [EKAlarm(absoluteDate: at)] : nil
-                } else { rem.alarms = nil }
+                } else {
+                    rem.alarms = nil
+                }
                 rem.dueDateComponents = comps
                 try ek.save(rem, commit: false)
                 if t.reminderLink != rem.calendarItemIdentifier { links[t.id] = rem.calendarItemIdentifier }
@@ -388,7 +413,11 @@ final class RemindersSync: ObservableObject {
             try ek.commit()
             guard !links.isEmpty || !completedRemotely.isEmpty else { lastError = nil; return }
             store.apply { e in
-                for (id, link) in links { if let i = e.planner.tasks.firstIndex(where: { $0.id == id }) { e.planner.tasks[i].reminderLink = link } }
+                for (id, link) in links {
+                    if let i = e.planner.tasks.firstIndex(where: { $0.id == id }) {
+                        e.planner.tasks[i].reminderLink = link
+                    }
+                }
                 for id in completedRemotely { _ = try? e.complete(id.uuidString) }
             }
             lastError = nil
@@ -417,12 +446,23 @@ final class VoiceCapture: ObservableObject {
     func start(onFinish: @escaping (String) -> Void) async {
         self.onFinish = onFinish
         transcript = ""
-        let speech = await withCheckedContinuation { c in SFSpeechRecognizer.requestAuthorization { c.resume(returning: $0) } }
-        guard speech == .authorized else { state = .error("Allow Speech Recognition for Perch under System Settings › Privacy & Security."); return }
-        guard await AVCaptureDevice.requestAccess(for: .audio) else { state = .error("Perch needs microphone access. Enable it under System Settings › Privacy & Security."); return }
-        guard let recognizer = SFSpeechRecognizer(), recognizer.isAvailable else { state = .error("Speech recognition isn't available right now."); return }
+        let speech = await withCheckedContinuation { c in
+            SFSpeechRecognizer.requestAuthorization { c.resume(returning: $0) }
+        }
+        guard speech == .authorized else {
+            state = .error("Allow Speech Recognition for Perch under System Settings › Privacy & Security."); return
+        }
+        guard await AVCaptureDevice.requestAccess(for: .audio) else {
+            state = .error("Perch needs microphone access. Enable it under System Settings › Privacy & Security.");
+            return
+        }
+        guard let recognizer = SFSpeechRecognizer(), recognizer.isAvailable else {
+            state = .error("Speech recognition isn't available right now."); return
+        }
         guard recognizer.supportsOnDeviceRecognition else {
-            state = .error("Dictation for your language isn't installed on this Mac. Download it under System Settings › Keyboard › Dictation.")
+            state = .error(
+                "Dictation for your language isn't installed on this Mac. Download it under System Settings › Keyboard › Dictation."
+            )
             return
         }
 
@@ -435,7 +475,9 @@ final class VoiceCapture: ObservableObject {
         let format = input.outputFormat(forBus: 0)
         guard format.channelCount > 0 else { state = .error("Perch can't find a microphone."); return }
         input.installTap(onBus: 0, bufferSize: 1024, format: format) { buf, _ in request.append(buf) }
-        do { try engine.start() } catch { state = .error("Recording failed to start: \(error.localizedDescription)"); return }
+        do { try engine.start() } catch {
+            state = .error("Recording failed to start: \(error.localizedDescription)"); return
+        }
 
         self.engine = engine; self.request = request
         state = .listening
@@ -447,7 +489,9 @@ final class VoiceCapture: ObservableObject {
             }
         }
         // Stop on silence-ish: cap a single capture at 30 s.
-        DispatchQueue.main.asyncAfter(deadline: .now() + 30) { [weak self] in if self?.state == .listening { self?.stop() } }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 30) { [weak self] in
+            if self?.state == .listening { self?.stop() }
+        }
     }
 
     func stop() {

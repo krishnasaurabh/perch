@@ -3,7 +3,8 @@ import XCTest
 
 final class RepeatLineageTests: XCTestCase {
     var clock = Fixture.now
-    lazy var engine = PlannerEngine(planner: Planner(), now: { [unowned self] in self.clock }, calendar: Fixture.calendar)
+    lazy var engine = PlannerEngine(
+        planner: Planner(), now: { [unowned self] in self.clock }, calendar: Fixture.calendar)
 
     func testLazyDailyRepeatMaterializesOnlyViewedDayAndSurvivesReload() throws {
         let root = try engine.addTasks(["standup every day at 6pm"]).first!
@@ -112,8 +113,9 @@ final class RepeatLineageTests: XCTestCase {
 
     func testRepeatsCarryAgentButNotCarryCountAndUseResetForReminder() {
         var p = Planner(); p.preferences.resetHour = 4
-        let root = PlanTask(title: "work", day: "2026-11-09", remindAt: Fixture.date("2026-11-10 01:00"),
-                            repeatRule: .daily, carryCount: 2, agentID: "cursor")
+        let root = PlanTask(
+            title: "work", day: "2026-11-09", remindAt: Fixture.date("2026-11-10 01:00"),
+            repeatRule: .daily, carryCount: 2, agentID: "cursor")
         p.tasks = [root]
         var e = PlannerEngine(planner: p, now: { Fixture.now }, calendar: Fixture.calendar)
         let copy = e.applyRepeats(on: "2026-11-10")[0]
@@ -158,11 +160,18 @@ final class RepeatLineageTests: XCTestCase {
         let file = PlannerFile(url: dir.appendingPathComponent("planner.json"))
         let tools = AgentTools(file: file, now: { Fixture.now }, calendar: Fixture.calendar)
         let server = MCPServer(tools: tools, version: "test")
-        _ = server.handle(["id": 1, "method": "initialize", "params": ["clientInfo": ["name": "claude-code", "version": "1"]]])
-        _ = server.handle(["id": 2, "method": "tools/call", "params": ["name": "add_tasks", "arguments": ["titles": ["agent task"], "agentID": "forged"]]])
+        _ = server.handle([
+            "id": 1, "method": "initialize", "params": ["clientInfo": ["name": "claude-code", "version": "1"]],
+        ])
+        _ = server.handle([
+            "id": 2, "method": "tools/call",
+            "params": ["name": "add_tasks", "arguments": ["titles": ["agent task"], "agentID": "forged"]],
+        ])
         _ = try tools.call("add_tasks", ["titles": ["direct task"]])
         let other = MCPServer(tools: tools, version: "test")
-        _ = other.handle(["id": 3, "method": "tools/call", "params": ["name": "add_tasks", "arguments": ["titles": ["other task"]]]])
+        _ = other.handle([
+            "id": 3, "method": "tools/call", "params": ["name": "add_tasks", "arguments": ["titles": ["other task"]]],
+        ])
         XCTAssertEqual(try file.load().tasks.map(\.agentID), ["claude-code", nil, nil])
     }
 

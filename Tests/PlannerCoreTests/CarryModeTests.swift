@@ -2,8 +2,10 @@ import XCTest
 @testable import PlannerCore
 
 final class CarryModeTests: XCTestCase {
-    private func engine(_ tasks: [PlanTask] = [], mode: CarryMode = .ask,
-                        at now: Date = Fixture.now, resetHour: Int = 0) -> PlannerEngine {
+    private func engine(
+        _ tasks: [PlanTask] = [], mode: CarryMode = .ask,
+        at now: Date = Fixture.now, resetHour: Int = 0
+    ) -> PlannerEngine {
         var p = Planner()
         p.tasks = tasks
         p.preferences.carryMode = mode
@@ -17,10 +19,12 @@ final class CarryModeTests: XCTestCase {
         for (json, expectedError) in [
             (#"{"carryMode":null}"#, "valueNotFound"),
             (#"{"carryMode":"future-value"}"#, "dataCorrupted"),
-            (#"{"carryMode":42}"#, "typeMismatch")
+            (#"{"carryMode":42}"#, "typeMismatch"),
         ] {
-            XCTAssertThrowsError(try PlannerFile.decoder.decode(Preferences.self, from: Data(json.utf8)),
-                                 "Only an absent preference gets the migration default") { error in
+            XCTAssertThrowsError(
+                try PlannerFile.decoder.decode(Preferences.self, from: Data(json.utf8)),
+                "Only an absent preference gets the migration default"
+            ) { error in
                 let kind: String
                 let context: DecodingError.Context
                 switch error {
@@ -49,8 +53,9 @@ final class CarryModeTests: XCTestCase {
     }
 
     func testAutoCarriesOnlyEligibleTasksAndPersistsIdempotently() throws {
-        let old = PlanTask(title: "Old", day: "2026-11-07", steps: [Subtask(title: "step", done: true)],
-                           focusedSeconds: 90, agentID: "agent")
+        let old = PlanTask(
+            title: "Old", day: "2026-11-07", steps: [Subtask(title: "step", done: true)],
+            focusedSeconds: 90, agentID: "agent")
         let dismissed = PlanTask(title: "Dismissed", day: "2026-11-08")
         let today = PlanTask(title: "Today", day: "2026-11-09")
         let future = PlanTask(title: "Future", day: "2026-11-10")
@@ -117,10 +122,11 @@ final class CarryModeTests: XCTestCase {
     }
 
     func testCompleteOverduePreservesHistoryAndCompletesOnlySelectedTasks() throws {
-        let past = PlanTask(title: "Finish", day: "2026-11-07", remindAt: Fixture.date("2026-11-07 18:00"),
-                            priority: .high, notes: "Keep", repeatRule: .daily, minutes: 25,
-                            steps: [Subtask(title: "step")], focusedSeconds: 90,
-                            carriedFrom: "2026-11-06", reminderLink: "link", carryCount: 1, agentID: "agent")
+        let past = PlanTask(
+            title: "Finish", day: "2026-11-07", remindAt: Fixture.date("2026-11-07 18:00"),
+            priority: .high, notes: "Keep", repeatRule: .daily, minutes: 25,
+            steps: [Subtask(title: "step")], focusedSeconds: 90,
+            carriedFrom: "2026-11-06", reminderLink: "link", carryCount: 1, agentID: "agent")
         let untouched = PlanTask(title: "Not selected", day: "2026-11-08")
         var e = engine([past, untouched])
         XCTAssertEqual(e.completeOverdue([past.id]).map(\.id), [past.id])
@@ -145,7 +151,9 @@ final class CarryModeTests: XCTestCase {
         var e = engine([past, dismissed, today, future, inbox, done])
         e.dismissOverdue([dismissed.id])
         let originalOthers = Array(e.planner.tasks.dropFirst())
-        XCTAssertEqual(e.completeOverdue([UUID(), past.id, today.id, inbox.id, dismissed.id, future.id, done.id, past.id]).count, 1)
+        XCTAssertEqual(
+            e.completeOverdue([UUID(), past.id, today.id, inbox.id, dismissed.id, future.id, done.id, past.id]).count, 1
+        )
         XCTAssertEqual(Array(e.planner.tasks.dropFirst()), originalOthers)
         let before = e.planner
         e.now = { Fixture.now.addingTimeInterval(10) }

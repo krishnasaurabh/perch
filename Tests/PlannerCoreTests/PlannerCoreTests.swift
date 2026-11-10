@@ -18,7 +18,8 @@ enum Fixture {
     static var capture: TaskCapture { TaskCapture(now: now, calendar: calendar) }
     static func hm(_ d: Date?) -> String? {
         guard let d else { return nil }
-        let f = DateFormatter(); f.calendar = calendar; f.timeZone = calendar.timeZone; f.dateFormat = "yyyy-MM-dd HH:mm"
+        let f = DateFormatter(); f.calendar = calendar; f.timeZone = calendar.timeZone;
+        f.dateFormat = "yyyy-MM-dd HH:mm"
         return f.string(from: d)
     }
 }
@@ -101,9 +102,11 @@ final class TaskCaptureTests: XCTestCase {
         XCTAssertEqual(c.repeatRule, TaskRepeat(unit: .week, weekdays: [2, 4, 6]))
         XCTAssertEqual(c.title, "gym")
         XCTAssertEqual(cap.parse("water plants every 3 days").repeatRule, TaskRepeat(unit: .day, interval: 3))
-        XCTAssertEqual(cap.parse("haircut every! 4 weeks").repeatRule, TaskRepeat(unit: .week, interval: 4, fromCompletion: true))
+        XCTAssertEqual(
+            cap.parse("haircut every! 4 weeks").repeatRule, TaskRepeat(unit: .week, interval: 4, fromCompletion: true))
         XCTAssertEqual(cap.parse("standup every weekday").repeatRule, .weekdaysRule)
-        XCTAssertEqual(cap.parse("1:1 every other week on tue").repeatRule, TaskRepeat(unit: .week, interval: 2, weekdays: [3]))
+        XCTAssertEqual(
+            cap.parse("1:1 every other week on tue").repeatRule, TaskRepeat(unit: .week, interval: 2, weekdays: [3]))
         XCTAssertEqual(cap.parse("review every day").repeatRule, .daily)
     }
 
@@ -116,7 +119,9 @@ final class TaskCaptureTests: XCTestCase {
     }
 
     func testBulletsAndConnectors() {
-        XCTAssertEqual(TaskCapture.splitLines("- buy milk\n2) call mom\n\n* then and pay rent"), ["buy milk", "call mom", "pay rent"])
+        XCTAssertEqual(
+            TaskCapture.splitLines("- buy milk\n2) call mom\n\n* then and pay rent"),
+            ["buy milk", "call mom", "pay rent"])
     }
 
     func testTitleOnlyFallsBack() {
@@ -144,11 +149,13 @@ final class TaskRepeatTests: XCTestCase {
     }
 
     func testWeekdaysSkipsWeekend() {
-        XCTAssertEqual(TaskRepeat.weekdaysRule.next(after: "2026-11-13", completed: "2026-11-13", calendar: cal), "2026-11-16")
+        XCTAssertEqual(
+            TaskRepeat.weekdaysRule.next(after: "2026-11-13", completed: "2026-11-13", calendar: cal), "2026-11-16")
     }
 
     func testMonthlyAndRoundTrip() {
-        XCTAssertEqual(TaskRepeat.monthly.next(after: "2026-01-31", completed: "2026-01-31", calendar: cal), "2026-02-28")
+        XCTAssertEqual(
+            TaskRepeat.monthly.next(after: "2026-01-31", completed: "2026-01-31", calendar: cal), "2026-02-28")
         for s in ["every day", "every 2 weeks", "every mon, wed", "every! 3 days", "every weekday", "every month"] {
             let r = TaskRepeat.parseRule(s)!!
             XCTAssertEqual(TaskRepeat.parseRule(r.description)!!, r, s)
@@ -160,7 +167,8 @@ final class TaskRepeatTests: XCTestCase {
 
 final class PlannerEngineTests: XCTestCase {
     var clock = Fixture.now
-    lazy var engine = PlannerEngine(planner: Planner(), now: { [unowned self] in self.clock }, calendar: Fixture.calendar)
+    lazy var engine = PlannerEngine(
+        planner: Planner(), now: { [unowned self] in self.clock }, calendar: Fixture.calendar)
 
     func testAddDefaultsToTodayAndCreatesProject() throws {
         let t = try engine.addTasks(["write tests #perch"]).first!
@@ -289,7 +297,9 @@ final class PlannerEngineTests: XCTestCase {
 
     func testStreak() throws {
         for (offset, done) in [(-3, true), (-2, true), (-1, true), (0, false)] {
-            var t = PlanTask(title: "t\(offset)", day: DayKey(Fixture.now, calendar: Fixture.calendar).adding(days: offset, calendar: Fixture.calendar))
+            var t = PlanTask(
+                title: "t\(offset)",
+                day: DayKey(Fixture.now, calendar: Fixture.calendar).adding(days: offset, calendar: Fixture.calendar))
             t.done = done
             engine.planner.tasks.append(t)
         }

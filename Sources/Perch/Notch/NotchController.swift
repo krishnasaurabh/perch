@@ -8,7 +8,9 @@ enum NotchPage: String, CaseIterable, Identifiable {
     case home, week, clips, insights
     var id: String { rawValue }
     var title: String { ["home": "Today", "week": "Week", "clips": "Clips", "insights": "Insights"][rawValue]! }
-    var symbol: String { ["home": "sun.max", "week": "calendar", "clips": "paperclip", "insights": "chart.bar"][rawValue]! }
+    var symbol: String {
+        ["home": "sun.max", "week": "calendar", "clips": "paperclip", "insights": "chart.bar"][rawValue]!
+    }
 }
 
 /// A short-lived thing the closed notch shows: a reminder nudge, a finished timer, a caught clip.
@@ -116,13 +118,15 @@ final class NotchController {
         updateScreens()
 
         let mask: NSEvent.EventTypeMask = [.mouseMoved, .leftMouseDragged, .leftMouseDown]
-        monitors.append(NSEvent.addGlobalMonitorForEvents(matching: mask) { [weak self] e in
-            Task { @MainActor in self?.handle(e) }
-        } as Any)
-        monitors.append(NSEvent.addLocalMonitorForEvents(matching: mask) { [weak self] e in
-            Task { @MainActor in self?.handle(e) }
-            return e
-        } as Any)
+        monitors.append(
+            NSEvent.addGlobalMonitorForEvents(matching: mask) { [weak self] e in
+                Task { @MainActor in self?.handle(e) }
+            } as Any)
+        monitors.append(
+            NSEvent.addLocalMonitorForEvents(matching: mask) { [weak self] e in
+                Task { @MainActor in self?.handle(e) }
+                return e
+            } as Any)
         // Event monitors miss moves inside other apps' drag sessions; a light poll keeps routing and drop detection exact.
         pointerTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / 15, repeats: true) { [weak self] _ in
             Task { @MainActor in self?.trackPointer() }
@@ -130,7 +134,11 @@ final class NotchController {
 
         hotKey = GlobalHotKey(keyCode: 45 /* N */, modifiers: .option) { [weak self] in
             guard let self else { return }
-            if self.model.expanded { self.model.close() } else { self.open(on: self.slotUnderPointer() ?? self.preferredID(), pinned: true, activate: true) }
+            if self.model.expanded {
+                self.model.close()
+            } else {
+                self.open(on: self.slotUnderPointer() ?? self.preferredID(), pinned: true, activate: true)
+            }
         }
 
         model.$expanded.removeDuplicates().sink { [weak self] open in
@@ -140,25 +148,34 @@ final class NotchController {
                 for s in self.slots.values { s.panel.resignKey() }
             }
             // Routing reads the new state on the next run-loop pass, after @Published has stored it.
-            DispatchQueue.main.async { self.updateMouseRouting(); self.applyFullScreen() }
+            DispatchQueue.main.async {
+                self.updateMouseRouting(); self.applyFullScreen()
+            }
         }.store(in: &cancellables)
-        model.$activity.sink { [weak self] _ in DispatchQueue.main.async { self?.updateMouseRouting() } }.store(in: &cancellables)
+        model.$activity.sink { [weak self] _ in DispatchQueue.main.async { self?.updateMouseRouting() } }.store(
+            in: &cancellables)
         store.$planner.map(\.preferences.showOnDisplay).removeDuplicates().dropFirst().sink { [weak self] _ in
             DispatchQueue.main.async { self?.updateScreens() }
         }.store(in: &cancellables)
 
-        NotificationCenter.default.addObserver(forName: NSApplication.didChangeScreenParametersNotification, object: nil, queue: .main) { [weak self] _ in
+        NotificationCenter.default.addObserver(
+            forName: NSApplication.didChangeScreenParametersNotification, object: nil, queue: .main
+        ) { [weak self] _ in
             Task { @MainActor in self?.updateScreens() }
         }
         for name in [NSWorkspace.activeSpaceDidChangeNotification, NSWorkspace.didActivateApplicationNotification] {
-            NSWorkspace.shared.notificationCenter.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+            NSWorkspace.shared.notificationCenter.addObserver(forName: name, object: nil, queue: .main) {
+                [weak self] _ in
                 Task { @MainActor in self?.checkFullScreenSoon() }
             }
         }
-        NotificationCenter.default.addObserver(forName: .perchOpenWorkspace, object: nil, queue: .main) { [weak self] n in
+        NotificationCenter.default.addObserver(forName: .perchOpenWorkspace, object: nil, queue: .main) {
+            [weak self] n in
             Task { @MainActor in
                 guard let self else { return }
-                self.open(on: self.slotUnderPointer() ?? self.preferredID(), page: n.object as? NotchPage, pinned: true, activate: true)
+                self.open(
+                    on: self.slotUnderPointer() ?? self.preferredID(), page: n.object as? NotchPage, pinned: true,
+                    activate: true)
             }
         }
 
@@ -171,7 +188,9 @@ final class NotchController {
         if let i = args.firstIndex(of: "--dump-layout"), i + 1 < args.count {
             let path = args[i + 1]
             DispatchQueue.main.asyncAfter(deadline: .now() + 2) { [weak self] in
-                guard let self, let data = try? JSONSerialization.data(withJSONObject: self.layoutDump(), options: [.prettyPrinted, .sortedKeys])
+                guard let self,
+                    let data = try? JSONSerialization.data(
+                        withJSONObject: self.layoutDump(), options: [.prettyPrinted, .sortedKeys])
                 else { return }
                 try? data.write(to: URL(fileURLWithPath: path))
             }
@@ -190,10 +209,12 @@ final class NotchController {
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         for slot in slots.values {
             guard let view = slot.panel.contentView, let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds),
-                  let out = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: rep.pixelsWide, pixelsHigh: rep.pixelsHigh,
-                                             bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
-                                             colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0),
-                  let ctx = NSGraphicsContext(bitmapImageRep: out) else { continue }
+                let out = NSBitmapImageRep(
+                    bitmapDataPlanes: nil, pixelsWide: rep.pixelsWide, pixelsHigh: rep.pixelsHigh,
+                    bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
+                    colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0),
+                let ctx = NSGraphicsContext(bitmapImageRep: out)
+            else { continue }
             view.cacheDisplay(in: view.bounds, to: rep)
             NSGraphicsContext.saveGraphicsState()
             NSGraphicsContext.current = ctx
@@ -202,10 +223,14 @@ final class NotchController {
             NSColor(calibratedRed: 0.47, green: 0.49, blue: 0.53, alpha: 1).setFill()
             NSRect(origin: .zero, size: size).fill()
             let w = slot.panel.frame, sf = slot.state.geometry.screenFrame
-            let bar = slot.state.geometry.screen.menuBarHeight > 0 ? slot.state.geometry.screen.menuBarHeight : NotchLayout.fallbackMenuBarHeight
+            let bar =
+                slot.state.geometry.screen.menuBarHeight > 0
+                ? slot.state.geometry.screen.menuBarHeight : NotchLayout.fallbackMenuBarHeight
             NSColor(calibratedWhite: 0.86, alpha: 1).setFill()
             NSRect(x: sf.minX, y: sf.maxY - bar, width: sf.width, height: bar).offsetBy(dx: -w.minX, dy: -w.minY).fill()
-            rep.draw(in: NSRect(origin: .zero, size: size), from: .zero, operation: .sourceOver, fraction: 1, respectFlipped: true, hints: nil)
+            rep.draw(
+                in: NSRect(origin: .zero, size: size), from: .zero, operation: .sourceOver, fraction: 1,
+                respectFlipped: true, hints: nil)
             if let cam = slot.state.geometry.camera {
                 NSColor.systemRed.setStroke()
                 let path = NSBezierPath(rect: cam.offsetBy(dx: -w.minX, dy: -w.minY).insetBy(dx: 0.5, dy: 0.5))
@@ -214,7 +239,8 @@ final class NotchController {
             }
             NSGraphicsContext.restoreGraphicsState()
             guard let png = out.representation(using: .png, properties: [:]) else { continue }
-            try? png.write(to: dir.appendingPathComponent("notch-\(slot.state.id)-\(model.expanded ? "open" : "closed").png"))
+            try? png.write(
+                to: dir.appendingPathComponent("notch-\(slot.state.id)-\(model.expanded ? "open" : "closed").png"))
         }
     }
 
@@ -284,7 +310,8 @@ final class NotchController {
     /// Where ⌥N, the menu and `--preview-open` open when the pointer isn't on a notch screen.
     func preferredID() -> CGDirectDisplayID {
         let screens = eligibleScreens()
-        let pick = screens.first(where: { $0.isBuiltIn && NotchLayout.camera(screen: .init($0)) != nil })
+        let pick =
+            screens.first(where: { $0.isBuiltIn && NotchLayout.camera(screen: .init($0)) != nil })
             ?? screens.first(where: { $0 == NSScreen.main }) ?? screens.first
         return pick?.displayID ?? 0
     }
@@ -335,7 +362,8 @@ final class NotchController {
         let windows = WindowList.current()
         let primary = NSScreen.screens.first?.frame.height ?? 0
         for slot in slots.values {
-            let fs = NotchLayout.isFullScreen(screen: slot.state.geometry.screen, windows: windows, primaryHeight: primary)
+            let fs = NotchLayout.isFullScreen(
+                screen: slot.state.geometry.screen, windows: windows, primaryHeight: primary)
             if slot.state.fullScreen != fs { slot.state.fullScreen = fs }
             let keep = !fs || (model.expanded && model.screenID == slot.state.id)
             if keep && !slot.panel.isVisible { slot.panel.orderFrontRegardless() }
@@ -356,13 +384,15 @@ final class NotchController {
     /// Exactly the drawn outline: the open workspace (rounded corners and shoulders excluded), or the closed silhouette.
     private func isOnShape(_ p: NSPoint, _ slot: Slot) -> Bool {
         let active = model.screenID == slot.state.id
-        return slot.state.geometry.shapeContains(p, expanded: active && model.expanded, timer: timerShowing(),
-                                                 activity: active && model.activity != nil)
+        return slot.state.geometry.shapeContains(
+            p, expanded: active && model.expanded, timer: timerShowing(),
+            activity: active && model.activity != nil)
     }
 
     private func hoverRect(_ slot: Slot) -> NSRect {
         let active = model.screenID == slot.state.id
-        return slot.state.geometry.hover(expanded: active && model.expanded, timer: timerShowing(), activity: active && model.activity != nil)
+        return slot.state.geometry.hover(
+            expanded: active && model.expanded, timer: timerShowing(), activity: active && model.activity != nil)
     }
 
     // MARK: Pointer
@@ -378,9 +408,10 @@ final class NotchController {
         let pb = NSPasteboard(name: .drag)
         guard NSEvent.pressedMouseButtons & 1 != 0 else { dragBaseline = pb.changeCount; return }
         guard pb.changeCount != dragBaseline, !(model.expanded && openedForDrop),
-              let id = slotUnderPointer(), let slot = slots[id], !slot.state.fullScreen,
-              NotchLayout.contains(hoverRect(slot), pointer: p) || (model.expanded && model.screenID == id && isOnShape(p, slot)),
-              let types = pb.types, types.contains(where: { [.fileURL, .URL, .string].contains($0) })
+            let id = slotUnderPointer(), let slot = slots[id], !slot.state.fullScreen,
+            NotchLayout.contains(hoverRect(slot), pointer: p)
+                || (model.expanded && model.screenID == id && isOnShape(p, slot)),
+            let types = pb.types, types.contains(where: { [.fileURL, .URL, .string].contains($0) })
         else { return }
         openedForDrop = true
         open(on: id, page: .clips)
@@ -397,7 +428,9 @@ final class NotchController {
                 // Same test as mouse routing: a click that went through to another app (menu bar, a corner) closes.
                 let inside = slots[model.screenID].map { isOnShape(p, $0) } ?? false
                 if !inside && !anySheetOrPopoverOpen() { model.close() }
-            } else if let id = slotUnderPointer(), let slot = slots[id], drawn(slot), NotchLayout.contains(hoverRect(slot), pointer: p) {
+            } else if let id = slotUnderPointer(), let slot = slots[id], drawn(slot),
+                NotchLayout.contains(hoverRect(slot), pointer: p)
+            {
                 if prefs.notchOpenTrigger == .click || (prefs.notchOpenTrigger == .doubleClick && e.clickCount >= 2) {
                     open(on: id, activate: true)
                 }
@@ -408,13 +441,16 @@ final class NotchController {
 
         if !model.expanded {
             guard prefs.notchOpenTrigger == .hover, e.type == .mouseMoved,
-                  let id = slotUnderPointer(), let slot = slots[id], drawn(slot), NotchLayout.contains(hoverRect(slot), pointer: p)
+                let id = slotUnderPointer(), let slot = slots[id], drawn(slot),
+                NotchLayout.contains(hoverRect(slot), pointer: p)
             else { openWork?.cancel(); openWork = nil; return }
             guard openWork == nil else { return }
             let w = DispatchWorkItem { [weak self] in
                 guard let self else { return }
                 self.openWork = nil
-                guard let slot = self.slots[id], NotchLayout.contains(self.hoverRect(slot), pointer: NSEvent.mouseLocation) else { return }
+                guard let slot = self.slots[id],
+                    NotchLayout.contains(self.hoverRect(slot), pointer: NSEvent.mouseLocation)
+                else { return }
                 self.open(on: id)
             }
             openWork = w
@@ -430,7 +466,9 @@ final class NotchController {
             let w = DispatchWorkItem { [weak self] in
                 guard let self else { return }
                 self.closeWork = nil
-                if !self.pointerInWorkspace(NSEvent.mouseLocation) && !self.model.pinned && NSEvent.pressedMouseButtons & 1 == 0 {
+                if !self.pointerInWorkspace(NSEvent.mouseLocation) && !self.model.pinned
+                    && NSEvent.pressedMouseButtons & 1 == 0
+                {
                     self.model.close()
                 }
             }
@@ -443,7 +481,8 @@ final class NotchController {
     private func pointerInWorkspace(_ p: NSPoint) -> Bool {
         guard let slot = slots[model.screenID] else { return false }
         if NotchLayout.contains(hoverRect(slot), pointer: p) { return true }
-        guard model.expanded, let bridge = slot.state.geometry.openBridge(timer: timerShowing(), activity: model.activity != nil)
+        guard model.expanded,
+            let bridge = slot.state.geometry.openBridge(timer: timerShowing(), activity: model.activity != nil)
         else { return false }
         return NotchLayout.contains(bridge, pointer: p)
     }
@@ -451,7 +490,9 @@ final class NotchController {
     private func anySheetOrPopoverOpen() -> Bool {
         let ours = Set(slots.values.map { ObjectIdentifier($0.panel) })
         if slots.values.contains(where: { $0.panel.attachedSheet != nil }) { return true }
-        return NSApp.windows.contains { $0.isVisible && !ours.contains(ObjectIdentifier($0)) && $0.className.contains("Popover") }
+        return NSApp.windows.contains {
+            $0.isVisible && !ours.contains(ObjectIdentifier($0)) && $0.className.contains("Popover")
+        }
     }
 
     // MARK: Tick
@@ -473,13 +514,16 @@ final class NotchController {
         slots.values.sorted { $0.state.id < $1.state.id }.map { s in
             let g = s.state.geometry
             func r(_ x: NSRect) -> [String: Double] { ["x": x.minX, "y": x.minY, "w": x.width, "h": x.height] }
-            var d: [String: Any] = ["displayID": Int(s.state.id), "name": NSScreen.screens.first { $0.displayID == s.state.id }?.localizedName ?? "",
-                                    "safeAreaTop": g.screen.safeAreaTop, "frame": r(g.screenFrame), "notch": r(g.notchRect),
-                                    "expanded": model.expanded && model.screenID == s.state.id, "ignoresMouse": s.panel.ignoresMouseEvents,
-                                    "idle": r(g.idle(timer: timerShowing(), activity: false)), "workspace": r(g.workspace),
-                                    "window": r(s.panel.frame), "hardwareNotch": g.hasHardwareNotch, "fullScreen": s.state.fullScreen,
-                                    "menuBarHeight": g.screen.menuBarHeight, "workspaceAttached": g.workspaceAttached,
-                                    "visible": s.panel.isVisible]
+            var d: [String: Any] = [
+                "displayID": Int(s.state.id),
+                "name": NSScreen.screens.first { $0.displayID == s.state.id }?.localizedName ?? "",
+                "safeAreaTop": g.screen.safeAreaTop, "frame": r(g.screenFrame), "notch": r(g.notchRect),
+                "expanded": model.expanded && model.screenID == s.state.id, "ignoresMouse": s.panel.ignoresMouseEvents,
+                "idle": r(g.idle(timer: timerShowing(), activity: false)), "workspace": r(g.workspace),
+                "window": r(s.panel.frame), "hardwareNotch": g.hasHardwareNotch, "fullScreen": s.state.fullScreen,
+                "menuBarHeight": g.screen.menuBarHeight, "workspaceAttached": g.workspaceAttached,
+                "visible": s.panel.isVisible,
+            ]
             if let c = g.camera { d["camera"] = r(c) }
             // Mouse-routing probes: the decision `updateMouseRouting` makes at each point, from the live code path.
             let expanded = model.expanded && model.screenID == s.state.id
@@ -487,9 +531,11 @@ final class NotchController {
             let capsule = !expanded && model.activity == nil ? timerShowing().map { g.pill(side: $0) } : nil
             // A detached capsule leaves the union's top midpoint/corners empty. Sample the individual components,
             // retaining the original outline probes unchanged for the expanded workspace and timer-free notch.
-            let topOutside = capsule.map { NSPoint(x: $0.midX, y: $0.maxY + 1) }
+            let topOutside =
+                capsule.map { NSPoint(x: $0.midX, y: $0.maxY + 1) }
                 ?? NSPoint(x: shape.minX + 1.5, y: shape.maxY - 2)
-            let topInside = capsule.map { _ in NSPoint(x: g.tuckedNotch.midX, y: g.tuckedNotch.maxY - 2) }
+            let topInside =
+                capsule.map { _ in NSPoint(x: g.tuckedNotch.midX, y: g.tuckedNotch.maxY - 2) }
                 ?? NSPoint(x: shape.midX, y: shape.maxY - 2)
             var probes: [(String, NSPoint)] = [
                 ("notchCenterTopEdge", NSPoint(x: g.notchRect.midX, y: g.screenFrame.maxY)),
@@ -510,8 +556,10 @@ final class NotchController {
                 let n = g.notchRect
                 let gapX = capsule.midX < n.midX ? (capsule.maxX + n.minX) / 2 : (n.maxX + capsule.minX) / 2
                 d["timerCapsule"] = r(capsule)
-                probes += [("timerCapsuleCenter", NSPoint(x: capsule.midX, y: capsule.midY)),
-                           ("timerGap", NSPoint(x: gapX, y: capsule.midY))]
+                probes += [
+                    ("timerCapsuleCenter", NSPoint(x: capsule.midX, y: capsule.midY)),
+                    ("timerGap", NSPoint(x: gapX, y: capsule.midY)),
+                ]
             }
             d["routing"] = Dictionary(uniqueKeysWithValues: probes.map { ($0.0, drawn(s) && isOnShape($0.1, s)) })
             return d

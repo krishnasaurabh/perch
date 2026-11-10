@@ -20,7 +20,8 @@ struct WeekPage: View {
                 GlassButton(symbol: "chevron.right", help: "Next week", size: 22) { go(anchor + 1) }
                 if anchor != 0 { Button("Today") { go(0) }.buttonStyle(PillStyle()) }
                 Spacer()
-                Text("Drop tasks onto a day, or park them in the Inbox.").font(.system(size: 10.5)).foregroundStyle(Theme.tertiary)
+                Text("Drop tasks onto a day, or park them in the Inbox.").font(.system(size: 10.5)).foregroundStyle(
+                    Theme.tertiary)
             }
             // Changing weeks crossfades the day columns in place, like a page switch (`Motion.page`).
             GeometryReader { geometry in
@@ -35,9 +36,12 @@ struct WeekPage: View {
                 ScrollView(.horizontal) {
                     HStack(alignment: .top, spacing: 6) {
                         ForEach(Array(days.enumerated()), id: \.element) { index, d in
-                            column(title: d.date().formatted(.dateTime.weekday(.abbreviated)), subtitle: d.date().formatted(.dateTime.day()),
-                                   ref: .day(d), isToday: d == store.today, past: d < store.today)
-                                .frame(width: widths[index] + extra)
+                            column(
+                                title: d.date().formatted(.dateTime.weekday(.abbreviated)),
+                                subtitle: d.date().formatted(.dateTime.day()),
+                                ref: .day(d), isToday: d == store.today, past: d < store.today
+                            )
+                            .frame(width: widths[index] + extra)
                         }
                         column(title: "Inbox", subtitle: "", ref: .inbox, isToday: false, past: false)
                             .frame(width: 118 + extra)
@@ -65,8 +69,10 @@ struct WeekPage: View {
                     Text(title.uppercased()).font(.system(size: 10, weight: .bold)).tracking(0.6)
                         .foregroundStyle(isToday ? Theme.accent : Theme.secondary)
                         .lineLimit(1).fixedSize()
-                    Text(subtitle).font(.system(size: 10, weight: .semibold)).foregroundStyle(isToday ? Theme.accent : Theme.tertiary)
-                        .lineLimit(1).fixedSize()
+                    Text(subtitle).font(.system(size: 10, weight: .semibold)).foregroundStyle(
+                        isToday ? Theme.accent : Theme.tertiary
+                    )
+                    .lineLimit(1).fixedSize()
                 }
                 // A dedicated line prevents the day label from squeezing or scaling the count.
                 Text("\(tasks.filter(\.done).count)/\(tasks.count) done")
@@ -80,10 +86,16 @@ struct WeekPage: View {
         }
         .padding(8)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        .background(RoundedRectangle(cornerRadius: 12).fill(target == key ? Theme.accent.opacity(0.16) : (isToday ? Color.white.opacity(0.08) : Theme.card)))
+        .background(
+            RoundedRectangle(cornerRadius: 12).fill(
+                target == key ? Theme.accent.opacity(0.16) : (isToday ? Color.white.opacity(0.08) : Theme.card))
+        )
         .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(Theme.cardStroke))
         .opacity(past ? 0.6 : 1)
-        .onDrop(of: [.plainText], isTargeted: Binding(get: { target == key }, set: { target = $0 ? key : (target == key ? nil : target) })) { items in
+        .onDrop(
+            of: [.plainText],
+            isTargeted: Binding(get: { target == key }, set: { target = $0 ? key : (target == key ? nil : target) })
+        ) { items in
             guard !past else { return false }
             items.first?.loadObject(ofClass: NSString.self) { s, _ in
                 guard let s = s as? String, let id = UUID(uuidString: s) else { return }
@@ -109,23 +121,28 @@ private struct WeekDayList: View {
     private static let fade: CGFloat = 22
 
     var body: some View {
-        let hidden = WeekColumnLayout.hiddenBelow(chipBottoms: tasks.compactMap { bottoms[$0.id].map { Double($0) } },
-                                                  viewport: Double(viewport))
+        let hidden = WeekColumnLayout.hiddenBelow(
+            chipBottoms: tasks.compactMap { bottoms[$0.id].map { Double($0) } },
+            viewport: Double(viewport))
         VStack(alignment: .leading, spacing: 3) {
             ScrollView {
                 VStack(spacing: 4) {
                     ForEach(tasks) { t in
                         WeekChip(task: t, past: past)
-                            .background(GeometryReader { g in
-                                Color.clear.preference(key: ChipBottoms.self, value: [t.id: g.frame(in: .named(Self.space)).maxY])
-                            })
+                            .background(
+                                GeometryReader { g in
+                                    Color.clear.preference(
+                                        key: ChipBottoms.self, value: [t.id: g.frame(in: .named(Self.space)).maxY])
+                                }
+                            )
                             .onDrag { NSItemProvider(object: t.id.uuidString as NSString) }
                             .transition(.opacity)
                     }
                     if tasks.isEmpty {
-                        EmptyStateView(past ? "No plans" : ref == .inbox ? "For later" : "Open day",
-                                       symbol: ref == .inbox ? "tray" : "calendar",
-                                       compact: true)
+                        EmptyStateView(
+                            past ? "No plans" : ref == .inbox ? "For later" : "Open day",
+                            symbol: ref == .inbox ? "tray" : "calendar",
+                            compact: true)
                     }
                 }
                 .motion(Motion.row, value: tasks.map(\.id))
@@ -133,9 +150,12 @@ private struct WeekDayList: View {
             .coordinateSpace(.named(Self.space))
             .scrollIndicators(.never)
             .onPreferenceChange(ChipBottoms.self) { bottoms = $0 }
-            .background(GeometryReader { g in
-                Color.clear.onAppear { viewport = g.size.height }.onChange(of: g.size.height) { _, h in viewport = h }
-            })
+            .background(
+                GeometryReader { g in
+                    Color.clear.onAppear { viewport = g.size.height }.onChange(of: g.size.height) { _, h in viewport = h
+                    }
+                }
+            )
             .mask {
                 VStack(spacing: 0) {
                     Rectangle()
@@ -169,7 +189,9 @@ struct WeekChip: View {
 
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: 5) {
-            Circle().fill(task.done ? Theme.done : (task.priority == .none ? Theme.tertiary : Theme.priority(task.priority))).frame(width: 6, height: 6)
+            Circle().fill(
+                task.done ? Theme.done : (task.priority == .none ? Theme.tertiary : Theme.priority(task.priority))
+            ).frame(width: 6, height: 6)
                 .alignmentGuide(.firstTextBaseline) { $0[.bottom] - 0.5 }
             title(size: WeekColumnLayout.titleSize)
                 .lineLimit(2).truncationMode(.tail)
@@ -192,7 +214,8 @@ struct WeekChip: View {
         let words = Text(task.title).font(.system(size: CGFloat(size)))
             .strikethrough(task.done).foregroundStyle(task.done ? Theme.tertiary : Theme.text)
         guard task.repeatRule != nil else { return words }
-        let glyph = Text(Image(systemName: "repeat")).font(.system(size: CGFloat(size) - 2, weight: .semibold)).foregroundStyle(Theme.secondary)
+        let glyph = Text(Image(systemName: "repeat")).font(.system(size: CGFloat(size) - 2, weight: .semibold))
+            .foregroundStyle(Theme.secondary)
         return glyph + Text(" ") + words
     }
 
@@ -241,10 +264,19 @@ private struct ClipsBody: View {
             HStack {
                 CardHeading("Clips", symbol: "paperclip")
                 Spacer()
-                Toggle("Catch screenshots", isOn: Binding(get: { store.prefs.catchScreenshots }, set: { v in store.updatePrefs { $0.catchScreenshots = v } }))
-                    .toggleStyle(.switch).controlSize(.mini).font(.system(size: 10.5))
-                Toggle("Catch copies", isOn: Binding(get: { store.prefs.catchCopies }, set: { v in store.updatePrefs { $0.catchCopies = v } }))
-                    .toggleStyle(.switch).controlSize(.mini).font(.system(size: 10.5))
+                Toggle(
+                    "Catch screenshots",
+                    isOn: Binding(
+                        get: { store.prefs.catchScreenshots },
+                        set: { v in store.updatePrefs { $0.catchScreenshots = v } })
+                )
+                .toggleStyle(.switch).controlSize(.mini).font(.system(size: 10.5))
+                Toggle(
+                    "Catch copies",
+                    isOn: Binding(
+                        get: { store.prefs.catchCopies }, set: { v in store.updatePrefs { $0.catchCopies = v } })
+                )
+                .toggleStyle(.switch).controlSize(.mini).font(.system(size: 10.5))
                 Button("Let go of all") { clips.sweep() }.buttonStyle(PillStyle())
                     .opacity(clips.clips.contains(where: { !$0.pinned }) ? 1 : 0)
                     .disabled(!clips.clips.contains(where: { !$0.pinned }))
@@ -264,14 +296,16 @@ private struct ClipsBody: View {
                         ScrollView(.horizontal) {
                             HStack(alignment: .top, spacing: 14) {
                                 ForEach(Array(clips.clips.enumerated()), id: \.element.id) { i, c in
-                                    ClipCard(clip: c, clips: clips).rotationEffect(.degrees(i.isMultiple(of: 2) ? -2 : 2), anchor: .top)
-                                        .transition(.opacity)
+                                    ClipCard(clip: c, clips: clips).rotationEffect(
+                                        .degrees(i.isMultiple(of: 2) ? -2 : 2), anchor: .top
+                                    )
+                                    .transition(.opacity)
                                 }
                             }
                             .padding(.horizontal, 16).padding(.top, 16)
                             .motion(Motion.row, value: clips.clips.map(\.id))
                         }.scrollIndicators(.never)
-                        .transition(.opacity)
+                            .transition(.opacity)
                     }
                 }
             }
@@ -285,7 +319,8 @@ private struct ClipsBody: View {
             }
             HStack(spacing: 6) {
                 if ClipsLineLayout.showsGestureHints(clipCount: clips.clips.count) {
-                    Text("Click: copy · Double-click: open · Drag: move or share").font(.system(size: 10)).foregroundStyle(Theme.tertiary)
+                    Text("Click: copy · Double-click: open · Drag: move or share").font(.system(size: 10))
+                        .foregroundStyle(Theme.tertiary)
                         .transition(.opacity)
                 }
                 Spacer(minLength: 8)
@@ -305,7 +340,9 @@ private struct ClipsRope: View {
             if let rope = ClipsLineLayout.rope(width: g.size.width) {
                 Path { p in
                     p.move(to: CGPoint(x: rope.start.x, y: rope.start.y))
-                    p.addQuadCurve(to: CGPoint(x: rope.end.x, y: rope.end.y), control: CGPoint(x: rope.control.x, y: rope.control.y))
+                    p.addQuadCurve(
+                        to: CGPoint(x: rope.end.x, y: rope.end.y),
+                        control: CGPoint(x: rope.control.x, y: rope.control.y))
                 }
                 // Dedicated boundary ink: do not attenuate a text token a second time.
                 .stroke(Theme.rope, style: StrokeStyle(lineWidth: 1.5, lineCap: .round))
@@ -362,13 +399,18 @@ private struct FolderWatchStatus: View {
                 .help("New screenshots in \(url.path) hang here right away.")
         case .unreadable(let url):
             Button {
-                NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_FilesAndFolders")!)
+                NSWorkspace.shared.open(
+                    URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_FilesAndFolders")!)
             } label: {
-                Label("Can't read \(url.lastPathComponent): using Spotlight only", systemImage: "exclamationmark.triangle")
-                    .font(.system(size: 10)).foregroundStyle(Theme.accent).lineLimit(1)
+                Label(
+                    "Can't read \(url.lastPathComponent): using Spotlight only", systemImage: "exclamationmark.triangle"
+                )
+                .font(.system(size: 10)).foregroundStyle(Theme.accent).lineLimit(1)
             }
             .buttonStyle(.plain)
-            .help("Allow Perch to access \(url.path) in Privacy & Security › Files and Folders, so screenshots appear instantly.")
+            .help(
+                "Allow Perch to access \(url.path) in Privacy & Security › Files and Folders, so screenshots appear instantly."
+            )
         }
     }
 }
@@ -426,7 +468,9 @@ struct ClipPreview: View {
     }
 
     private var fileSymbol: String {
-        guard case .file(let url) = content, let type = UTType(filenameExtension: url.pathExtension) else { return "doc" }
+        guard case .file(let url) = content, let type = UTType(filenameExtension: url.pathExtension) else {
+            return "doc"
+        }
         if type.conforms(to: .image) { return "photo" }
         if type.conforms(to: .movie) { return "film" }
         if type.conforms(to: .audio) { return "waveform" }
@@ -440,14 +484,16 @@ struct ClipPreview: View {
     nonisolated static func readText(at url: URL) -> String? {
         let limit = 64 * 1024
         guard let values = try? url.resourceValues(forKeys: [.isRegularFileKey, .fileSizeKey, .contentTypeKey]),
-              values.isRegularFile == true, let size = values.fileSize, size <= limit,
-              values.contentType?.conforms(to: .plainText) == true,
-              let file = try? FileHandle(forReadingFrom: url) else { return nil }
+            values.isRegularFile == true, let size = values.fileSize, size <= limit,
+            values.contentType?.conforms(to: .plainText) == true,
+            let file = try? FileHandle(forReadingFrom: url)
+        else { return nil }
         defer { try? file.close() }
         guard let data = try? file.read(upToCount: limit + 1), data.count <= limit,
-              let text = String(data: data, encoding: .utf8),
-              !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-              !text.unicodeScalars.contains(where: { $0.value < 32 && ![9, 10, 13].contains($0.value) }) else { return nil }
+            let text = String(data: data, encoding: .utf8),
+            !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+            !text.unicodeScalars.contains(where: { $0.value < 32 && ![9, 10, 13].contains($0.value) })
+        else { return nil }
         return String(text.prefix(4096))
     }
 
@@ -456,13 +502,19 @@ struct ClipPreview: View {
         // Quick Look can return a white sheet with only a border/shadow. Inspect its interior,
         // not those edges, so it cannot suppress the text or intentional file placeholder.
         guard let cg = image.cgImage(forProposedRect: nil, context: nil, hints: nil),
-              let interior = cg.cropping(to: CGRect(x: CGFloat(cg.width) * 0.15, y: CGFloat(cg.height) * 0.15,
-                                                   width: CGFloat(cg.width) * 0.7, height: CGFloat(cg.height) * 0.7)) else { return false }
+            let interior = cg.cropping(
+                to: CGRect(
+                    x: CGFloat(cg.width) * 0.15, y: CGFloat(cg.height) * 0.15,
+                    width: CGFloat(cg.width) * 0.7, height: CGFloat(cg.height) * 0.7))
+        else { return false }
         var pixels = [UInt8](repeating: 255, count: 16 * 16 * 4)
         let drawn = pixels.withUnsafeMutableBytes { bytes -> Bool in
-            guard let context = CGContext(data: bytes.baseAddress, width: 16, height: 16, bitsPerComponent: 8,
-                                          bytesPerRow: 64, space: CGColorSpaceCreateDeviceRGB(),
-                                          bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return false }
+            guard
+                let context = CGContext(
+                    data: bytes.baseAddress, width: 16, height: 16, bitsPerComponent: 8,
+                    bytesPerRow: 64, space: CGColorSpaceCreateDeviceRGB(),
+                    bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
+            else { return false }
             context.setFillColor(CGColor(gray: 1, alpha: 1))
             context.fill(CGRect(x: 0, y: 0, width: 16, height: 16))
             context.draw(interior, in: CGRect(x: 0, y: 0, width: 16, height: 16))
@@ -491,7 +543,9 @@ private struct ClipCard: View {
                     Text(copied ? "Copied" : clip.title).font(.system(size: 9.5, weight: .medium)).lineLimit(1)
                         .foregroundStyle(copied ? Theme.accent : .black.opacity(0.7))
                     Spacer(minLength: 0)
-                    if clip.pinned { Image(systemName: "pin.fill").font(.system(size: 8)).foregroundStyle(.black.opacity(0.6)) }
+                    if clip.pinned {
+                        Image(systemName: "pin.fill").font(.system(size: 8)).foregroundStyle(.black.opacity(0.6))
+                    }
                 }
                 .frame(width: 132, alignment: .leading)
             }

@@ -21,27 +21,27 @@ final class PlannerLegacyDefaultsTests: XCTestCase {
     /// A minimal version-1 document: no focus, no projects, no repeat or calendar bookkeeping,
     /// and none of the optional task keys added later.
     private let minimalVersionOne = #"""
-    {
-      "version": 1,
-      "tasks": [
         {
-          "id": "11111111-1111-1111-1111-111111111111",
-          "title": "Synthetic legacy task",
-          "day": "2026-11-09",
-          "createdAt": "2026-11-09T22:00:00Z"
-        },
-        {
-          "id": "22222222-2222-2222-2222-222222222222",
-          "title": "Synthetic legacy inbox task",
-          "createdAt": "2026-11-09T22:00:00Z",
-          "done": true,
-          "priority": "high",
-          "notes": "Persisted text stays"
+          "version": 1,
+          "tasks": [
+            {
+              "id": "11111111-1111-1111-1111-111111111111",
+              "title": "Synthetic legacy task",
+              "day": "2026-11-09",
+              "createdAt": "2026-11-09T22:00:00Z"
+            },
+            {
+              "id": "22222222-2222-2222-2222-222222222222",
+              "title": "Synthetic legacy inbox task",
+              "createdAt": "2026-11-09T22:00:00Z",
+              "done": true,
+              "priority": "high",
+              "notes": "Persisted text stays"
+            }
+          ],
+          "preferences": {"defaultFocusMinutes": 50}
         }
-      ],
-      "preferences": {"defaultFocusMinutes": 50}
-    }
-    """#
+        """#
 
     func testMissingOptionalLegacyKeysLoadWithMigrationDefaults() throws {
         let raw = Data(minimalVersionOne.utf8)
@@ -127,8 +127,8 @@ final class PlannerLegacyDefaultsTests: XCTestCase {
         // repeatAnchor arrived after repeatRule. A legacy task has no anchor, so scheduling
         // must fall back to the stored day instead of refusing to repeat.
         let legacy = #"""
-        {"version":1,"tasks":[{"id":"33333333-3333-3333-3333-333333333333","title":"Legacy daily","day":"2026-11-09","createdAt":"2026-11-09T22:00:00Z","repeatRule":{"unit":"day","interval":1,"weekdays":[],"weekdaysOnly":false,"fromCompletion":false}}]}
-        """#
+            {"version":1,"tasks":[{"id":"33333333-3333-3333-3333-333333333333","title":"Legacy daily","day":"2026-11-09","createdAt":"2026-11-09T22:00:00Z","repeatRule":{"unit":"day","interval":1,"weekdays":[],"weekdaysOnly":false,"fromCompletion":false}}]}
+            """#
         try Data(legacy.utf8).write(to: file.url)
         let planner = try file.load()
         let template = try XCTUnwrap(planner.tasks.first)

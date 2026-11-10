@@ -38,9 +38,10 @@ final class PlannerSchemaFailClosedTests: XCTestCase {
         XCTAssertFalse(backups.isEmpty)
         let backupFingerprints = try backups.map { fingerprint(try Data(contentsOf: $0)) }
 
-        let future = Data(#"""
-        {"version":999,"unknownCollection":[1,2,3],"tasks":[{"id":"44444444-4444-4444-4444-444444444444","title":"Future task","createdAt":"2026-11-09T12:00:00Z","futureKey":{"keep":true}}]}
-        """#.utf8)
+        let future = Data(
+            #"""
+            {"version":999,"unknownCollection":[1,2,3],"tasks":[{"id":"44444444-4444-4444-4444-444444444444","title":"Future task","createdAt":"2026-11-09T12:00:00Z","futureKey":{"keep":true}}]}
+            """#.utf8)
         try future.write(to: file.url)
 
         let beforeFingerprint = fingerprint(try Data(contentsOf: file.url))
@@ -64,8 +65,9 @@ final class PlannerSchemaFailClosedTests: XCTestCase {
         XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: directory.path).sorted(), beforeNames)
         XCTAssertEqual(try file.backupURLs(), backups)
         XCTAssertEqual(try backups.map { fingerprint(try Data(contentsOf: $0)) }, backupFingerprints)
-        XCTAssertFalse(try FileManager.default.contentsOfDirectory(atPath: directory.path)
-            .contains { $0.contains(".corrupt-") || $0.contains(".recovered") || $0.contains(".issues") })
+        XCTAssertFalse(
+            try FileManager.default.contentsOfDirectory(atPath: directory.path)
+                .contains { $0.contains(".corrupt-") || $0.contains(".recovered") || $0.contains(".issues") })
     }
 
     func testEveryUnsupportedVersionFailsClosedWithItsOwnTypedError() throws {
