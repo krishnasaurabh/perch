@@ -9,7 +9,7 @@ import sys
 ROOT_FILES = {
     "README.md", "LICENSE", "AGENTS.md", "CONTRIBUTING.md", "SECURITY.md",
     "CHANGELOG.md", "Package.swift", "Package.resolved", ".gitignore",
-    ".gitattributes", ".editorconfig", ".pre-commit-config.yaml",
+    ".gitattributes", ".editorconfig", ".pre-commit-config.yaml", ".swift-format",
 }
 ROOT_DIRS = {"Sources", "Tests", "Resources", "scripts", ".github", ".githooks", "docs"}
 PRIVATE_DIRS = {

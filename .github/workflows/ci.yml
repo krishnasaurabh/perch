@@ -21,6 +21,21 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  swift-format:
+    name: Swift format
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: swift-actions/setup-swift@v2
+        with: { swift-version: "6.4.2" }
+      # Layout only: keep syntax-rewriting rules disabled in .swift-format.
+      # To apply: git ls-files -z -- '*.swift' | xargs -0 swift format format --configuration .swift-format --in-place
+      - name: Check pinned formatter and all tracked Swift files
+        run: |
+          test "$(swift format --version)" = "6.4.2"
+          git ls-files -z -- '*.swift' | xargs -0 swift format lint --strict --no-color-diagnostics --configuration .swift-format
+
   core-linux:
     name: PlannerCore tests (Linux)
     # GitHub-hosted runner. Never use a self-hosted runner on a public repo (fork PRs run code on it).
