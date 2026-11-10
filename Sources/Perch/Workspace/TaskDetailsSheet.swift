@@ -9,15 +9,17 @@ struct TaskDetailsSheet: View {
     @Environment(\.dismiss) var dismiss
     @State private var newStep = ""
     @State private var repeatText = ""
+    @FocusState private var textField: String?
 
     var body: some View {
         if let t = store.planner.tasks.first(where: { $0.id == taskID }) {
             let readOnly = (t.day.map { $0 < store.today }) ?? false
             VStack(alignment: .leading, spacing: 14) {
                 HStack {
-                    TextField("Title", text: binding(\.title, t)).textFieldStyle(.plain).font(.system(size: 16, weight: .semibold))
+                    TextField("Title", text: textBinding(.title(t.id))).textFieldStyle(.plain).font(.system(size: 16, weight: .semibold))
+                        .focused($textField, equals: "title").onSubmit { store.flushPendingText() }
                     Spacer()
-                    Button("Done") { dismiss() }.keyboardShortcut(.defaultAction)
+                    Button("Done") { if store.flushPendingText() { dismiss() } }.keyboardShortcut(.defaultAction)
                 }
                 if readOnly { Text("Older days stay unchanged in your history.").font(.caption).foregroundStyle(.secondary) }
 
@@ -121,7 +123,8 @@ struct TaskDetailsSheet: View {
 
                 VStack(alignment: .leading, spacing: 6) {
                     label("Notes")
-                    TextEditor(text: binding(\.notes, t)).font(.system(size: 12.5)).frame(minHeight: 70)
+                    TextEditor(text: textBinding(.notes(t.id))).font(.system(size: 12.5)).frame(minHeight: 70)
+                        .focused($textField, equals: "notes")
                         .scrollContentBackground(.hidden).padding(6)
                         .background(RoundedRectangle(cornerRadius: 8).fill(Color.primary.opacity(0.06)))
                 }
@@ -139,6 +142,8 @@ struct TaskDetailsSheet: View {
             .padding(20)
             .frame(width: 460)
             .onAppear { repeatText = t.repeatRule?.description ?? "" }
+            .onChange(of: textField) { _, _ in store.flushPendingText() }
+            .onDisappear { store.flushPendingText() }
         } else {
             Text("This task was removed.").padding(30).onAppear { dismiss() }
         }
@@ -146,6 +151,10 @@ struct TaskDetailsSheet: View {
 
     func label(_ s: String) -> some View {
         Text(s).font(.system(size: 11.5, weight: .semibold)).foregroundStyle(.secondary).frame(width: 74, alignment: .leading)
+    }
+
+    func textBinding(_ target: PlannerStore.TextTarget) -> Binding<String> {
+        Binding(get: { store.text(for: target) }, set: { store.setText($0, for: target) })
     }
 
     func binding<V>(_ kp: WritableKeyPath<PlanTask, V>, _ t: PlanTask) -> Binding<V> {
