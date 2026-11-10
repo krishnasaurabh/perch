@@ -33,9 +33,10 @@ jobs:
       # Layout only: keep syntax-rewriting rules disabled in .swift-format.
       # To apply: git ls-files -z -- '*.swift' | xargs -0 swift format format --configuration .swift-format --in-place
       - name: Check pinned formatter and all tracked Swift files
+        shell: bash
         run: |
           test "$(swift format --version)" = "6.4.2"
-          git ls-files -z -- '*.swift' | xargs -0 swift format lint --strict --no-color-diagnostics --configuration .swift-format
+          git -c safe.directory="$GITHUB_WORKSPACE" ls-files -z -- '*.swift' | xargs -0 swift format lint --strict --no-color-diagnostics --configuration .swift-format
 
   core-linux:
     name: PlannerCore tests (Linux)
