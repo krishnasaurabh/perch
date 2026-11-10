@@ -215,19 +215,77 @@ func checkRecovery() async throws {
         require(sameFiles, "reload \(step + 1) adds no recovery copies")
     }
 
-    let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 780, height: 100), styleMask: [.titled], backing: .buffered, defer: false)
-    window.isReleasedWhenClosed = false
-    let view = NSHostingView(rootView: ErrorBanner().environmentObject(store).padding().frame(width: 780, height: 100))
-    window.contentView = view
-    window.orderFront(nil)
-    try await Task.sleep(nanoseconds: 150_000_000)
-    view.layoutSubtreeIfNeeded()
-    guard let bitmap = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { throw PlannerError("Recovery banner did not render.") }
-    view.cacheDisplay(in: view.bounds, to: bitmap)
-    let png = bitmap.representation(using: .png, properties: [:])!
-    try png.write(to: outputURL.appendingPathComponent("recovery-banner.png"))
-    require(bitmap.pixelsWide > 0 && bitmap.pixelsHigh > 0, "real error banner renders in a native hosting view")
-    window.close()
+    // Measure the actual banner against an unconstrained full-text reference, not its
+    // accessibility label: a truncated Text can still expose the full string to AX.
+    @MainActor func textHeight(_ message: String, width: CGFloat, lines: Int? = nil) -> CGFloat {
+        let reference = NSHostingView(rootView: Text(message).font(.system(size: 11.5))
+            .lineLimit(lines).fixedSize(horizontal: false, vertical: true)
+            .frame(width: width, alignment: .leading))
+        return reference.fittingSize.height
+    }
+    for width: CGFloat in [900, 1000, 1100] {
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: width, height: 100),
+                              styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        let view = NSHostingView(rootView: ErrorBanner().environmentObject(store)
+            .padding(16).frame(width: width).background(Color.black).environment(\.colorScheme, .dark))
+        window.contentView = view
+        window.orderFront(nil)
+        try await Task.sleep(nanoseconds: 150_000_000)
+        let fullHeight = view.fittingSize.height
+        window.setContentSize(NSSize(width: width, height: fullHeight))
+        view.layoutSubtreeIfNeeded()
+        guard let bitmap = view.bitmapImageRepForCachingDisplay(in: view.bounds) else {
+            throw PlannerError("Recovery banner did not render.")
+        }
+        view.cacheDisplay(in: view.bounds, to: bitmap)
+        let png = bitmap.representation(using: .png, properties: [:])!
+        try png.write(to: outputURL.appendingPathComponent("recovery-banner-\(Int(width)).png"))
+        if width == 1000 { try png.write(to: outputURL.appendingPathComponent("recovery-banner.png")) }
+        require(bitmap.pixelsWide > 0 && bitmap.pixelsHigh > 0, "real error banner renders in a native hosting view")
+        // Excluding the icon gives the reference MORE width than the real text, so this
+        // is a conservative lower bound independent of the SF Symbol's font metrics.
+        let referenceWidth = width - 32 - 20
+        let minimumHeight = textHeight(text, width: referenceWidth) + 32 + 14
+        let truncatedHeight = textHeight(text, width: referenceWidth, lines: 2) + 32 + 14
+        require(minimumHeight > truncatedHeight + 30, "\(Int(width))pt: fixture detects the former two-line clipping")
+        require(fullHeight >= minimumHeight - 1 && view.bounds.height >= minimumHeight - 1,
+                "\(Int(width))pt: visible banner fits every path and the final repair instruction")
+        print("Banner geometry: width=\(width), actual=\(fullHeight), full-text minimum=\(minimumHeight), two-line=\(truncatedHeight)")
+
+        // Click where the former dismiss control lived. Recovery must stay visible.
+        for type in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
+            let event = NSEvent.mouseEvent(with: type,
+                location: NSPoint(x: width - 30, y: fullHeight - 30), modifierFlags: [],
+                timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber,
+                context: nil, eventNumber: 0, clickCount: 1, pressure: 1)!
+            window.sendEvent(event)
+        }
+        try await Task.sleep(nanoseconds: 150_000_000)
+        require(store.lastError == text && view.fittingSize.height == fullHeight,
+                "\(Int(width))pt: clicking the former dismiss location cannot hide recovery")
+
+        store.lastError = "Unable to complete the action."
+        try await Task.sleep(nanoseconds: 150_000_000)
+        let shortHeight = view.fittingSize.height
+        let expectedShortHeight = textHeight(store.lastError!, width: referenceWidth) + 32 + 14
+        require(abs(shortHeight - expectedShortHeight) <= 2,
+                "\(Int(width))pt: a short error keeps the compact single-line height")
+        window.setContentSize(NSSize(width: width, height: shortHeight))
+        view.layoutSubtreeIfNeeded()
+        if width == 1000, let shortBitmap = view.bitmapImageRepForCachingDisplay(in: view.bounds) {
+            view.cacheDisplay(in: view.bounds, to: shortBitmap)
+            try shortBitmap.representation(using: .png, properties: [:])!
+                .write(to: outputURL.appendingPathComponent("short-error-banner.png"))
+        }
+        store.lastError = nil
+        try await Task.sleep(nanoseconds: 150_000_000)
+        require(view.fittingSize.height <= 32, "\(Int(width))pt: clearing an error leaves no banner space")
+        store.lastError = text
+        window.close()
+    }
+    let bannerBytes = try contents(url)
+    require(bannerBytes == raw && store.planner == healthy, "banner presentation never changes the planner or its original bytes")
 
     // Repair with the same valid records. Even an equal planner must clear the warning.
     try encode(healthy).write(to: url)
