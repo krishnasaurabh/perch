@@ -1,13 +1,21 @@
 import json
 import unittest
-from motion_evidence_rules import qualify, window_bounds, candidate_stats
+from motion_evidence_rules import qualify, window_bounds, candidate_stats, provenance_errors
 
 class EvidenceRulesTests(unittest.TestCase):
     def marker(self):
         return {'name': 'timer', 'via': 'ax-press:Start focus', 'interaction_ok': True,
                 'policy': dict(nsworkspace_reduce_motion=False, swiftui_reduce_motion=False,
-                               resolved_reduce_motion=False, explicit_reduce_motion=False),
-                'session': {'screen_locked': False}}
+                               resolved_reduce_motion=False, explicit_reduce_motion=False, mode='production'),
+                'session': {'screen_locked': False}, 'settled_state': {'timer_present': True}}
+
+    def test_wrong_diagnostic_and_production_policy_fail(self):
+        m = self.marker(); m['policy']['mode'] = 'diagnostic-reduced'
+        self.assertFalse(qualify(m, 'a'*40)['qualified'])
+        m = self.marker(); m['policy']['nsworkspace_reduce_motion'] = True
+        self.assertFalse(qualify(m, 'a'*40)['qualified'])
+        m = self.marker(); m['settled_state']['timer_present'] = False
+        self.assertFalse(qualify(m, 'a'*40)['qualified'])
 
     def test_missing_policy_fails(self):
         m = self.marker(); del m['policy']['swiftui_reduce_motion']
@@ -42,6 +50,15 @@ class EvidenceRulesTests(unittest.TestCase):
     def test_unique_not_held_grid_count(self):
         s = candidate_stats([0,.1,.2,.3,.4,.5], [b'\x00',b'\x10',b'\x10',b'\x20',b'\x10',b'\x30'])
         self.assertEqual(s['unique_unclassified_intermediates'], 2)
+
+    def test_provenance_rejects_old_binary_and_own_window(self):
+        build = dict(build_verified=True, build_sha='a'*40, expected_sha='a'*40,
+                     binary_sha256='b'*64, observed_binary_sha256='b'*64)
+        self.assertEqual([], provenance_errors(build, 'a'*40, 'compositor-driver',
+                          'screencapture -V (real compositor output)'))
+        self.assertTrue(provenance_errors(build, 'c'*40, 'compositor-driver',
+                        'screencapture -V (real compositor output)'))
+        self.assertTrue(provenance_errors(build, 'a'*40, 'own-window-driver', 'NSView.cacheDisplay'))
 
     def test_deterministic(self):
         args = ([0,.1,.2], [b'\x00', b'\x10', b'\x20'])

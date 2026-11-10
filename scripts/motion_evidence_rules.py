@@ -12,6 +12,28 @@ def qualify(marker, sha):
             reasons.append('missing-policy:' + key)
     if policy.get('resolved_reduce_motion') != policy.get('explicit_reduce_motion'):
         reasons.append('inconsistent-policy')
+    mode = policy.get('mode')
+    if mode == 'production':
+        if policy.get('resolved_reduce_motion') != policy.get('swiftui_reduce_motion') or policy.get('explicit_reduce_motion') != policy.get('nsworkspace_reduce_motion'):
+            reasons.append('production-policy-disagreement')
+    elif mode in ('diagnostic-normal', 'diagnostic-reduced'):
+        expected = mode == 'diagnostic-reduced'
+        if policy.get('resolved_reduce_motion') != expected or policy.get('explicit_reduce_motion') != expected:
+            reasons.append('incorrect-diagnostic-policy')
+    else:
+        reasons.append('missing-policy-mode')
+    after = marker.get('settled_state', {})
+    name = marker.get('name')
+    if name == 'open' and after.get('expanded') is not True:
+        reasons.append('open-not-observed')
+    if name == 'close' and after.get('expanded') is not False:
+        reasons.append('close-not-observed')
+    if name == 'page' and after.get('page') != 'week':
+        reasons.append('page-not-observed')
+    if name == 'tick' and after.get('completed_tasks', -1) <= marker.get('session', {}).get('completed_tasks', -1):
+        reasons.append('tick-not-observed')
+    if name == 'timer' and after.get('timer_present') is not True:
+        reasons.append('timer-not-observed')
     if marker.get('name') in EXPECTED and marker.get('via') != EXPECTED[marker['name']]:
         reasons.append('missing-real-control')
     if marker.get('interaction_ok') is False:
@@ -47,3 +69,15 @@ def candidate_stats(times, samples, threshold=.25):
     return dict(changed_source_indices=changed, unique_unclassified_intermediates=len(candidates),
                 unclassified_intermediate_source_indices=candidates,
                 whole_window_change_span_s=round(times[last]-times[first-1], 4))
+
+
+def provenance_errors(build, candidate_sha, source_kind, recorder):
+    errors = []
+    if (not build.get('build_verified') or build.get('build_sha') != candidate_sha
+            or build.get('expected_sha') != candidate_sha
+            or build.get('binary_sha256') != build.get('observed_binary_sha256')):
+        errors.append('missing-or-mismatched-build-provenance')
+    if source_kind != 'compositor-driver' or recorder not in (
+            'screencapture -V (real compositor output)', 'ffmpeg avfoundation (real compositor output)'):
+        errors.append('missing-compositor-source-provenance')
+    return errors

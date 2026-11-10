@@ -48,7 +48,9 @@ jobs:
         run: bash scripts/check_focus_entry.sh "$RUNNER_TEMP/notch/focus-entry"
       - run: swift test
       - name: Build and bundle
-        run: scripts/bundle.sh
+        run: |
+          scripts/bundle.sh
+          python3 scripts/motion_build_manifest.py dist/Perch.app
       - name: App binary speaks MCP
         run: |
           pip3 install --quiet --break-system-packages mcp || pip3 install --quiet mcp
@@ -194,6 +196,8 @@ jobs:
           for policy in production normal reduced; do
             PERCH_MOTION_POLICY=$policy scripts/motion_capture.sh "$RUNNER_TEMP/motion/$policy" dist/Perch.app || exit $?
           done
+      - name: Motion driver missing-control negative
+        run: bash scripts/check_motion_driver.sh "$PWD/dist/Perch.app/Contents/MacOS/Perch" "$RUNNER_TEMP/motion/negative"
       - uses: actions/upload-artifact@v4
         if: always()
         with:

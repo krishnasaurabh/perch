@@ -1,5 +1,5 @@
 import glob, hashlib, json, math, os, shutil, statistics, subprocess, sys
-from motion_evidence_rules import qualify, window_bounds, candidate_stats
+from motion_evidence_rules import qualify, window_bounds, candidate_stats, provenance_errors
 out = sys.argv[1]
 CLIPS = ["open", "close", "page", "tick", "timer"]
 PRE, POST = 0.3, 1.25             # clip window around each marker, seconds
@@ -35,7 +35,7 @@ def diff(a, b):
     return sum(abs(x - y) for x, y in zip(a, b)) / len(a) if a and b else 0.0
 
 def motion_stats(times, diffs, grey):
-    stats = candidate_stats(times, grey, CHANGED)
+    stats: dict = candidate_stats(times, grey, CHANGED)
     stats["target_intermediates"] = None
     stats["classification"] = "UNREVIEWED: whole-window changes may be focus ring, countdown, or unrelated feedback; not animation quality"
     stats["settle_time_s"] = None
@@ -93,7 +93,7 @@ elif os.path.exists(mov) and os.path.getsize(mov) > 0 and os.path.exists(markers
     # The recorder starts L >= 0 s after record_start_epoch, so the open shows up at video time est - L.
     # The app idles 4 s before opening; require ~0.3 s of stillness so the launch can't match.
     cand = [i for i in range(20, n) if est - 2.5 <= pts[i] <= est + 0.5 and d[i] > CHANGED and max(d[i - 18:i]) <= CHANGED]
-    offset = (pts[cand[0] - 1] - est) if cand else 0.0
+    offset = (pts[cand[0]] - est) if cand else 0.0
     rec = {"source": open(os.path.join(out, "source.txt")).read().strip() if os.path.exists(os.path.join(out, "source.txt")) else "historical recorder (source not explicitly logged)", "file": "screen.mov", "width": W, "height": H,
            "screen_points": scr, "analysis_crop": crop, "frames": n, "duration_s": round(pts[-1] - pts[0], 3) if n else 0,
            "stream_avg_frame_rate": st.get("avg_frame_rate"), "stream_r_frame_rate": st.get("r_frame_rate"),
@@ -110,12 +110,16 @@ elif os.path.exists(mov) and os.path.getsize(mov) > 0 and os.path.exists(markers
         hit = next((i for i in range(max(last_i + 1, 1), n) if pred - 0.4 <= pts[i] <= pred + 0.8 and d[i] > CHANGED), None)
         own = cur
         if hit is not None:
-            own = pts[hit - 1] - (m["t"] - start); last_i = hit
+            own = pts[hit] - (m["t"] - start); last_i = hit
             if abs(own - cur) <= 0.4: cur = own
         anchor_off[m["name"]] = (own, hit is not None)
     rec["per_marker_offset_s"] = {k: [round(v[0], 4), v[1]] for k, v in anchor_off.items()}
     ordered = sorted(mk["markers"], key=lambda m: m["t"])
     rec["candidate_sha"] = mk.get("candidate_sha")
+    build_path = os.path.join(out, "build.json")
+    build = json.load(open(build_path)) if os.path.exists(build_path) else {}
+    rec["build"] = build
+    provenance_failures = provenance_errors(build, mk.get("candidate_sha"), mk.get("source_kind"), rec["source"])
     rec["source_sha256"] = hashlib.sha256(open(mov, "rb").read()).hexdigest()
     for name in CLIPS:
         if name not in M: continue
@@ -132,6 +136,8 @@ elif os.path.exists(mov) and os.path.getsize(mov) > 0 and os.path.exists(markers
         cdir = os.path.join(out, name); shutil.rmtree(cdir, ignore_errors=True); os.makedirs(os.path.join(cdir, "frames"))
         if not idx:
             rec["clips"][name] = {"error": "no frames in window"}; continue
+        if idx[0] > 0 and pts[idx[0]] > low:
+            idx.insert(0, idx[0]-1)  # last genuine source sample before the grid, never a future frame
         a, b = pts[idx[0]], pts[idx[-1]]
         # Raw recorder frames in the window (screencapture is variable-rate: it skips static frames).
         rdir = os.path.join(cdir, ".raw"); os.makedirs(rdir)
@@ -154,6 +160,8 @@ elif os.path.exists(mov) and os.path.getsize(mov) > 0 and os.path.exists(markers
         # Motion stats use the raw recorder frames (true intermediates), not the held grid.
         times = [pts[i] for i in idx]; dd = [0.0] + [d[i] for i in idx[1:]]
         stats = motion_stats(times, dd, [g[i] for i in idx])
+        for key in ("changed_source_indices", "unclassified_intermediate_source_indices"):
+            stats[key] = [idx[i] for i in stats[key]]
         frames = []
         for k, t, jj in grid:
             src = idx[jj]; prev = idx[grid[k - 1][2]] if k else None
@@ -164,6 +172,8 @@ elif os.path.exists(mov) and os.path.getsize(mov) > 0 and os.path.exists(markers
                 "qualification": qualify(M[name], mk.get("candidate_sha")),
                 "bounded_end_pts_s": high, "next_action": following["name"] if following else None,
                 "grid": {"fps": GRID_FPS, "frames": grid_n, "from_marker_s": -PRE}, "raw_frames_in_window": len(idx), **stats, "frames": frames}
+        meta["qualification"]["reasons"].extend(provenance_failures)
+        meta["qualification"]["qualified"] = not meta["qualification"]["reasons"]
         json.dump(meta, open(os.path.join(cdir, "frames.json"), "w"), indent=1)
         # Contact sheet starts one frame before the motion so the before state is visible.
         first_ch = next((k for k, f in enumerate(frames) if f["changed"]), 0)
@@ -188,6 +198,9 @@ if os.path.isdir(ip):
         fj = os.path.join(ip, name, "frames.json")
         if not os.path.exists(fj): continue
         meta = json.load(open(fj)); fr = meta["frames"]
+        for legacy in ("changed_frames", "distinct_intermediate_frames", "intermediate_frame_indices",
+                       "motion_span_s", "motion_start_s", "motion_end_s", "fps_in_motion", "median_interval_ms"):
+            meta.pop(legacy, None)
         if not fr: continue
         times = [f["t"] for f in fr]
         if HAVE_FF:
@@ -220,12 +233,12 @@ recorded = "error" not in sr and any("error" not in c for c in sr.get("clips", {
 wired = summary["wiring"]["screen_pass"]["ok"]
 summary["status"] = ("RECORDED" if recorded else "UNVERIFIED") if wired else "WIRING-BROKEN"
 summary["status_reason"] = ("compositor frames recorded" if recorded else
-                            "no compositor recording on this host: " + sr.get("error", "no usable clips")) if wired else "driver markers missing"
+                            "no compositor recording on this host: " + sr.get("error", "no usable clips")) if wired else "missing markers or failed real-control interaction"
 json.dump(summary, open(os.path.join(out, "summary.json"), "w"), indent=1)
 L = ["# Perch motion capture summary", "", f"**Motion frames: {summary['status']}** ({summary['status_reason']})", "", "## Driver wiring"]
 for k, w in summary["wiring"].items():
     if "error" in w: L.append(f"- {k}: ERROR {w['error']}"); continue
-    L.append(f"- {k}: {'ok' if w['ok'] else 'MISSING ' + ', '.join(w['missing'])}; via " +
+    L.append(f"- {k}: {'ok' if w['ok'] else 'FAILED ' + ', '.join(w['missing'] + w.get('failed_interactions', []))}; via " +
              ", ".join(f"{n}={v}" for n, v in w["via"].items()) + (f"; direct fallbacks: {', '.join(w['direct_fallbacks'])}" if w["direct_fallbacks"] else ""))
     if w.get("ax_nodes"): L.append(f"  - AX nodes before each step: " + ", ".join(f"{n}={v}" for n, v in w["ax_nodes"].items()))
     if w.get("ax_wake"): L.append(f"  - AX wake: " + ", ".join(f"{k}={v}" for k, v in w["ax_wake"].items()))

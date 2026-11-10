@@ -16,7 +16,7 @@
 set -uo pipefail
 OUT="${1:?out dir}"; APP="${2:-dist/Perch.app}"
 mkdir -p "$OUT"; OUT="$(cd "$OUT" && pwd)"
-LOG="$OUT/capture.log"; : >"$LOG"
+LOG="$OUT/capture.log"; if [ "${POSTPROCESS_ONLY:-0}" != 1 ]; then : >"$LOG"; fi
 log() { echo "[motion] $*" | tee -a "$LOG"; }
 
 need_ffmpeg() {
@@ -46,6 +46,17 @@ record() {
   local BIN="$APP/Contents/MacOS/Perch"
   [ -x "$BIN" ] || { log "no app binary at $BIN"; return 1; }
   local DATA="${RUNNER_TEMP:-${TMPDIR:-/tmp}}/motion-planner.json"
+
+  python3 - "$APP" "$OUT" "${GITHUB_SHA:-$(git rev-parse HEAD)}" <<'PY'
+import hashlib,json,pathlib,sys
+app,out,expected=pathlib.Path(sys.argv[1]),pathlib.Path(sys.argv[2]),sys.argv[3]
+manifest=app.parent/'motion-build.json'
+j=json.loads(manifest.read_text()) if manifest.exists() else {}
+actual=hashlib.sha256((app/'Contents/MacOS/Perch').read_bytes()).hexdigest()
+j.update(expected_sha=expected, observed_binary_sha256=actual,
+         build_verified=j.get('build_sha')==expected and j.get('binary_sha256')==actual)
+(out/'build.json').write_text(json.dumps(j,sort_keys=True,indent=2))
+PY
 
   # Pass 1: real screen recording (compositor output, includes the menu bar and desktop).
   rm -f "$DATA" "$OUT/screen.mov"

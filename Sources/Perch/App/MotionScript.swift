@@ -44,8 +44,8 @@ enum MotionScript {
                     MotionScript.transactions.append(["t": Date().timeIntervalSince1970,
                         "animation": String(describing: transaction.animation),
                         "disables_animations": transaction.disablesAnimations,
-                        "enforced_animation": String(describing: enforced.animation),
-                        "enforced_disables_animations": enforced.disablesAnimations])
+                        "policy_projection_animation": String(describing: enforced.animation),
+                        "policy_projection_disables_animations": enforced.disablesAnimations])
                 }
             }
         }
@@ -141,9 +141,10 @@ enum MotionScript {
                 ]) { _, rhs in rhs }
                 let state: [String: Any] = ["screen_locked": Self.screenLocked,
                     "lock_key_present": session["CGSSessionScreenIsLocked"] != nil,
-                    "on_console": session["kCGSSessionOnConsoleKey"] ?? "unknown", "app_active": NSApp.isActive,
+                    "on_console": session[kCGSessionOnConsoleKey as String] ?? "unknown", "app_active": NSApp.isActive,
                     "key_window": NSApp.keyWindow != nil, "expanded": model.expanded,
-                    "page": model.page.rawValue, "timer_present": store.planner.focus != nil]
+                    "page": model.page.rawValue, "timer_present": store.planner.focus != nil,
+                    "completed_tasks": store.planner.tasks.filter(\.done).count]
                 let t = Date().timeIntervalSince1970
                 // Frame 0 of every captured clip is grabbed just BEFORE the action runs (t ~ 0), so each clip has a
                 // before/after pair even when the host can't animate.
@@ -154,6 +155,10 @@ enum MotionScript {
                 m["ax_nodes"] = axNodes
                 m["policy"] = policy
                 m["session"] = state
+                if let g = model.geometry {
+                    let r = g.workspace
+                    m["workspace_rect"] = ["x": r.minX, "y": r.minY, "w": r.width, "h": r.height]
+                }
                 m["interaction_ok"] = !via.hasPrefix("FAILED:")
                 m["action_end_epoch"] = Date().timeIntervalSince1970
                 if step.name == "reopen" {
@@ -162,7 +167,14 @@ enum MotionScript {
                 }
                 if let w = axWake { m["ax_wake_inproc"] = w }
                 markers.append(m)
+                let markerIndex = markers.count - 1
                 write()
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { [self] in
+                    markers[markerIndex]["settled_state"] = ["observed_epoch": Date().timeIntervalSince1970, "expanded": model.expanded,
+                        "page": model.page.rawValue, "timer_present": store.planner.focus != nil,
+                        "completed_tasks": store.planner.tasks.filter(\.done).count]
+                    write()
+                }
                 if step.capture, let dir = snapshotDir {
                     burst(name: step.name, into: dir.appendingPathComponent(step.name), start: t) { self.schedule(rest.dropFirst(), extra: extra) }
                 } else {
