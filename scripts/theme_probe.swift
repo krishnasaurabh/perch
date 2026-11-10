@@ -77,6 +77,24 @@ MainActor.assumeIsolated {
         _ = store.apply { try $0.complete(seeded.last!.id.uuidString) }
         let geometry = NotchGeometry(screen: .init(frame: CGRect(x: 0, y: 0, width: 1024, height: 768),
                                                    visibleFrame: CGRect(x: 0, y: 0, width: 1024, height: 744)))
+        // Isolated production Insights fixture, matching the CI --scenario insights data.
+        // Keep Home/Week's existing fixture (and their contrast gates) unchanged.
+        let insightsStore = PlannerStore(file: PlannerFile(url: output.appendingPathComponent("insights-planner.json")))
+        guard insightsStore.apply({ e in
+            e.planner.preferences.welcomeCompleted = true
+            e.planner.preferences.catchCopies = false
+            e.planner.preferences.catchScreenshots = false
+            let cal = Calendar.current, now = Date()
+            let doneByDay = [2, 4, 3, 5, 1, 6, 4, 3, 2, 3, 2, 0, 3, 2]
+            for (i, done) in doneByDay.enumerated() {
+                let date = cal.date(byAdding: .day, value: i - 13, to: now)!
+                for n in 0..<(done + 1 + i % 2) {
+                    e.planner.tasks.append(PlanTask(title: "Chart sample \(i)-\(n)", day: e.dayKey(date),
+                        done: n < done, completedAt: n < done ? date : nil, createdAt: date))
+                }
+            }
+            return true
+        }) == true else { fatalError("Insights fixture missing") }
         var manifest: [[String: Any]] = []
         for light in [true, false] {
             let mode = light ? "light" : "dark"
@@ -120,6 +138,14 @@ MainActor.assumeIsolated {
                 }
             }
             window.close()
+            let insightsRoot = NotchRootView().environmentObject(insightsStore).environmentObject(services)
+                .environmentObject(model).environmentObject(screen)
+                .environment(\.motionPolicyOverride, MotionPolicy(reduceMotion: true))
+            model.open(page: .insights, pinned: true)
+            let (insightsWindow, insightsHost) = render(insightsRoot, size: geometry.window.size, appearance: appearance)
+            try? await Task.sleep(nanoseconds: 700_000_000)
+            save(insightsHost, output.appendingPathComponent("\(mode)-insights.png"))
+            insightsWindow.close()
             let settings = SettingsView().environmentObject(store).environmentObject(services)
                 .environment(\.colorScheme, light ? .light : .dark)
             let (settingsWindow, settingsHost) = render(settings, size: CGSize(width: 620, height: 560), appearance: appearance)

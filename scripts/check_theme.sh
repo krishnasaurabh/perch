@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# CI-only real SwiftUI rendering; never modifies the user's appearance or live planner.
+# CI-only real SwiftUI rendering, including Insights glyph/series pixel gates in both appearances.
+# Never modifies the user's appearance or live planner.
 set -euo pipefail
 [[ $(uname -s) == Darwin ]] || { printf '%s\n' 'This UI probe requires macOS.' >&2; exit 2; }
 ROOT=$(cd "$(dirname "$0")/.." && pwd)

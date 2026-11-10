@@ -66,6 +66,12 @@ enum Theme {
     /// Chart: Completed is a solid fill (`#1A1E20`), Planned a translucent dark layer (`#727085` on lavender).
     static let chartCompleted = Color(hex: "#1A1E20")
     static let chartPlanned = Color.black.opacity(0.22)
+    /// Insights-only small ink: extra rasterization headroom for the 10 pt date digits.
+    /// Shared tertiary and Home's quiet progress track intentionally stay unchanged.
+    static let insightsLabel = Color.dynamic(light: (0x000000, 0.82), dark: (0xFFFFFF, 0.76))
+    /// Planned is the total silhouette behind Completed, not an additional stacked series.
+    /// Same black ink as before; enough opacity for a >=3:1 rendered boundary on lavender.
+    static let insightsPlanned = Color.black.opacity(0.53)
 
     /// Priority shows in the ring and the "High" chip's weight, not a rainbow. Only High gets its own color.
     static func priority(_ p: TaskPriority) -> Color {

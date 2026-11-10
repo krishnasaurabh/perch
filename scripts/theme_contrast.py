@@ -139,6 +139,117 @@ def ui_pixels(directory):
     return evidence
 
 
+def insights_measurements(image, mode):
+    """Measure actual production glyphs, not swatches or RGBA arithmetic.
+
+    The fixture is the CI seven-day Tasks chart at the normal workspace size.
+    Locate its lavender card, then sample label-only ROIs relative to that card;
+    bars/swatch pixels cannot satisfy a text gate. Each day is measured separately
+    so a bold Today cannot conceal a faint earlier date. The foreground is the
+    darkest RGB occurring >=5 times (>=2 for a single date digit), as in the
+    capture audit. Antialiased edge pixels are not claimed to meet WCAG.
+    Cards intentionally resolve to light ink under BOTH host appearances.
+    """
+    from collections import Counter
+    pixels = image.load()
+    scale = image.width / 868
+    assert scale in (1, 2), ('Unexpected Insights backing scale', image.size)
+    lavender = (147, 142, 171)
+    points = [(x, y) for y in range(image.height) for x in range(image.width)
+              if pixels[x, y] == lavender]
+    assert points, 'Missing Insights lavender card'
+    left, top = min(x for x, y in points), min(y for x, y in points)
+    right, bottom = max(x for x, y in points) + 1, max(y for x, y in points) + 1
+    assert 498 <= (right-left)/scale <= 506 and 294 <= (bottom-top)/scale <= 302, (
+        'Unexpected Insights card bounds', (left, top, right, bottom))
+
+    def box(x0, y0, x1, y1):
+        return tuple(round(v) for v in (left+x0*scale, top+y0*scale,
+                                        left+x1*scale, top+y1*scale))
+    width, height = (right-left)/scale, (bottom-top)/scale
+    regions = {
+        'scale': box(13, 50, 95, 68),
+        'date-range': box(width-180, 16, width-13, 38),
+        'legend-completed': box(27, height-31, 91, height-11),
+        'legend-planned': box(112, height-31, 166, height-11),
+    }
+    stride = (width-26+14)/7
+    for i in range(7):
+        x = 13 + i*stride
+        regions[f'weekday-{i}'] = box(x, height-68, x+stride-14, height-50)
+        regions[f'date-{i}'] = box(x, height-50, x+stride-14, height-32)
+    rows = []
+    for name, roi in regions.items():
+        counts = Counter(image.crop(roi).getdata())
+        bg = counts.most_common(1)[0][0]
+        assert bg == lavender, (mode, name, 'ROI not on the chart surface', bg)
+        repeated = 2 if name.startswith('date-') and name != 'date-range' else 5
+        ink = [p for p, n in counts.items() if n >= repeated*scale*scale
+               and max(abs(a-b) for a,b in zip(p,bg)) > 8]
+        assert ink, (mode, name, 'Missing rendered glyphs', roi)
+        fg = max(ink, key=lambda p: contrast(tuple(v/255 for v in p), tuple(v/255 for v in bg)))
+        rows.append(dict(appearance=mode, name=name, roi=list(roi),
+                         foreground=hex_rgb(tuple(v/255 for v in fg)),
+                         background=hex_rgb(tuple(v/255 for v in bg)),
+                         ink_count=counts[fg], ratio=contrast(tuple(v/255 for v in fg), tuple(v/255 for v in bg)), minimum=4.5))
+    # Flat bar interiors in the matching CI fixture: no gridline, text, or rounded edge.
+    planned_box, completed_box = box(20, 76, 52, 110), box(20, 146, 52, 210)
+    planned = Counter(image.crop(planned_box).getdata()).most_common(1)[0][0]
+    completed = Counter(image.crop(completed_box).getdata()).most_common(1)[0][0]
+    for name, fg, bg, minimum, roi in (
+        ('planned/card', planned, lavender, 3, planned_box),
+        ('completed/planned', completed, planned, 1.5, completed_box),
+    ):
+        rows.append(dict(appearance=mode, name=name, roi=list(roi),
+                         foreground=hex_rgb(tuple(v/255 for v in fg)),
+                         background=hex_rgb(tuple(v/255 for v in bg)),
+                         ratio=contrast(tuple(v/255 for v in fg), tuple(v/255 for v in bg)), minimum=minimum))
+    return rows
+
+
+def gate_insights(rows):
+    expected = {'scale', 'date-range', 'legend-completed', 'legend-planned',
+                'planned/card', 'completed/planned'} | {f'{kind}-{i}' for kind in ('weekday', 'date') for i in range(7)}
+    assert len(rows) == len(expected) and {r['name'] for r in rows} == expected, 'Incomplete Insights coverage'
+    for row in rows:
+        minimum = {'planned/card': 3, 'completed/planned': 1.5}.get(row['name'], 4.5)
+        assert row['minimum'] == minimum, ('Insights gate changed', row)
+        assert row['ratio'] >= minimum, ('Insights contrast', row)
+
+
+def insights_pixels(directory):
+    from PIL import Image
+    result = []
+    for mode in ('light', 'dark'):
+        image = Image.open(directory / f'{mode}-insights.png').convert('RGB')
+        rows = insights_measurements(image, mode)
+        gate_insights(rows)
+        # Fail-closed negative controls on the real bitmap. Every text ROI must
+        # independently reject both blank glyphs and the original low-contrast ink.
+        negatives = 0
+        for row in rows:
+            if row['minimum'] != 4.5:
+                continue
+            for fill in ((147, 142, 171), (56, 54, 65)):
+                bad = image.copy()
+                x0,y0,x1,y1 = row['roi']
+                pixels = bad.load()
+                assert pixels is not None
+                for y in range(y0, y1):
+                    for x in range(x0, x1):
+                        if pixels[x,y] != (147, 142, 171):
+                            pixels[x,y] = fill
+                try:
+                    gate_insights(insights_measurements(bad, mode))
+                except AssertionError:
+                    negatives += 1
+                else:
+                    raise AssertionError(('Insights negative accepted', mode, row['name'], fill))
+        assert negatives == 36
+        result.extend(rows)
+    return result
+
+
 def rendered_rows(directory, expected):
     from PIL import Image
     manifest = json.loads((directory / 'swatches.json').read_text())
@@ -167,12 +278,13 @@ def rendered_rows(directory, expected):
     assert len(result) == len(expected), 'Incomplete rendered color coverage'
     images = {}
     for mode in ('light', 'dark'):
-        for page in ('home', 'week', 'settings'):
+        for page in ('home', 'week', 'settings', 'insights'):
             path = directory / f'{mode}-{page}.png'
             with Image.open(path) as image:
                 image.verify()
             images[path.name] = hashlib.sha256(path.read_bytes()).hexdigest()
-    report = dict(rows=result, images=images, ui=ui_pixels(directory), failures=[])
+    report = dict(rows=result, images=images, ui=ui_pixels(directory),
+                  insights=insights_pixels(directory), insights_negative_controls=72, failures=[])
     (directory / 'pixel-contrast.json').write_text(json.dumps(report, indent=2) + '\n')
     return result
 
@@ -193,4 +305,8 @@ if __name__ == '__main__':
     if args.pixels:
         rows = rendered_rows(args.pixels, rows)
     print(table(rows))
+    if args.pixels:
+        report = json.loads((args.pixels / 'pixel-contrast.json').read_text())
+        print(table(report['insights']))
+        print('PASS: 36 rendered small labels, both appearances; Planned/card >=3:1; 72 negative controls.')
     print(f'PASS: {len(rows)} pairs; all boundary/priority and unchanged ink gates met.')

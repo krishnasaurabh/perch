@@ -50,7 +50,7 @@ struct InsightsPage: View {
             HStack(spacing: 14) {
                 if metric == .tasks {
                     legend(Theme.chartCompleted, "Completed")
-                    legend(Theme.chartPlanned, "Planned")
+                    legend(Theme.insightsPlanned, "Planned")
                 } else {
                     legend(Theme.chartCompleted, "Minutes focused")
                 }
@@ -121,7 +121,7 @@ struct InsightsPage: View {
 /// Only Completed grows from the baseline, left to right: spring R 0.30 ζ 1 with a 130 ms stagger
 /// Reduce Motion drops the growth entirely.
 ///
-/// One quiet label in tertiary ink sits on the top line and names the value it stands for ("5 tasks", "1m"),
+/// One quiet label in Insights ink sits on the top line and names the value it stands for ("5 tasks", "1m"),
 /// so a short week cannot pass for a big one. The top line and the baseline are single-pixel hairlines; no other
 /// gridlines, tick marks, vertical axis or legend.
 struct WeekBars: View {
@@ -169,7 +169,7 @@ struct WeekBars: View {
                 // The single scale mark, resting on the top line it names. With no data there is no scale to name.
                 if !empty {
                     Text(Self.scaleLabel(top: top, metric: metric))
-                        .font(Theme.meta.monospacedDigit()).foregroundStyle(Theme.tertiary)
+                        .font(Theme.meta.monospacedDigit()).foregroundStyle(Theme.insightsLabel)
                         .lineLimit(1).fixedSize()
                         .frame(height: Self.scaleStrip, alignment: .bottom)
                         .padding(.bottom, 2)
@@ -186,8 +186,8 @@ struct WeekBars: View {
                         Text(d.day.date().formatted(.dateTime.weekday(.abbreviated)))
                             .font(.system(size: 10.5, weight: isToday ? .bold : .medium))
                         Text(d.day.date().formatted(.dateTime.day()))
-                            .font(.system(size: 10, weight: isToday ? .bold : .regular).monospacedDigit())
-                            .foregroundStyle(Theme.secondary)
+                            .font(.system(size: 10, weight: isToday ? .bold : .medium).monospacedDigit())
+                            .foregroundStyle(Theme.insightsLabel)
                     }
                     .frame(maxWidth: .infinity)
                 }
@@ -217,7 +217,7 @@ struct WeekBars: View {
                     ForEach(days.indices, id: \.self) { i in
                         ZStack(alignment: .bottom) {
                             if planned[i] > 0 {
-                                bar(.planned, planned[i] / top * h, color: Theme.chartPlanned, index: i)
+                                bar(.planned, planned[i] / top * h, color: Theme.insightsPlanned, index: i)
                             }
                             // A zero day keeps a 2 pt stub on the baseline so it reads as "none", not missing data.
                             bar(.completed, max(values[i] / top * h, planned[i] > 0 || values[i] > 0 ? 2 : 0),
