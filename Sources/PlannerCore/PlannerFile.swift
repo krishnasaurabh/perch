@@ -36,18 +36,49 @@ public struct PlannerRecoveryIssue: Codable, Equatable, Sendable {
     public let reason: String
 }
 
+/// A storage failure that callers can distinguish from a recoverable record
+/// error and an unsupported schema without parsing localized message text.
+public enum PlannerDataError: Error, LocalizedError, CustomStringConvertible {
+    case unreadable(url: URL, reason: String)
+    case corrupt(url: URL, quarantineURL: URL?, reason: String)
+
+    public var description: String {
+        switch self {
+        case let .unreadable(url, reason):
+            return "Unable to read planner data at \(url.path): \(reason). "
+                + "The original was not changed; check file access before retrying. No empty or reduced planner was saved."
+        case let .corrupt(url, quarantineURL, reason):
+            let copy = quarantineURL.map { " An exact recovery copy is saved at \($0.path)." } ?? ""
+            return "Unable to load planner data at \(url.path): \(reason). The original is unchanged."
+                + copy + " No reduced planner was loaded or saved over the original. "
+                + "Quit Perch and repair the file or explicitly restore a known-good backup before saving."
+        }
+    }
+    public var errorDescription: String? { description }
+}
+
 /// Normal load never returns a reduced document as if it were complete. A caller
 /// may display this draft read-only; save/mutate still reject the original.
 public struct PlannerRecoveryError: Error, LocalizedError, CustomStringConvertible {
     public let recoveredPlanner: Planner
     public let issues: [PlannerRecoveryIssue]
+    /// Successfully decoded entries in persisted collections, before set deduplication.
+    /// Singleton fields such as preferences and focus are not records.
+    public let keptCount: Int
+    /// Rejected collection entries, including a whole task with an invalid nested value.
+    public let quarantinedCount: Int
+    /// Malformed whole collections or singleton fields, counted separately from records.
+    public let quarantinedFieldCount: Int
+    /// Exact copy of the complete original, not only its rejected records.
     public let originalURL: URL
+    public var quarantineURL: URL { originalURL }
     public let recoveredURL: URL
     public let issuesURL: URL
     public var description: String {
-        "Planner data needs recovery: \(issues.count) invalid record(s) or field(s). "
+        "Planner data needs recovery. Kept \(keptCount) valid record(s) in a read-only draft. "
+        + "Quarantined \(quarantinedCount) invalid record(s) and \(quarantinedFieldCount) invalid field(s). "
         + "Valid records are available read-only; changes cannot be saved. "
-        + "The original planner is unchanged. An exact copy, including malformed records, is at \(originalURL.path). "
+        + "The original planner is unchanged. An exact copy, including malformed records, is at \(quarantineURL.path). "
         + "A separate valid-record draft is at \(recoveredURL.path); rejected locations are listed at \(issuesURL.path). "
         + "Quit Perch and repair the original using those files, or explicitly restore a known-good backup. "
         + "Do not replace the original with the draft unless you accept omitting the rejected records."
@@ -124,6 +155,9 @@ public final class PlannerFile: @unchecked Sendable {
     private struct RecoveryDraft: Decodable {
         var planner = Planner()
         var issues: [PlannerRecoveryIssue] = []
+        var keptCount = 0
+        var quarantinedCount = 0
+        var quarantinedFieldCount = 0
         enum Keys: String, CodingKey {
             case version, tasks, projects, notes, focusSegments, focus, dismissedOverdue
             case repeatOccurrences, completedCalendarEventIDs, completedCalendarEventDays, preferences
@@ -154,8 +188,10 @@ public final class PlannerFile: @unchecked Sendable {
                 do {
                     let entries = try c.nestedContainer(keyedBy: StringKey.self, forKey: .completedCalendarEventDays)
                     for key in entries.allKeys.sorted(by: { $0.stringValue < $1.stringValue }) {
-                        do { planner.completedCalendarEventDays[key.stringValue] = try entries.decode(DayKey.self, forKey: key) }
-                        catch { record(error, fallback: "completedCalendarEventDays.\(key.stringValue)") }
+                        do {
+                            planner.completedCalendarEventDays[key.stringValue] = try entries.decode(DayKey.self, forKey: key)
+                            keptCount += 1
+                        } catch { record(error, fallback: "completedCalendarEventDays.\(key.stringValue)", isRecord: true) }
                     }
                 } catch { record(error, fallback: Keys.completedCalendarEventDays.rawValue) }
             }
@@ -177,14 +213,18 @@ public final class PlannerFile: @unchecked Sendable {
                     // Advance the outer container before decoding a record. A bad
                     // nested value cannot stall recovery or consume its neighbor.
                     let element = try list.superDecoder()
-                    do { result.append(try T(from: element)) }
-                    catch { record(error, fallback: "\(key.rawValue)[\(index)]") }
+                    do {
+                        result.append(try T(from: element))
+                        keptCount += 1
+                    } catch { record(error, fallback: "\(key.rawValue)[\(index)]", isRecord: true) }
                 }
             } catch { record(error, fallback: key.rawValue) }
             return result
         }
 
-        private mutating func record(_ error: Error, fallback: String) {
+        private mutating func record(_ error: Error, fallback: String, isRecord: Bool = false) {
+            if isRecord { quarantinedCount += 1 }
+            else { quarantinedFieldCount += 1 }
             let path: [CodingKey]
             let reason: String
             switch error {
@@ -214,7 +254,7 @@ public final class PlannerFile: @unchecked Sendable {
             let e = error as NSError
             if (e.domain == NSCocoaErrorDomain && e.code == NSFileReadNoSuchFileError)
                 || (e.domain == NSPOSIXErrorDomain && e.code == Int(ENOENT)) { return nil }
-            throw PlannerError("Unable to read planner data: \(error.localizedDescription). The original was not changed; check file access before retrying. No empty or reduced planner was saved.")
+            throw PlannerDataError.unreadable(url: target, reason: error.localizedDescription)
         }
     }
 
@@ -248,7 +288,8 @@ public final class PlannerFile: @unchecked Sendable {
         catch {
             let copy = try preserveCorruptCurrent(data)
             guard let draft = try? Self.decoder.decode(RecoveryDraft.self, from: data), !draft.issues.isEmpty else {
-                throw PlannerError("Unable to load planner data. The original is unchanged and an exact recovery copy is saved at \(copy.path). Quit Perch and repair the file or explicitly restore a known-good backup before saving.")
+                throw PlannerDataError.corrupt(url: url, quarantineURL: copy,
+                                               reason: "The document could not be decoded into a valid-record draft")
             }
             let recovered = copy.deletingPathExtension().appendingPathExtension("recovered.json")
             let issues = copy.deletingPathExtension().appendingPathExtension("issues.json")
@@ -258,9 +299,12 @@ public final class PlannerFile: @unchecked Sendable {
                 try writeRecoveryFile(encoded, to: recovered)
                 try writeRecoveryFile(Self.encoder.encode(draft.issues), to: issues)
             } catch {
-                throw PlannerError("Recovery draft could not be saved: \(error.localizedDescription). The original is unchanged; its exact recovery copy is at \(copy.path). No reduced planner was loaded or saved over the original.")
+                throw PlannerDataError.corrupt(url: url, quarantineURL: copy,
+                                               reason: "Recovery draft could not be saved: \(error.localizedDescription)")
             }
             throw PlannerRecoveryError(recoveredPlanner: draft.planner, issues: draft.issues,
+                                       keptCount: draft.keptCount, quarantinedCount: draft.quarantinedCount,
+                                       quarantinedFieldCount: draft.quarantinedFieldCount,
                                        originalURL: copy, recoveredURL: recovered, issuesURL: issues)
         }
     }
@@ -281,7 +325,10 @@ public final class PlannerFile: @unchecked Sendable {
         if let current = try readIfPresent(url) {
             do { _ = try Self.decode(current) }
             catch let error as PlannerSchemaError { throw error }
-            catch { throw PlannerError("Planner data needs recovery. Reload to inspect preserved records or explicitly restore a known-good backup before saving; the original was not changed.") }
+            catch {
+                throw PlannerDataError.corrupt(url: url, quarantineURL: nil,
+                                               reason: "Reload to inspect preserved records before saving")
+            }
             if current == data { return }
             try backUpLocked(current)
         }
