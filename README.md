@@ -77,7 +77,7 @@ agent, remove the `perch` entry from that agent's MCP settings too.
 
 | | |
 |---|---|
-| **Notch workspace** | Hover the notch, or press ⌥N, to open it. Idle stays inside the hardware housing with no icon/count wings; an active timer extends only on its configured side. On monitors and Macs without a notch, Perch draws one. It follows your pointer between screens and steps aside for full-screen apps. |
+| **Notch workspace** | Hover the notch, or press ⌥N, to open it. Idle stays inside the hardware housing with no icon/count wings; an active timer extends only on its configured side. An external monitor without a notch can draw one (off by default in Settings); built-in displays never get a fake notch. It follows your pointer between screens and steps aside for full-screen apps. |
 | **Natural-language capture** | `text dad tomorrow at 6pm !high #home every monday for 30 min due friday` fills in the day, reminder, priority, project, repeat, time limit and deadline. A live hint under the field shows what it read. |
 | **Voice** | Click the mic and speak. Recognition is on-device only (`requiresOnDeviceRecognition = true`). |
 | **Focus timer** | Countdown or stopwatch, with digital (default), dot-grid and minimal faces. Running time is checkpointed every 30 seconds; a restarted app restores the saved time paused, without crediting time offline. |
