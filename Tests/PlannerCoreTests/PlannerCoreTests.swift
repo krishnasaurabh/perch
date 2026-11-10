@@ -180,7 +180,8 @@ final class PlannerEngineTests: XCTestCase {
         let next = engine.planner.tasks.first { !$0.done }!
         XCTAssertEqual(next.day, "2026-11-10")
         XCTAssertEqual(Fixture.hm(next.remindAt), "2026-11-10 21:30")
-        XCTAssertThrowsError(try engine.complete(try Fixture.taskID("Standup", in: engine.planner)))  // today's copy is already done
+        // Today's copy is already done.
+        XCTAssertThrowsError(try engine.complete(try Fixture.taskID("Standup", in: engine.planner)))
     }
 
     func testOnlyTodayCanBeCompleted() throws {
