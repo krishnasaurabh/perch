@@ -183,6 +183,8 @@ jobs:
           osascript -e 'tell application "System Events" to tell every desktop to set picture to "/tmp/grey.png"' || true
           sleep 2
           OUT=$RUNNER_TEMP/notch; mkdir -p $OUT
+          # Closed-notch routing coverage explicitly opts into the external-display preference.
+          printf '%s\n' '{"preferences":{"notchOnMonitors":true}}' > "$RUNNER_TEMP/shot.json"
           PERCH_DATA=$RUNNER_TEMP/shot.json dist/Perch.app/Contents/MacOS/Perch --preview-open --demo --dump-layout $OUT/live-open.json --snapshot $OUT &
           sleep 6; screencapture -x $RUNNER_TEMP/perch-open.png || true; kill %1 || true; sleep 1
           PERCH_DATA=$RUNNER_TEMP/shot.json dist/Perch.app/Contents/MacOS/Perch --dump-layout $OUT/live-closed.json --snapshot $OUT &
