@@ -161,4 +161,25 @@ final class MutationGatewayTests: XCTestCase {
             XCTAssertEqual(source.messages, ["synthetic"])
         }
     }
+    func testVisibleFutureWeekMaterializesItsNewLastDayOnRollover() async throws {
+        try await MainActor.run {
+            let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+            defer { try? FileManager.default.removeItem(at: root) }
+            var now = Date(timeIntervalSince1970: 1_800_000_000)
+            let store = PlannerStore(
+                file: PlannerFile(url: root.appendingPathComponent("planner.json")), now: { now }, watching: false)
+            store.beginApplication()
+            let id = try XCTUnwrap(
+                store.send(.addTasks(["Daily fixture"], day: nil, literal: true, agentID: nil))?.tasks.first?.id)
+            var edit = TaskEdit(); edit.repeatRule = "daily"
+            store.send(.update(id, edit))
+            store.materializeRepeats(on: (7..<14).map { store.today.adding(days: $0) })
+            let last = store.today.adding(days: 14)
+            XCTAssertFalse(store.planner.tasks.contains { $0.day == last })
+            now += 86_400
+            store.advanceLifecycle()
+            XCTAssertEqual(store.planner.tasks.filter { $0.day == last }.count, 1)
+        }
+    }
+
 }

@@ -22,6 +22,7 @@ final class PlannerStore: ObservableObject {
     private let scheduler: any AppScheduling
     private let pipeline: PlannerCommandPipeline
     private var lifecycleDay: DayKey?
+    private var visibleDayOffsets = [0]
     private var lastSeenModification: Date?
     private var loadFailureMessage: String?
     private var loadNeedsRetry = false
@@ -147,10 +148,22 @@ final class PlannerStore: ObservableObject {
     func advanceLifecycle() {
         refreshToday()
         guard lifecycleDay != today else { return }
-        if send(.lifecycle(.dayChanged), origin: .background) != nil { lifecycleDay = today }
+        let result = performMutation(origin: .background) { commands in
+            try commands.execute(.lifecycle(.dayChanged))
+            for offset in visibleDayOffsets {
+                let day = commands.today.adding(days: offset, calendar: commands.read.calendar)
+                try commands.execute(.lifecycle(.openDay(day)))
+            }
+        }
+        if result != nil { lifecycleDay = today }
     }
 
     func materializeRepeats(on days: [DayKey]) {
+        let calendar = engine.calendar
+        visibleDayOffsets = days.map {
+            calendar.dateComponents([.day], from: today.date(calendar: calendar), to: $0.date(calendar: calendar)).day
+                ?? 0
+        }
         let priorError = lastError
         let result = performMutation(origin: .background) { commands in
             for day in days { try commands.execute(.lifecycle(.openDay(day))) }
