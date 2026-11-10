@@ -1,4 +1,5 @@
 import AppKit
+import PlannerCore
 import SwiftUI
 
 struct AgentsSettings: View {
