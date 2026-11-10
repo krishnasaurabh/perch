@@ -17,6 +17,12 @@ class EvidenceRulesTests(unittest.TestCase):
         m = self.marker(); m['settled_state']['timer_present'] = False
         self.assertFalse(qualify(m, 'a'*40)['qualified'])
 
+    def test_workspace_removal_keeps_explicit_layer(self):
+        from pathlib import Path
+        source = (Path(__file__).resolve().parents[1] / 'Sources/Perch/Notch/NotchRootView.swift').read_text()
+        workspace = source.split('WorkspaceView(notchHeight: g.notchSize.height)', 1)[1].split('.transition(motionPolicy.workspaceTransition)', 1)[0]
+        self.assertIn('.zIndex(1)', workspace)
+
     def test_missing_policy_fails(self):
         m = self.marker(); del m['policy']['swiftui_reduce_motion']
         self.assertFalse(qualify(m, 'a'*40)['qualified'])

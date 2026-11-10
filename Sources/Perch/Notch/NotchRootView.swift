@@ -43,6 +43,9 @@ struct NotchRootView: View {
                     if expanded {
                         // Normal mode scales/fades with the shell; reduced mode inserts at final geometry.
                         WorkspaceView(notchHeight: g.notchSize.height)
+                            // Retain the disappearing content above the opaque shell during removal.
+                            // Otherwise ZStack can draw its still-running transition behind the fill.
+                            .zIndex(1)
                             .transition(motionPolicy.workspaceTransition)
                     } else {
                         ClosedNotchView(notch: g.notchSize, activity: activity)
