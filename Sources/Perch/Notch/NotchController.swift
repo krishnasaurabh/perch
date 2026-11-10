@@ -481,8 +481,16 @@ final class NotchController {
                                     "visible": s.panel.isVisible]
             if let c = g.camera { d["camera"] = r(c) }
             // Mouse-routing probes: the decision `updateMouseRouting` makes at each point, from the live code path.
-            let shape = model.expanded && model.screenID == s.state.id ? g.workspace : g.idle(timer: timerShowing(), activity: false)
-            let probes: [(String, NSPoint)] = [
+            let expanded = model.expanded && model.screenID == s.state.id
+            let shape = expanded ? g.workspace : g.idle(timer: timerShowing(), activity: false)
+            let capsule = !expanded && model.activity == nil ? timerShowing().map { g.pill(side: $0) } : nil
+            // A detached capsule leaves the union's top midpoint/corners empty. Sample the individual components,
+            // retaining the original outline probes unchanged for the expanded workspace and timer-free notch.
+            let topOutside = capsule.map { NSPoint(x: $0.midX, y: $0.maxY + 1) }
+                ?? NSPoint(x: shape.minX + 1.5, y: shape.maxY - 2)
+            let topInside = capsule.map { _ in NSPoint(x: g.tuckedNotch.midX, y: g.tuckedNotch.maxY - 2) }
+                ?? NSPoint(x: shape.midX, y: shape.maxY - 2)
+            var probes: [(String, NSPoint)] = [
                 ("notchCenterTopEdge", NSPoint(x: g.notchRect.midX, y: g.screenFrame.maxY)),
                 ("leftWing", NSPoint(x: shape.minX + 14, y: shape.maxY - 10)),
                 ("shoulderCorner", NSPoint(x: shape.minX + 0.5, y: shape.minY + 1)),
@@ -493,10 +501,17 @@ final class NotchController {
                 // Where the clock and status items sit: must always click through to the menu bar.
                 ("menuBarRight", NSPoint(x: g.screenFrame.maxX - 40, y: g.screenFrame.maxY - 4)),
                 ("menuBarAboveWorkspaceEdge", NSPoint(x: g.workspace.maxX - 30, y: g.screenFrame.maxY - 4)),
-                // The drawn outline, not its bounding box: a rounded/shouldered top corner is transparent and clicks through.
-                ("shapeTopCornerOutside", NSPoint(x: shape.minX + 1.5, y: shape.maxY - 2)),
-                ("shapeTopInside", NSPoint(x: shape.midX, y: shape.maxY - 2)),
+                // Transparent outside the component and inside its top edge, including a detached capsule's empty surround.
+                ("shapeTopCornerOutside", topOutside),
+                ("shapeTopInside", topInside),
             ]
+            if let capsule {
+                let n = g.notchRect
+                let gapX = capsule.midX < n.midX ? (capsule.maxX + n.minX) / 2 : (n.maxX + capsule.minX) / 2
+                d["timerCapsule"] = r(capsule)
+                probes += [("timerCapsuleCenter", NSPoint(x: capsule.midX, y: capsule.midY)),
+                           ("timerGap", NSPoint(x: gapX, y: capsule.midY))]
+            }
             d["routing"] = Dictionary(uniqueKeysWithValues: probes.map { ($0.0, drawn(s) && isOnShape($0.1, s)) })
             return d
         }

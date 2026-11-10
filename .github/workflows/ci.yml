@@ -103,6 +103,13 @@ jobs:
                   if not s["visible"]: continue
                   if state == "open" and not s["expanded"]: continue
                   exp = dict(exp, menuBarRight=False)
+                  if state == "closed":
+                      assert "timerCapsule" in s, "closed timer capsule missing from live layout"
+                      exp.update(timerCapsuleCenter=True, timerGap=False)
+                      pill, notch = s["timerCapsule"], s["notch"]
+                      assert pill["w"] == 76, "timer capsule width changed"
+                      gap = max(pill["x"] - notch["x"] - notch["w"], notch["x"] - pill["x"] - pill["w"])
+                      assert abs(gap - 6) < 0.001, "timer capsule must be detached by 6pt"
                   if state == "open":
                       # Flat screen: the workspace floats below the menu bar, so the menu bar (incl. the strip above the
                       # notch and above the workspace's edge) clicks through. Beside a housing it hangs from the top.

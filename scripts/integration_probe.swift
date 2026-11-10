@@ -72,14 +72,14 @@ func checkClosedNotch(store: PlannerStore, model: NotchModel, services: Services
     model.screenID = state.id
     model.geometry = g
     store.updatePrefs { $0.notchOnMonitors = true }
-    for name in ["idle", "left", "right", "hidden", "long", "activity"] {
+    for name in ["idle", "left", "right", "hidden", "long", "running", "activity"] {
         _ = store.apply { e in
             e.planner.tasks = []
             e.planner.focus = nil
             if name != "idle" && name != "activity" {
                 let task = try e.addTasks(["Release timer check"], on: .day(e.today))[0]
                 _ = try e.startTimer(task: task.id.uuidString, minutes: name == "long" ? 120 : 5)
-                try e.pauseTimer()
+                if name != "running" { try e.pauseTimer() }
                 e.planner.focus?.banked = 16
             }
             e.planner.preferences.notchTimerPlacement = name == "left" ? .left : name == "hidden" ? .hidden : .right
