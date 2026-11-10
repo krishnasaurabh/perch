@@ -1,6 +1,6 @@
 import Foundation
 
-/// The planner tools agents see. Each call is one locked read-modify-write of planner.json.
+/// The planner tools agents see. Mutations use a locked read-modify-write; reads use an atomic snapshot.
 public struct AgentTools {
     public let file: PlannerFile
     public let now: () -> Date
@@ -22,7 +22,10 @@ public struct AgentTools {
     // MARK: Schemas
 
     static func str(_ d: String) -> JSON { ["type": "string", "description": .string(d)] }
-    static func int(_ d: String) -> JSON { ["type": "integer", "description": .string(d)] }
+    static func int(_ d: String, range: ClosedRange<Int>) -> JSON {
+        ["type": "integer", "description": .string(d),
+         "minimum": .number(Double(range.lowerBound)), "maximum": .number(Double(range.upperBound))]
+    }
     static let dayDesc = "Enter a yyyy-MM-dd date or use today, tomorrow, yesterday."
     static let taskRef = str("Task id returned by list_tasks, or matching title text.")
 
@@ -42,8 +45,8 @@ public struct AgentTools {
               "literal": ["type": "boolean", "description": "Keep title text unchanged and skip scheduling-phrase parsing."]],
              required: ["titles"]),
         tool("list_tasks",
-             "Read tasks and ids for a date or inbox. For today, includes timer status and a summary of later plans. Earlier dates can be viewed but not edited.",
-             ["date": str("List this date or inbox; omitted means today. \(dayDesc)")], readOnly: true),
+             "Read tasks and ids for a date or inbox, creating due repeat occurrences as needed. For today, includes timer status and a summary of later plans. Earlier dates can be viewed but not edited.",
+             ["date": str("List this date or inbox; omitted means today. \(dayDesc)")]),
         tool("get_task",
              "Read a task's full details, including scheduling, progress, notes and steps. Earlier tasks can also be inspected.",
              ["task": taskRef, "date": str("Look for the task on this date; omitted means today.")], required: ["task"], readOnly: true),
@@ -68,15 +71,15 @@ public struct AgentTools {
               "project": str("Assign a named project, creating it if needed. Use none to clear."),
               "notes": str("Replace all task notes with this text. Empty text clears the notes."),
               "repeat": str("Repeat rule: daily, weekdays, weekly, monthly, or e.g. \"every 2 weeks\", \"every tue, thu\", \"every! 4 days\". The ! variant counts from completion. Use none to disable."),
-              "minutes": int("Set a 1–720 minute limit, or 0 to clear it."),
+              "minutes": int("Set a 1–720 minute limit, or 0 to clear it.", range: 0...720),
               "steps": ["type": "array", "items": ["type": "string"], "description": "Replace all steps. Matching step titles retain their completion state."],
               "done_steps": ["type": "array", "items": ["type": "string"], "description": "Mark these existing step titles as complete."]],
              required: ["task"]),
         tool("snooze_reminder", "Schedule another reminder for a task after a short delay.",
-             ["task": taskRef, "minutes": int("Delay in minutes; omitted means 5.")], required: ["task"]),
+             ["task": taskRef, "minutes": int("Delay in minutes; omitted means 5.", range: 1...1440)], required: ["task"]),
         tool("start_timer",
              "Begin a focus session, optionally for a task scheduled today. Replaces the active session. Minutes sets the countdown and task limit; otherwise uses the task limit or default timer setting.",
-             ["task": str("Task id or title; omit for a standalone session."), "minutes": int("Run the countdown for 1–720 minutes.")]),
+             ["task": str("Task id or title; omit for a standalone session."), "minutes": int("Run the countdown for 1–720 minutes.", range: 1...720)]),
         tool("pause_timer", "Hold the current focus session."),
         tool("resume_timer", "Continue a focus session that is on hold."),
         tool("stop_timer", "End the focus session and leave task completion unchanged."),
@@ -92,8 +95,23 @@ public struct AgentTools {
 
     // MARK: Dispatch
 
+    static func isReadOnly(_ name: String) -> Bool {
+        definitions.first { $0["name"]?.string == name }?["annotations"]?["readOnlyHint"]?.bool ?? false
+    }
+
     public func call(_ name: String, _ args: JSON, agentID: String? = nil) throws -> String {
-        try file.mutate { p in
+        if Self.isReadOnly(name) {
+            // Atomic writer replacement makes a single read a consistent snapshot. Do
+            // not create a lock or a recovery copy while serving an advertised read.
+            var p = Planner()
+            if FileManager.default.fileExists(atPath: file.url.path) {
+                let data = try Data(contentsOf: file.url)
+                do { p = try PlannerFile.decoder.decode(Planner.self, from: data) }
+                catch { throw PlannerError("Unable to load planner data.") }
+            }
+            return try dispatch(name, args, planner: &p, agentID: agentID)
+        }
+        return try file.mutate { p in
             try dispatch(name, args, planner: &p, agentID: agentID)
         }
     }
@@ -109,6 +127,16 @@ public struct AgentTools {
         func task() throws -> String {
             guard let t = a["task"]?.string ?? a["task"]?.int.map(String.init), !t.isEmpty else { throw PlannerError("Identify the task by id from list_tasks or by title.") }
             return t
+        }
+        func minutes(in range: ClosedRange<Int>) throws -> Int? {
+            guard let value = a["minutes"] else { return nil }
+            guard let number = value.int, range.contains(number) else {
+                let bounds = range.lowerBound == 0
+                    ? "1 to \(range.upperBound), or 0 to clear the limit"
+                    : "\(range.lowerBound) to \(range.upperBound)"
+                throw PlannerError("Invalid argument 'minutes': enter an integer from \(bounds).")
+            }
+            return number
         }
         func edit<T>(_ body: (inout PlannerEngine) throws -> T) throws -> T { try body(&engine) }
         func read() throws -> PlannerEngine { engine }
@@ -180,18 +208,18 @@ public struct AgentTools {
             var ed = TaskEdit()
             ed.title = a["title"]?.string; ed.remindAt = a["remind_at"]?.string; ed.deadline = a["deadline"]?.string
             ed.priority = a["priority"]?.string; ed.project = a["project"]?.string; ed.notes = a["notes"]?.string
-            ed.repeatRule = a["repeat"]?.string; ed.minutes = a["minutes"]?.int
+            ed.repeatRule = a["repeat"]?.string; ed.minutes = try minutes(in: 0...720)
             ed.steps = a["steps"]?.stringArray; ed.doneSteps = a["done_steps"]?.stringArray
             let t = try edit { try $0.update(try task(), on: try day("date"), ed) }
             return "Updated.\n" + detail(t, try read())
         case "snooze_reminder":
-            let t = try edit { try $0.snooze(try task(), minutes: a["minutes"]?.int ?? 5) }
+            let t = try edit { try $0.snooze(try task(), minutes: minutes(in: 1...1440) ?? 5) }
             return "Snoozed \(t.title) until \(hm(t.remindAt!))."
         case "start_timer":
-            let s = try edit { try $0.startTimer(task: a["task"]?.string, minutes: a["minutes"]?.int) }
+            let s = try edit { try $0.startTimer(task: a["task"]?.string, minutes: minutes(in: 1...720)) }
             let e = try read()
             let t = s.taskID.flatMap { id in e.planner.tasks.first { $0.id == id }?.title }
-            return "Started the timer\(t.map { " on \($0)" } ?? "")" + (s.limit.map { ", \(Int($0 / 60)) minutes." } ?? ".")
+            return "Started the timer\(t.map { " on \($0)" } ?? "")" + (s.limit.flatMap { Int(exactly: ($0 / 60).rounded(.towardZero)) }.map { ", \($0) minutes." } ?? ".")
         case "pause_timer": try edit { try $0.pauseTimer() }; return "Focus session paused."
         case "resume_timer": try edit { try $0.resumeTimer() }; return "Focus session resumed."
         case "stop_timer":

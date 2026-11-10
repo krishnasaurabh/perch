@@ -20,7 +20,7 @@ public enum JSON: Equatable, Sendable, Codable {
         case .null: try c.encodeNil()
         case .bool(let b): try c.encode(b)
         case .number(let n):
-            if n.rounded() == n && abs(n) < 1e15 { try c.encode(Int64(n)) } else { try c.encode(n) }
+            if abs(n) < 1e15, let integer = Int64(exactly: n) { try c.encode(integer) } else { try c.encode(n) }
         case .string(let s): try c.encode(s)
         case .array(let a): try c.encode(a)
         case .object(let o): try c.encode(o)
@@ -35,7 +35,7 @@ public enum JSON: Equatable, Sendable, Codable {
     public var string: String? { if case .string(let s) = self { return s }; return nil }
     public var int: Int? {
         switch self {
-        case .number(let n): return n.rounded() == n ? Int(n) : nil
+        case .number(let n): return Int(exactly: n)
         case .string(let s): return Int(s)
         default: return nil
         }
