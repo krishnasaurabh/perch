@@ -122,11 +122,22 @@ final class MCPEdgeTests: XCTestCase {
         XCTAssertEqual(names, ["get_task", "read_notepad", "get_insights", "list_projects"])
         func snapshot() throws -> [String: Data] {
             var result: [String: Data] = [:]
-            for file in try FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil) {
-                result[file.lastPathComponent] = try Data(contentsOf: file)
-                let modified = try FileManager.default.attributesOfItem(atPath: file.path)[.modificationDate] as! Date
-                result[file.lastPathComponent + ".mtime"] = Data(String(modified.timeIntervalSince1970).utf8)
+            func walk(_ base: URL, _ prefix: String) throws {
+                let entries = try FileManager.default.contentsOfDirectory(
+                    at: base, includingPropertiesForKeys: [.isDirectoryKey])
+                for file in entries {
+                    let key = prefix + file.lastPathComponent
+                    if try file.resourceValues(forKeys: [.isDirectoryKey]).isDirectory == true {
+                        result[key] = Data("<directory>".utf8)
+                        try walk(file, key + "/")
+                        continue
+                    }
+                    result[key] = try Data(contentsOf: file)
+                    let modified = try FileManager.default.attributesOfItem(atPath: file.path)[.modificationDate] as! Date
+                    result[key + ".mtime"] = Data(String(modified.timeIntervalSince1970).utf8)
+                }
             }
+            try walk(dir, "")
             return result
         }
         // Missing storage, valid repeat data, and corrupt storage all remain untouched.
