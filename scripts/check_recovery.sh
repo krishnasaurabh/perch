@@ -329,7 +329,7 @@ func checkRecovery() async throws {
         try FileManager.default.setAttributes([.posixPermissions: 0o000], ofItemAtPath: url.path)
         defer { try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path) }
         let denied = PlannerStore(file: file, now: { fixedNow }, watching: false)
-        let deniedText = denied.lastError ?? ""
+        let deniedText = denied.lastError?.message ?? ""
         require(deniedText.hasPrefix("Unable to read planner data at " + url.path), "unreadable startup is not silently treated as empty data")
         require(deniedText.contains("check file access before retrying"), "unreadable startup explains the retry")
         try touch(url, modification.addingTimeInterval(1))
