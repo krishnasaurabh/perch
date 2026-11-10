@@ -85,7 +85,7 @@ agent, remove the `perch` entry from that agent's MCP settings too.
 | **Day and repeats** | Set the day boundary in Settings. Repeats materialize when a day is viewed; stop a series without deleting its existing tasks. Carrying or deleting one occurrence keeps its schedule phase. Legacy completed, unlinked repeat history is not automatically restarted. |
 | **Notepad** | One per day, saved automatically. **⌘↩** turns the current line into a task. |
 | **Clips** | Screenshot-folder watching supplements Spotlight. Clips can be pinned, reordered and let go with a five-second Undo window. Temporary dropped files get an owned copy. The line itself is session-only, not a persistent file library. Concealed clipboard content is skipped. |
-| **Reminders** | A reminder rings in the notch with Start, Snooze and Done. Optionally, Perch syncs both ways with a "Perch" list in Apple Reminders, so tasks reach your iPhone and Watch. |
+| **Reminders** | A reminder rings in the notch with Start, Snooze and Done. Optionally, Perch mirrors today's and upcoming tasks to its own list in Apple Reminders, so tasks reach your iPhone and Watch; completing today's reminder completes the task here. Other edits made in Reminders pause sync instead of being imported. |
 | **Calendar** | Shows events and timeline nudges. Check-off state is stored locally and counted separately from completed tasks; source calendars are never edited. |
 | **Overdue carry-forward** | Ask, automatically carry, or leave unfinished tasks in history. Overdue tasks can also be completed on their original day. |
 | **Insights** | Streak, completed vs planned, focus minutes, the last 7 days against the 7 before, and peak hours. |
