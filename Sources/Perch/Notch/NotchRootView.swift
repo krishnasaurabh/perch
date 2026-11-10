@@ -21,11 +21,19 @@ struct NotchRootView: View {
         let window = g.window
         let timer = NotchModel.timerShowing(store)
         let shape = g.shape(expanded: expanded, timer: timer, activity: activity != nil)
+        // Closed with only a timer: the hidden notch plus a separate capsule, drawn as two shapes.
+        let pillSide: NotchTimerPlacement? = (!expanded && activity == nil) ? timer : nil
         // Beside a housing the open shell hangs from the top edge; on a flat screen it floats below the menu bar.
         // Same outline the controller hit-tests (`NotchGeometry.shapeContains`).
         let outline = g.outline(expanded: expanded)
 
         ZStack(alignment: .topLeading) {
+            if let side = pillSide {
+                TimerPillLayer(geometry: g, side: side, bounds: shape)
+                    .frame(width: shape.width, height: shape.height, alignment: .topLeading)
+                    .offset(x: shape.minX - window.minX, y: window.maxY - shape.maxY)
+                    .transition(.opacity)
+            } else {
             ZStack(alignment: .top) {
                 // The open shell is drawn without a shadow.
                 outline
@@ -37,7 +45,7 @@ struct NotchRootView: View {
                         WorkspaceView(notchHeight: g.notchSize.height)
                             .transition(motionPolicy.workspaceTransition)
                     } else {
-                        ClosedNotchView(notch: g.notchSize, wings: g.wings(timer: activity == nil ? timer : nil), activity: activity)
+                        ClosedNotchView(notch: g.notchSize, activity: activity)
                             .transition(.opacity)
                     }
                 }
@@ -51,6 +59,7 @@ struct NotchRootView: View {
             }
             // The window is flush with the screen top; the shape is too, except an open workspace on a flat screen.
             .offset(x: shape.minX - window.minX, y: window.maxY - shape.maxY)
+            }
         }
         .frame(width: window.width, height: window.height, alignment: .topLeading)
         .ignoresSafeArea()
@@ -98,27 +107,13 @@ struct NotchRootView: View {
     }
 }
 
-/// Closed state. Nothing to show: nothing drawn beyond the housing. A running timer: a pill on its side.
-/// Nudges: a strip below. The middle gap is exactly the notch, so content sits beside the camera housing.
+/// Closed state with a nudge: a strip below the notch. Nothing to show: nothing drawn beyond the housing.
 struct ClosedNotchView: View {
     let notch: CGSize
-    let wings: (left: CGFloat, right: CGFloat)
     let activity: NotchActivity?
-    @EnvironmentObject var store: PlannerStore
-    @EnvironmentObject var model: NotchModel
-    @EnvironmentObject var services: Services
 
     var body: some View {
         VStack(spacing: 0) {
-            if wings.left > 0 || wings.right > 0 {
-                HStack(spacing: 0) {
-                    timerPill(trailing: false).frame(width: wings.left)
-                    Spacer().frame(width: notch.width)
-                    timerPill(trailing: true).frame(width: wings.right)
-                }
-                .frame(height: notch.height)
-                .transition(.opacity)
-            }
             if let a = activity {
                 Spacer().frame(height: notch.height)
                 // Mask reveal: the strip sits at its final size and the growing shape (clipped above) uncovers it.
@@ -127,22 +122,43 @@ struct ClosedNotchView: View {
             }
         }
     }
+}
 
-    @ViewBuilder func timerPill(trailing: Bool) -> some View {
-        if let f = store.planner.focus.flatMap({ $0.state == .finished ? nil : $0 }), (trailing ? wings.right : wings.left) > 0 {
-            HStack(spacing: 5) {
-                Circle().fill(f.state == .running ? Theme.accent : Theme.secondary).frame(width: 6, height: 6)
-                Text(TimerText.clock(f.remaining(at: model.now) ?? f.elapsed(at: model.now)))
-                    .font(.system(size: 12.5, weight: .semibold, design: .rounded).monospacedDigit())
-                    .foregroundStyle(f.state == .running ? Theme.text : Theme.secondary)
-                    .lineLimit(1).fixedSize()
-            }
-            // Away from the camera, clear of the concave shoulder on the outer edge.
-            .frame(maxWidth: .infinity, alignment: trailing ? .trailing : .leading)
-            .padding(trailing ? .trailing : .leading, 6 + NotchGeometry.radii(expanded: false).top)
-        } else {
-            Color.clear
+/// Closed with a running timer: the notch stays hidden behind the hardware, and a black capsule beside it shows the
+/// time in dot-matrix digits. No icon, no accent, no border: one piece of information.
+struct TimerPillLayer: View {
+    let geometry: NotchGeometry
+    let side: NotchTimerPlacement
+    let bounds: NSRect
+    @EnvironmentObject var store: PlannerStore
+    @EnvironmentObject var model: NotchModel
+
+    var body: some View {
+        let n = geometry.tuckedNotch, p = geometry.pill(side: side)
+        ZStack(alignment: .topLeading) {
+            geometry.outline(expanded: false).fill(Theme.notchBlack)
+                .frame(width: n.width, height: n.height)
+                .offset(x: n.minX - bounds.minX, y: bounds.maxY - n.maxY)
+            Capsule(style: .continuous).fill(Theme.notchBlack)
+                .overlay(digits(width: p.width, height: p.height))
+                .frame(width: p.width, height: p.height)
+                .offset(x: p.minX - bounds.minX, y: bounds.maxY - p.maxY)
         }
+    }
+
+    @ViewBuilder private func digits(width: CGFloat, height: CGFloat) -> some View {
+        if let f = store.planner.focus, f.state != .finished {
+            let text = TimerText.clock(f.remaining(at: model.now) ?? f.elapsed(at: model.now))
+            DotMatrixText(text: text, dot: Self.dot(for: text, width: width - 24, height: height * 0.52),
+                          color: Color.white.opacity(f.state == .running ? 0.95 : 0.6), unlit: .clear)
+        }
+    }
+
+    /// Largest dot that fits the text in the capsule's inner box (glyphs are 3x5 dots; colons one dot wide).
+    static func dot(for text: String, width: CGFloat, height: CGFloat) -> CGFloat {
+        let colons = CGFloat(text.filter { $0 == ":" }.count), digits = CGFloat(text.count) - colons
+        let units = digits * 3.9 + colons + CGFloat(max(0, text.count - 1)) * 1.2
+        return max(1, min(width / units, height / 6.8, 2.2))
     }
 }
 
