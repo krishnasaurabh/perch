@@ -183,10 +183,18 @@ jobs:
           osascript -e 'tell application "System Events" to tell every desktop to set picture to "/tmp/grey.png"' || true
           sleep 2
           OUT=$RUNNER_TEMP/notch; mkdir -p $OUT
+          # Closed-notch routing coverage explicitly opts into the external-display preference.
+          printf '%s\n' '{"preferences":{"notchOnMonitors":true}}' > "$RUNNER_TEMP/shot.json"
           PERCH_DATA=$RUNNER_TEMP/shot.json dist/Perch.app/Contents/MacOS/Perch --preview-open --demo --dump-layout $OUT/live-open.json --snapshot $OUT &
           sleep 6; screencapture -x $RUNNER_TEMP/perch-open.png || true; kill %1 || true; sleep 1
           PERCH_DATA=$RUNNER_TEMP/shot.json dist/Perch.app/Contents/MacOS/Perch --dump-layout $OUT/live-closed.json --snapshot $OUT &
-          sleep 5; screencapture -x $RUNNER_TEMP/perch-closed.png || true; kill %1 || true
+          sleep 5; screencapture -x $RUNNER_TEMP/perch-closed.png || true; kill %1 || true; sleep 1
+          # A fresh profile must hide the closed synthetic notch but still open its workspace normally.
+          rm -f $RUNNER_TEMP/default.json
+          PERCH_DATA=$RUNNER_TEMP/default.json dist/Perch.app/Contents/MacOS/Perch --dump-layout $OUT/default-closed.json &
+          sleep 5; kill %1 || true; sleep 1
+          PERCH_DATA=$RUNNER_TEMP/default.json dist/Perch.app/Contents/MacOS/Perch --preview-open --demo --dump-layout $OUT/default-open.json &
+          sleep 5; kill %1 || true
           ls -la $OUT $RUNNER_TEMP/perch-*.png
       - name: Home and Insights snapshots (empty, 3 tasks, timer running, insights)
         run: |
@@ -240,6 +248,19 @@ jobs:
                   for k, v in exp.items():
                       if s["routing"][k] != v: print(f"  ROUTING MISMATCH {state} {k}: got {s['routing'][k]} want {v}"); bad += 1
                   assert s["window"]["y"] + s["window"]["h"] == s["frame"]["y"] + s["frame"]["h"], "window not flush with screen top"
+          # Fresh defaults: no closed synthetic notch may draw or capture the menu bar, but explicit opening still works.
+          for s in json.load(open(f"{out}/default-closed.json")):
+              print("default closed", s["name"], "ignoresMouse", s["ignoresMouse"], "routing", s["routing"])
+              assert not s["hardwareNotch"], "fresh-default probe requires a housing-less screen"
+              if not s["ignoresMouse"]: print("  DEFAULT CLOSED WINDOW CAPTURES MENU BAR"); bad += 1
+              for k, v in s["routing"].items():
+                  if v: print(f"  DEFAULT CLOSED ROUTING {k}: got True want False"); bad += 1
+          opened = json.load(open(f"{out}/default-open.json"))
+          assert any(s["expanded"] for s in opened), "fresh-default workspace did not open"
+          for s in opened:
+              if not s["expanded"]: continue
+              print("default open", s["name"], "workspace", s["workspace"], "routing", s["routing"])
+              if not s["routing"]["workspaceCenter"]: print("  DEFAULT OPEN WORKSPACE NOT INTERACTIVE"); bad += 1
           sys.exit(1 if bad else 0)
           EOF
       - name: Theme contrast and Home Week Settings in both appearances

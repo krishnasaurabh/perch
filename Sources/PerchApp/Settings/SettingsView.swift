@@ -88,7 +88,7 @@ struct SettingsView: View {
                 }
             }
             Text("Choose Automatic to follow the pointer between displays.").font(.caption).foregroundStyle(.secondary)
-            Toggle("Draw a notch on external displays", isOn: pref(\.notchOnMonitors))
+            Toggle("Draw a fake notch on external displays", isOn: pref(\.notchOnMonitors))
             Text("Behaves like the built-in notch and hides while an app is full screen.").font(.caption)
                 .foregroundStyle(.secondary)
         }
