@@ -47,7 +47,7 @@ public final class MCPServer {
             guard let name = params["name"]?.string else { return error(id!, -32602, "Missing tool name") }
             do {
                 let text = try tools.call(name, params["arguments"] ?? .object([:]), agentID: clientName)
-                let readOnly = AgentTools.definitions.first { $0["name"]?.string == name }?["annotations"]?["readOnlyHint"]?.bool ?? false
+                let readOnly = AgentTools.isReadOnly(name)
                 if !readOnly { onChange?() }
                 return result(id!, ["content": [["type": "text", "text": .string(text)]], "isError": false])
             } catch let e as MethodNotFound {

@@ -12,6 +12,11 @@ final class MCPServerTests: XCTestCase {
         server = MCPServer(tools: tools, version: "test")
     }
 
+    override func tearDown() {
+        try? FileManager.default.removeItem(at: dir)
+        super.tearDown()
+    }
+
     func call(_ name: String, _ args: JSON = [:]) -> (String, Bool) {
         let r = server.handle(["jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": ["name": .string(name), "arguments": args]])!
         let content = r["result"]!["content"]!.array![0]["text"]!.string!
@@ -69,6 +74,65 @@ final class MCPServerTests: XCTestCase {
         XCTAssertEqual(r["error"]?["code"]?.int, -32602)
         let m = server.handle(["jsonrpc": "2.0", "id": 9, "method": "bogus"])!
         XCTAssertEqual(m["error"]?["code"]?.int, -32601)
+    }
+
+    func testMinuteBoundsAndNumericStringCompatibility() throws {
+        _ = call("add_tasks", ["titles": ["bounds probe"]])
+        let file = PlannerFile(url: dir.appendingPathComponent("planner.json"))
+        for value: JSON in [1, 720, "1", "720"] {
+            let (text, error) = call("start_timer", ["minutes": value])
+            XCTAssertFalse(error, text)
+            XCTAssertEqual(try file.load().focus?.limit, Double(value.int!) * 60)
+            let (updated, updateError) = call("update_task", ["task": "bounds probe", "minutes": value])
+            XCTAssertFalse(updateError, updated)
+            XCTAssertEqual(try file.load().tasks.first?.minutes, value.int)
+        }
+        let (_, clearError) = call("update_task", ["task": "bounds probe", "minutes": 0])
+        XCTAssertFalse(clearError)
+        XCTAssertNil(try file.load().tasks.first?.minutes)
+        let (_, defaultError) = call("snooze_reminder", ["task": "bounds probe"])
+        XCTAssertFalse(defaultError)
+        XCTAssertEqual(try file.load().tasks.first?.remindAt, Fixture.now.addingTimeInterval(5 * 60))
+        for value: JSON in [1, 1440, "1440"] {
+            // Restore today's schedule after a full-day snooze.
+            let task = try XCTUnwrap(file.load().tasks.first)
+            if task.day != DayKey(Fixture.now, calendar: Fixture.calendar) {
+                _ = call("move_task", ["task": .string(task.id.uuidString), "from": "tomorrow", "to": "today"])
+            }
+            let (text, error) = call("snooze_reminder", ["task": "bounds probe", "minutes": value])
+            XCTAssertFalse(error, text)
+            XCTAssertEqual(try file.load().tasks.first?.remindAt, Fixture.now.addingTimeInterval(Double(value.int!) * 60))
+        }
+        for name in ["start_timer", "snooze_reminder"] {
+            let (_, error) = call(name, ["task": "bounds probe", "minutes": 0])
+            XCTAssertTrue(error)
+        }
+        let tools = try XCTUnwrap(server.handle(["id": 1, "method": "tools/list"])?["result"]?["tools"]?.array)
+        for (name, lower, upper) in [("start_timer", 1, 720), ("update_task", 0, 720), ("snooze_reminder", 1, 1440)] {
+            let minutes = tools.first { $0["name"]?.string == name }?["inputSchema"]?["properties"]?["minutes"]
+            XCTAssertEqual(minutes?["minimum"]?.int, lower)
+            XCTAssertEqual(minutes?["maximum"]?.int, upper)
+        }
+    }
+
+    func testNonJSONNumbersReturnParseErrorsWithoutStoppingStdio() throws {
+        let lines = ["NaN", "Infinity", "-Infinity", "1e999"].map {
+            "{\"id\":1,\"method\":\"tools/call\",\"params\":{\"name\":\"start_timer\",\"arguments\":{\"minutes\":\($0)}}}"
+        } + [#"{"id":2,"method":"ping"}"#]
+        let input = Pipe(), output = Pipe()
+        input.fileHandleForWriting.write(Data((lines.joined(separator: "\n") + "\n").utf8))
+        input.fileHandleForWriting.closeFile()
+        server.runStdio(input: input.fileHandleForReading, output: output.fileHandleForWriting)
+        output.fileHandleForWriting.closeFile()
+        let replies = try String(decoding: output.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+            .split(separator: "\n").map { try JSON.parse(Data($0.utf8)) }
+        XCTAssertEqual(replies.count, 5)
+        for reply in replies.prefix(4) {
+            XCTAssertEqual(reply["error"]?["code"]?.int, -32700)
+            XCTAssertEqual(reply["id"], .null)
+        }
+        XCTAssertEqual(replies.last?["id"]?.int, 2)
+        XCTAssertEqual(replies.last?["result"], [:])
     }
 
     func testStdioLoop() throws {
