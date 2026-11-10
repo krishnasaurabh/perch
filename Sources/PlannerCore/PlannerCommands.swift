@@ -147,6 +147,7 @@ public final class PlannerCommandPipeline {
                 engine: PlannerEngine(planner: planner, now: { time }, calendar: calendar), writable: true)
             let value = try body(commands)
             planner = commands.planner
+            planner.stampTaskChanges(from: before, at: time)
             return PlannerCommandResult(value: value, before: before, state: planner)
         }
         if origin == .user { history.record(before: result.before, after: result.state) }
@@ -160,7 +161,10 @@ public final class PlannerCommandPipeline {
         var saved: Planner?
         let transaction: ((inout Planner) -> Void) throws -> Void = { change in
             saved = try self.file.mutate { planner in
-                change(&planner); return planner
+                let before = planner
+                change(&planner)
+                planner.stampTaskChanges(from: before, at: self.clock.now)
+                return planner
             }
         }
         if redo { try history.redo(transaction: transaction) } else { try history.undo(transaction: transaction) }

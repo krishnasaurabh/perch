@@ -39,9 +39,11 @@ public struct PlannerEdit {
                 changes.append { planner in
                     guard !planner.tasks.contains(where: { $0.id == content.id }) else { return }
                     var restored = content
-                    restored.focusedSeconds = planner.focusSegments.filter { $0.taskID == content.id }.reduce(0) {
-                        $0 + $1.seconds
-                    }
+                    restored.focusedSeconds =
+                        restored.unloggedFocusedSeconds
+                        + planner.focusSegments.filter { $0.taskID == content.id }.reduce(0) {
+                            $0 + $1.seconds
+                        }
                     planner.tasks.insert(restored, at: min(index, planner.tasks.count))
                 }
             }
@@ -180,6 +182,7 @@ public struct PlannerEdit {
     private static func content(of task: PlanTask) -> PlanTask {
         var content = task
         content.focusedSeconds = 0
+        content.updatedAt = content.createdAt
         content.reminderLink = nil
         content.agentID = nil
         return content

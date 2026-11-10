@@ -5,6 +5,47 @@ A task manager, focus timer and notepad that live in your Mac's notch.
 Hover the notch or press **⌥N** (configurable in Settings). Type or dictate a task.
 Version **1.1.0** keeps Today compact and puts charts on a separate Insights tab.
 
+<p align="center">
+  <img src="docs/images/today.png" width="820" alt="Perch Today page: three tasks on the left and a running 50-minute focus timer on the right">
+</p>
+<p align="center">
+  <img src="docs/images/insights.png" width="820" alt="Perch Insights page: completed and planned tasks for the last seven days, with weekly totals and streak">
+</p>
+<p align="center"><sub>Today and Insights, rendered from Perch's built-in sample data.</sub></p>
+
+## Install
+
+1. Download `Perch-<version>.dmg` from the [latest release](https://github.com/krishnasaurabh/perch/releases/latest).
+2. Open the DMG and drag **Perch** to **Applications**.
+3. Open Perch from Applications. It runs from the notch and a bird icon in the menu bar; it has no Dock icon.
+
+Perch needs macOS 14 or later and runs natively on Apple silicon and Intel Macs.
+AI sorting additionally needs macOS 26 with Apple Intelligence.
+
+**First launch.** Release builds are ad-hoc signed and not notarized, so macOS blocks the first
+launch. After the warning, open **System Settings › Privacy & Security**, scroll to Security
+and click **Open Anyway** next to the Perch message, then confirm. If macOS instead says the app
+is damaged or offers no Open Anyway button, clear the download quarantine flag and open it again:
+
+```sh
+xattr -dr com.apple.quarantine /Applications/Perch.app
+```
+
+**Permissions.** macOS asks for access the first time you use a feature that needs it:
+Calendar (events beside your tasks), Reminders (the optional "Perch" list sync), Microphone and
+Speech Recognition (dictation, on-device only), and the Desktop or Documents folder (screenshot
+watching for Clips). Each is optional. You can change them later in System Settings › Privacy & Security.
+
+**Open at login** is a toggle in Perch's Settings.
+
+**Updating.** There is no automatic updater. Quit Perch, then install the new DMG over the old app.
+Your data is kept.
+
+**Uninstalling.** Choose **Quit Perch** from the menu bar icon and delete `/Applications/Perch.app`.
+To also remove your tasks, notes and clips, delete `~/Library/Application Support/Perch`, and run
+`defaults delete app.perch.mac` to reset preferences such as the shortcut. If you connected an
+agent, remove the `perch` entry from that agent's MCP settings too.
+
 ## What it does
 
 | | |
@@ -48,36 +89,42 @@ The tools are `add_tasks`, `list_tasks`, `get_task`, `complete_task`, `reopen_ta
 The app and the MCP process share `~/Library/Application Support/Perch/planner.json`. Writes use an
 `flock` and atomic file replacement; the app polls for external changes.
 
-## Build
+## Build from source
 
 ```sh
-swift test                      # PlannerCore + MCP tests (macOS or Linux)
+swift test                      # domain, MCP and portable UI tests (macOS or Linux)
 scripts/bundle.sh               # macOS: dist/Perch.app + dist/Perch-<ver>.dmg (universal, ad-hoc signed)
 SIGN_ID="Developer ID Application: …" scripts/bundle.sh   # real signing
 swift run perch-cli add "text dad tomorrow 6pm"            # headless CLI on any platform
 ```
 
 The app requires macOS 14 or later and a Swift toolchain compatible with the APIs used by the app
-(the macOS workflow selects Xcode 26). AI sorting needs macOS 26 with Apple Intelligence.
-PlannerCore tests and the CLI also run on Linux with Swift 5.10 or later.
+(the macOS workflow selects Xcode 26). PlannerCore tests and the CLI also run on Linux with
+Swift 5.10 or later; Linux CI uses Swift 6.1.
 
-To install a local macOS build, copy `dist/Perch.app` to `/Applications`, or open the
-DMG and drag Perch to Applications. The default build is ad-hoc signed, not notarized;
-macOS may block it under Gatekeeper. There is no automatic updater.
+To run a local build, copy `dist/Perch.app` to `/Applications`, or open the DMG and drag Perch
+to Applications. The first-launch steps under [Install](#install) apply to local builds too.
 
 ## Layout
 
 ```
-Sources/PlannerCore/   models, TaskCapture (NL parser), TaskRepeat, FocusSession, PlannerEngine, PlannerFile, MCP/
-Sources/Perch/         AppKit/SwiftUI app: Notch/, Workspace/, Services/, Settings/
-Sources/PerchCLI/      perch-cli (MCP server + scriptable CLI)
-Tests/                 XCTest suites
+Sources/PlannerCore/   models, task capture (natural-language parser), repeats, focus sessions, planner engine, storage
+Sources/PerchMCP/      MCP stdio server and tool definitions
+Sources/PerchUI/       platform-neutral presentation logic
+Sources/PerchApp/      macOS app: notch, workspace pages, services, settings (macOS only)
+Sources/Perch/         app entry point (macOS only)
+Sources/PerchCLI/      perch-cli: MCP server and scriptable CLI
+Tests/                 XCTest suites, shared fixtures and architecture checks
+scripts/               bundling, CI probes and repository checks
 ```
 
-## Repository checks
+Dependencies point inward: PlannerCore depends on nothing in the package, and
+`Tests/ArchitectureTests` fails if a target imports a layer above it.
 
-Enable local hooks: `git config core.hooksPath .githooks`.
-Check staged files: `python3 scripts/check_repository.py --staged`. CI checks reachable history automatically.
+## Contributing
+
+Bug reports and pull requests are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) for setup,
+tests, formatting and what belongs in the repository. Changes are listed in [CHANGELOG.md](CHANGELOG.md).
 
 ## License
 

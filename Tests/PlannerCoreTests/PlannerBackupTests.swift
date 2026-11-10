@@ -59,7 +59,7 @@ final class PlannerBackupTests: XCTestCase {
         let backups = try file.backupURLs()
         XCTAssertEqual(backups.count, PlannerFile.backupLimit)
         let revisions = try backups.map {
-            try PlannerFile.decoder.decode(Planner.self, from: Data(contentsOf: $0)).preferences.defaultFocusMinutes
+            try PlannerFile.decodeDocument(Data(contentsOf: $0)).preferences.defaultFocusMinutes
         }
         XCTAssertEqual(revisions, [11, 10, 9, 8, 7])
         XCTAssertEqual(try snapshots(), backups)
@@ -146,7 +146,7 @@ final class PlannerBackupTests: XCTestCase {
         try file.save(planner(2))
         XCTAssertEqual(try file.restoreLatestBackup(), planner(1))
         let newest = try XCTUnwrap(file.backupURLs().first)
-        XCTAssertEqual(try PlannerFile.decoder.decode(Planner.self, from: Data(contentsOf: newest)), planner(2))
+        XCTAssertEqual(try PlannerFile.decodeDocument(Data(contentsOf: newest)), planner(2))
         try FileManager.default.removeItem(at: file.url)
         XCTAssertEqual(try file.restoreLatestBackup(), planner(2))
         XCTAssertEqual(try file.load(), planner(2))
@@ -350,7 +350,7 @@ final class PlannerBackupTests: XCTestCase {
         XCTAssertTrue(failures.values.isEmpty)
         XCTAssertEqual(try file.load(), replacement)
         let revisions = try file.backupURLs().map {
-            try PlannerFile.decoder.decode(Planner.self, from: Data(contentsOf: $0)).preferences.defaultFocusMinutes
+            try PlannerFile.decodeDocument(Data(contentsOf: $0)).preferences.defaultFocusMinutes
         }
         XCTAssertEqual(revisions, [2, 1])
     }
@@ -386,7 +386,7 @@ final class PlannerBackupTests: XCTestCase {
         }
         XCTAssertEqual(try file.load().tasks.count, 8)
         let counts = try file.backupURLs().map {
-            try PlannerFile.decoder.decode(Planner.self, from: Data(contentsOf: $0)).tasks.count
+            try PlannerFile.decodeDocument(Data(contentsOf: $0)).tasks.count
         }
         XCTAssertEqual(counts, [7, 6, 5, 4, 3])
     }
