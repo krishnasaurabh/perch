@@ -202,9 +202,10 @@ final class ReminderServiceTests: XCTestCase {
             $0.resetHour = 4; $0.carryMode = .never
         }
         let day = f.store.today
-        f.time.now = day.adding(days: 1).start(resetHour: 4).addingTimeInterval(-60)
+        f.time.now = day.adding(days: 1).start(resetHour: 4).addingTimeInterval(-120)
         let id = f.task()
-        f.store.updateTask(id) { $0.remindAt = f.time.now }
+        var reminder = TaskChanges(); reminder.remindAt = .set(f.time.now.addingTimeInterval(60))
+        XCTAssertNotNil(f.store.send(.editTask(id, reminder)))
         var edit = TaskEdit(); edit.repeatRule = "daily"
         XCTAssertNotNil(f.store.send(.update(id, edit)))
         f.store.beginApplication()
@@ -215,7 +216,7 @@ final class ReminderServiceTests: XCTestCase {
         f.store.send(.delete(future.id))
         f.store.renewReminderHorizon()
         XCTAssertFalse(f.store.planner.tasks.contains { $0.id == future.id || $0.day == future.day })
-        f.time.now += 60
+        f.time.now += 120
         f.store.advanceLifecycle()
         XCTAssertEqual(f.store.today, day.adding(days: 1))
         XCTAssertTrue(f.store.planner.tasks.contains { $0.day == day.adding(days: 14) })

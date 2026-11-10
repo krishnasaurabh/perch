@@ -114,6 +114,30 @@ final class ReminderScheduleTests: XCTestCase {
         let old = ReminderRecord(date: now.addingTimeInterval(-31 * 86_400), state: .delivered)
         XCTAssertTrue(plan([], records: ["old": old]).records.isEmpty)
     }
+    func testEarlyMorningReminderAndRepeatProjectionKeepLogicalDay() throws {
+        var instant = now
+        var planner = Planner(); planner.preferences.resetHour = 4
+        var engine = PlannerEngine(planner: planner, now: { instant }, calendar: calendar)
+        let day = engine.today
+        instant = day.adding(days: 1, calendar: calendar).start(resetHour: 4, calendar: calendar).addingTimeInterval(
+            -120)
+        let id = try engine.execute(.addTasks(["Early fixture"], day: nil, literal: true, agentID: nil)).tasks[0].id
+        var reminder = TaskChanges(); reminder.remindAt = .set(instant.addingTimeInterval(60))
+        try engine.execute(.editTask(id, reminder))
+        var edit = TaskEdit(); edit.repeatRule = "daily"
+        try engine.execute(.update(id, edit))
+        try engine.execute(.lifecycle(.launch))
+        for date in ReminderSchedule.days(today: engine.today, calendar: calendar) {
+            try engine.execute(.lifecycle(.openDay(date)))
+        }
+        XCTAssertEqual(engine.today, day)
+        XCTAssertEqual(engine.planner.tasks.count, 14)
+        let copy = try XCTUnwrap(engine.planner.tasks.first { $0.day == day.adding(days: 3, calendar: calendar) })
+        XCTAssertEqual(
+            copy.remindAt,
+            day.adding(days: 4, calendar: calendar).start(resetHour: 4, calendar: calendar).addingTimeInterval(-60))
+    }
+
     func testHorizonUsesCivilDaysAcrossDSTAndNonHourTransitions() {
         for (zone, day, expectedHours) in [
             ("America/Los_Angeles", "2026-03-07", 335.0),
