@@ -476,8 +476,8 @@ struct TaskComposer: View {
                 focused ? Theme.inputFillFocused : Theme.inputFill)
         )
         .overlay(
-            RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(
-                Theme.inputStroke, lineWidth: focused ? 2 : 1)
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .strokeBorder(Theme.inputStroke, lineWidth: focused ? 2 : 1)
         )
         .task(id: model.captureFocusRequest) {
             // Explicit openings focus capture; hover and drag previews must not steal typing.

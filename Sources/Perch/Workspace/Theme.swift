@@ -253,8 +253,8 @@ struct CardSurface: ViewModifier {
             .frame(maxWidth: .infinity, alignment: .topLeading)
             .background(RoundedRectangle(cornerRadius: Theme.cardRadius, style: .continuous).fill(tone.fill))
             .overlay(
-                RoundedRectangle(cornerRadius: Theme.cardRadius, style: .continuous).strokeBorder(
-                    Theme.cardStroke, lineWidth: 1)
+                RoundedRectangle(cornerRadius: Theme.cardRadius, style: .continuous)
+                    .strokeBorder(Theme.cardStroke, lineWidth: 1)
             )
             .foregroundStyle(Theme.text)
             .environment(\.colorScheme, tone.scheme)
