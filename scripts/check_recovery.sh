@@ -281,7 +281,7 @@ func checkRecovery() async throws {
         store.lastError = nil
         try await Task.sleep(nanoseconds: 150_000_000)
         require(view.fittingSize.height <= 32, "\(Int(width))pt: clearing an error leaves no banner space")
-        store.lastError = text
+        store.lastError = .planner(text)
         window.close()
     }
     let bannerBytes = try contents(url)
@@ -354,7 +354,7 @@ func checkRecovery() async throws {
     do { _ = try file.load() } catch let error as PlannerSchemaError { schemaError = error } catch {}
     require(schemaError != nil && schemaError?.version == 999, "a newer schema raises the typed compatibility error")
     let newer = PlannerStore(file: file, watching: false)
-    require(newer.lastError == schemaError?.localizedDescription, "a newer schema surfaces the exact compatibility error")
+    require(newer.lastError?.message == schemaError?.localizedDescription, "a newer schema surfaces the exact compatibility error")
     require(newer.planner == Planner() && newer.planner.tasks.isEmpty, "a newer schema never displays a partial document")
     let futureBytes = try contents(url)
     require(futureBytes == future, "a newer schema remains untouched at startup")
@@ -365,7 +365,7 @@ func checkRecovery() async throws {
         return true
     }
     require(futureEdit == nil, "a newer schema refuses edits")
-    require(newer.lastError == schemaError?.localizedDescription, "a newer schema keeps the exact compatibility error")
+    require(newer.lastError?.message == schemaError?.localizedDescription, "a newer schema keeps the exact compatibility error")
     let afterRefusedEdit = try contents(url)
     require(afterRefusedEdit == future, "a refused edit never rewrites a newer schema")
     print("Recovery app probe passed")
