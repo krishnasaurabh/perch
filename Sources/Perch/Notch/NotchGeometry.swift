@@ -13,8 +13,8 @@ extension NotchLayout.Screen {
 /// The notch frames for one screen. A thin AppKit-side view of `NotchLayout`; every number comes from there.
 struct NotchGeometry: Equatable {
     static let workspaceSize = WorkspaceLayout.preferredSize()
-    /// Width of the timer pill that grows out of one side of the notch. Nothing else widens the closed notch.
-    static let timerWing: CGFloat = 85
+    /// The closed timer is a separate black capsule beside the notch (not fused to it): this wide, this far from it.
+    static let pillWidth: CGFloat = 76, pillGap: CGFloat = 6
     /// With nothing to show, the drawn shape tucks this far inside the camera housing (sides and bottom), so it is
     /// fully hidden behind the hardware and never peeks out by a rounding pixel.
     static let tuck: CGFloat = 1
@@ -42,38 +42,31 @@ struct NotchGeometry: Equatable {
     /// The open workspace hangs from the top edge beside a housing, and floats below the menu bar on a flat screen.
     var workspaceAttached: Bool { NotchLayout.workspaceAttached(screen: screen) }
 
-    /// The closed shape. Nothing to show: exactly the housing (tucked inside it), so the notch looks untouched.
-    /// A running timer: a pill on its side only. A nudge: a strip below.
+    /// The closed shape's bounds. Nothing to show: exactly the housing (tucked inside it), so the notch looks untouched.
+    /// A running timer: that plus a detached capsule on its side. A nudge: a strip below.
     func idle(timer: NotchTimerPlacement?, activity: Bool) -> NSRect {
         if activity {
             return NotchLayout.idleFrame(screen: screen, leftWing: Self.activityWing, rightWing: Self.activityWing,
                                          below: Self.activityDepth, minWidth: Self.activityWidth)
         }
-        if let side = timer {
-            let w = wings(timer: side)
-            return pixelAligned(NotchLayout.idleFrame(screen: screen, leftWing: w.left, rightWing: w.right))
-        }
-        if let cam = camera {
-            return NSRect(x: cam.minX + Self.tuck, y: cam.minY + Self.tuck, width: cam.width - 2 * Self.tuck, height: cam.height - Self.tuck)
-        }
-        return notchRect
+        if let side = timer { return tuckedNotch.union(pill(side: side)) }
+        return tuckedNotch
     }
 
-    /// Wing widths for the closed timer pill: only the chosen side grows.
-    func wings(timer: NotchTimerPlacement?) -> (left: CGFloat, right: CGFloat) {
-        switch timer {
-        case .left?: return (Self.timerWing, 0)
-        case .right?: return (0, Self.timerWing)
-        default: return (0, 0)
-        }
+    /// The housing, 1pt inside on the sides and bottom; the drawn notch on a flat screen.
+    var tuckedNotch: NSRect {
+        guard let cam = camera else { return notchRect }
+        return NSRect(x: cam.minX + Self.tuck, y: cam.minY + Self.tuck, width: cam.width - 2 * Self.tuck, height: cam.height - Self.tuck)
     }
 
-    /// The pill's bottom edge sits one device pixel above the housing's: `safeAreaTop` includes the housing's
-    /// anti-aliased lip, so matching it exactly reads as a pixel lower than the hardware (seen on a 14" M3 Air).
-    private func pixelAligned(_ r: NSRect) -> NSRect {
-        let scale = backingScaleFactor, top = r.maxY
-        let h = ((r.height * scale).rounded(.down) - 1) / scale
-        return NSRect(x: r.minX, y: top - h, width: r.width, height: h)
+    /// The timer capsule: about three quarters of the notch's height, centred on it vertically, `pillGap` from its side.
+    func pill(side: NotchTimerPlacement) -> NSRect {
+        let n = notchRect, visible = tuckedNotch, scale = backingScaleFactor
+        let h = (n.height * 0.72 * scale).rounded() / scale
+        // Centre on the visible (tucked) notch, snapped to a device pixel, rounding up so it never sits low.
+        let top = n.maxY - ((visible.height - h) / 2 * scale).rounded(.down) / scale
+        let x = side == .left ? n.minX - Self.pillGap - Self.pillWidth : n.maxX + Self.pillGap
+        return NSRect(x: x, y: top - h, width: Self.pillWidth, height: h)
     }
 
     /// The visible shape in global coordinates.
@@ -110,6 +103,9 @@ struct NotchGeometry: Equatable {
 
     /// Exact hit test against the drawn shape (not its bounding box). Global coordinates, y up.
     func shapeContains(_ p: NSPoint, expanded: Bool, timer: NotchTimerPlacement?, activity: Bool) -> Bool {
+        if !expanded, !activity, let side = timer {
+            return NotchLayout.contains(pill(side: side), pointer: p) || NotchLayout.contains(tuckedNotch, pointer: p)
+        }
         let r = shape(expanded: expanded, timer: timer, activity: activity)
         guard NotchLayout.contains(r, pointer: p) else { return false }
         let path = outline(expanded: expanded).path(in: CGRect(origin: .zero, size: r.size))
