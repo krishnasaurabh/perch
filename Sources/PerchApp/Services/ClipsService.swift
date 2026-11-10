@@ -48,6 +48,14 @@ final class ClipsService: ObservableObject {
         case off
         case watching(URL)
         case unreadable(URL)
+
+        var diagnosticName: String {
+            switch self {
+            case .off: "off"
+            case .watching: "watching"
+            case .unreadable: "unreadable"
+            }
+        }
     }
 
     static let capacity = 12
@@ -62,6 +70,8 @@ final class ClipsService: ObservableObject {
     private let scheduler: any AppScheduling
     private let pasteboard: any PasteboardAccess
     private var letGoWork: (any AppScheduledAction)?
+    private var demoWork: (any AppScheduledAction)?
+    private var recheckTask: Task<Void, Never>?
 
     private var query: NSMetadataQuery?
     private var queryObserver: NSObjectProtocol?
@@ -105,8 +115,14 @@ final class ClipsService: ObservableObject {
             ClipVault.sweep(vault, olderThan: cutoff, keeping: [])
         }
         if Self.demo {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { [weak self] in self?.seedDemo() }
+            demoWork = scheduler.schedule(after: 0.8) { [weak self] in self?.seedDemo() }
         }
+    }
+
+    deinit {
+        demoWork?.cancel()
+        recheckTask?.cancel()
+        letGoWork?.cancel()
     }
 
     /// `--demo-clips` (screenshots, real-Mac checks): a temp file gets kept, one clip is let go, Clips opens with the toast.
@@ -117,7 +133,7 @@ final class ClipsService: ObservableObject {
         add(.text("https://example.com/launch-checklist"), source: "copied")
         add(.text("Ship notes: folder watch, kept copies, undo"), source: "copied")
         if let first = clips.first { letGo(first.id) }
-        debugLog("seeded kept=\(clips.compactMap(\.content.fileURL).map(\.path))")
+        debugLog("seeded kept=\(clips.compactMap(\.content.fileURL).count)")
         model?.open(page: .clips, pinned: true)
     }
 
@@ -126,7 +142,7 @@ final class ClipsService: ObservableObject {
         guard Self.demo else { return }
         FileHandle.standardError.write(
             Data(
-                "clips: \(event) | line=\(clips.map(\.title)) pending=\(letGoBanner?.count ?? 0) watch=\(folderWatch)\n"
+                "clips: \(event) | line=\(clips.count) pending=\(letGoBanner?.count ?? 0) watch=\(folderWatch.diagnosticName)\n"
                     .utf8))
     }
 
@@ -232,9 +248,14 @@ final class ClipsService: ObservableObject {
         names.forEach { caught(resolved.url.appendingPathComponent($0)) }
         // screencapture can tag the file a moment after it appears; look once more.
         if reason == .contents {
-            DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + 1.0) { [weak self] in
-                let later = FolderWatcher.entries(in: resolved.url)
-                Task { @MainActor in self?.folderChanged(later, reason: .recheck, folder: resolved) }
+            recheckTask?.cancel()
+            recheckTask = Task { @MainActor [weak self] in
+                guard let self else { return }
+                do { try await Task.sleep(nanoseconds: 1_000_000_000) } catch { return }
+                let later = await Task.detached { FolderWatcher.entries(in: resolved.url) }.value
+                guard !Task.isCancelled else { return }
+                self.recheckTask = nil
+                self.folderChanged(later, reason: .recheck, folder: resolved)
             }
         }
     }
@@ -243,7 +264,7 @@ final class ClipsService: ObservableObject {
     private func caught(_ url: URL) {
         guard caughtPaths.insert(Self.canonicalPath(url)).inserted else { return }
         add(.file(url), source: "captured")
-        debugLog("caught \(url.lastPathComponent)")
+        debugLog("capture accepted")
     }
 
     // MARK: Pasteboard

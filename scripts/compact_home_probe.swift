@@ -296,6 +296,6 @@ private extension PlannerStore {
                 planner = engine.planner
             }
             reloadFromDisk(external: false)
-        } catch { lastError = error.localizedDescription }
+        } catch { lastError = .planner(error.perchPresentationDetail) }
     }
 }

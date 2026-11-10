@@ -15,7 +15,7 @@ enum AppInfo {
 @MainActor
 final class PlannerStore: ObservableObject {
     @Published private(set) var planner: Planner { didSet { refreshToday() } }
-    @Published var lastError: String?
+    @Published var lastError: PerchAppError?
     @Published private(set) var today: DayKey
     let file: PlannerFile
     private let now: () -> Date
@@ -24,7 +24,7 @@ final class PlannerStore: ObservableObject {
     private var lifecycleDay: DayKey?
     private var needsLaunch = false
     private var visibleDayOffsets = [0]
-    private var loadFailureMessage: String?
+    private var loadFailure: PerchAppError?
     private var loadNeedsRetry = false
     private var recoveryTimer: Timer?
     private var saveWork: (any AppScheduledAction)?
@@ -82,17 +82,17 @@ final class PlannerStore: ObservableObject {
         self.now = now
         self.scheduler = scheduler
         var loaded = Planner()
-        var loadError: String?
+        var loadError: PerchAppError?
         do { loaded = try file.avoidingLockWaits().load() } catch let recovery as PlannerRecoveryError {
             // The file remains authoritative and rejects every mutation until repaired.
             // Display the validated draft without publishing or saving it as a new revision.
             loaded = recovery.recoveredPlanner
-            loadError = recovery.localizedDescription
+            loadError = .planner(recovery.localizedDescription)
         } catch {
-            loadError = (error as? PlannerError)?.message ?? error.localizedDescription
+            loadError = .planner(error.perchPresentationDetail)
             loadNeedsRetry = true
         }
-        loadFailureMessage = loadError
+        loadFailure = loadError
         planner = loaded
         today = PlannerEngine(planner: loaded, now: now).today
         lastError = loadError
@@ -197,7 +197,7 @@ final class PlannerStore: ObservableObject {
     }
 
     private func report(_ error: Error) {
-        lastError = (error as? PlannerError)?.message ?? error.localizedDescription
+        lastError = .planner(error.perchPresentationDetail)
     }
 
     // MARK: Coalesced text
@@ -385,8 +385,8 @@ final class PlannerStore: ObservableObject {
         switch result {
         case .success(let fresh):
             loadNeedsRetry = false
-            if let failure = loadFailureMessage, lastError == failure { lastError = nil }
-            loadFailureMessage = nil
+            if let failure = loadFailure, lastError == failure { lastError = nil }
+            loadFailure = nil
             if fresh != planner {
                 let completedFocus =
                     planner.focus?.state == .running && fresh.focus?.state == .finished
@@ -400,8 +400,8 @@ final class PlannerStore: ObservableObject {
             }
         case .failure(let recovery as PlannerRecoveryError):
             loadNeedsRetry = false
-            loadFailureMessage = recovery.localizedDescription
-            lastError = loadFailureMessage
+            loadFailure = .planner(recovery.localizedDescription)
+            lastError = loadFailure
             if recovery.recoveredPlanner != planner {
                 epoch += 1
                 planner = recovery.recoveredPlanner
@@ -410,7 +410,7 @@ final class PlannerStore: ObservableObject {
         case .failure(let error):
             loadNeedsRetry = true
             report(error)
-            loadFailureMessage = lastError
+            loadFailure = lastError
         }
         if runtimeEnabled && (lifecycleDay != nil || needsLaunch) { advanceLifecycle() }
         scheduleBoundaries()

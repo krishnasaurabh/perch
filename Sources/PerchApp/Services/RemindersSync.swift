@@ -9,7 +9,7 @@ final class RemindersSync: ObservableObject {
     private let source: any RemindersAccess
     private let reconciler: ReminderReconciler
     private let scheduler: any AppScheduling
-    @Published private(set) var lastError: String?
+    @Published private(set) var lastError: RemindersSyncFailure?
     private var cancellable: AnyCancellable?
     private var dayCancellable: AnyCancellable?
     private var observer: NSObjectProtocol?
@@ -58,8 +58,8 @@ final class RemindersSync: ObservableObject {
         pausedForHistory = sawRedo
         if store.prefs.remindersSync {
             do {
-                if try !reconciler.enabled() { lastError = Self.consentMessage }
-            } catch { lastError = error.localizedDescription }
+                if try !reconciler.enabled() { lastError = .consentRequired }
+            } catch { lastError = .access(error.localizedDescription) }
         }
         if observing {
             observer = NotificationCenter.default.addObserver(forName: .EKEventStoreChanged, object: nil, queue: .main)
@@ -83,10 +83,6 @@ final class RemindersSync: ObservableObject {
     }
 
     var hasAccess: Bool { source.hasAccess }
-    private static let consentMessage =
-        "Reminders sync is paused. Turn it off and on in Settings to enable safe mirroring. Existing reminders will not be adopted or changed."
-    private static let historyMessage =
-        "Reminders sync paused after Undo or Redo. Your reminders were not changed. Turn sync off and on in Settings when ready to mirror this version."
 
     func requestAccess() async -> Bool {
         do {
@@ -95,7 +91,7 @@ final class RemindersSync: ObservableObject {
             try reconciler.enable()
             pausedForHistory = false; sawRedo = false; retryCount = 0; lastError = nil
             return true
-        } catch { lastError = error.localizedDescription; return false }
+        } catch { lastError = .access(error.localizedDescription); return false }
     }
 
     func sync() { schedule(after: 0) }
@@ -110,7 +106,7 @@ final class RemindersSync: ObservableObject {
             sawRedo = hasRedo
             pausedForHistory = true; generation &+= 1
             scheduled?.cancel(); scheduled = nil; pending = false
-            if planner.preferences.remindersSync { lastError = Self.historyMessage }
+            if planner.preferences.remindersSync { lastError = .historyPaused }
             try? reconciler.disable()  // A suspended pass persists this again after releasing its lock.
             input = next
             return
@@ -178,20 +174,20 @@ final class RemindersSync: ObservableObject {
                     }
                     guard applied == true else {
                         throw ReminderSyncError.stopped(
-                            self.store.lastError ?? "Remote completion could not be saved. Retry sync.")
+                            self.store.lastError?.message ?? "Remote completion could not be saved. Retry sync.")
                     }
                     baseline = self.store.planner
                     self.pending = true
                 })
             retryCount = 0; lastError = nil
         } catch {
-            lastError = pausedForHistory ? Self.historyMessage : "Reminders sync stopped: \(error.localizedDescription)"
+            lastError = pausedForHistory ? .historyPaused : .sync(error.localizedDescription)
             // One bounded retry handles temporary read/commit failures; persistent conflicts stay visible.
             if !pausedForHistory, hasAccess, retryCount == 0 { retryCount += 1; pending = true }
         }
         running = false
         if pausedForHistory {
-            do { try reconciler.disable() } catch { lastError = Self.historyMessage + " " + error.localizedDescription }
+            do { try reconciler.disable() } catch { lastError = .disableAfterHistory(error.localizedDescription) }
         } else if pending {
             pending = false; schedule(after: 2)
         }

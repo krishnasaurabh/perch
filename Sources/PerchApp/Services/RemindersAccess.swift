@@ -13,7 +13,15 @@ final class SystemRemindersAccess: RemindersAccess {
     private let ek: EKEventStore
     init(eventStore: EKEventStore = EKEventStore()) { ek = eventStore }
     var hasAccess: Bool { EKEventStore.authorizationStatus(for: .reminder) == .fullAccess }
-    func requestAccess() async throws { _ = try await ek.requestFullAccessToReminders() }
+    func requestAccess() async throws {
+        do {
+            let granted = try await ek.requestFullAccessToReminders()
+            PlatformLog.reminders.info("requestAccess completed granted=\(granted, privacy: .public)")
+        } catch {
+            PlatformLog.reminders.error("requestAccess failed code=\(PlatformLog.errorCode(error), privacy: .public)")
+            throw error
+        }
+    }
 
     func createCalendar() throws -> String {
         try requireAccess()
@@ -28,6 +36,7 @@ final class SystemRemindersAccess: RemindersAccess {
         }
         calendar.source = source
         try ek.saveCalendar(calendar, commit: true)
+        PlatformLog.reminders.info("calendar created id=\(calendar.calendarIdentifier, privacy: .private)")
         return calendar.calendarIdentifier
     }
 
@@ -50,6 +59,7 @@ final class SystemRemindersAccess: RemindersAccess {
             }
         }
         try requireAccess()
+        PlatformLog.reminders.debug("fetch completed count=\(reminders.count, privacy: .public)")
         return reminders.map(snapshot)
     }
 
@@ -75,7 +85,11 @@ final class SystemRemindersAccess: RemindersAccess {
         reminder.alarms = fields.alarm.map { [EKAlarm(absoluteDate: $0)] }
         reminder.isCompleted = fields.completed
         // Commit individually. Errors surface; a later retry fetches committed records by their ownership marker.
-        do { try ek.save(reminder, commit: true) } catch { ek.reset(); throw error }
+        do { try ek.save(reminder, commit: true) } catch {
+            PlatformLog.reminders.error("save failed code=\(PlatformLog.errorCode(error), privacy: .public)")
+            ek.reset(); throw error
+        }
+        PlatformLog.reminders.debug("save completed replacing=\(expected != nil, privacy: .public)")
         return snapshot(reminder)
     }
 
@@ -83,7 +97,11 @@ final class SystemRemindersAccess: RemindersAccess {
         try requireAccess()
         let reminder = try current(expected)
         guard expected.owner != nil else { throw conflict() }
-        do { try ek.remove(reminder, commit: true) } catch { ek.reset(); throw error }
+        do { try ek.remove(reminder, commit: true) } catch {
+            PlatformLog.reminders.error("remove failed code=\(PlatformLog.errorCode(error), privacy: .public)")
+            ek.reset(); throw error
+        }
+        PlatformLog.reminders.debug("remove completed id=\(expected.id, privacy: .private)")
     }
 
     private func current(_ expected: ReminderSyncRecord) throws -> EKReminder {
@@ -95,12 +113,15 @@ final class SystemRemindersAccess: RemindersAccess {
 
     private func requireAccess() throws {
         guard hasAccess else {
+            PlatformLog.reminders.error("operation rejected authorization=revoked")
             throw ReminderSyncError.stopped(
                 "Reminders permission was revoked. Grant access in System Settings and retry.")
         }
     }
     private func conflict() -> ReminderSyncError {
-        .stopped("A reminder changed during sync. Nothing else was overwritten; retry to review the latest version.")
+        PlatformLog.reminders.error("operation rejected reason=conflict")
+        return .stopped(
+            "A reminder changed during sync. Nothing else was overwritten; retry to review the latest version.")
     }
     private func snapshot(_ reminder: EKReminder) -> ReminderSyncRecord {
         let alarms = reminder.alarms ?? []

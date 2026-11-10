@@ -22,30 +22,50 @@ final class SystemNotificationAccess: NotificationAccess {
     }
     func isAuthorized() async -> Bool {
         guard Bundle.main.bundleIdentifier != nil else { return false }
-        return await UNUserNotificationCenter.current().notificationSettings().authorizationStatus == .authorized
+        let status = await UNUserNotificationCenter.current().notificationSettings().authorizationStatus
+        PlatformLog.notifications.debug("authorization status=\(status.rawValue, privacy: .public)")
+        return status == .authorized
     }
     func requestAuthorization() async throws {
         guard Bundle.main.bundleIdentifier != nil else { return }
-        _ = try await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound])
+        do {
+            let granted = try await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound])
+            PlatformLog.notifications.info("requestAuthorization completed granted=\(granted, privacy: .public)")
+        } catch {
+            PlatformLog.notifications.error(
+                "requestAuthorization failed code=\(PlatformLog.errorCode(error), privacy: .public)")
+            throw error
+        }
     }
     func pendingReminders() async -> [ScheduledReminder] {
         guard Bundle.main.bundleIdentifier != nil else { return [] }
-        return await UNUserNotificationCenter.current().pendingNotificationRequests().compactMap { request in
-            guard request.identifier.hasPrefix(ScheduledReminder.prefix),
-                let stamp = request.content.userInfo["due"] as? Double
-            else { return nil }
-            return ScheduledReminder(
-                id: request.identifier, date: Date(timeIntervalSinceReferenceDate: stamp),
-                title: request.content.title, body: request.content.body)
-        }
+        let reminders: [ScheduledReminder] = await UNUserNotificationCenter.current().pendingNotificationRequests()
+            .compactMap { request in
+                guard request.identifier.hasPrefix(ScheduledReminder.prefix),
+                    let stamp = request.content.userInfo["due"] as? Double
+                else { return nil }
+                return ScheduledReminder(
+                    id: request.identifier, date: Date(timeIntervalSinceReferenceDate: stamp),
+                    title: request.content.title, body: request.content.body)
+            }
+        PlatformLog.notifications.debug("pending loaded count=\(reminders.count, privacy: .public)")
+        return reminders
     }
     func deliveredReminderIDs() async -> Set<String> {
         guard Bundle.main.bundleIdentifier != nil else { return [] }
-        return Set(await UNUserNotificationCenter.current().deliveredNotifications().map { $0.request.identifier })
+        let ids = Set(await UNUserNotificationCenter.current().deliveredNotifications().map { $0.request.identifier })
+        PlatformLog.notifications.debug("delivered loaded count=\(ids.count, privacy: .public)")
+        return ids
     }
     func schedule(_ reminder: ScheduledReminder) async throws {
         guard Bundle.main.bundleIdentifier != nil else { return }
-        try await UNUserNotificationCenter.current().add(Self.request(for: reminder))
+        do {
+            try await UNUserNotificationCenter.current().add(Self.request(for: reminder))
+            PlatformLog.notifications.debug("scheduled id=\(reminder.id, privacy: .private)")
+        } catch {
+            PlatformLog.notifications.error("schedule failed code=\(PlatformLog.errorCode(error), privacy: .public)")
+            throw error
+        }
     }
     static func request(for reminder: ScheduledReminder) -> UNNotificationRequest {
         let content = UNMutableNotificationContent()
@@ -65,11 +85,19 @@ final class SystemNotificationAccess: NotificationAccess {
         guard Bundle.main.bundleIdentifier != nil else { return }
         UNUserNotificationCenter.current().removePendingNotificationRequests(withIdentifiers: ids)
         UNUserNotificationCenter.current().removeDeliveredNotifications(withIdentifiers: ids)
+        PlatformLog.notifications.debug("removed count=\(ids.count, privacy: .public)")
     }
     func post(id: String, title: String, body: String) {
         guard Bundle.main.bundleIdentifier != nil else { return }
         let content = UNMutableNotificationContent()
         content.title = title; content.body = body; content.sound = .default
-        UNUserNotificationCenter.current().add(UNNotificationRequest(identifier: id, content: content, trigger: nil))
+        UNUserNotificationCenter.current().add(UNNotificationRequest(identifier: id, content: content, trigger: nil)) {
+            error in
+            if let error {
+                PlatformLog.notifications.error("post failed code=\(PlatformLog.errorCode(error), privacy: .public)")
+            } else {
+                PlatformLog.notifications.debug("post completed id=\(id, privacy: .private)")
+            }
+        }
     }
 }

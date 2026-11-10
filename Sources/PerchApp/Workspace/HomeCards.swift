@@ -169,12 +169,16 @@ struct NotepadCard: View {
                         let t = store.apply({ try $0.lineToTask(clean, day: max(d, store.today)) }) ?? nil
                     else { return }
                     flash = "Added “\(t.title)”"
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 2) { flash = nil }
                 }, onEndEditing: { store.flushPendingText() }
             )
             .focused($editing)
         }
         .card(.tile)
+        .task(id: flash) {
+            guard flash != nil else { return }
+            do { try await Task.sleep(nanoseconds: 2_000_000_000) } catch { return }
+            if !Task.isCancelled { flash = nil }
+        }
         .onChange(of: d) { _, _ in store.flushPendingText() }
         .onChange(of: editing) { _, active in if !active { store.flushPendingText() } }
         .onDisappear { store.flushPendingText() }

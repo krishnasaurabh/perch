@@ -18,7 +18,7 @@ final class Services: ObservableObject {
         self.store = store
         calendar = CalendarService(store: store)
         reminders = ReminderService(store: store)
-        timeline = NotchTimelineDriver(store: store, calendar: calendar, reminders: reminders)
+        timeline = NotchTimelineDriver(store: store, calendar: calendar)
         remindersSync = RemindersSync(store: store)
         voice = VoiceCapture()
         clips = ClipsService(store: store)

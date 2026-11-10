@@ -7,7 +7,7 @@ struct ErrorBanner: View {
         if let e = store.lastError {
             HStack(alignment: .top, spacing: 8) {
                 Image(systemName: "exclamationmark.circle").foregroundStyle(Theme.danger)
-                Text(e).font(.system(size: 11.5)).foregroundStyle(Theme.text)
+                Text(e.message).font(.system(size: 11.5)).foregroundStyle(Theme.text)
                     .fixedSize(horizontal: false, vertical: true)
                     .textSelection(.enabled)
                 Spacer(minLength: 0)

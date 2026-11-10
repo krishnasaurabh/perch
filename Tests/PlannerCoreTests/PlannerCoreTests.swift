@@ -135,11 +135,13 @@ final class TaskRepeatTests: XCTestCase {
         XCTAssertEqual(
             TaskRepeat.monthly.next(after: "2026-01-31", completed: "2026-01-31", calendar: cal), "2026-02-28")
         for s in ["every day", "every 2 weeks", "every mon, wed", "every! 3 days", "every weekday", "every month"] {
-            let r = TaskRepeat.parseRule(s)!!
-            XCTAssertEqual(TaskRepeat.parseRule(r.description)!!, r, s)
+            guard case .rule(let r) = TaskRepeat.parseRule(s) else {
+                XCTFail("Expected a repeat rule for \(s)"); continue
+            }
+            XCTAssertEqual(TaskRepeat.parseRule(r.description), .rule(r), s)
         }
-        XCTAssertNil(TaskRepeat.parseRule("sometimes"))
-        XCTAssertEqual(TaskRepeat.parseRule("none")!, nil)
+        XCTAssertEqual(TaskRepeat.parseRule("sometimes"), .invalid)
+        XCTAssertEqual(TaskRepeat.parseRule("none"), .clear)
     }
 }
 

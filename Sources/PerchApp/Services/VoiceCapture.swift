@@ -13,12 +13,24 @@ final class VoiceCapture: ObservableObject {
     private var request: SFSpeechAudioBufferRecognitionRequest?
     private var task: SFSpeechRecognitionTask?
     private var onFinish: ((String) -> Void)?
+    private let scheduler: any AppScheduling
+    private var timeoutWork: (any AppScheduledAction)?
+    private var finishWork: (any AppScheduledAction)?
+
+    init(scheduler: any AppScheduling = MainQueueScheduler()) { self.scheduler = scheduler }
+
+    deinit {
+        timeoutWork?.cancel()
+        finishWork?.cancel()
+    }
 
     func toggle(onFinish: @escaping (String) -> Void) {
         if state == .listening { stop() } else { Task { await start(onFinish: onFinish) } }
     }
 
     func start(onFinish: @escaping (String) -> Void) async {
+        timeoutWork?.cancel(); finishWork?.cancel()
+        timeoutWork = nil; finishWork = nil
         self.onFinish = onFinish
         transcript = ""
         let speech = await withCheckedContinuation { c in
@@ -28,7 +40,7 @@ final class VoiceCapture: ObservableObject {
             state = .error("Allow Speech Recognition for Perch under System Settings › Privacy & Security."); return
         }
         guard await AVCaptureDevice.requestAccess(for: .audio) else {
-            state = .error("Perch needs microphone access. Enable it under System Settings › Privacy & Security.");
+            state = .error("Perch needs microphone access. Enable it under System Settings › Privacy & Security.")
             return
         }
         guard let recognizer = SFSpeechRecognizer(), recognizer.isAvailable else {
@@ -64,8 +76,10 @@ final class VoiceCapture: ObservableObject {
             }
         }
         // Stop on silence-ish: cap a single capture at 30 s.
-        DispatchQueue.main.asyncAfter(deadline: .now() + 30) { [weak self] in
-            if self?.state == .listening { self?.stop() }
+        timeoutWork = scheduler.schedule(after: 30) { [weak self] in
+            guard let self else { return }
+            self.timeoutWork = nil
+            if self.state == .listening { self.stop() }
         }
     }
 
@@ -73,10 +87,16 @@ final class VoiceCapture: ObservableObject {
         request?.endAudio()
         engine?.stop()
         engine?.inputNode.removeTap(onBus: 0)
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { [weak self] in self?.finish() }
+        finishWork?.cancel()
+        finishWork = scheduler.schedule(after: 0.6) { [weak self] in
+            self?.finishWork = nil
+            self?.finish()
+        }
     }
 
     private func finish() {
+        timeoutWork?.cancel(); finishWork?.cancel()
+        timeoutWork = nil; finishWork = nil
         guard state == .listening else { return }
         task?.cancel()
         engine?.stop(); engine?.inputNode.removeTap(onBus: 0)

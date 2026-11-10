@@ -7,7 +7,13 @@ enum AgentConnector {
     enum App: String, CaseIterable, Identifiable {
         case claudeCode, claudeApp, cursor
         var id: String { rawValue }
-        var name: String { ["claudeCode": "Claude Code", "claudeApp": "Claude app", "cursor": "Cursor"][rawValue]! }
+        var name: String {
+            switch self {
+            case .claudeCode: "Claude Code"
+            case .claudeApp: "Claude app"
+            case .cursor: "Cursor"
+            }
+        }
     }
 
     enum Status: Equatable { case connected, notConnected, notInstalled }
@@ -67,6 +73,8 @@ enum AgentConnector {
             p.environment = env
             let err = Pipe(); p.standardError = err; p.standardOutput = Pipe()
             try p.run(); p.waitUntilExit()
+            PlatformLog.agents.info(
+                "connect app=\(app.rawValue, privacy: .public) status=\(p.terminationStatus, privacy: .public)")
             if p.terminationStatus != 0 {
                 let msg = String(decoding: err.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
                 if msg.contains("already exists") { return "Perch is already connected to Claude Code." }
@@ -91,6 +99,8 @@ enum AgentConnector {
             p.arguments = ["mcp", "remove", "--scope", "user", serverName]
             p.standardOutput = Pipe(); p.standardError = Pipe()
             try p.run(); p.waitUntilExit()
+            PlatformLog.agents.info(
+                "disconnect app=\(app.rawValue, privacy: .public) status=\(p.terminationStatus, privacy: .public)")
         case .claudeApp: try removeServer(from: claudeDesktopConfig)
         case .cursor: try removeServer(from: cursorConfig)
         }
@@ -124,9 +134,14 @@ enum AgentConnector {
 
     static func readConfig(_ url: URL) throws -> [String: Any] {
         guard FileManager.default.fileExists(atPath: url.path) else { return [:] }
-        let data = try Data(contentsOf: url)
+        let data: Data
+        do { data = try Data(contentsOf: url) } catch {
+            PlatformLog.agents.error("config read failed code=\(PlatformLog.errorCode(error), privacy: .public)")
+            throw error
+        }
         if data.isEmpty { return [:] }
         guard let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            PlatformLog.agents.error("config decode failed reason=invalidJSON")
             throw PlannerError("\(url.lastPathComponent) couldn't be read, so Perch left it unchanged.")
         }
         return obj

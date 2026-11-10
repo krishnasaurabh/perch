@@ -220,6 +220,21 @@ struct TaskRow: View {
                         Motion.animate(Motion.row) { offset = 0 }
                     })
         }
+        .task(id: ticked) {
+            guard ticked else { return }
+            do { try await Task.sleep(nanoseconds: Motion.reduceMotion ? 0 : 140_000_000) } catch { return }
+            guard !Task.isCancelled else { return }
+            Motion.animate(Motion.row) {
+                if task.day == store.today {
+                    store.apply { try $0.complete(task.id) }
+                } else if let day = task.day, day < store.today {
+                    store.send(.completeOverdue([task.id]))
+                } else {
+                    store.send(.complete(task.id))
+                }
+            }
+            ticked = false
+        }
     }
 
     private var row: some View {
@@ -383,19 +398,8 @@ struct TaskRow: View {
     /// Tick: the circle fills at once, then the row fades in place while the rows below slide up (`Motion.row`).
     func toggle() {
         if task.done { Motion.animate(Motion.row) { _ = store.apply { try $0.reopen(task.id) } }; return }
+        guard !ticked else { return }
         ticked = true
-        DispatchQueue.main.asyncAfter(deadline: .now() + (Motion.reduceMotion ? 0 : 0.14)) {
-            Motion.animate(Motion.row) {
-                if task.day == store.today {
-                    store.apply { try $0.complete(task.id) }
-                } else if let day = task.day, day < store.today {
-                    store.send(.completeOverdue([task.id]))
-                } else {
-                    store.send(.complete(task.id))
-                }
-            }
-            ticked = false
-        }
     }
 
     func move(_ to: DayRef) {

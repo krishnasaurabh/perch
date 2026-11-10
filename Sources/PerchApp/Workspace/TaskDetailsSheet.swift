@@ -222,8 +222,21 @@ struct TaskDetailsSheet: View {
         if store.apply({ try $0.endRepeat(of: t.id) }) != nil { repeatText = "" }
     }
 
+    private enum RepeatFieldEdit {
+        case clear
+        case rule(String)
+
+        var transportText: String {
+            switch self {
+            case .clear: "none"
+            case .rule(let text): text
+            }
+        }
+    }
+
     func applyRepeat(_ t: PlanTask) {
-        var e = TaskEdit(); e.repeatRule = repeatText.isEmpty ? "none" : repeatText
+        let edit: RepeatFieldEdit = repeatText.isEmpty ? .clear : .rule(repeatText)
+        var e = TaskEdit(); e.repeatRule = edit.transportText
         if store.apply({ try $0.update(t.id, on: t.day.map { .day($0) } ?? .inbox, e) }) != nil {
             repeatText = store.planner.tasks.first { $0.id == t.id }?.repeatRule?.description ?? ""
         }

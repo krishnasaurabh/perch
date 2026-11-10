@@ -42,13 +42,22 @@ enum AISorter {
                 let projects = store.planner.projects.map(\.name)
                 guard !tasks.isEmpty else { return }
                 Task {
+                    PlatformLog.sorting.debug("sort started count=\(tasks.count, privacy: .public)")
                     for t in tasks {
-                        guard let s = try? await suggest(title: t.title, projects: projects) else { continue }
-                        let project = store.planner.projects.first {
-                            $0.name.caseInsensitiveCompare(s.project) == .orderedSame
-                        }?.id
-                        store.send(
-                            .suggest(t.id, priority: s.priority.taskPriority, projectID: project), origin: .background)
+                        do {
+                            let s = try await suggest(title: t.title, projects: projects)
+                            let project = store.planner.projects.first {
+                                $0.name.caseInsensitiveCompare(s.project) == .orderedSame
+                            }?.id
+                            store.send(
+                                .suggest(t.id, priority: s.priority.taskPriority, projectID: project),
+                                origin: .background)
+                            PlatformLog.sorting.debug("sort completed id=\(t.id.uuidString, privacy: .private)")
+                        } catch {
+                            PlatformLog.sorting.error(
+                                "sort failed code=\(PlatformLog.errorCode(error), privacy: .public)")
+                            store.lastError = .aiSorting(error.localizedDescription)
+                        }
                     }
                 }
             }
