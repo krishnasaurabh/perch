@@ -28,7 +28,9 @@ struct ShortcutModifiers: OptionSet, Hashable, Codable, Sendable {
     }
 
     private static let ordered: [ShortcutModifiers] = [.control, .option, .shift, .command]
-    private static let symbols: [(ShortcutModifiers, String)] = [(.control, "⌃"), (.option, "⌥"), (.shift, "⇧"), (.command, "⌘")]
+    private static let symbols: [(ShortcutModifiers, String)] = [
+        (.control, "⌃"), (.option, "⌥"), (.shift, "⇧"), (.command, "⌘"),
+    ]
 
     /// Persisted as one integer, with unknown bits masked off on the way back in: a newer build's flags cannot
     /// turn into a modifier this one doesn't understand.
@@ -134,8 +136,9 @@ enum ShortcutStore {
     @discardableResult
     static func load(seeding fallback: ShortcutKey = .default, defaults: UserDefaults = .standard) -> ShortcutKey {
         if let data = defaults.data(forKey: defaultsKey),
-           let saved = try? JSONDecoder().decode(ShortcutKey.self, from: data),
-           saved.isValid {
+            let saved = try? JSONDecoder().decode(ShortcutKey.self, from: data),
+            saved.isValid
+        {
             return saved
         }
         let seed = ShortcutKey.validated(fallback)
@@ -180,7 +183,9 @@ final class GlobalHotKey {
         shortcut = initial
         GlobalHotKey.handlers[id] = handler
 
-        changeObserver = NotificationCenter.default.addObserver(forName: ShortcutStore.didChange, object: nil, queue: .main) { [weak self] note in
+        changeObserver = NotificationCenter.default.addObserver(
+            forName: ShortcutStore.didChange, object: nil, queue: .main
+        ) { [weak self] note in
             guard let self, let key = note.userInfo?["key"] as? ShortcutKey else { return }
             self.apply(key)
         }
@@ -202,8 +207,9 @@ final class GlobalHotKey {
         }
         _ = register(previous)
         ShortcutStore.save(previous, notify: false)
-        NotificationCenter.default.post(name: ShortcutStore.didFail, object: nil,
-                                        userInfo: ["key": key, "restored": previous])
+        NotificationCenter.default.post(
+            name: ShortcutStore.didFail, object: nil,
+            userInfo: ["key": key, "restored": previous])
     }
 
     private func register(_ key: ShortcutKey) -> Bool {
@@ -211,7 +217,8 @@ final class GlobalHotKey {
         unregister()
         var newRef: EventHotKeyRef?
         let hkID = EventHotKeyID(signature: OSType(0x5052_4348) /* PRCH */, id: id)
-        let status = RegisterEventHotKey(key.keyCode, key.modifiers.carbon, hkID, GetApplicationEventTarget(), 0, &newRef)
+        let status = RegisterEventHotKey(
+            key.keyCode, key.modifiers.carbon, hkID, GetApplicationEventTarget(), 0, &newRef)
         guard status == noErr, let newRef else { return false }
         ref = newRef
         return true
@@ -226,12 +233,15 @@ final class GlobalHotKey {
         guard !installed else { return }
         installed = true
         var spec = EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyPressed))
-        InstallEventHandler(GetApplicationEventTarget(), { _, event, _ in
-            var hk = EventHotKeyID()
-            GetEventParameter(event, EventParamName(kEventParamDirectObject), EventParamType(typeEventHotKeyID),
-                              nil, MemoryLayout<EventHotKeyID>.size, nil, &hk)
-            DispatchQueue.main.async { GlobalHotKey.handlers[hk.id]?() }
-            return noErr
-        }, 1, &spec, nil, nil)
+        InstallEventHandler(
+            GetApplicationEventTarget(),
+            { _, event, _ in
+                var hk = EventHotKeyID()
+                GetEventParameter(
+                    event, EventParamName(kEventParamDirectObject), EventParamType(typeEventHotKeyID),
+                    nil, MemoryLayout<EventHotKeyID>.size, nil, &hk)
+                DispatchQueue.main.async { GlobalHotKey.handlers[hk.id]?() }
+                return noErr
+            }, 1, &spec, nil, nil)
     }
 }

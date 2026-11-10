@@ -136,7 +136,9 @@ enum Motion {
 /// travel or repeating effects may ride on a transaction intended only for opacity.
 struct MotionPolicy: Equatable {
     let reduceMotion: Bool
-    static var system: Self { MotionScript.policyOverride ?? Self(reduceMotion: NSWorkspace.shared.accessibilityDisplayShouldReduceMotion) }
+    static var system: Self {
+        MotionScript.policyOverride ?? Self(reduceMotion: NSWorkspace.shared.accessibilityDisplayShouldReduceMotion)
+    }
 
     func animation(_ normal: Animation) -> Animation? { reduceMotion ? nil : normal }
 
@@ -154,8 +156,9 @@ struct MotionPolicy: Equatable {
 
     var workspaceTransition: AnyTransition {
         if reduceMotion { return .identity }
-        return .asymmetric(insertion: .opacity.combined(with: .scale(scale: 0.5, anchor: .top)),
-                           removal: .opacity.combined(with: .scale(scale: 0.85, anchor: .top)))
+        return .asymmetric(
+            insertion: .opacity.combined(with: .scale(scale: 0.5, anchor: .top)),
+            removal: .opacity.combined(with: .scale(scale: 0.85, anchor: .top)))
     }
 }
 
@@ -208,16 +211,19 @@ extension Color {
         var s = hex.trimmingCharacters(in: CharacterSet(charactersIn: "#"))
         if s.count == 3 { s = s.map { "\($0)\($0)" }.joined() }
         let v = UInt64(s, radix: 16) ?? 0x8E8CF5
-        self.init(red: Double((v >> 16) & 0xFF) / 255, green: Double((v >> 8) & 0xFF) / 255, blue: Double(v & 0xFF) / 255)
+        self.init(
+            red: Double((v >> 16) & 0xFF) / 255, green: Double((v >> 8) & 0xFF) / 255, blue: Double(v & 0xFF) / 255)
     }
 
     /// A color that follows the appearance, and so the SwiftUI `colorScheme`, of whatever draws it.
     static func dynamic(light: (UInt32, CGFloat), dark: (UInt32, CGFloat)) -> Color {
-        Color(nsColor: NSColor(name: nil) { ap in
-            let (v, a) = ap.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua ? dark : light
-            return NSColor(srgbRed: CGFloat((v >> 16) & 0xFF) / 255, green: CGFloat((v >> 8) & 0xFF) / 255,
-                           blue: CGFloat(v & 0xFF) / 255, alpha: a)
-        })
+        Color(
+            nsColor: NSColor(name: nil) { ap in
+                let (v, a) = ap.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua ? dark : light
+                return NSColor(
+                    srgbRed: CGFloat((v >> 16) & 0xFF) / 255, green: CGFloat((v >> 8) & 0xFF) / 255,
+                    blue: CGFloat(v & 0xFF) / 255, alpha: a)
+            })
     }
 }
 
@@ -246,7 +252,10 @@ struct CardSurface: ViewModifier {
             .padding(padding)
             .frame(maxWidth: .infinity, alignment: .topLeading)
             .background(RoundedRectangle(cornerRadius: Theme.cardRadius, style: .continuous).fill(tone.fill))
-            .overlay(RoundedRectangle(cornerRadius: Theme.cardRadius, style: .continuous).strokeBorder(Theme.cardStroke, lineWidth: 1))
+            .overlay(
+                RoundedRectangle(cornerRadius: Theme.cardRadius, style: .continuous).strokeBorder(
+                    Theme.cardStroke, lineWidth: 1)
+            )
             .foregroundStyle(Theme.text)
             .environment(\.colorScheme, tone.scheme)
     }
@@ -285,7 +294,9 @@ struct SegmentPills<T: Hashable>: View {
             ForEach(items.indices, id: \.self) { i in
                 let it = items[i]
                 let on = selection == it.value
-                Button { selection = it.value } label: {
+                Button {
+                    selection = it.value
+                } label: {
                     Text(it.label)
                         .font(.system(size: 11, weight: on ? .semibold : .medium).monospacedDigit())
                         .padding(.horizontal, 9).padding(.vertical, 4)
@@ -336,7 +347,8 @@ struct OwlMark: View {
                 eye
             }
             .offset(y: -size * 0.06)
-            Triangle().fill(Color.black.opacity(0.75)).frame(width: size * 0.16, height: size * 0.14).offset(y: size * 0.16)
+            Triangle().fill(Color.black.opacity(0.75)).frame(width: size * 0.16, height: size * 0.14).offset(
+                y: size * 0.16)
         }
         .frame(width: size, height: size)
     }
@@ -352,7 +364,8 @@ struct OwlMark: View {
 struct Triangle: Shape {
     func path(in r: CGRect) -> Path {
         var p = Path()
-        p.move(to: CGPoint(x: r.minX, y: r.minY)); p.addLine(to: CGPoint(x: r.maxX, y: r.minY)); p.addLine(to: CGPoint(x: r.midX, y: r.maxY))
+        p.move(to: CGPoint(x: r.minX, y: r.minY)); p.addLine(to: CGPoint(x: r.maxX, y: r.minY));
+        p.addLine(to: CGPoint(x: r.midX, y: r.maxY))
         p.closeSubpath(); return p
     }
 }
@@ -403,8 +416,12 @@ struct ErrorBanner: View {
                 Image(systemName: "exclamationmark.circle").foregroundStyle(Theme.danger)
                 Text(e).font(.system(size: 11.5)).foregroundStyle(Theme.text).lineLimit(2)
                 Spacer()
-                Button { store.lastError = nil } label: { Image(systemName: "xmark").font(.system(size: 9, weight: .bold)) }
-                    .buttonStyle(.plain).foregroundStyle(Theme.secondary)
+                Button {
+                    store.lastError = nil
+                } label: {
+                    Image(systemName: "xmark").font(.system(size: 9, weight: .bold))
+                }
+                .buttonStyle(.plain).foregroundStyle(Theme.secondary)
             }
             .padding(.horizontal, 10).padding(.vertical, 7)
             .background(RoundedRectangle(cornerRadius: 10).fill(Theme.danger.opacity(0.14)))

@@ -21,13 +21,16 @@ struct TasksCard: View {
         VStack(alignment: .leading, spacing: 10) {
             // Keep the first-use action visible without squeezing titles or tabs at narrow widths.
             ViewThatFits(in: .horizontal) {
-                CardHeading("Today's tasks", trailing: AnyView(
-                    HStack(spacing: 8) {
-                        startFocus
-                        SegmentPills(items: pills, selection: selection)
-                    }.fixedSize()))
-                    .fixedSize(horizontal: true, vertical: false)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                CardHeading(
+                    "Today's tasks",
+                    trailing: AnyView(
+                        HStack(spacing: 8) {
+                            startFocus
+                            SegmentPills(items: pills, selection: selection)
+                        }.fixedSize())
+                )
+                .fixedSize(horizontal: true, vertical: false)
+                .frame(maxWidth: .infinity, alignment: .leading)
                 VStack(alignment: .leading, spacing: 4) {
                     CardHeading("Today's tasks", trailing: AnyView(startFocus))
                     SegmentPills(items: pills, selection: selection)
@@ -93,14 +96,19 @@ struct TasksCard: View {
                 .frame(height: 1).padding(.horizontal, 7)
         }
         private struct Line: Shape {
-            func path(in r: CGRect) -> Path { Path { p in p.move(to: CGPoint(x: r.minX, y: r.midY)); p.addLine(to: CGPoint(x: r.maxX, y: r.midY)) } }
+            func path(in r: CGRect) -> Path {
+                Path { p in
+                    p.move(to: CGPoint(x: r.minX, y: r.midY)); p.addLine(to: CGPoint(x: r.maxX, y: r.midY))
+                }
+            }
         }
     }
 
     @ViewBuilder func empty(all: [PlanTask], selected: Tab) -> some View {
         if selected == .active {
-            EmptyStateView(all.isEmpty ? "Start with one task." : "All clear for today.",
-                           symbol: all.isEmpty ? "square.and.pencil" : "checkmark.circle")
+            EmptyStateView(
+                all.isEmpty ? "Start with one task." : "All clear for today.",
+                symbol: all.isEmpty ? "square.and.pencil" : "checkmark.circle")
         } else {
             EmptyStateView("Your finished tasks will land here.", symbol: "checkmark.circle")
         }
@@ -150,10 +158,15 @@ private struct TasksContinuationObserver: NSViewRepresentable {
                 clip.postsBoundsChangedNotifications = true
                 clip.postsFrameChangedNotifications = true
                 enclosing.documentView?.postsFrameChangedNotifications = true
-                for (name, view) in [(NSView.boundsDidChangeNotification, clip),
-                                     (NSView.frameDidChangeNotification, clip),
-                                     (NSView.frameDidChangeNotification, enclosing.documentView)] {
-                    if let view { NotificationCenter.default.addObserver(self, selector: #selector(refresh), name: name, object: view) }
+                for (name, view) in [
+                    (NSView.boundsDidChangeNotification, clip),
+                    (NSView.frameDidChangeNotification, clip),
+                    (NSView.frameDidChangeNotification, enclosing.documentView),
+                ] {
+                    if let view {
+                        NotificationCenter.default.addObserver(
+                            self, selector: #selector(refresh), name: name, object: view)
+                    }
                 }
             }
             refresh()
@@ -164,12 +177,14 @@ private struct TasksContinuationObserver: NSViewRepresentable {
             let clip = scroll.contentView
             let viewport = scroll.convert(clip.bounds, from: clip)
             let height = min(CGFloat(20), viewport.height)
-            fade.frame = NSRect(x: viewport.minX, y: scroll.isFlipped ? viewport.maxY - height : viewport.minY,
-                                width: viewport.width, height: height)
+            fade.frame = NSRect(
+                x: viewport.minX, y: scroll.isFlipped ? viewport.maxY - height : viewport.minY,
+                width: viewport.width, height: height)
             let visible = document.convert(clip.bounds, from: clip)
             let offset = document.isFlipped ? visible.minY - document.bounds.minY : document.bounds.maxY - visible.maxY
-            fade.isHidden = !EdgeFade.showsBottomFade(contentHeight: Double(document.bounds.height),
-                                                      visibleOffset: Double(offset), visibleHeight: Double(visible.height))
+            fade.isHidden = !EdgeFade.showsBottomFade(
+                contentHeight: Double(document.bounds.height),
+                visibleOffset: Double(offset), visibleHeight: Double(visible.height))
         }
     }
 }
@@ -191,25 +206,31 @@ struct TaskRow: View {
             // Swipe left to delete.
             if offset < -4 {
                 Image(systemName: "trash.fill").foregroundStyle(.white).padding(.trailing, 12)
-                    .frame(maxHeight: .infinity).frame(width: -offset).background(Theme.danger).clipShape(RoundedRectangle(cornerRadius: 9))
+                    .frame(maxHeight: .infinity).frame(width: -offset).background(Theme.danger).clipShape(
+                        RoundedRectangle(cornerRadius: 9))
             }
             row
                 .offset(x: offset)
-                .gesture(DragGesture(minimumDistance: 18).onChanged { v in
-                    if abs(v.translation.width) > abs(v.translation.height) { offset = min(0, v.translation.width) }
-                }.onEnded { v in
-                    if v.translation.width < -110 { delete() }
-                    Motion.animate(Motion.row) { offset = 0 }
-                })
+                .gesture(
+                    DragGesture(minimumDistance: 18).onChanged { v in
+                        if abs(v.translation.width) > abs(v.translation.height) { offset = min(0, v.translation.width) }
+                    }.onEnded { v in
+                        if v.translation.width < -110 { delete() }
+                        Motion.animate(Motion.row) { offset = 0 }
+                    })
         }
     }
 
     private var row: some View {
         HStack(spacing: 9) {
-            Button { toggle() } label: {
+            Button {
+                toggle()
+            } label: {
                 let on = task.done || ticked
                 ZStack {
-                    Circle().strokeBorder(on ? Theme.text : (task.priority == .high ? Theme.priority(.high) : Theme.secondary), lineWidth: 1.5)
+                    Circle().strokeBorder(
+                        on ? Theme.text : (task.priority == .high ? Theme.priority(.high) : Theme.secondary),
+                        lineWidth: 1.5)
                     Circle().fill(Theme.text).padding(2.5).scaleEffect(on ? 1 : 0.2).opacity(on ? 1 : 0)
                     Image(systemName: "checkmark").font(.system(size: 8, weight: .heavy)).foregroundStyle(Theme.sage)
                         .opacity(on ? 1 : 0)
@@ -230,7 +251,9 @@ struct TaskRow: View {
                     Text(task.title).font(Theme.title)
                         .foregroundStyle(task.done ? Theme.tertiary : Theme.text)
                         .lineLimit(compact ? 1 : 2)
-                        .onTapGesture(count: 2) { draft = task.title; editing = true }
+                        .onTapGesture(count: 2) {
+                            draft = task.title; editing = true
+                        }
                 }
                 if !compact { meta }
             }
@@ -265,7 +288,9 @@ struct TaskRow: View {
     @ViewBuilder private func bit(_ b: Bit) -> some View {
         let label = HStack(spacing: 3) {
             if let s = b.symbol { Image(systemName: s).font(.system(size: 9, weight: .semibold)) }
-            Text(b.text).font(.system(size: b.chip ? 9.5 : 10.5, weight: b.strong ? .bold : b.chip ? .semibold : .medium)).lineLimit(1)
+            Text(b.text).font(
+                .system(size: b.chip ? 9.5 : 10.5, weight: b.strong ? .bold : b.chip ? .semibold : .medium)
+            ).lineLimit(1)
         }
         .foregroundStyle(b.color)
         .padding(.horizontal, b.chip ? 5 : 0)
@@ -275,27 +300,51 @@ struct TaskRow: View {
         if let tip = b.tip { label.help(tip) } else { label }
     }
 
-    private struct Bit { let symbol: String?; let text: String; let color: Color; var strong = false; var chip = false; var tip: String? = nil }
+    private struct Bit {
+        let symbol: String?; let text: String; let color: Color; var strong = false; var chip = false;
+        var tip: String? = nil
+    }
 
     private var metaBits: [Bit] {
         var out: [Bit] = []
-        if task.priority == .high { out.append(Bit(symbol: "flag.fill", text: "High", color: Theme.secondary, strong: true)) }
+        if task.priority == .high {
+            out.append(Bit(symbol: "flag.fill", text: "High", color: Theme.secondary, strong: true))
+        }
         if let r = task.remindAt {
             let overdue = r < Date() && !task.done
-            out.append(Bit(symbol: "bell", text: r.formatted(date: .omitted, time: .shortened), color: overdue ? Theme.danger : Theme.secondary))
+            out.append(
+                Bit(
+                    symbol: "bell", text: r.formatted(date: .omitted, time: .shortened),
+                    color: overdue ? Theme.danger : Theme.secondary))
         }
-        if let p = store.engine.project(id: task.projectID) { out.append(Bit(symbol: "number", text: p.name, color: Theme.secondary)) }
+        if let p = store.engine.project(id: task.projectID) {
+            out.append(Bit(symbol: "number", text: p.name, color: Theme.secondary))
+        }
         if let d = task.deadline {
             let late = d < store.today
             out.append(Bit(symbol: "flag", text: "due " + shortDay(d), color: late ? Theme.danger : Theme.secondary))
         }
-        if let rule = task.repeatRule { out.append(Bit(symbol: "repeat", text: rule.description.replacingOccurrences(of: "every ", with: ""), color: Theme.secondary)) }
+        if let rule = task.repeatRule {
+            out.append(
+                Bit(
+                    symbol: "repeat", text: rule.description.replacingOccurrences(of: "every ", with: ""),
+                    color: Theme.secondary))
+        }
         if let m = task.minutes { out.append(Bit(symbol: "timer", text: "\(m)m", color: Theme.secondary)) }
-        if !task.steps.isEmpty { out.append(Bit(symbol: "list.bullet", text: "\(task.steps.filter(\.done).count)/\(task.steps.count)", color: Theme.secondary)) }
-        if let c = task.carriedFrom { out.append(Bit(symbol: "arrow.uturn.right", text: "from " + shortDay(c), color: Theme.tertiary)) }
+        if !task.steps.isEmpty {
+            out.append(
+                Bit(
+                    symbol: "list.bullet", text: "\(task.steps.filter(\.done).count)/\(task.steps.count)",
+                    color: Theme.secondary))
+        }
+        if let c = task.carriedFrom {
+            out.append(Bit(symbol: "arrow.uturn.right", text: "from " + shortDay(c), color: Theme.tertiary))
+        }
         if let agent = task.agentID, let name = AgentName.short(agent) {
-            out.append(Bit(symbol: "sparkles", text: "via " + name, color: Theme.secondary, chip: true,
-                           tip: "Added through MCP by \(agent)"))
+            out.append(
+                Bit(
+                    symbol: "sparkles", text: "via " + name, color: Theme.secondary, chip: true,
+                    tip: "Added through MCP by \(agent)"))
         }
         return out
     }
@@ -313,11 +362,15 @@ struct TaskRow: View {
             Divider()
             Menu("Priority") {
                 ForEach(TaskPriority.allCases.reversed(), id: \.self) { p in
-                    Button(p == .none ? "None" : p.rawValue.capitalized) { store.updateTask(task.id) { $0.priority = p } }
+                    Button(p == .none ? "None" : p.rawValue.capitalized) {
+                        store.updateTask(task.id) { $0.priority = p }
+                    }
                 }
             }
         }
-        Button("Rename") { draft = task.title; editing = true }
+        Button("Rename") {
+            draft = task.title; editing = true
+        }
         Button("Details…") { model.detailsTaskID = task.id }
         if task.repeatRule != nil {
             Button("Stop Repeating") { store.apply { try $0.endRepeat(of: task.id) } }
@@ -332,8 +385,13 @@ struct TaskRow: View {
         ticked = true
         DispatchQueue.main.asyncAfter(deadline: .now() + (Motion.reduceMotion ? 0 : 0.14)) {
             Motion.animate(Motion.row) {
-                if task.day == store.today { store.apply { try $0.complete(task.id.uuidString) } }
-                else { store.updateTask(task.id) { $0.done = true; $0.completedAt = Date() } }
+                if task.day == store.today {
+                    store.apply { try $0.complete(task.id.uuidString) }
+                } else {
+                    store.updateTask(task.id) {
+                        $0.done = true; $0.completedAt = Date()
+                    }
+                }
             }
             ticked = false
         }
@@ -413,8 +471,14 @@ struct TaskComposer: View {
             }
         }
         .padding(.horizontal, 10).padding(.vertical, 8)
-        .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(focused ? Theme.inputFillFocused : Theme.inputFill))
-        .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(Theme.inputStroke, lineWidth: focused ? 2 : 1))
+        .background(
+            RoundedRectangle(cornerRadius: 10, style: .continuous).fill(
+                focused ? Theme.inputFillFocused : Theme.inputFill)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(
+                Theme.inputStroke, lineWidth: focused ? 2 : 1)
+        )
         .task(id: model.captureFocusRequest) {
             // Explicit openings focus capture; hover and drag previews must not steal typing.
             focused = false
@@ -429,7 +493,9 @@ struct TaskComposer: View {
         let c = store.capture.parse(text)
         var bits: [String] = []
         if c.inbox { bits.append("Inbox") }
-        if let d = c.day, d != store.today { bits.append(d.date().formatted(.dateTime.weekday(.abbreviated).month(.abbreviated).day())) }
+        if let d = c.day, d != store.today {
+            bits.append(d.date().formatted(.dateTime.weekday(.abbreviated).month(.abbreviated).day()))
+        }
         if let r = c.remindAt { bits.append(r.formatted(date: .omitted, time: .shortened)) }
         if c.priority != .none { bits.append(c.priority.rawValue.capitalized) }
         if let p = c.projectName { bits.append("#" + p) }
@@ -462,7 +528,9 @@ private struct VoiceButtonBody: View {
 
     var body: some View {
         let listening = voice.state == .listening
-        Button { voice.toggle(onFinish: onText) } label: {
+        Button {
+            voice.toggle(onFinish: onText)
+        } label: {
             ZStack {
                 // A static listening state: no perpetual pulse.
                 if listening { Circle().fill(Theme.fillStrong).frame(width: 24, height: 24) }
@@ -474,8 +542,13 @@ private struct VoiceButtonBody: View {
         }
         .buttonStyle(.plain)
         .help("Say a task. Speech is recognized on this Mac.")
-        .popover(isPresented: Binding(get: { if case .error = voice.state { return true }; return false },
-                                      set: { if !$0 { voice.state = .idle } })) {
+        .popover(
+            isPresented: Binding(
+                get: {
+                    if case .error = voice.state { return true }; return false
+                },
+                set: { if !$0 { voice.state = .idle } })
+        ) {
             if case .error(let m) = voice.state { Text(m).font(.system(size: 12)).padding(12).frame(width: 260) }
         }
     }
@@ -496,7 +569,7 @@ private struct ShowsDays: ViewModifier {
         content
             .onAppear { store.materializeRepeats(on: days) }
             .onChange(of: days) { _, new in store.materializeRepeats(on: new) }
-            // Materialize at view/day boundaries, never as feedback to Undo or Redo.
+        // Materialize at view/day boundaries, never as feedback to Undo or Redo.
     }
 }
 

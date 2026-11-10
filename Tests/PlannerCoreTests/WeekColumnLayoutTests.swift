@@ -4,12 +4,15 @@ import XCTest
 final class WeekColumnLayoutTests: XCTestCase {
     func testChipHelpLeadsWithTheFullTitleThenTheDragHint() {
         let title = "Draft the quarterly planning document for the platform team including hiring and budget sections"
-        XCTAssertEqual(WeekColumnLayout.chipHelp(title: title, past: false),
-                       title + "\nDrag to move. Double-click for details.")
+        XCTAssertEqual(
+            WeekColumnLayout.chipHelp(title: title, past: false),
+            title + "\nDrag to move. Double-click for details.")
     }
 
     func testPastChipHelpKeepsTheTitleWithTheReadOnlyHint() {
-        XCTAssertEqual(WeekColumnLayout.chipHelp(title: "Call mom", past: true), "Call mom\nOlder days stay unchanged in your history.")
+        XCTAssertEqual(
+            WeekColumnLayout.chipHelp(title: "Call mom", past: true),
+            "Call mom\nOlder days stay unchanged in your history.")
     }
 
     func testBlankTitleFallsBackToTheHintAlone() {

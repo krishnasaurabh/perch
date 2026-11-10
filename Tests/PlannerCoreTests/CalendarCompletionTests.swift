@@ -4,11 +4,11 @@ import XCTest
 final class CalendarCompletionTests: XCTestCase {
     func testOldPlannerDefaultsToNoCompletedEvents() throws {
         let legacy = #"""
-        {"version":1,"tasks":[
-          {"id":"11111111-1111-1111-1111-111111111111","title":"Old task","day":"2026-11-09","createdAt":"2026-11-09T22:00:00Z"},
-          {"id":"22222222-2222-2222-2222-222222222222","title":"Inbox task","createdAt":"2026-11-09T22:00:00Z"}
-        ],"preferences":{"defaultFocusMinutes":50}}
-        """#
+            {"version":1,"tasks":[
+              {"id":"11111111-1111-1111-1111-111111111111","title":"Old task","day":"2026-11-09","createdAt":"2026-11-09T22:00:00Z"},
+              {"id":"22222222-2222-2222-2222-222222222222","title":"Inbox task","createdAt":"2026-11-09T22:00:00Z"}
+            ],"preferences":{"defaultFocusMinutes":50}}
+            """#
         let planner = try PlannerFile.decoder.decode(Planner.self, from: Data(legacy.utf8))
         XCTAssertTrue(planner.completedCalendarEventIDs.isEmpty)
         XCTAssertTrue(planner.completedCalendarEventDays.isEmpty)
@@ -109,11 +109,13 @@ final class CalendarCompletionTests: XCTestCase {
         var engine = PlannerEngine(planner: Planner(), now: { Fixture.now }, calendar: Fixture.calendar)
         try engine.setCalendarEventCompleted("event", completed: true)
         try file.save(engine.planner)
-        let server = MCPServer(tools: AgentTools(file: file, now: { Fixture.now }, calendar: Fixture.calendar), version: "test")
-        let response = try XCTUnwrap(server.handle([
-            "jsonrpc": "2.0", "id": 1, "method": "tools/call",
-            "params": ["name": "get_insights", "arguments": [:]]
-        ]))
+        let server = MCPServer(
+            tools: AgentTools(file: file, now: { Fixture.now }, calendar: Fixture.calendar), version: "test")
+        let response = try XCTUnwrap(
+            server.handle([
+                "jsonrpc": "2.0", "id": 1, "method": "tools/call",
+                "params": ["name": "get_insights", "arguments": [:]],
+            ]))
         let text = try XCTUnwrap(response["result"]?["content"]?.array?.first?["text"]?.string)
         XCTAssertEqual(response["result"]?["isError"]?.bool, false)
         XCTAssertTrue(text.contains("Today: 0/0 tasks done"), text)
@@ -121,7 +123,8 @@ final class CalendarCompletionTests: XCTestCase {
     }
 
     func testDuplicateSavedIDsCountOnceAndSurviveAnotherRoundTrip() throws {
-        let json = #"{"completedCalendarEventIDs":["event","event"],"completedCalendarEventDays":{"event":"2026-11-09"}}"#
+        let json =
+            #"{"completedCalendarEventIDs":["event","event"],"completedCalendarEventDays":{"event":"2026-11-09"}}"#
         let planner = try PlannerFile.decoder.decode(Planner.self, from: Data(json.utf8))
         let reloaded = try PlannerFile.decoder.decode(Planner.self, from: PlannerFile.encoder.encode(planner))
         let engine = PlannerEngine(planner: reloaded, now: { Fixture.now }, calendar: Fixture.calendar)

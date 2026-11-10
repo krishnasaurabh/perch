@@ -40,7 +40,9 @@ final class PlannerCorruptCollectionTests: XCTestCase {
 
             do {
                 let planner = try file.load()
-                XCTFail("\(fixture.json) loaded silently: \(planner.tasks.count) task(s), \(planner.projects.count) project(s)")
+                XCTFail(
+                    "\(fixture.json) loaded silently: \(planner.tasks.count) task(s), \(planner.projects.count) project(s)"
+                )
                 continue
             } catch let recovery as PlannerRecoveryError {
                 XCTAssertEqual(recovery.keptCount, 0, fixture.json)
@@ -70,11 +72,16 @@ final class PlannerCorruptCollectionTests: XCTestCase {
             }
         }
         var mutationRan = false
-        XCTAssertThrowsError(try file.mutate { $0.notes.removeAll(); mutationRan = true }) { error in
+        XCTAssertThrowsError(
+            try file.mutate {
+                $0.notes.removeAll(); mutationRan = true
+            }
+        ) { error in
             // Mutate reloads first, so a corrupt collection surfaces as a record/field recovery
             // draft. Either typed error is acceptable as long as nothing is written.
-            XCTAssertTrue(error is PlannerRecoveryError || error is PlannerDataError,
-                          "Mutate gave \(type(of: error)), expected a typed storage error")
+            XCTAssertTrue(
+                error is PlannerRecoveryError || error is PlannerDataError,
+                "Mutate gave \(type(of: error)), expected a typed storage error")
             XCTAssertFalse(error is PlannerSchemaError)
         }
         XCTAssertFalse(mutationRan)
@@ -86,12 +93,13 @@ final class PlannerCorruptCollectionTests: XCTestCase {
     }
 
     func testCorruptNestedCollectionQuarantinesOnlyItsRecord() throws {
-        let raw = Data(#"""
-        {"tasks":[
-          {"id":"99999999-9999-9999-9999-999999999999","title":"Synthetic kept task","createdAt":"2026-11-09T12:00:00Z"},
-          {"id":"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa","title":"Synthetic unreadable steps","createdAt":"2026-11-09T12:00:00Z","steps":{}}
-        ]}
-        """#.utf8)
+        let raw = Data(
+            #"""
+            {"tasks":[
+              {"id":"99999999-9999-9999-9999-999999999999","title":"Synthetic kept task","createdAt":"2026-11-09T12:00:00Z"},
+              {"id":"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa","title":"Synthetic unreadable steps","createdAt":"2026-11-09T12:00:00Z","steps":{}}
+            ]}
+            """#.utf8)
         try raw.write(to: file.url)
 
         do {

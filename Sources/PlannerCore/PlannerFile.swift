@@ -1,8 +1,8 @@
 import Foundation
 #if canImport(Glibc)
-import Glibc
+    import Glibc
 #elseif canImport(Darwin)
-import Darwin
+    import Darwin
 #endif
 
 private enum PlannerDateCoding {
@@ -23,8 +23,9 @@ private enum PlannerDateCoding {
         let parts = string.split(separator: ".", maxSplits: 1)
         guard parts.count == 2 else { return formatter.date(from: string) }
         guard let zone = parts[1].firstIndex(where: { $0 == "Z" || $0 == "+" || $0 == "-" }),
-              let fraction = Double("0." + parts[1][..<zone]),
-              let base = formatter.date(from: String(parts[0]) + parts[1][zone...]) else { return nil }
+            let fraction = Double("0." + parts[1][..<zone]),
+            let base = formatter.date(from: String(parts[0]) + parts[1][zone...])
+        else { return nil }
         return Date(timeIntervalSinceReferenceDate: base.timeIntervalSinceReferenceDate + fraction)
     }
 }
@@ -76,12 +77,12 @@ public struct PlannerRecoveryError: Error, LocalizedError, CustomStringConvertib
     public let issuesURL: URL
     public var description: String {
         "Planner data needs recovery. Kept \(keptCount) valid record(s) in a read-only draft. "
-        + "Quarantined \(quarantinedCount) invalid record(s) and \(quarantinedFieldCount) invalid field(s). "
-        + "Valid records are available read-only; changes cannot be saved. "
-        + "The original planner is unchanged. An exact copy, including malformed records, is at \(quarantineURL.path). "
-        + "A separate valid-record draft is at \(recoveredURL.path); rejected locations are listed at \(issuesURL.path). "
-        + "Quit Perch and repair the original using those files, or explicitly restore a known-good backup. "
-        + "Do not replace the original with the draft unless you accept omitting the rejected records."
+            + "Quarantined \(quarantinedCount) invalid record(s) and \(quarantinedFieldCount) invalid field(s). "
+            + "Valid records are available read-only; changes cannot be saved. "
+            + "The original planner is unchanged. An exact copy, including malformed records, is at \(quarantineURL.path). "
+            + "A separate valid-record draft is at \(recoveredURL.path); rejected locations are listed at \(issuesURL.path). "
+            + "Quit Perch and repair the original using those files, or explicitly restore a known-good backup. "
+            + "Do not replace the original with the draft unless you accept omitting the rejected records."
     }
     public var errorDescription: String? { description }
 }
@@ -106,7 +107,8 @@ public final class PlannerFile: @unchecked Sendable {
 
     public static var defaultURL: URL {
         if let override = ProcessInfo.processInfo.environment["PERCH_DATA"] { return URL(fileURLWithPath: override) }
-        let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
+        let base =
+            FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
             ?? URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent(".local/share")
         return base.appendingPathComponent("Perch/planner.json")
     }
@@ -189,21 +191,29 @@ public final class PlannerFile: @unchecked Sendable {
                     let entries = try c.nestedContainer(keyedBy: StringKey.self, forKey: .completedCalendarEventDays)
                     for key in entries.allKeys.sorted(by: { $0.stringValue < $1.stringValue }) {
                         do {
-                            planner.completedCalendarEventDays[key.stringValue] = try entries.decode(DayKey.self, forKey: key)
+                            planner.completedCalendarEventDays[key.stringValue] = try entries.decode(
+                                DayKey.self, forKey: key)
                             keptCount += 1
-                        } catch { record(error, fallback: "completedCalendarEventDays.\(key.stringValue)", isRecord: true) }
+                        } catch {
+                            record(error, fallback: "completedCalendarEventDays.\(key.stringValue)", isRecord: true)
+                        }
                     }
                 } catch { record(error, fallback: Keys.completedCalendarEventDays.rawValue) }
             }
         }
 
-        private mutating func value<T: Decodable>(_ type: T.Type, in c: KeyedDecodingContainer<Keys>, key: Keys, default fallback: T) -> T {
+        private mutating func value<T: Decodable>(
+            _ type: T.Type, in c: KeyedDecodingContainer<Keys>, key: Keys, default fallback: T
+        ) -> T {
             guard c.contains(key) else { return fallback }
-            do { return try c.decode(type, forKey: key) }
-            catch { record(error, fallback: key.rawValue); return fallback }
+            do { return try c.decode(type, forKey: key) } catch {
+                record(error, fallback: key.rawValue); return fallback
+            }
         }
 
-        private mutating func records<T: Decodable>(_ type: T.Type, in c: KeyedDecodingContainer<Keys>, key: Keys) -> [T] {
+        private mutating func records<T: Decodable>(_ type: T.Type, in c: KeyedDecodingContainer<Keys>, key: Keys)
+            -> [T]
+        {
             guard c.contains(key) else { return [] }
             var result: [T] = []
             do {
@@ -223,8 +233,7 @@ public final class PlannerFile: @unchecked Sendable {
         }
 
         private mutating func record(_ error: Error, fallback: String, isRecord: Bool = false) {
-            if isRecord { quarantinedCount += 1 }
-            else { quarantinedFieldCount += 1 }
+            if isRecord { quarantinedCount += 1 } else { quarantinedFieldCount += 1 }
             let path: [CodingKey]
             let reason: String
             switch error {
@@ -241,19 +250,24 @@ public final class PlannerFile: @unchecked Sendable {
             }
             var location = ""
             for key in path {
-                if let index = key.intValue { location += "[\(index)]" }
-                else { location += (location.isEmpty ? "" : ".") + key.stringValue }
+                if let index = key.intValue {
+                    location += "[\(index)]"
+                } else {
+                    location += (location.isEmpty ? "" : ".") + key.stringValue
+                }
             }
             issues.append(PlannerRecoveryIssue(path: location.isEmpty ? fallback : location, reason: reason))
         }
     }
 
     private func readIfPresent(_ target: URL) throws -> Data? {
-        do { return try io.read(target) }
-        catch {
+        do { return try io.read(target) } catch {
             let e = error as NSError
             if (e.domain == NSCocoaErrorDomain && e.code == NSFileReadNoSuchFileError)
-                || (e.domain == NSPOSIXErrorDomain && e.code == Int(ENOENT)) { return nil }
+                || (e.domain == NSPOSIXErrorDomain && e.code == Int(ENOENT))
+            {
+                return nil
+            }
             throw PlannerDataError.unreadable(url: target, reason: error.localizedDescription)
         }
     }
@@ -262,9 +276,12 @@ public final class PlannerFile: @unchecked Sendable {
         // Identical repeated reloads reuse their quarantine instead of producing
         // an unbounded set of copies. Never prune a user's recovery material.
         let prefix = url.deletingPathExtension().lastPathComponent + ".corrupt-"
-        let entries = try FileManager.default.contentsOfDirectory(at: url.deletingLastPathComponent().resolvingSymlinksInPath(), includingPropertiesForKeys: nil)
+        let entries = try FileManager.default.contentsOfDirectory(
+            at: url.deletingLastPathComponent().resolvingSymlinksInPath(), includingPropertiesForKeys: nil)
         for entry in entries.sorted(by: { $0.lastPathComponent < $1.lastPathComponent })
-            where entry.lastPathComponent.hasPrefix(prefix) && !entry.lastPathComponent.contains(".recovered.") && !entry.lastPathComponent.contains(".issues.") {
+        where entry.lastPathComponent.hasPrefix(prefix) && !entry.lastPathComponent.contains(".recovered.")
+            && !entry.lastPathComponent.contains(".issues.")
+        {
             if (try? io.read(entry)) == data {
                 // Directory enumeration may resolve a symlinked parent differently
                 // from the configured data URL. Keep recovery paths stable across loads.
@@ -276,7 +293,8 @@ public final class PlannerFile: @unchecked Sendable {
             try io.copy(url, copy)
             guard try io.read(copy) == data else { throw PlannerError("Recovery copy verification failed.") }
         } catch {
-            throw PlannerError("Unable to preserve corrupt planner data: \(error.localizedDescription). The original was not changed.")
+            throw PlannerError(
+                "Unable to preserve corrupt planner data: \(error.localizedDescription). The original was not changed.")
         }
         return copy
     }
@@ -287,13 +305,12 @@ public final class PlannerFile: @unchecked Sendable {
 
     private func loadLocked() throws -> Planner {
         guard let data = try readIfPresent(url) else { return Planner() }
-        do { return try Self.decode(data) }
-        catch let error as PlannerSchemaError { throw error }
-        catch {
+        do { return try Self.decode(data) } catch let error as PlannerSchemaError { throw error } catch {
             let copy = try preserveCorruptCurrent(data)
             guard let draft = try? Self.decoder.decode(RecoveryDraft.self, from: data), !draft.issues.isEmpty else {
-                throw PlannerDataError.corrupt(url: url, quarantineURL: copy,
-                                               reason: "The document could not be decoded into a valid-record draft")
+                throw PlannerDataError.corrupt(
+                    url: url, quarantineURL: copy,
+                    reason: "The document could not be decoded into a valid-record draft")
             }
             let recovered = copy.deletingPathExtension().appendingPathExtension("recovered.json")
             let issues = copy.deletingPathExtension().appendingPathExtension("issues.json")
@@ -303,13 +320,15 @@ public final class PlannerFile: @unchecked Sendable {
                 try writeRecoveryFile(encoded, to: recovered)
                 try writeRecoveryFile(Self.encoder.encode(draft.issues), to: issues)
             } catch {
-                throw PlannerDataError.corrupt(url: url, quarantineURL: copy,
-                                               reason: "Recovery draft could not be saved: \(error.localizedDescription)")
+                throw PlannerDataError.corrupt(
+                    url: url, quarantineURL: copy,
+                    reason: "Recovery draft could not be saved: \(error.localizedDescription)")
             }
-            throw PlannerRecoveryError(recoveredPlanner: draft.planner, issues: draft.issues,
-                                       keptCount: draft.keptCount, quarantinedCount: draft.quarantinedCount,
-                                       quarantinedFieldCount: draft.quarantinedFieldCount,
-                                       originalURL: copy, recoveredURL: recovered, issuesURL: issues)
+            throw PlannerRecoveryError(
+                recoveredPlanner: draft.planner, issues: draft.issues,
+                keptCount: draft.keptCount, quarantinedCount: draft.quarantinedCount,
+                quarantinedFieldCount: draft.quarantinedFieldCount,
+                originalURL: copy, recoveredURL: recovered, issuesURL: issues)
         }
     }
 
@@ -327,11 +346,10 @@ public final class PlannerFile: @unchecked Sendable {
         // Reject non-finite dates or other values that cannot survive decoding.
         _ = try Self.decode(data)
         if let current = try readIfPresent(url) {
-            do { _ = try Self.decode(current) }
-            catch let error as PlannerSchemaError { throw error }
-            catch {
-                throw PlannerDataError.corrupt(url: url, quarantineURL: nil,
-                                               reason: "Reload to inspect preserved records before saving")
+            do { _ = try Self.decode(current) } catch let error as PlannerSchemaError { throw error } catch {
+                throw PlannerDataError.corrupt(
+                    url: url, quarantineURL: nil,
+                    reason: "Reload to inspect preserved records before saving")
             }
             if current == data { return }
             try backUpLocked(current)
@@ -367,8 +385,11 @@ public final class PlannerFile: @unchecked Sendable {
             return
         }
         let number = previous.first.flatMap { UInt64($0.deletingPathExtension().lastPathComponent.dropFirst(7)) } ?? 0
-        guard number < UInt64.max else { throw PlannerError("Planner backup sequence is full; the original was not changed.") }
-        let name = "backup-" + String(repeating: "0", count: 20 - String(number + 1).count) + String(number + 1) + ".json"
+        guard number < UInt64.max else {
+            throw PlannerError("Planner backup sequence is full; the original was not changed.")
+        }
+        let name =
+            "backup-" + String(repeating: "0", count: 20 - String(number + 1).count) + String(number + 1) + ".json"
         let backup = backupDirectory.appendingPathComponent(name)
         do {
             try io.write(data, backup)
@@ -389,7 +410,8 @@ public final class PlannerFile: @unchecked Sendable {
         } catch {
             // Keep the verified copy on disk if pruning fails, and stop the save.
             // A retry must finish pruning before any further current-file replacement.
-            throw PlannerError("Planner backup retention failed: \(error.localizedDescription). The original was not changed.")
+            throw PlannerError(
+                "Planner backup retention failed: \(error.localizedDescription). The original was not changed.")
         }
     }
 
@@ -405,15 +427,19 @@ public final class PlannerFile: @unchecked Sendable {
                     break
                 }
             }
-            guard let (data, planner) = candidate else { throw PlannerError("No readable, valid planner backup is available.") }
+            guard let (data, planner) = candidate else {
+                throw PlannerError("No readable, valid planner backup is available.")
+            }
             if let current = try readIfPresent(url) {
                 // A newer schema is not corrupt and must never be downgraded by restore.
-                do { _ = try Self.decode(current) }
-                catch let error as PlannerSchemaError { throw error }
-                catch { /* Corrupt current data is preserved below before explicit restore. */ }
+                do { _ = try Self.decode(current) } catch let error as PlannerSchemaError { throw error } catch
+                { /* Corrupt current data is preserved below before explicit restore. */  }
                 if current == data { return planner }
-                if (try? Self.decode(current)) != nil { try backUpLocked(current) }
-                else { _ = try preserveCorruptCurrent(current) }
+                if (try? Self.decode(current)) != nil {
+                    try backUpLocked(current)
+                } else {
+                    _ = try preserveCorruptCurrent(current)
+                }
             }
             try io.write(data, url)
             return planner

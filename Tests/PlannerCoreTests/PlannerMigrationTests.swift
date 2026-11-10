@@ -5,40 +5,40 @@ final class PlannerMigrationTests: XCTestCase {
     // Frozen version-1 shape, including populated tasks. An empty tasks array would hide
     // a failed nested PlanTask decode because legacy Planner decoding defaults that array.
     let versionOne = #"""
-    {
-      "version": 1,
-      "tasks": [
         {
-          "id": "11111111-1111-1111-1111-111111111111",
-          "title": "Review report", "day": "2026-11-09", "done": false,
-          "createdAt": "2026-11-09T22:00:00Z", "remindAt": "2026-11-10T01:00:00Z",
-          "deadline": "2026-11-13", "priority": "high",
-          "projectID": "22222222-2222-2222-2222-222222222222", "notes": "Keep the original details",
-          "repeatRule": {"unit":"day", "interval":1, "weekdays":[], "weekdaysOnly":false, "fromCompletion":false},
-          "minutes": 25,
-          "steps": [{"id":"33333333-3333-3333-3333-333333333333", "title":"Draft", "done":true}],
-          "focusedSeconds": 90, "carriedFrom": "2026-11-08", "reminderLink": "reminder-123"
-        },
-        {
-          "id": "44444444-4444-4444-4444-444444444444", "title": "Inbox idea", "done": false,
-          "createdAt": "2026-11-09T22:00:00Z", "priority": "none", "notes": "", "steps": [], "focusedSeconds": 0
+          "version": 1,
+          "tasks": [
+            {
+              "id": "11111111-1111-1111-1111-111111111111",
+              "title": "Review report", "day": "2026-11-09", "done": false,
+              "createdAt": "2026-11-09T22:00:00Z", "remindAt": "2026-11-10T01:00:00Z",
+              "deadline": "2026-11-13", "priority": "high",
+              "projectID": "22222222-2222-2222-2222-222222222222", "notes": "Keep the original details",
+              "repeatRule": {"unit":"day", "interval":1, "weekdays":[], "weekdaysOnly":false, "fromCompletion":false},
+              "minutes": 25,
+              "steps": [{"id":"33333333-3333-3333-3333-333333333333", "title":"Draft", "done":true}],
+              "focusedSeconds": 90, "carriedFrom": "2026-11-08", "reminderLink": "reminder-123"
+            },
+            {
+              "id": "44444444-4444-4444-4444-444444444444", "title": "Inbox idea", "done": false,
+              "createdAt": "2026-11-09T22:00:00Z", "priority": "none", "notes": "", "steps": [], "focusedSeconds": 0
+            }
+          ],
+          "projects": [{"id":"22222222-2222-2222-2222-222222222222", "name":"Work", "colorHex":"#8E8CF5"}],
+          "notes": [{"day":"2026-11-09", "text":"Original scratchpad"}],
+          "focusSegments": [{"taskID":"11111111-1111-1111-1111-111111111111", "start":"2026-11-09T22:00:00Z", "end":"2026-11-09T22:01:30Z"}],
+          "focus": {"taskID":"11111111-1111-1111-1111-111111111111", "limit":1500, "state":"paused", "banked":90, "startedAt":"2026-11-09T22:00:00Z"},
+          "dismissedOverdue": ["55555555-5555-5555-5555-555555555555"],
+          "preferences": {
+            "defaultFocusMinutes": 50, "focusCompletionSound": false, "notchTimerPlacement": "left",
+            "workspaceTimerStyle":"digital", "notchOpenTrigger":"click", "notchOnMonitors":false,
+            "showOnDisplay":"Studio", "remindersSync":true, "ringOnPhone":true, "sortWithAI":false,
+            "includeWeekendsInStreak":false, "catchScreenshots":true, "catchCopies":true,
+            "workspaceCardOrder":["focus","tasks"], "hiddenWorkspaceCards":["events"],
+            "hiddenCalendarIDs":["personal"], "welcomeCompleted":true
+          }
         }
-      ],
-      "projects": [{"id":"22222222-2222-2222-2222-222222222222", "name":"Work", "colorHex":"#8E8CF5"}],
-      "notes": [{"day":"2026-11-09", "text":"Original scratchpad"}],
-      "focusSegments": [{"taskID":"11111111-1111-1111-1111-111111111111", "start":"2026-11-09T22:00:00Z", "end":"2026-11-09T22:01:30Z"}],
-      "focus": {"taskID":"11111111-1111-1111-1111-111111111111", "limit":1500, "state":"paused", "banked":90, "startedAt":"2026-11-09T22:00:00Z"},
-      "dismissedOverdue": ["55555555-5555-5555-5555-555555555555"],
-      "preferences": {
-        "defaultFocusMinutes": 50, "focusCompletionSound": false, "notchTimerPlacement": "left",
-        "workspaceTimerStyle":"digital", "notchOpenTrigger":"click", "notchOnMonitors":false,
-        "showOnDisplay":"Studio", "remindersSync":true, "ringOnPhone":true, "sortWithAI":false,
-        "includeWeekendsInStreak":false, "catchScreenshots":true, "catchCopies":true,
-        "workspaceCardOrder":["focus","tasks"], "hiddenWorkspaceCards":["events"],
-        "hiddenCalendarIDs":["personal"], "welcomeCompleted":true
-      }
-    }
-    """#
+        """#
 
     func testPopulatedCurrentFormatLoadsWithoutLosingAnyTaskOrPreference() throws {
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)

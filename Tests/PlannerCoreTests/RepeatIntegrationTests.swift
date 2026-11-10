@@ -12,8 +12,10 @@ final class RepeatIntegrationTests: XCTestCase {
 
     func testEditingLegacyHistoryDoesNotReactivateIt() throws {
         var p = Planner()
-        p.tasks = [PlanTask(title: "Review queue", day: "2026-11-09", done: true, repeatRule: .daily),
-                   PlanTask(title: "Review queue", day: "2026-11-10", repeatRule: .daily)]
+        p.tasks = [
+            PlanTask(title: "Review queue", day: "2026-11-09", done: true, repeatRule: .daily),
+            PlanTask(title: "Review queue", day: "2026-11-10", repeatRule: .daily),
+        ]
         var e = PlannerEngine(planner: try withoutAnchors(p), now: { Fixture.now }, calendar: Fixture.calendar)
         var edit = TaskEdit(); edit.notes = "Historical note"
         _ = try e.update(p.tasks[0].id.uuidString, on: .day("2026-11-09"), edit)
@@ -22,7 +24,8 @@ final class RepeatIntegrationTests: XCTestCase {
 
     func testCompleteOverduePreservesLegacyActiveSchedule() throws {
         var p = Planner(); p.tasks = [PlanTask(title: "Review queue", day: "2026-11-09", repeatRule: .weekly)]
-        var e = PlannerEngine(planner: try withoutAnchors(p), now: { Fixture.date("2026-11-10 15:00") }, calendar: Fixture.calendar)
+        var e = PlannerEngine(
+            planner: try withoutAnchors(p), now: { Fixture.date("2026-11-10 15:00") }, calendar: Fixture.calendar)
         XCTAssertEqual(e.completeOverdue([p.tasks[0].id]).count, 1)
         let saved = try PlannerFile.decoder.decode(Planner.self, from: PlannerFile.encoder.encode(e.planner))
         e = PlannerEngine(planner: saved, now: { Fixture.date("2026-11-10 15:00") }, calendar: Fixture.calendar)
@@ -31,11 +34,16 @@ final class RepeatIntegrationTests: XCTestCase {
 
     func testLegacyCompletedHistoryDoesNotCreateAdditionalLiveSeries() throws {
         var p = Planner()
-        p.tasks = [PlanTask(title: "Review queue", day: "2026-11-09", done: true, completedAt: Fixture.now, repeatRule: .daily),
-                   PlanTask(title: "Review queue", day: "2026-11-10", repeatRule: .daily)]
+        p.tasks = [
+            PlanTask(
+                title: "Review queue", day: "2026-11-09", done: true, completedAt: Fixture.now, repeatRule: .daily),
+            PlanTask(title: "Review queue", day: "2026-11-10", repeatRule: .daily),
+        ]
         var object = try XCTUnwrap(JSONSerialization.jsonObject(with: PlannerFile.encoder.encode(p)) as? [String: Any])
         var tasks = try XCTUnwrap(object["tasks"] as? [[String: Any]])
-        for i in tasks.indices { tasks[i].removeValue(forKey: "repeatAnchor"); tasks[i].removeValue(forKey: "repeatedFrom") }
+        for i in tasks.indices {
+            tasks[i].removeValue(forKey: "repeatAnchor"); tasks[i].removeValue(forKey: "repeatedFrom")
+        }
         object["tasks"] = tasks
         let legacy = try PlannerFile.decoder.decode(Planner.self, from: JSONSerialization.data(withJSONObject: object))
         var e = PlannerEngine(planner: legacy, now: { Fixture.now }, calendar: Fixture.calendar)
@@ -62,7 +70,9 @@ final class RepeatIntegrationTests: XCTestCase {
     }
 
     func testCompletionRelativeCarryStillUsesCompletionDate() throws {
-        let root = PlanTask(title: "Review queue", day: "2026-11-09", repeatRule: TaskRepeat(unit: .day, interval: 3, fromCompletion: true))
+        let root = PlanTask(
+            title: "Review queue", day: "2026-11-09",
+            repeatRule: TaskRepeat(unit: .day, interval: 3, fromCompletion: true))
         var p = Planner(); p.tasks = [root]
         var e = PlannerEngine(planner: p, now: { Fixture.date("2026-11-10 15:00") }, calendar: Fixture.calendar)
         let copy = try XCTUnwrap(e.carryForward([root.id], to: "2026-11-10").first)

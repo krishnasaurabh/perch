@@ -34,22 +34,31 @@ public struct TaskCapture {
         try! NSRegularExpression(pattern: p, options: [.caseInsensitive])
     }
 
-    static let months = "january|february|march|april|may|june|july|august|september|sept|october|november|december|jan|feb|mar|apr|jun|jul|aug|sep|oct|nov|dec"
+    static let months =
+        "january|february|march|april|may|june|july|august|september|sept|october|november|december|jan|feb|mar|apr|jun|jul|aug|sep|oct|nov|dec"
     static let dayLead = "(?:\\b(?:on|by|for|due|until)\\s+)?"
 
-    static let timeAmPm = re("(?:\\b(?:at|by|around)\\s+|@\\s*)?(?<!:)\\b(\\d{1,2})(?::(\\d{2}))?\\s*(a\\.?m\\.?|p\\.?m\\.?)(?![a-z])")
+    static let timeAmPm = re(
+        "(?:\\b(?:at|by|around)\\s+|@\\s*)?(?<!:)\\b(\\d{1,2})(?::(\\d{2}))?\\s*(a\\.?m\\.?|p\\.?m\\.?)(?![a-z])")
     static let timeWords = re("(?:\\b(?:at|by|around)\\s+|@\\s*)?\\b(noon|midday|midnight)\\b")
     // Bare numbers followed by currency or quantity units are part of the title, not a clock time.
-    static let timeBare = re("(?:\\b(?:at|by|around)\\s+|@\\s*)(\\d{1,2})(?::(\\d{2}))?\\b(?!:)(?!\\s*(?:%|percent|pages?|mins?|minutes?|hours?|hrs?|days?|dollars?|cents?|euros?|pounds?|rupees?|yen|usd|eur|gbp|inr|km|kg|lbs?|grams?|kilograms?|ounces?|oz|meters?|metres?|kilometers?|kilometres?|miles?|liters?|litres?|ml)\\b)")
+    static let timeBare = re(
+        "(?:\\b(?:at|by|around)\\s+|@\\s*)(\\d{1,2})(?::(\\d{2}))?\\b(?!:)(?!\\s*(?:%|percent|pages?|mins?|minutes?|hours?|hrs?|days?|dollars?|cents?|euros?|pounds?|rupees?|yen|usd|eur|gbp|inr|km|kg|lbs?|grams?|kilograms?|ounces?|oz|meters?|metres?|kilometers?|kilometres?|miles?|liters?|litres?|ml)\\b)"
+    )
     static let time24 = re("(?:\\b(?:at|by|around)\\s+|@\\s*)(\\d{1,2}):(\\d{2})\\b(?!:)")
-    static let relative = re("\\bin\\s+(?:(half)\\s+an\\s+hour|(\\d{1,4}|an?|one|two|three|four|five|six|seven|eight|nine|ten|fifteen|twenty|thirty|forty-five|forty|fifty)\\s+(mins?|minutes?|hrs?|hours?))\\b")
-    static let duration = re("(?:\\bfor\\s+|~\\s*|\\(\\s*)(\\d{1,3}(?:\\.\\d)?)\\s*(m|mins?|minutes?|h|hrs?|hours?)\\b\\)?")
+    static let relative = re(
+        "\\bin\\s+(?:(half)\\s+an\\s+hour|(\\d{1,4}|an?|one|two|three|four|five|six|seven|eight|nine|ten|fifteen|twenty|thirty|forty-five|forty|fifty)\\s+(mins?|minutes?|hrs?|hours?))\\b"
+    )
+    static let duration = re(
+        "(?:\\bfor\\s+|~\\s*|\\(\\s*)(\\d{1,3}(?:\\.\\d)?)\\s*(m|mins?|minutes?|h|hrs?|hours?)\\b\\)?")
     static let dayAfterTomorrow = re(dayLead + "\\b(?:the\\s+)?day\\s+after\\s+tomorrow\\b")
     static let todayWords = re(dayLead + "\\b(today|tonight|this\\s+evening)\\b")
     static let tomorrowWords = re(dayLead + "\\b(tomorrow|tmrw|tmr)\\b")
-    static let inDays = re("\\bin\\s+(\\d{1,3}|an?|one|two|three|four|five|six|seven|eight|nine|ten)\\s+(days?|weeks?)\\b")
+    static let inDays = re(
+        "\\bin\\s+(\\d{1,3}|an?|one|two|three|four|five|six|seven|eight|nine|ten)\\s+(days?|weeks?)\\b")
     static let monthDay = re(dayLead + "\\b(" + months + ")\\.?\\s+(\\d{1,2})(?:st|nd|rd|th)?\\b(?:,?\\s+(\\d{4})\\b)?")
-    static let dayMonth = re(dayLead + "\\b(?:the\\s+)?(\\d{1,2})(?:st|nd|rd|th)?\\s+(?:of\\s+)?(" + months + ")\\.?(?:,?\\s+(\\d{4})\\b)?")
+    static let dayMonth = re(
+        dayLead + "\\b(?:the\\s+)?(\\d{1,2})(?:st|nd|rd|th)?\\s+(?:of\\s+)?(" + months + ")\\.?(?:,?\\s+(\\d{4})\\b)?")
     static let onThe = re("\\bon\\s+the\\s+(\\d{1,2})(?:st|nd|rd|th)\\b")
     static let weekdayLong = re("\\b(on|this|next)\\s+(sunday|monday|tuesday|wednesday|thursday|friday|saturday)\\b")
     static let weekdayLongDeadline = re("\\b(sunday|monday|tuesday|wednesday|thursday|friday|saturday)\\b")
@@ -116,7 +125,9 @@ public struct TaskCapture {
 
         if let m = Self.first(Self.relative, in: text) {
             let mins: Int
-            if Self.group(m, 1, text) != nil { mins = 30 } else {
+            if Self.group(m, 1, text) != nil {
+                mins = 30
+            } else {
                 let raw = Self.group(m, 2, text)!.lowercased()
                 let n = Int(raw) ?? Self.numberWords[raw] ?? 1
                 mins = Self.group(m, 3, text)!.lowercased().hasPrefix("h") ? n * 60 : n
@@ -164,7 +175,8 @@ public struct TaskCapture {
         var t = s
         if first(bullet, in: t) != nil {
             for r in [bullet, leadingConnector] {
-                t = r.stringByReplacingMatches(in: t, range: NSRange(location: 0, length: (t as NSString).length), withTemplate: "")
+                t = r.stringByReplacingMatches(
+                    in: t, range: NSRange(location: 0, length: (t as NSString).length), withTemplate: "")
             }
         }
         return t.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -205,26 +217,59 @@ public struct TaskCapture {
 
     /// Finds a day phrase. With `anchoredAt`, only a phrase starting in that span counts (for "due ...").
     func matchDay(in text: String, anchoredAt anchor: ClosedRange<Int>?) -> (DayKey, NSRange)? {
-        let resolvers: [(NSRegularExpression, (NSTextCheckingResult) -> DayKey?)] = [
-            (Self.isoDate, { m in DayKey(String(format: "%@-%@-%@", Self.group(m, 1, text)!, Self.group(m, 2, text)!, Self.group(m, 3, text)!)) }),
-            (Self.dayAfterTomorrow, { _ in self.today.adding(days: 2, calendar: self.calendar) }),
-            (Self.todayWords, { _ in self.today }),
-            (Self.tomorrowWords, { _ in self.today.adding(days: 1, calendar: self.calendar) }),
-            (Self.inDays, { m in
-                let raw = Self.group(m, 1, text)!.lowercased()
-                let n = Int(raw) ?? Self.numberWords[raw] ?? 1
-                let weeks = Self.group(m, 2, text)!.lowercased().hasPrefix("w")
-                return self.today.adding(days: weeks ? n * 7 : n, calendar: self.calendar)
-            }),
-            (Self.monthDay, { m in self.resolve(month: Self.group(m, 1, text)!, day: Self.group(m, 2, text)!, year: Self.group(m, 3, text)) }),
-            (Self.dayMonth, { m in self.resolve(month: Self.group(m, 2, text)!, day: Self.group(m, 1, text)!, year: Self.group(m, 3, text)) }),
-            (Self.onThe, { m in self.resolve(dayOfMonth: Int(Self.group(m, 1, text)!)!) }),
-            (Self.weekdayLong, { m in self.resolve(weekday: Self.group(m, 2, text)!, modifier: Self.group(m, 1, text)) }),
-            (Self.weekdayShort, { m in self.resolve(weekday: Self.group(m, 2, text)!, modifier: Self.group(m, 1, text)) }),
-        ] + (anchor == nil ? [] : [
-            (Self.weekdayLongDeadline, { m in self.resolve(weekday: Self.group(m, 1, text)!, modifier: nil) }),
-            (Self.weekdayShortDeadline, { m in self.resolve(weekday: Self.group(m, 1, text)!, modifier: nil) }),
-        ])
+        let resolvers: [(NSRegularExpression, (NSTextCheckingResult) -> DayKey?)] =
+            [
+                (
+                    Self.isoDate,
+                    { m in
+                        DayKey(
+                            String(
+                                format: "%@-%@-%@", Self.group(m, 1, text)!, Self.group(m, 2, text)!,
+                                Self.group(m, 3, text)!))
+                    }
+                ),
+                (Self.dayAfterTomorrow, { _ in self.today.adding(days: 2, calendar: self.calendar) }),
+                (Self.todayWords, { _ in self.today }),
+                (Self.tomorrowWords, { _ in self.today.adding(days: 1, calendar: self.calendar) }),
+                (
+                    Self.inDays,
+                    { m in
+                        let raw = Self.group(m, 1, text)!.lowercased()
+                        let n = Int(raw) ?? Self.numberWords[raw] ?? 1
+                        let weeks = Self.group(m, 2, text)!.lowercased().hasPrefix("w")
+                        return self.today.adding(days: weeks ? n * 7 : n, calendar: self.calendar)
+                    }
+                ),
+                (
+                    Self.monthDay,
+                    { m in
+                        self.resolve(
+                            month: Self.group(m, 1, text)!, day: Self.group(m, 2, text)!, year: Self.group(m, 3, text))
+                    }
+                ),
+                (
+                    Self.dayMonth,
+                    { m in
+                        self.resolve(
+                            month: Self.group(m, 2, text)!, day: Self.group(m, 1, text)!, year: Self.group(m, 3, text))
+                    }
+                ),
+                (Self.onThe, { m in self.resolve(dayOfMonth: Int(Self.group(m, 1, text)!)!) }),
+                (
+                    Self.weekdayLong,
+                    { m in self.resolve(weekday: Self.group(m, 2, text)!, modifier: Self.group(m, 1, text)) }
+                ),
+                (
+                    Self.weekdayShort,
+                    { m in self.resolve(weekday: Self.group(m, 2, text)!, modifier: Self.group(m, 1, text)) }
+                ),
+            ]
+            + (anchor == nil
+                ? []
+                : [
+                    (Self.weekdayLongDeadline, { m in self.resolve(weekday: Self.group(m, 1, text)!, modifier: nil) }),
+                    (Self.weekdayShortDeadline, { m in self.resolve(weekday: Self.group(m, 1, text)!, modifier: nil) }),
+                ])
         for (regex, resolve) in resolvers {
             let ns = text as NSString
             for m in regex.matches(in: Self.unquoted(text), range: NSRange(location: 0, length: ns.length)) {
@@ -247,14 +292,18 @@ public struct TaskCapture {
 
     func resolve(month: String, day: String, year: String?) -> DayKey? {
         let names = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"]
-        guard let mi = names.firstIndex(of: String(month.lowercased().prefix(3))), let d = Int(day), (1...31).contains(d) else { return nil }
+        guard let mi = names.firstIndex(of: String(month.lowercased().prefix(3))), let d = Int(day),
+            (1...31).contains(d)
+        else { return nil }
         let thisYear = calendar.component(.year, from: today.date(calendar: calendar))
         let firstYear = year.flatMap(Int.init) ?? thisYear
         // A Gregorian leap day can be eight years away across a non-leap century.
         // Reconstruct each candidate: adding a year to Feb 29 can silently clamp to Feb 28.
         let lastYear = year == nil ? firstYear + 8 : firstYear
         for candidateYear in firstYear...lastYear {
-            guard let date = calendar.date(from: DateComponents(year: candidateYear, month: mi + 1, day: d)) else { continue }
+            guard let date = calendar.date(from: DateComponents(year: candidateYear, month: mi + 1, day: d)) else {
+                continue
+            }
             let parts = calendar.dateComponents([.year, .month, .day], from: date)
             guard parts.year == candidateYear, parts.month == mi + 1, parts.day == d else { continue }
             let key = DayKey(date, calendar: calendar)
@@ -302,8 +351,12 @@ public struct TaskCapture {
         let ns = text as NSString
         var start = r.location, end = NSMaxRange(r)
         let whitespace = CharacterSet.whitespacesAndNewlines
-        while start > 0, let scalar = UnicodeScalar(ns.character(at: start - 1)), whitespace.contains(scalar) { start -= 1 }
-        while end < ns.length, let scalar = UnicodeScalar(ns.character(at: end)), whitespace.contains(scalar) { end += 1 }
+        while start > 0, let scalar = UnicodeScalar(ns.character(at: start - 1)), whitespace.contains(scalar) {
+            start -= 1
+        }
+        while end < ns.length, let scalar = UnicodeScalar(ns.character(at: end)), whitespace.contains(scalar) {
+            end += 1
+        }
         let separator = start > 0 && end < ns.length ? " " : ""
         return ns.replacingCharacters(in: NSRange(location: start, length: end - start), with: separator)
     }

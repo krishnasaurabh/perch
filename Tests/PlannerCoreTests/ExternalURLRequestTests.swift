@@ -13,20 +13,28 @@ final class ExternalURLRequestTests: XCTestCase {
         ExternalURLRequest.parse(raw, now: now, resetHour: resetHour, calendar: calendar)
     }
     private func link(_ title: String, date: String? = nil) -> String {
-        let encoded = title.addingPercentEncoding(withAllowedCharacters: CharacterSet(charactersIn: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~"))!
+        let encoded = title.addingPercentEncoding(
+            withAllowedCharacters: CharacterSet(
+                charactersIn: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~"))!
         return "perch://add?title=\(encoded)" + (date.map { "&date=\($0)" } ?? "")
     }
 
     func testResolvesDefaultTodayTomorrowAndInbox() {
         XCTAssertEqual(parse(link("Fixture")), .add(ExternalTaskRequest(title: "Fixture", day: .day("2030-04-05"))))
         XCTAssertEqual(parse(link("Fixture", date: "today")), parse(link("Fixture")))
-        XCTAssertEqual(parse(link("Fixture", date: "tomorrow")), .add(ExternalTaskRequest(title: "Fixture", day: .day("2030-04-06"))))
+        XCTAssertEqual(
+            parse(link("Fixture", date: "tomorrow")),
+            .add(ExternalTaskRequest(title: "Fixture", day: .day("2030-04-06"))))
         XCTAssertEqual(parse(link("Fixture", date: "inbox")), .add(ExternalTaskRequest(title: "Fixture", day: .inbox)))
-        XCTAssertEqual(parse(link("Fixture", date: "2032-02-29")), .add(ExternalTaskRequest(title: "Fixture", day: .day("2032-02-29"))))
+        XCTAssertEqual(
+            parse(link("Fixture", date: "2032-02-29")),
+            .add(ExternalTaskRequest(title: "Fixture", day: .day("2032-02-29"))))
     }
 
     func testUsesLogicalDayBeforeResetBoundary() {
-        guard case .add(let request) = parse(link("Fixture", date: "tomorrow"), resetHour: 4) else { return XCTFail("request missing") }
+        guard case .add(let request) = parse(link("Fixture", date: "tomorrow"), resetHour: 4) else {
+            return XCTFail("request missing")
+        }
         XCTAssertEqual(request.dateLabel, "2030-04-05")
     }
 
@@ -61,7 +69,9 @@ final class ExternalURLRequestTests: XCTestCase {
     }
 
     func testPercentDecodingHappensExactlyOnce() {
-        guard case .add(let request) = parse("perch://add?title=%2526date%253Dtomorrow") else { return XCTFail("request missing") }
+        guard case .add(let request) = parse("perch://add?title=%2526date%253Dtomorrow") else {
+            return XCTFail("request missing")
+        }
         XCTAssertEqual(request.title, "%26date%3Dtomorrow")
         XCTAssertEqual(request.dateLabel, "2030-04-05")
     }
@@ -72,7 +82,7 @@ final class ExternalURLRequestTests: XCTestCase {
             "perch://add?title=One&title=Two", "perch://add?title=One&%74itle=Two",
             "perch://add?title=One&date=today&date=tomorrow", "perch://add?title=One&date=",
             "perch://add?title=One&&date=today", "perch://add?title=One&", "perch://add?title=One&confirm=true",
-            "perch://add?title=One&role=system", "perch://add?title=One&page=week", "perch://add?Title=One"
+            "perch://add?title=One&role=system", "perch://add?title=One&page=week", "perch://add?Title=One",
         ] { XCTAssertNil(parse(raw), raw) }
     }
 
@@ -84,16 +94,21 @@ final class ExternalURLRequestTests: XCTestCase {
     }
 
     func testRejectsInvalidPastAndNoncanonicalDates() {
-        for date in ["yesterday", "2030-04-04", "2030-02-29", "2030-04-31", "2030-13-01", "2030-4-6", "2030-04-06T12:00", "nope", "%20today", "TODAY"] {
+        for date in [
+            "yesterday", "2030-04-04", "2030-02-29", "2030-04-31", "2030-13-01", "2030-4-6", "2030-04-06T12:00", "nope",
+            "%20today", "TODAY",
+        ] {
             XCTAssertNil(parse(link("Fixture", date: date)), date)
         }
     }
 
     func testStrictRouteCannotSmuggleAuthorityPathOrFragment() {
-        for raw in ["https://add?title=One", "other://add?title=One", "perch:/add?title=One",
-                    "perch://user@add?title=One", "perch://add:42?title=One", "perch://add/?title=One",
-                    "perch://ADD?title=One", "perch://add?title=One#Two", " perch://add?title=One",
-                    "perch://add?title=raw space", "perch://add?title=raw\nline", "perch://%61dd?title=One"] {
+        for raw in [
+            "https://add?title=One", "other://add?title=One", "perch:/add?title=One",
+            "perch://user@add?title=One", "perch://add:42?title=One", "perch://add/?title=One",
+            "perch://ADD?title=One", "perch://add?title=One#Two", " perch://add?title=One",
+            "perch://add?title=raw space", "perch://add?title=raw\nline", "perch://%61dd?title=One",
+        ] {
             XCTAssertNil(parse(raw), raw)
         }
         XCTAssertNotNil(parse("PERCH://add?title=One"))
@@ -112,7 +127,10 @@ final class ExternalURLRequestTests: XCTestCase {
         for page in ["home", "week", "clips", "insights"] {
             XCTAssertEqual(parse("perch://open?page=\(page)"), .open(page: page))
         }
-        for raw in ["perch://open?page=unknown", "perch://open?page=week&page=home", "perch://open?title=One", "perch://open?page=", "perch://open?confirm=true"] {
+        for raw in [
+            "perch://open?page=unknown", "perch://open?page=week&page=home", "perch://open?title=One",
+            "perch://open?page=", "perch://open?confirm=true",
+        ] {
             XCTAssertNil(parse(raw), raw)
         }
     }

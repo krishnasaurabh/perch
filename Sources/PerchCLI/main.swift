@@ -36,7 +36,8 @@ case .some(let tool) where !tool.hasPrefix("-"):
     let json = args.count > 1 ? ((try? JSON.parse(Data(args[1].utf8))) ?? [:]) : [:]
     exit(run(tool, json))
 default:
-    print("""
+    print(
+        """
         usage: perch-cli --mcp | add <task>... | list [date|inbox] | path | <tool> '<json>'
         tools: \(AgentTools.definitions.compactMap { $0["name"]?.string }.joined(separator: ", "))
         """)

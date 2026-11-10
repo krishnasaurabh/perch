@@ -30,10 +30,12 @@ final class HomeLayoutTests: XCTestCase {
     }
 
     func testHiddenCardsStayHiddenEvenWhenActive() {
-        let side = HomeLayout.sideCards(order: ["focus", "events"], hidden: ["focus", "events", "notepad"], timerActive: true, hasEvents: true)
+        let side = HomeLayout.sideCards(
+            order: ["focus", "events"], hidden: ["focus", "events", "notepad"], timerActive: true, hasEvents: true)
         XCTAssertEqual(side, [])
         // An order that omits the notepad still honours its visibility: missing ids are appended, not hidden.
-        XCTAssertEqual(HomeLayout.sideCards(order: ["focus"], hidden: [], timerActive: false, hasEvents: false), ["notepad"])
+        XCTAssertEqual(
+            HomeLayout.sideCards(order: ["focus"], hidden: [], timerActive: false, hasEvents: false), ["notepad"])
     }
 
     func testCardsMissingFromAnOldOrderFollowPlacedOnes() {
@@ -42,7 +44,8 @@ final class HomeLayoutTests: XCTestCase {
     }
 
     func testUnknownAndDuplicateIdsAreIgnored() {
-        XCTAssertEqual(HomeLayout.ordered(["focus", "bogus", "focus", "tasks", "insights"]), ["focus", "events", "notepad"])
+        XCTAssertEqual(
+            HomeLayout.ordered(["focus", "bogus", "focus", "tasks", "insights"]), ["focus", "events", "notepad"])
     }
 
     func testLegacyPreferencesDecodeKeepTheirSavedChoices() throws {

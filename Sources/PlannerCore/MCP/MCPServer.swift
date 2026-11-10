@@ -33,12 +33,14 @@ public final class MCPServer {
             clientName = params["clientInfo"]?["name"]?.string
             let requested = params["protocolVersion"]?.string ?? Self.protocolVersions[0]
             let pv = Self.protocolVersions.contains(requested) ? requested : Self.protocolVersions[0]
-            return result(id!, [
-                "protocolVersion": .string(pv),
-                "capabilities": ["tools": ["listChanged": false]],
-                "serverInfo": ["name": "perch", "version": .string(version)],
-                "instructions": .string(AgentTools.instructions),
-            ])
+            return result(
+                id!,
+                [
+                    "protocolVersion": .string(pv),
+                    "capabilities": ["tools": ["listChanged": false]],
+                    "serverInfo": ["name": "perch", "version": .string(version)],
+                    "instructions": .string(AgentTools.instructions),
+                ])
         case "ping":
             return result(id!, .object([:]))
         case "tools/list":
@@ -87,7 +89,9 @@ public final class MCPServer {
                     if case .array(let batch) = msg {
                         // An empty batch is answered with one error object, not an
                         // empty array; a batch of pure notifications stays silent.
-                        if batch.isEmpty { reply = invalidRequest() } else {
+                        if batch.isEmpty {
+                            reply = invalidRequest()
+                        } else {
                             let replies = batch.compactMap(handle)
                             reply = replies.isEmpty ? nil : .array(replies)
                         }

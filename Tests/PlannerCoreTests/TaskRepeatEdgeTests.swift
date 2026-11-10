@@ -97,15 +97,20 @@ final class TaskRepeatEdgeTests: XCTestCase {
         XCTAssertEqual(biweeklyTue.firstOccurrence(onOrAfter: day("2026-11-10"), calendar: cal).raw, "2026-11-10")
         XCTAssertEqual(biweeklyTue.firstOccurrence(onOrAfter: day("2026-11-11"), calendar: cal).raw, "2026-11-17")
 
-        XCTAssertEqual(TaskRepeat.weekdaysRule.firstOccurrence(onOrAfter: day("2026-11-14"), calendar: cal).raw, "2026-11-16")
-        XCTAssertEqual(TaskRepeat.monthly.firstOccurrence(onOrAfter: day("2026-02-28"), calendar: cal).raw, "2026-02-28")
+        XCTAssertEqual(
+            TaskRepeat.weekdaysRule.firstOccurrence(onOrAfter: day("2026-11-14"), calendar: cal).raw, "2026-11-16")
+        XCTAssertEqual(
+            TaskRepeat.monthly.firstOccurrence(onOrAfter: day("2026-02-28"), calendar: cal).raw, "2026-02-28")
     }
 
     func testWeekdaysOnlySkipsWeekends() {
         XCTAssertEqual(next(.weekdaysRule, after: "2026-11-13"), "2026-11-16")  // Fri -> Mon
         XCTAssertEqual(next(.weekdaysRule, after: "2026-11-14"), "2026-11-16")  // Sat -> Mon
         XCTAssertEqual(next(.weekdaysRule, after: "2026-11-15"), "2026-11-16")  // Sun -> Mon
-        XCTAssertEqual(next(TaskRepeat(unit: .day, weekdaysOnly: true, fromCompletion: true), after: "2026-11-13", completed: "2026-11-14"), "2026-11-16")
+        XCTAssertEqual(
+            next(
+                TaskRepeat(unit: .day, weekdaysOnly: true, fromCompletion: true), after: "2026-11-13",
+                completed: "2026-11-14"), "2026-11-16")
     }
 
     func testWeekdayFreeWeeklyAndIntervalClamp() {
@@ -117,9 +122,17 @@ final class TaskRepeatEdgeTests: XCTestCase {
     }
 
     func testFromCompletionUsesTheCompletionDay() {
-        XCTAssertEqual(next(TaskRepeat(unit: .day, interval: 3, fromCompletion: true), after: "2026-11-01", completed: "2026-11-09"), "2026-11-12")
-        XCTAssertEqual(next(TaskRepeat(unit: .week, interval: 2, fromCompletion: true), after: "2026-11-01", completed: "2026-11-09"), "2026-11-23")
-        XCTAssertEqual(next(TaskRepeat(unit: .month, fromCompletion: true), after: "2026-01-31", completed: "2026-11-30"), "2026-12-30")
+        XCTAssertEqual(
+            next(
+                TaskRepeat(unit: .day, interval: 3, fromCompletion: true), after: "2026-11-01", completed: "2026-11-09"),
+            "2026-11-12")
+        XCTAssertEqual(
+            next(
+                TaskRepeat(unit: .week, interval: 2, fromCompletion: true), after: "2026-11-01", completed: "2026-11-09"
+            ), "2026-11-23")
+        XCTAssertEqual(
+            next(TaskRepeat(unit: .month, fromCompletion: true), after: "2026-01-31", completed: "2026-11-30"),
+            "2026-12-30")
     }
 
     // MARK: DST boundaries
@@ -143,15 +156,19 @@ final class TaskRepeatEdgeTests: XCTestCase {
 
     func testRuleParsingVariants() {
         XCTAssertEqual(TaskRepeat.find(in: "every week on mon, wed")?.0, TaskRepeat(unit: .week, weekdays: [2, 4]))
-        XCTAssertEqual(TaskRepeat.find(in: "every 2 weeks on tue, thu")?.0, TaskRepeat(unit: .week, interval: 2, weekdays: [3, 5]))
-        XCTAssertEqual(TaskRepeat.find(in: "every other week on fri")?.0, TaskRepeat(unit: .week, interval: 2, weekdays: [6]))
+        XCTAssertEqual(
+            TaskRepeat.find(in: "every 2 weeks on tue, thu")?.0, TaskRepeat(unit: .week, interval: 2, weekdays: [3, 5]))
+        XCTAssertEqual(
+            TaskRepeat.find(in: "every other week on fri")?.0, TaskRepeat(unit: .week, interval: 2, weekdays: [6]))
         XCTAssertEqual(TaskRepeat.find(in: "every sunday")?.0, TaskRepeat(unit: .week, weekdays: [1]))
         XCTAssertEqual(TaskRepeat.find(in: "every tues")?.0, TaskRepeat(unit: .week, weekdays: [3]))
         XCTAssertEqual(TaskRepeat.find(in: "every thurs")?.0, TaskRepeat(unit: .week, weekdays: [5]))
         XCTAssertEqual(TaskRepeat.find(in: "every sun, sat")?.0, TaskRepeat(unit: .week, weekdays: [1, 7]))
         XCTAssertEqual(TaskRepeat.find(in: "every! week")?.0, TaskRepeat(unit: .week, fromCompletion: true))
         XCTAssertEqual(TaskRepeat.find(in: "every 0 days")?.0, .daily, "0 is clamped to a 1-day interval")
-        XCTAssertNil(TaskRepeat.find(in: "every 1000 days"), "BUG-adjacent: counts are capped at 3 digits and the phrase is silently ignored")
+        XCTAssertNil(
+            TaskRepeat.find(in: "every 1000 days"),
+            "BUG-adjacent: counts are capped at 3 digits and the phrase is silently ignored")
     }
 
     func testDuplicateWeekdaysCollapse() {

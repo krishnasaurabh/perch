@@ -50,8 +50,9 @@ func settle(_ seconds: Double = 0.4) async {
 @MainActor
 func render<V: View>(_ view: V, size: CGSize) -> (NSWindow, NSHostingView<V>) {
     let host = NSHostingView(rootView: view)
-    let window = NSWindow(contentRect: NSRect(origin: .zero, size: size),
-                          styleMask: [.borderless], backing: .buffered, defer: false)
+    let window = NSWindow(
+        contentRect: NSRect(origin: .zero, size: size),
+        styleMask: [.borderless], backing: .buffered, defer: false)
     window.isReleasedWhenClosed = false
     window.contentView = host
     window.orderFrontRegardless()
@@ -88,21 +89,27 @@ MainActor.assumeIsolated {
         evidence.require(Motion.barStagger == 0.13, "normal bar stagger unchanged")
         evidence.require(Motion.reduced == .easeInOut(duration: 0.15), "opacity-only token remains 150 ms")
         var env = EnvironmentValues()
-        evidence.require(env.motionPolicy.reduceMotion == env.accessibilityReduceMotion,
-                         "environment defaults to system preference")
+        evidence.require(
+            env.motionPolicy.reduceMotion == env.accessibilityReduceMotion,
+            "environment defaults to system preference")
         env.motionPolicyOverride = MotionPolicy(reduceMotion: false)
         evidence.require(!env.motionPolicy.reduceMotion, "normal injection overrides host preference")
         env.motionPolicyOverride = MotionPolicy(reduceMotion: true)
         evidence.require(env.motionPolicy.reduceMotion, "reduced injection overrides host preference")
         env.motionPolicyOverride = nil
-        evidence.require(env.motionPolicy.reduceMotion == env.accessibilityReduceMotion,
-                         "removing injection restores system preference")
+        evidence.require(
+            env.motionPolicy.reduceMotion == env.accessibilityReduceMotion,
+            "removing injection restores system preference")
 
         let store = PlannerStore()
-        store.updatePrefs { $0.catchCopies = false; $0.catchScreenshots = false; $0.welcomeCompleted = true }
+        store.updatePrefs {
+            $0.catchCopies = false; $0.catchScreenshots = false; $0.welcomeCompleted = true
+        }
         let services = Services(store: store)
-        let geometry = NotchGeometry(screen: .init(frame: CGRect(x: 0, y: 0, width: 1440, height: 900),
-                                                  visibleFrame: CGRect(x: 0, y: 0, width: 1440, height: 876)))
+        let geometry = NotchGeometry(
+            screen: .init(
+                frame: CGRect(x: 0, y: 0, width: 1440, height: 900),
+                visibleFrame: CGRect(x: 0, y: 0, width: 1440, height: 876)))
         for reduced in [false, true] {
             let policy = MotionPolicy(reduceMotion: reduced)
             let prefix = reduced ? "reduced" : "normal"
@@ -114,8 +121,9 @@ MainActor.assumeIsolated {
             }
             var inherited = Transaction(animation: .linear(duration: 9))
             policy.enforce(on: &inherited)
-            evidence.require(inherited.animation == (reduced ? nil : .linear(duration: 9)),
-                             "\(prefix): inherited animation handled without changing normal mode")
+            evidence.require(
+                inherited.animation == (reduced ? nil : .linear(duration: 9)),
+                "\(prefix): inherited animation handled without changing normal mode")
 
             let state = FixtureState()
             let fixture = NestedAnimationFixture(state: state).environment(\.motionPolicyOverride, policy)
@@ -128,13 +136,16 @@ MainActor.assumeIsolated {
             host.layoutSubtreeIfNeeded()
             evidence.require(!state.transactions.isEmpty, "\(prefix): observed real SwiftUI update transaction")
             if reduced {
-                evidence.require(state.transactions.allSatisfy { !$0.animated && $0.disabled },
-                                 "reduced: nested scale/frame animation cannot re-enable interpolation")
-                evidence.require(!state.sizes.isEmpty && state.sizes.allSatisfy { $0 == CGSize(width: 240, height: 120) },
-                                 "reduced: layout reports final dimensions only")
+                evidence.require(
+                    state.transactions.allSatisfy { !$0.animated && $0.disabled },
+                    "reduced: nested scale/frame animation cannot re-enable interpolation")
+                evidence.require(
+                    !state.sizes.isEmpty && state.sizes.allSatisfy { $0 == CGSize(width: 240, height: 120) },
+                    "reduced: layout reports final dimensions only")
             } else {
-                evidence.require(state.transactions.contains { $0.animated && !$0.disabled },
-                                 "normal: positive control retains animated update")
+                evidence.require(
+                    state.transactions.contains { $0.animated && !$0.disabled },
+                    "normal: positive control retains animated update")
             }
             evidence.require(state.sizes.last == CGSize(width: 240, height: 120), "\(prefix): final layout dimensions")
             window.close()
@@ -150,8 +161,9 @@ MainActor.assumeIsolated {
             model.open(page: .home, pinned: true)
             await settle()
             evidence.require(model.expanded && model.page == .home && model.pinned, "\(prefix): open final state")
-            evidence.require(snapshot(rootHost, to: output.appendingPathComponent("\(prefix)-open.png")),
-                             "\(prefix): actual root renders open state")
+            evidence.require(
+                snapshot(rootHost, to: output.appendingPathComponent("\(prefix)-open.png")),
+                "\(prefix): actual root renders open state")
             Motion.animate(Motion.page, policy: policy) { model.page = .week }
             evidence.require(model.page == .week, "\(prefix): page final state")
             let activity = NotchActivity(kind: .message, title: "Motion policy probe", subtitle: "Isolated fixture")
@@ -162,24 +174,34 @@ MainActor.assumeIsolated {
             model.close()
             await settle()
             evidence.require(!model.expanded && !model.pinned, "\(prefix): close final state")
-            evidence.require(snapshot(rootHost, to: output.appendingPathComponent("\(prefix)-closed.png")),
-                             "\(prefix): actual root renders closed state")
+            evidence.require(
+                snapshot(rootHost, to: output.appendingPathComponent("\(prefix)-closed.png")),
+                "\(prefix): actual root renders closed state")
             rootWindow.close()
 
             // Repeated renders exercise the real owl, not a fake scheduler or a policy boolean.
-            let (owlWindow, owlHost) = render(OwlMark(size: 40).environment(\.motionPolicyOverride, policy),
-                                             size: CGSize(width: 60, height: 60))
+            let (owlWindow, owlHost) = render(
+                OwlMark(size: 40).environment(\.motionPolicyOverride, policy),
+                size: CGSize(width: 60, height: 60))
             await settle()
-            evidence.require(snapshot(owlHost, to: output.appendingPathComponent("\(prefix)-owl.png")),
-                             "\(prefix): static owl renders")
+            evidence.require(
+                snapshot(owlHost, to: output.appendingPathComponent("\(prefix)-owl.png")),
+                "\(prefix): static owl renders")
             owlWindow.close()
         }
-        let report: [String: Any] = ["assertions": evidence.passed, "passed": evidence.passed.count,
+        let report: [String: Any] = [
+            "assertions": evidence.passed, "passed": evidence.passed.count,
             "evidenceType": "in-process policy, transaction, layout and final-state assertions",
-            "notProven": ["presentation-layer trajectory", "physical accessibility setting toggles", "VoiceOver", "hardware notch"]]
+            "notProven": [
+                "presentation-layer trajectory", "physical accessibility setting toggles", "VoiceOver",
+                "hardware notch",
+            ],
+        ]
         try! JSONSerialization.data(withJSONObject: report, options: [.prettyPrinted, .sortedKeys])
             .write(to: output.appendingPathComponent("motion-report.json"))
-        print("Motion policy probe passed: \(evidence.passed.count) assertions. Not a video/presentation-layer measurement.")
+        print(
+            "Motion policy probe passed: \(evidence.passed.count) assertions. Not a video/presentation-layer measurement."
+        )
         exit(0)
     }
     app.run()

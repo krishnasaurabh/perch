@@ -13,7 +13,9 @@ public struct TaskRepeat: Codable, Equatable, Sendable, CustomStringConvertible 
     /// `every!`: counted from the day the last copy was completed, not from its planned day.
     public var fromCompletion: Bool
 
-    public init(unit: Unit, interval: Int = 1, weekdays: [Int] = [], weekdaysOnly: Bool = false, fromCompletion: Bool = false) {
+    public init(
+        unit: Unit, interval: Int = 1, weekdays: [Int] = [], weekdaysOnly: Bool = false, fromCompletion: Bool = false
+    ) {
         self.unit = unit; self.interval = max(1, interval); self.weekdays = weekdays.sorted()
         self.weekdaysOnly = weekdaysOnly; self.fromCompletion = fromCompletion
     }
@@ -75,7 +77,9 @@ public struct TaskRepeat: Codable, Equatable, Sendable, CustomStringConvertible 
         var d = day
         for _ in 0..<7 {
             let wd = d.weekday(calendar: calendar)
-            if weekdaysOnly ? ![1, 7].contains(wd) : (unit != .week || weekdays.isEmpty || weekdays.contains(wd)) { return d }
+            if weekdaysOnly ? ![1, 7].contains(wd) : (unit != .week || weekdays.isEmpty || weekdays.contains(wd)) {
+                return d
+            }
             d = d.adding(days: 1, calendar: calendar)
         }
         return day
@@ -88,12 +92,15 @@ public struct TaskRepeat: Codable, Equatable, Sendable, CustomStringConvertible 
         "seven": 7, "eight": 8, "nine": 9, "ten": 10, "other": 2,
     ]
 
-    static let weekdayAlt = "sunday|monday|tuesday|wednesday|thursday|friday|saturday|tues|thurs|thur|sun|mon|tue|wed|thu|fri|sat"
-    static let weekdayListPattern = "(?:\(weekdayAlt))s?\\b(?:(?:\\s*,\\s*(?:and\\s+)?|\\s*&\\s*|\\s+and\\s+)(?:\(weekdayAlt))s?\\b)*"
+    static let weekdayAlt =
+        "sunday|monday|tuesday|wednesday|thursday|friday|saturday|tues|thurs|thur|sun|mon|tue|wed|thu|fri|sat"
+    static let weekdayListPattern =
+        "(?:\(weekdayAlt))s?\\b(?:(?:\\s*,\\s*(?:and\\s+)?|\\s*&\\s*|\\s+and\\s+)(?:\(weekdayAlt))s?\\b)*"
 
     /// Matches explicit repeat phrases in free text ("every 3 weeks on mon, thu", "every! 4 days").
     static let pattern = try! NSRegularExpression(
-        pattern: "\\b(?:every(?<bang>!)?\\s+(?:(?<count>other|\\d{1,3}|two|three|four|five|six|seven|eight|nine|ten)\\s+)?"
+        pattern:
+            "\\b(?:every(?<bang>!)?\\s+(?:(?<count>other|\\d{1,3}|two|three|four|five|six|seven|eight|nine|ten)\\s+)?"
             + "(?:(?<unit>day|month)s?\\b|(?<week>week)s?\\b(?:\\s+on\\s+(?<on>\(weekdayListPattern)))?"
             + "|(?<weekday>weekday)s?\\b|(?<list>\(weekdayListPattern)))"
             + ")",
@@ -111,7 +118,9 @@ public struct TaskRepeat: Codable, Equatable, Sendable, CustomStringConvertible 
         case "weekdays": return .some(.weekdaysRule)
         default: break
         }
-        guard let (rule, range) = find(in: t), range.location == 0, range.length == (t as NSString).length else { return nil }
+        guard let (rule, range) = find(in: t), range.location == 0, range.length == (t as NSString).length else {
+            return nil
+        }
         return .some(rule)
     }
 
@@ -135,7 +144,9 @@ public struct TaskRepeat: Codable, Equatable, Sendable, CustomStringConvertible 
             return (TaskRepeat(unit: .week, interval: count, weekdays: days, fromCompletion: bang), m.range)
         }
         if let list = g("list") {
-            return (TaskRepeat(unit: .week, interval: count, weekdays: weekdays(in: list), fromCompletion: bang), m.range)
+            return (
+                TaskRepeat(unit: .week, interval: count, weekdays: weekdays(in: list), fromCompletion: bang), m.range
+            )
         }
         return nil
     }

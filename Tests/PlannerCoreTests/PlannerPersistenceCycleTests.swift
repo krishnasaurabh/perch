@@ -23,19 +23,27 @@ final class PlannerPersistenceCycleTests: XCTestCase {
     private func seededPlanner() -> Planner {
         var p = Planner()
         p.tasks = [
-            PlanTask(id: seedID, title: "Synthetic repeat template", day: "2026-11-05",
-                     createdAt: Fixture.date("2026-11-05 09:00"), remindAt: Fixture.date("2026-11-05 09:30"),
-                     priority: .high, notes: "Synthetic notes", repeatRule: .daily,
-                     steps: [Subtask(title: "Synthetic step", done: true)], focusedSeconds: 120,
-                     carryCount: 2, repeatAnchor: "2026-11-05"),
-            PlanTask(title: "Synthetic inbox task", day: nil, createdAt: Fixture.date("2026-11-06 09:00"),
-                     deadline: "2026-11-20", priority: .low),
+            PlanTask(
+                id: seedID, title: "Synthetic repeat template", day: "2026-11-05",
+                createdAt: Fixture.date("2026-11-05 09:00"), remindAt: Fixture.date("2026-11-05 09:30"),
+                priority: .high, notes: "Synthetic notes", repeatRule: .daily,
+                steps: [Subtask(title: "Synthetic step", done: true)], focusedSeconds: 120,
+                carryCount: 2, repeatAnchor: "2026-11-05"),
+            PlanTask(
+                title: "Synthetic inbox task", day: nil, createdAt: Fixture.date("2026-11-06 09:00"),
+                deadline: "2026-11-20", priority: .low),
         ]
-        p.projects = [TaskProject(id: UUID(uuidString: "77777777-7777-7777-7777-777777777777")!,
-                                  name: "Synthetic project", colorHex: "#8E8CF5")]
+        p.projects = [
+            TaskProject(
+                id: UUID(uuidString: "77777777-7777-7777-7777-777777777777")!,
+                name: "Synthetic project", colorHex: "#8E8CF5")
+        ]
         p.notes = [QuickNote(day: "2026-11-09", text: "Synthetic note")]
-        p.focusSegments = [FocusSegment(taskID: seedID, start: Fixture.date("2026-11-09 09:00"),
-                                        end: Fixture.date("2026-11-09 09:05"))]
+        p.focusSegments = [
+            FocusSegment(
+                taskID: seedID, start: Fixture.date("2026-11-09 09:00"),
+                end: Fixture.date("2026-11-09 09:05"))
+        ]
         var focus = FocusSession(taskID: seedID, limit: 1500, now: Fixture.date("2026-11-09 09:00"))
         focus.state = .paused
         focus.resumedAt = nil
@@ -88,8 +96,10 @@ final class PlannerPersistenceCycleTests: XCTestCase {
         for cycle in 0..<10 {
             try file.mutate { p in
                 p.notes.append(QuickNote(day: "2026-11-09", text: "Synthetic cycle note \(cycle)"))
-                p.tasks.append(PlanTask(title: "Synthetic cycle task \(cycle)", day: "2026-11-09",
-                                        createdAt: Fixture.now))
+                p.tasks.append(
+                    PlanTask(
+                        title: "Synthetic cycle task \(cycle)", day: "2026-11-09",
+                        createdAt: Fixture.now))
             }
             expectedNotes += 1
             expectedTasks += 1

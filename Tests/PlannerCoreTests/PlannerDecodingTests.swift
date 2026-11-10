@@ -17,7 +17,7 @@ final class PlannerDecodingTests: XCTestCase {
 
     private func task(_ suffix: String, extra: String = "") -> String {
         #"{"id":"00000000-0000-0000-0000-00000000000"# + suffix
-        + #"","title":"Synthetic task","createdAt":"2026-11-09T12:00:00Z""# + extra + "}"
+            + #"","title":"Synthetic task","createdAt":"2026-11-09T12:00:00Z""# + extra + "}"
     }
 
     private func recover(_ data: Data, using target: PlannerFile? = nil) throws -> PlannerRecoveryError {
@@ -32,9 +32,11 @@ final class PlannerDecodingTests: XCTestCase {
     }
 
     func testPresentMalformedCollectionNeverDefaultsToEmpty() throws {
-        for json in [#"{"tasks":[{}]}"#, #"{"projects":42}"#, #"{"notes":null}"#,
-                     #"{"focusSegments":[{}]}"#, #"{"dismissedOverdue":[false]}"#,
-                     #"{"repeatOccurrences":[{}]}"#, #"{"completedCalendarEventDays":{"event":"2026-02-30"}}"#] {
+        for json in [
+            #"{"tasks":[{}]}"#, #"{"projects":42}"#, #"{"notes":null}"#,
+            #"{"focusSegments":[{}]}"#, #"{"dismissedOverdue":[false]}"#,
+            #"{"repeatOccurrences":[{}]}"#, #"{"completedCalendarEventDays":{"event":"2026-02-30"}}"#,
+        ] {
             XCTAssertThrowsError(try PlannerFile.decoder.decode(Planner.self, from: Data(json.utf8)), json)
         }
     }
@@ -57,35 +59,53 @@ final class PlannerDecodingTests: XCTestCase {
     func testMissingLegacyFieldsStillDefault() throws {
         let p = try PlannerFile.decoder.decode(Planner.self, from: Data("{}".utf8))
         XCTAssertEqual(p, Planner())
-        let task = try PlannerFile.decoder.decode(PlanTask.self, from: Data(#"{"id":"00000000-0000-0000-0000-000000000001","title":"Legacy fixture","createdAt":"2026-11-09T12:00:00Z"}"#.utf8))
+        let task = try PlannerFile.decoder.decode(
+            PlanTask.self,
+            from: Data(
+                #"{"id":"00000000-0000-0000-0000-000000000001","title":"Legacy fixture","createdAt":"2026-11-09T12:00:00Z"}"#
+                    .utf8))
         XCTAssertEqual(task.priority, .none)
         XCTAssertTrue(task.steps.isEmpty)
         XCTAssertNil(task.day)
     }
 
     func testMixedTasksRetainNeighborsAndLosslessOriginalBytes() throws {
-        let unknownEnum = task("2", extra: #", "priority":"future-priority", "unknown":{"text":"\u2603","number":1.000e+03}"#)
-        let raw = Data((" {\n\"tasks\":[" + task("1") + "," + unknownEnum + ",null," + task("3") + "], \"unknown\": [true, 1e99] }\n").utf8)
+        let unknownEnum = task(
+            "2", extra: #", "priority":"future-priority", "unknown":{"text":"\u2603","number":1.000e+03}"#)
+        let raw = Data(
+            (" {\n\"tasks\":[" + task("1") + "," + unknownEnum + ",null," + task("3")
+                + "], \"unknown\": [true, 1e99] }\n").utf8)
         let error = try recover(raw)
-        XCTAssertEqual(error.recoveredPlanner.tasks.map(\.id.uuidString), [
-            "00000000-0000-0000-0000-000000000001", "00000000-0000-0000-0000-000000000003"])
+        XCTAssertEqual(
+            error.recoveredPlanner.tasks.map(\.id.uuidString),
+            [
+                "00000000-0000-0000-0000-000000000001", "00000000-0000-0000-0000-000000000003",
+            ])
         XCTAssertEqual(error.issues.map(\.path), ["tasks[1].priority", "tasks[2]"])
         XCTAssertEqual(try Data(contentsOf: file.url), raw)
         XCTAssertEqual(try Data(contentsOf: error.originalURL), raw)
-        XCTAssertEqual(try PlannerFile.decoder.decode(Planner.self, from: Data(contentsOf: error.recoveredURL)), error.recoveredPlanner)
-        XCTAssertEqual(try JSONDecoder().decode([PlannerRecoveryIssue].self, from: Data(contentsOf: error.issuesURL)), error.issues)
+        XCTAssertEqual(
+            try PlannerFile.decoder.decode(Planner.self, from: Data(contentsOf: error.recoveredURL)),
+            error.recoveredPlanner)
+        XCTAssertEqual(
+            try JSONDecoder().decode([PlannerRecoveryIssue].self, from: Data(contentsOf: error.issuesURL)), error.issues
+        )
         XCTAssertTrue(error.localizedDescription.contains("read-only"))
         XCTAssertTrue(error.localizedDescription.contains("cannot be saved"))
         XCTAssertTrue(error.localizedDescription.contains("Do not replace the original"))
     }
 
     func testMalformedNestedRecordQuarantinesItsTaskWithoutDamagingNeighbors() throws {
-        for extra in [#", "steps":[{}]"#, #", "repeatRule":{"unit":"year","interval":1,"weekdays":[],"weekdaysOnly":false,"fromCompletion":false}"#,
-                      #", "deadline":"2026-02-30""#, #", "day":42"#, #", "remindAt":"invalid""#] {
+        for extra in [
+            #", "steps":[{}]"#,
+            #", "repeatRule":{"unit":"year","interval":1,"weekdays":[],"weekdaysOnly":false,"fromCompletion":false}"#,
+            #", "deadline":"2026-02-30""#, #", "day":42"#, #", "remindAt":"invalid""#,
+        ] {
             let raw = Data(("{\"tasks\":[" + task("1") + "," + task("2", extra: extra) + "," + task("3") + "]}").utf8)
             let error: PlannerRecoveryError
-            do { error = try recover(raw) }
-            catch { XCTFail("Recovery failed for fixture field \(extra): \(error)"); continue }
+            do { error = try recover(raw) } catch {
+                XCTFail("Recovery failed for fixture field \(extra): \(error)"); continue
+            }
             XCTAssertEqual(error.recoveredPlanner.tasks.count, 2, extra)
             XCTAssertEqual(error.issues.count, 1, extra)
             XCTAssertTrue(try XCTUnwrap(error.issues.first).path.hasPrefix("tasks[1]"), extra)
@@ -94,15 +114,16 @@ final class PlannerDecodingTests: XCTestCase {
     }
 
     func testEveryPersistedCollectionRetainsValidRecords() throws {
-        let raw = Data(#"""
-        {"projects":[{"id":"00000000-0000-0000-0000-000000000001","name":"Synthetic project","colorHex":"#123456"},false],
-         "notes":[{"day":"2026-11-09","text":"Synthetic note"},{"day":"2026-02-30","text":"invalid day"}],
-         "focusSegments":[{"start":"2026-11-09T12:00:00Z","end":"2026-11-09T12:01:00Z"},{}],
-         "dismissedOverdue":["00000000-0000-0000-0000-000000000001","bad-id"],
-         "repeatOccurrences":[{"seriesID":"00000000-0000-0000-0000-000000000001","day":"2026-11-09"},{}],
-         "completedCalendarEventIDs":["event-1",false],
-         "completedCalendarEventDays":{"event-1":"2026-11-09","event-2":"bad-day"}}
-        """#.utf8)
+        let raw = Data(
+            #"""
+            {"projects":[{"id":"00000000-0000-0000-0000-000000000001","name":"Synthetic project","colorHex":"#123456"},false],
+             "notes":[{"day":"2026-11-09","text":"Synthetic note"},{"day":"2026-02-30","text":"invalid day"}],
+             "focusSegments":[{"start":"2026-11-09T12:00:00Z","end":"2026-11-09T12:01:00Z"},{}],
+             "dismissedOverdue":["00000000-0000-0000-0000-000000000001","bad-id"],
+             "repeatOccurrences":[{"seriesID":"00000000-0000-0000-0000-000000000001","day":"2026-11-09"},{}],
+             "completedCalendarEventIDs":["event-1",false],
+             "completedCalendarEventDays":{"event-1":"2026-11-09","event-2":"bad-day"}}
+            """#.utf8)
         let error = try recover(raw)
         let p = error.recoveredPlanner
         XCTAssertEqual(p.projects.count, 1)
@@ -117,7 +138,10 @@ final class PlannerDecodingTests: XCTestCase {
     }
 
     func testMalformedWholeFieldsBecomeExplicitRecoveryIssues() throws {
-        let raw = Data(("{\"tasks\":[" + task("1") + #"],"projects":42,"notes":null,"focus":{"state":"future"},"preferences":{"hiddenCalendarIDs":42}}"#).utf8)
+        let raw = Data(
+            ("{\"tasks\":[" + task("1")
+                + #"],"projects":42,"notes":null,"focus":{"state":"future"},"preferences":{"hiddenCalendarIDs":42}}"#)
+                .utf8)
         let error = try recover(raw)
         XCTAssertEqual(error.recoveredPlanner.tasks.count, 1)
         XCTAssertEqual(error.issues.count, 4)
@@ -212,8 +236,11 @@ final class PlannerDecodingTests: XCTestCase {
             try raw.write(to: file.url)
             var io = PlannerFile.IO()
             io.copy = { _, destination in
-                if truncated { try Data(raw.prefix(3)).write(to: destination) }
-                else { throw CocoaError(.fileWriteOutOfSpace) }
+                if truncated {
+                    try Data(raw.prefix(3)).write(to: destination)
+                } else {
+                    throw CocoaError(.fileWriteOutOfSpace)
+                }
             }
             XCTAssertThrowsError(try PlannerFile(url: file.url, io: io).load()) { error in
                 XCTAssertFalse(error is PlannerRecoveryError)
@@ -246,8 +273,10 @@ final class PlannerDecodingTests: XCTestCase {
     }
 
     func testPresentMalformedPreferencesAreNotMigrationDefaults() throws {
-        for json in [#"{"carryMode":"future"}"#, #"{"carryMode":null}"#, #"{"hiddenCalendarIDs":null}"#,
-                     #"{"defaultFocusMinutes":"25"}"#, #"{"showOnDisplay":false}"#] {
+        for json in [
+            #"{"carryMode":"future"}"#, #"{"carryMode":null}"#, #"{"hiddenCalendarIDs":null}"#,
+            #"{"defaultFocusMinutes":"25"}"#, #"{"showOnDisplay":false}"#,
+        ] {
             XCTAssertThrowsError(try PlannerFile.decoder.decode(Preferences.self, from: Data(json.utf8)), json)
         }
         XCTAssertEqual(try PlannerFile.decoder.decode(Preferences.self, from: Data("{}".utf8)), Preferences())

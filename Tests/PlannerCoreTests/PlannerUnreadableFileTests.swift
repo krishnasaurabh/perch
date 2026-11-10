@@ -1,9 +1,9 @@
 import Foundation
 import XCTest
 #if canImport(Glibc)
-import Glibc
+    import Glibc
 #elseif canImport(Darwin)
-import Darwin
+    import Darwin
 #endif
 @testable import PlannerCore
 
@@ -18,9 +18,10 @@ final class PlannerUnreadableFileTests: XCTestCase {
         directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("perch-unreadable-\(UUID().uuidString)", isDirectory: true)
         file = PlannerFile(url: directory.appendingPathComponent("planner.json"))
-        raw = Data(#"""
-        {"version":1,"tasks":[{"id":"55555555-5555-5555-5555-555555555555","title":"Synthetic unreadable task","day":"2026-11-09","createdAt":"2026-11-09T12:00:00Z"}]}
-        """#.utf8)
+        raw = Data(
+            #"""
+            {"version":1,"tasks":[{"id":"55555555-5555-5555-5555-555555555555","title":"Synthetic unreadable task","day":"2026-11-09","createdAt":"2026-11-09T12:00:00Z"}]}
+            """#.utf8)
     }
 
     override func tearDownWithError() throws {
@@ -37,8 +38,9 @@ final class PlannerUnreadableFileTests: XCTestCase {
         let target: URL = file.url
         io.read = { url in
             if url.standardizedFileURL == target.standardizedFileURL {
-                throw NSError(domain: NSPOSIXErrorDomain, code: Int(EACCES),
-                              userInfo: [NSLocalizedDescriptionKey: "Permission denied"])
+                throw NSError(
+                    domain: NSPOSIXErrorDomain, code: Int(EACCES),
+                    userInfo: [NSLocalizedDescriptionKey: "Permission denied"])
             }
             return try Data(contentsOf: url)
         }
@@ -48,8 +50,9 @@ final class PlannerUnreadableFileTests: XCTestCase {
     private func removeReadPermission() throws {
         if geteuid() != 0 {
             try FileManager.default.setAttributes([.posixPermissions: 0o000], ofItemAtPath: file.url.path)
-            XCTAssertFalse(FileManager.default.isReadableFile(atPath: file.url.path),
-                           "mode 000 should block reads for a non-root user")
+            XCTAssertFalse(
+                FileManager.default.isReadableFile(atPath: file.url.path),
+                "mode 000 should block reads for a non-root user")
         }
     }
 
@@ -87,8 +90,9 @@ final class PlannerUnreadableFileTests: XCTestCase {
         XCTAssertEqual(try Data(contentsOf: file.url), raw)
         XCTAssertEqual(file.modificationDate, beforeMtime)
         XCTAssertTrue(try file.backupURLs().isEmpty, "A failed operation must not create a backup")
-        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: directory.path).sorted(),
-                       ["planner.json", "planner.json.lock"])
+        XCTAssertEqual(
+            try FileManager.default.contentsOfDirectory(atPath: directory.path).sorted(),
+            ["planner.json", "planner.json.lock"])
         XCTAssertEqual(try file.load().tasks.map(\.title), ["Synthetic unreadable task"])
     }
 

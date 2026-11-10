@@ -77,21 +77,29 @@ public struct NotchActivityTimeline: Equatable, Sendable {
         self.init(activities: Self.triggers(planner: planner, events: events, screenshots: screenshots))
     }
 
-    public static func triggers(planner: Planner, events: [Event] = [], screenshots: [Screenshot] = []) -> [NotchActivity] {
+    public static func triggers(planner: Planner, events: [Event] = [], screenshots: [Screenshot] = [])
+        -> [NotchActivity]
+    {
         var activities = planner.tasks.compactMap { task -> NotchActivity? in
             guard !task.done, task.day != nil, let date = task.remindAt else { return nil }
-            return NotchActivity(kind: .reminder, title: task.title, date: date,
-                                 id: identity(.reminder, source: task.id.uuidString, date: date), taskID: task.id)
+            return NotchActivity(
+                kind: .reminder, title: task.title, date: date,
+                id: identity(.reminder, source: task.id.uuidString, date: date), taskID: task.id)
         }
         for event in events where !event.isAllDay {
-            activities.append(NotchActivity(kind: .eventSoon, title: event.title, date: event.start.addingTimeInterval(-eventLead),
-                                            id: identity(.eventSoon, source: event.id, date: event.start)))
-            activities.append(NotchActivity(kind: .eventNow, title: event.title, date: event.start,
-                                            id: identity(.eventNow, source: event.id, date: event.start)))
+            activities.append(
+                NotchActivity(
+                    kind: .eventSoon, title: event.title, date: event.start.addingTimeInterval(-eventLead),
+                    id: identity(.eventSoon, source: event.id, date: event.start)))
+            activities.append(
+                NotchActivity(
+                    kind: .eventNow, title: event.title, date: event.start,
+                    id: identity(.eventNow, source: event.id, date: event.start)))
         }
         activities += screenshots.map { shot in
-            NotchActivity(kind: .screenshot, title: shot.title, date: shot.date,
-                          id: identity(.screenshot, source: shot.id, date: shot.date), fileURL: shot.fileURL)
+            NotchActivity(
+                kind: .screenshot, title: shot.title, date: shot.date,
+                id: identity(.screenshot, source: shot.id, date: shot.date), fileURL: shot.fileURL)
         }
         return activities.sorted { $0.date == $1.date ? $0.id < $1.id : $0.date < $1.date }
     }

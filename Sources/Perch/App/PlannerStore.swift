@@ -4,7 +4,9 @@ import PlannerCore
 import SwiftUI
 
 enum AppInfo {
-    static var version: String { Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.0.0" }
+    static var version: String {
+        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.0.0"
+    }
     static var executablePath: String { Bundle.main.executablePath ?? CommandLine.arguments[0] }
     static var isInApplications: Bool { Bundle.main.bundlePath.hasPrefix("/Applications/") }
 }
@@ -42,8 +44,11 @@ final class PlannerStore: ObservableObject {
             case .notes(let id):
                 if let i = planner.tasks.firstIndex(where: { $0.id == id }) { planner.tasks[i].notes = text }
             case .notepad(let day):
-                if let i = planner.notes.firstIndex(where: { $0.day == day }) { planner.notes[i].text = text }
-                else { planner.notes.append(QuickNote(day: day, text: text)) }
+                if let i = planner.notes.firstIndex(where: { $0.day == day }) {
+                    planner.notes[i].text = text
+                } else {
+                    planner.notes.append(QuickNote(day: day, text: text))
+                }
             }
         }
     }
@@ -58,8 +63,7 @@ final class PlannerStore: ObservableObject {
         self.now = now
         var loaded = Planner()
         var loadError: String?
-        do { loaded = try file.load() }
-        catch let recovery as PlannerRecoveryError {
+        do { loaded = try file.load() } catch let recovery as PlannerRecoveryError {
             // The file remains authoritative and rejects every mutation until repaired.
             // Display the validated draft without publishing or saving it as a new revision.
             loaded = recovery.recoveredPlanner
@@ -151,8 +155,7 @@ final class PlannerStore: ObservableObject {
     /// Keep the draft in the store, not the lifetime of a view. A typing burst is one durable edit.
     func setText(_ text: String, for target: TextTarget) {
         guard let base = pendingText[target]?.base ?? target.value(in: planner) else { return }
-        if text == base { pendingText[target] = nil }
-        else { pendingText[target] = PendingText(base: base, text: text) }
+        if text == base { pendingText[target] = nil } else { pendingText[target] = PendingText(base: base, text: text) }
         saveWork?.cancel()
         let work = DispatchWorkItem { [weak self] in self?.flushPendingText() }
         saveWork = work
@@ -171,7 +174,9 @@ final class PlannerStore: ObservableObject {
                 let before = p
                 for (target, draft) in drafts {
                     guard let current = target.value(in: p), current == draft.base || current == draft.text else {
-                        throw PlannerError("This text changed elsewhere. Your draft is retained; restore the shared text before retrying.")
+                        throw PlannerError(
+                            "This text changed elsewhere. Your draft is retained; restore the shared text before retrying."
+                        )
                     }
                     target.set(draft.text, in: &p)
                 }
@@ -201,10 +206,11 @@ final class PlannerStore: ObservableObject {
         do {
             var saved: Planner?
             let transaction: ((inout Planner) -> Void) throws -> Void = { change in
-                saved = try self.file.mutate { p in change(&p); return p }
+                saved = try self.file.mutate { p in
+                    change(&p); return p
+                }
             }
-            if redo { try history.redo(transaction: transaction) }
-            else { try history.undo(transaction: transaction) }
+            if redo { try history.redo(transaction: transaction) } else { try history.undo(transaction: transaction) }
             if let saved { publish(saved) }
         } catch { report(error) }
     }
@@ -213,7 +219,9 @@ final class PlannerStore: ObservableObject {
 
     private func startWatching() {
         pollTimer = Timer.scheduledTimer(withTimeInterval: 0.75, repeats: true) { [weak self] _ in
-            Task { @MainActor in self?.reloadFromDisk(external: true); self?.refreshToday() }
+            Task { @MainActor in
+                self?.reloadFromDisk(external: true); self?.refreshToday()
+            }
         }
     }
 

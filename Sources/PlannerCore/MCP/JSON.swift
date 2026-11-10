@@ -6,12 +6,19 @@ public enum JSON: Equatable, Sendable, Codable {
 
     public init(from decoder: Decoder) throws {
         let c = try decoder.singleValueContainer()
-        if c.decodeNil() { self = .null }
-        else if let b = try? c.decode(Bool.self) { self = .bool(b) }
-        else if let n = try? c.decode(Double.self) { self = .number(n) }
-        else if let s = try? c.decode(String.self) { self = .string(s) }
-        else if let a = try? c.decode([JSON].self) { self = .array(a) }
-        else { self = .object(try c.decode([String: JSON].self)) }
+        if c.decodeNil() {
+            self = .null
+        } else if let b = try? c.decode(Bool.self) {
+            self = .bool(b)
+        } else if let n = try? c.decode(Double.self) {
+            self = .number(n)
+        } else if let s = try? c.decode(String.self) {
+            self = .string(s)
+        } else if let a = try? c.decode([JSON].self) {
+            self = .array(a)
+        } else {
+            self = .object(try c.decode([String: JSON].self))
+        }
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -58,9 +65,12 @@ public enum JSON: Equatable, Sendable, Codable {
 }
 
 extension JSON: ExpressibleByStringLiteral, ExpressibleByDictionaryLiteral, ExpressibleByArrayLiteral,
-    ExpressibleByBooleanLiteral, ExpressibleByIntegerLiteral {
+    ExpressibleByBooleanLiteral, ExpressibleByIntegerLiteral
+{
     public init(stringLiteral v: String) { self = .string(v) }
-    public init(dictionaryLiteral els: (String, JSON)...) { self = .object(Dictionary(els, uniquingKeysWith: { a, _ in a })) }
+    public init(dictionaryLiteral els: (String, JSON)...) {
+        self = .object(Dictionary(els, uniquingKeysWith: { a, _ in a }))
+    }
     public init(arrayLiteral els: JSON...) { self = .array(els) }
     public init(booleanLiteral v: Bool) { self = .bool(v) }
     public init(integerLiteral v: Int) { self = .number(Double(v)) }

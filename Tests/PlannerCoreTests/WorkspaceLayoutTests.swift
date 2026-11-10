@@ -6,8 +6,9 @@ final class WorkspaceLayoutTests: XCTestCase {
         for notch: CGFloat in [0, 22, 24, 30, 32, 37.5, 38, 40] {
             let size = WorkspaceLayout.preferredSize(notchHeight: notch)
             XCTAssertEqual(size.width, 820)
-            XCTAssertEqual(size.height - WorkspaceLayout.headerHeight(notchHeight: notch)
-                           - WorkspaceLayout.headerGap - WorkspaceLayout.bottomInset, 300)
+            XCTAssertEqual(
+                size.height - WorkspaceLayout.headerHeight(notchHeight: notch)
+                    - WorkspaceLayout.headerGap - WorkspaceLayout.bottomInset, 300)
             XCTAssertLessThanOrEqual(size.height, 361)
         }
     }
@@ -30,8 +31,9 @@ final class WorkspaceLayoutTests: XCTestCase {
     }
 
     func testVerySmallDisplayClampsRatherThanExtendingOffscreen() {
-        let screen = NotchLayout.Screen(frame: CGRect(x: -400, y: 50, width: 700, height: 280),
-                                        visibleFrame: CGRect(x: -400, y: 50, width: 700, height: 256))
+        let screen = NotchLayout.Screen(
+            frame: CGRect(x: -400, y: 50, width: 700, height: 280),
+            visibleFrame: CGRect(x: -400, y: 50, width: 700, height: 256))
         let frame = WorkspaceLayout.frame(screen: screen)
         XCTAssertEqual(frame.size, CGSize(width: 684, height: 240))
         XCTAssertEqual(frame.minY, screen.frame.minY + 8)

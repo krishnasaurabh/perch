@@ -41,7 +41,8 @@ final class TaskCaptureEdgeTests: XCTestCase {
         CaptureCase(input: "call mom at 21", title: "call mom", day: "2026-11-09", remind: "2026-11-09 21:00"),
         CaptureCase(input: "call mom at 0", title: "call mom", day: "2026-11-10", remind: "2026-11-10 00:00"),
         CaptureCase(input: "call mom at 23:59", title: "call mom", day: "2026-11-09", remind: "2026-11-09 23:59"),
-        CaptureCase(input: "call mom at 5pm tomorrow", title: "call mom", day: "2026-11-10", remind: "2026-11-10 17:00"),
+        CaptureCase(
+            input: "call mom at 5pm tomorrow", title: "call mom", day: "2026-11-10", remind: "2026-11-10 17:00"),
         CaptureCase(input: "read at 5 pages", title: "read at 5 pages"),
         CaptureCase(input: "meeting at 1", title: "meeting", day: "2026-11-10", remind: "2026-11-10 13:00"),
         CaptureCase(input: "at 8", title: "at 8", day: "2026-11-10", remind: "2026-11-10 08:00"),
@@ -57,7 +58,8 @@ final class TaskCaptureEdgeTests: XCTestCase {
         CaptureCase(input: "call mom at 5 p.m", title: "call mom", day: "2026-11-09", remind: "2026-11-09 17:00"),
         CaptureCase(input: "Call Mom at 5PM", title: "Call Mom", day: "2026-11-09", remind: "2026-11-09 17:00"),
         CaptureCase(input: "x at 7:00am", title: "x", day: "2026-11-10", remind: "2026-11-10 07:00"),
-        CaptureCase(input: "dentist at 10am on friday", title: "dentist", day: "2026-11-13", remind: "2026-11-13 10:00"),
+        CaptureCase(
+            input: "dentist at 10am on friday", title: "dentist", day: "2026-11-13", remind: "2026-11-13 10:00"),
         CaptureCase(input: "vet on friday at 10", title: "vet", day: "2026-11-13", remind: "2026-11-13 10:00"),
         CaptureCase(input: "on Friday standup at 9", title: "standup", day: "2026-11-13", remind: "2026-11-13 09:00"),
         CaptureCase(input: "on SUNDAY brunch at 11am", title: "brunch", day: "2026-11-15", remind: "2026-11-15 11:00"),
@@ -125,14 +127,20 @@ final class TaskCaptureEdgeTests: XCTestCase {
 
     private static let repeatCases: [CaptureCase] = [
         CaptureCase(input: "gym every monday", title: "gym", repeatRule: TaskRepeat(unit: .week, weekdays: [2])),
-        CaptureCase(input: "gym every mon, wed and fri", title: "gym", repeatRule: TaskRepeat(unit: .week, weekdays: [2, 4, 6])),
+        CaptureCase(
+            input: "gym every mon, wed and fri", title: "gym", repeatRule: TaskRepeat(unit: .week, weekdays: [2, 4, 6])),
         CaptureCase(input: "gym every mon & wed", title: "gym", repeatRule: TaskRepeat(unit: .week, weekdays: [2, 4])),
-        CaptureCase(input: "gym every tuesday, thursday", title: "gym", repeatRule: TaskRepeat(unit: .week, weekdays: [3, 5])),
+        CaptureCase(
+            input: "gym every tuesday, thursday", title: "gym", repeatRule: TaskRepeat(unit: .week, weekdays: [3, 5])),
         CaptureCase(input: "gym every tues", title: "gym", repeatRule: TaskRepeat(unit: .week, weekdays: [3])),
         CaptureCase(input: "gym every thurs", title: "gym", repeatRule: TaskRepeat(unit: .week, weekdays: [5])),
         CaptureCase(input: "gym every sun, sat", title: "gym", repeatRule: TaskRepeat(unit: .week, weekdays: [1, 7])),
-        CaptureCase(input: "gym every other tuesday", title: "gym", repeatRule: TaskRepeat(unit: .week, interval: 2, weekdays: [3])),
-        CaptureCase(input: "1:1 every other week on tue", title: "1:1", repeatRule: TaskRepeat(unit: .week, interval: 2, weekdays: [3])),
+        CaptureCase(
+            input: "gym every other tuesday", title: "gym",
+            repeatRule: TaskRepeat(unit: .week, interval: 2, weekdays: [3])),
+        CaptureCase(
+            input: "1:1 every other week on tue", title: "1:1",
+            repeatRule: TaskRepeat(unit: .week, interval: 2, weekdays: [3])),
         CaptureCase(input: "gym every other day", title: "gym", repeatRule: TaskRepeat(unit: .day, interval: 2)),
         CaptureCase(input: "gym every other week", title: "gym", repeatRule: TaskRepeat(unit: .week, interval: 2)),
         CaptureCase(input: "gym every 2 weeks", title: "gym", repeatRule: TaskRepeat(unit: .week, interval: 2)),
@@ -142,19 +150,23 @@ final class TaskCaptureEdgeTests: XCTestCase {
         CaptureCase(input: "gym monthly", title: "gym monthly"),
         CaptureCase(input: "gym every month", title: "gym", repeatRule: .monthly),
         CaptureCase(input: "gym every 3 months", title: "gym", repeatRule: TaskRepeat(unit: .month, interval: 3)),
-        CaptureCase(input: "gym every! 3 days", title: "gym", repeatRule: TaskRepeat(unit: .day, interval: 3, fromCompletion: true)),
+        CaptureCase(
+            input: "gym every! 3 days", title: "gym",
+            repeatRule: TaskRepeat(unit: .day, interval: 3, fromCompletion: true)),
         CaptureCase(input: "gym weekdays", title: "gym weekdays"),
         CaptureCase(input: "gym every weekday", title: "gym", repeatRule: .weekdaysRule),
     ]
 
     private static let unicodeCases: [CaptureCase] = [
         CaptureCase(input: "🏋️ gym tomorrow at 7am", title: "🏋️ gym", day: "2026-11-10", remind: "2026-11-10 07:00"),
-        CaptureCase(input: "café ☕ with Ana at 10am", title: "café ☕ with Ana", day: "2026-11-10", remind: "2026-11-10 10:00"),
+        CaptureCase(
+            input: "café ☕ with Ana at 10am", title: "café ☕ with Ana", day: "2026-11-10", remind: "2026-11-10 10:00"),
         CaptureCase(input: "日本語のタスク tomorrow", title: "日本語のタスク", day: "2026-11-10"),
         CaptureCase(input: "call 妈妈明天", title: "call 妈妈明天"),
         CaptureCase(input: "pay ₹500 !high", title: "pay ₹500", priority: .high),
         CaptureCase(input: "naïve résumé review", title: "naïve résumé review"),
-        CaptureCase(input: "👨‍👩‍👧‍👦 family dinner at 6pm", title: "👨‍👩‍👧‍👦 family dinner", day: "2026-11-09", remind: "2026-11-09 18:00"),
+        CaptureCase(
+            input: "👨‍👩‍👧‍👦 family dinner at 6pm", title: "👨‍👩‍👧‍👦 family dinner", day: "2026-11-09", remind: "2026-11-09 18:00"),
         CaptureCase(input: "🎉", title: "🎉"),
     ]
 
@@ -214,7 +226,9 @@ final class TaskCaptureEdgeTests: XCTestCase {
         CaptureCase(input: "deadline 2026-12-15", title: "deadline 2026-12-15", deadline: "2026-12-15"),
         CaptureCase(input: "deadline: nov 20", title: "deadline: nov 20", deadline: "2026-11-20"),
         CaptureCase(input: "x tomorrow due friday", title: "x", day: "2026-11-10", deadline: "2026-11-13"),
-        CaptureCase(input: "x at 5pm due friday", title: "x", day: "2026-11-09", remind: "2026-11-09 17:00", deadline: "2026-11-13"),
+        CaptureCase(
+            input: "x at 5pm due friday", title: "x", day: "2026-11-09", remind: "2026-11-09 17:00",
+            deadline: "2026-11-13"),
     ]
 
     private static let whitespaceCases: [CaptureCase] = [
@@ -250,7 +264,8 @@ final class TaskCaptureEdgeTests: XCTestCase {
     // MARK: Tests
 
     func testCorpusCoversAtLeastOneHundredFiftyPhrasings() {
-        let total = Self.timeCases.count + Self.dateCases.count + Self.dayWordCases.count
+        let total =
+            Self.timeCases.count + Self.dateCases.count + Self.dayWordCases.count
             + Self.weekdayCases.count + Self.repeatCases.count + Self.unicodeCases.count
             + Self.metadataOnlyCases.count + Self.detailCases.count + Self.whitespaceCases.count
         print("TaskCaptureEdgeTests: \(total) table-driven phrasings")
@@ -342,12 +357,16 @@ final class TaskCaptureEdgeTests: XCTestCase {
 
     func testCurrencyAmountStillAllowsARealReminder() {
         for time in ["5", "5pm", "17:00"] {
-            check(CaptureCase(input: "buy apples at 3 dollars at \(time)", title: "buy apples at 3 dollars",
-                              day: "2026-11-09", remind: "2026-11-09 17:00"))
+            check(
+                CaptureCase(
+                    input: "buy apples at 3 dollars at \(time)", title: "buy apples at 3 dollars",
+                    day: "2026-11-09", remind: "2026-11-09 17:00"))
         }
         // A unit prefix inside another word must not suppress an actual time.
-        check(CaptureCase(input: "meet at 3 central station", title: "meet central station",
-                          day: "2026-11-10", remind: "2026-11-10 15:00"))
+        check(
+            CaptureCase(
+                input: "meet at 3 central station", title: "meet central station",
+                day: "2026-11-10", remind: "2026-11-10 15:00"))
     }
 
     func testMalformedClockIsPreservedWithoutAReminder() {
@@ -363,7 +382,7 @@ final class TaskCaptureEdgeTests: XCTestCase {
         let invalid = [
             "2026-02-30", "2027-02-29", "2027-02-30", "2026-04-31", "2100-02-29",
             "2026-1-01", "2026-01-1", "2026-+1-01", "2026--01-01", "2026-01-01-",
-            "2026-00-01", "2026-13-01", "2026-01-00", "2026-01-32"
+            "2026-00-01", "2026-13-01", "2026-01-00", "2026-01-32",
         ]
         for raw in invalid {
             XCTAssertNil(DayKey(raw), raw)
@@ -381,19 +400,23 @@ final class TaskCaptureEdgeTests: XCTestCase {
         _ = try tools.call("add_tasks", ["titles": ["existing task"], "date": "2028-02-29"])
         let before = try file.load()
         for raw in invalid {
-            let response = try XCTUnwrap(server.handle([
-                "jsonrpc": "2.0", "id": 1, "method": "tools/call",
-                "params": ["name": "add_tasks", "arguments": ["titles": ["impossible"], "date": .string(raw)]]
-            ]), raw)
+            let response = try XCTUnwrap(
+                server.handle([
+                    "jsonrpc": "2.0", "id": 1, "method": "tools/call",
+                    "params": ["name": "add_tasks", "arguments": ["titles": ["impossible"], "date": .string(raw)]],
+                ]), raw)
             XCTAssertEqual(response["result"]?["isError"]?.bool, true, raw)
-            XCTAssertTrue(response["result"]?["content"]?.array?.first?["text"]?.string?.contains("yyyy-MM-dd") ?? false, raw)
+            XCTAssertTrue(
+                response["result"]?["content"]?.array?.first?["text"]?.string?.contains("yyyy-MM-dd") ?? false, raw)
             XCTAssertEqual(try file.load(), before, "Invalid date must not mutate the planner: \(raw)")
         }
     }
 
     func testMetadataOnlyLinesPreserveRawTrimmedTitles() throws {
-        let inputs = ["due", "for", "at", "and", "by", "until", "on", "around", "-", ",", ";", ":",
-                      "  DuE \t", "  at   5pm  ", "  #family  ", "  every monday  "]
+        let inputs = [
+            "due", "for", "at", "and", "by", "until", "on", "around", "-", ",", ";", ":",
+            "  DuE \t", "  at   5pm  ", "  #family  ", "  every monday  ",
+        ]
         var e = PlannerEngine(planner: Planner(), now: { Fixture.now }, calendar: Fixture.calendar)
         for input in inputs {
             let expected = input.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -469,7 +492,8 @@ final class TaskCaptureEdgeTests: XCTestCase {
         XCTAssertEqual(DayKey("2027-03-13").adding(days: 1, calendar: cal).raw, "2027-03-14")
         XCTAssertEqual(DayKey("2026-10-31").adding(days: 1, calendar: cal).raw, "2026-11-01")
         // Spring-forward day is 23 h long, fall-back day is 25 h.
-        let spring = DayKey("2027-03-15").date(calendar: cal).timeIntervalSince(DayKey("2027-03-14").date(calendar: cal))
+        let spring = DayKey("2027-03-15").date(calendar: cal).timeIntervalSince(
+            DayKey("2027-03-14").date(calendar: cal))
         let fall = DayKey("2026-11-02").date(calendar: cal).timeIntervalSince(DayKey("2026-11-01").date(calendar: cal))
         XCTAssertEqual(spring, 23 * 3600, accuracy: 1)
         XCTAssertEqual(fall, 25 * 3600, accuracy: 1)

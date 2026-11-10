@@ -13,12 +13,14 @@ public enum WorkspaceLayout {
     }
 
     public static func preferredSize(notchHeight: CGFloat = 0) -> CGSize {
-        CGSize(width: preferredWidth,
-               height: contentHeight + headerHeight(notchHeight: notchHeight) + headerGap + bottomInset)
+        CGSize(
+            width: preferredWidth,
+            height: contentHeight + headerHeight(notchHeight: notchHeight) + headerGap + bottomInset)
     }
 
     /// Uses the same screen clamp and menu-bar clearance as drawing, hover and click routing.
     public static func frame(screen: NotchLayout.Screen) -> CGRect {
-        NotchLayout.workspaceFrame(screen: screen, size: preferredSize(notchHeight: NotchLayout.notch(screen: screen).height))
+        NotchLayout.workspaceFrame(
+            screen: screen, size: preferredSize(notchHeight: NotchLayout.notch(screen: screen).height))
     }
 }

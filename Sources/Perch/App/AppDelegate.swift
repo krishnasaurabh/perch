@@ -34,7 +34,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if let i = args.firstIndex(of: "--scenario"), i + 1 < args.count { seedScenario(args[i + 1]) }
         if args.contains("--preview-open") {
             // `--page <home|week|clips|insights>` picks the page the preview opens on (CI snapshots).
-            let page = args.firstIndex(of: "--page").flatMap { i in i + 1 < args.count ? NotchPage(rawValue: args[i + 1]) : nil }
+            let page = args.firstIndex(of: "--page").flatMap { i in
+                i + 1 < args.count ? NotchPage(rawValue: args[i + 1]) : nil
+            }
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { self.model.open(page: page, pinned: true) }
         }
         if !store.prefs.welcomeCompleted && !CommandLine.arguments.contains("--preview-open") { showWelcome() }
@@ -44,9 +46,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func seedDemo() {
         guard store.planner.tasks.isEmpty else { return }
         store.apply { e in
-            _ = try e.addTasks(["Draft release notes !high #launch for 50 min", "Call the bank at 4pm", "Merge the auth branch #work",
-                                "Water the plants every 3 days", "Plan team offsite friday", "Renew car registration next monday",
-                                "Learn piano someday"])
+            _ = try e.addTasks([
+                "Draft release notes !high #launch for 50 min", "Call the bank at 4pm", "Merge the auth branch #work",
+                "Water the plants every 3 days", "Plan team offsite friday", "Renew car registration next monday",
+                "Learn piano someday",
+            ])
             _ = try e.complete("Merge the auth branch")
             try e.writeNotepad(on: e.today, text: "Try batching email to 11 and 4\nQuestions for the design sync")
             _ = try e.startTimer(task: "Draft release notes", minutes: 50)
@@ -63,8 +67,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             e.planner.preferences.welcomeCompleted = true
             switch name {
             case "three", "timer":
-                let added = try e.addTasks(["Draft the test checklist !high #work", "Review the release notes", "Choose a desk plant"], on: .day(e.today))
-                if name == "timer", let first = added.first { _ = try e.startTimer(task: first.id.uuidString, minutes: 45) }
+                let added = try e.addTasks(
+                    ["Draft the test checklist !high #work", "Review the release notes", "Choose a desk plant"],
+                    on: .day(e.today))
+                if name == "timer", let first = added.first {
+                    _ = try e.startTimer(task: first.id.uuidString, minutes: 45)
+                }
             case "insights":
                 let cal = Calendar.current, now = Date()
                 let doneByDay = [2, 4, 3, 5, 1, 6, 4, 3, 2, 3, 2, 0, 3, 2]  // index 0 = 13 days ago, 13 = today
@@ -75,10 +83,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     for n in 0..<(done + 1 + i % 2) {
                         let finished = n < done
                         let at = cal.date(bySettingHour: 9 + n, minute: 15, second: 0, of: date) ?? date
-                        e.planner.tasks.append(PlanTask(title: "Task \(n + 1)", day: day, done: finished, completedAt: finished ? at : nil, createdAt: date))
+                        e.planner.tasks.append(
+                            PlanTask(
+                                title: "Task \(n + 1)", day: day, done: finished, completedAt: finished ? at : nil,
+                                createdAt: date))
                     }
                     if ago > 0, done > 0, let start = cal.date(bySettingHour: 10, minute: 0, second: 0, of: date) {
-                        e.planner.focusLog.append(FocusSegment(taskID: nil, start: start, end: start.addingTimeInterval(Double(done) * 600)))
+                        e.planner.focusLog.append(
+                            FocusSegment(taskID: nil, start: start, end: start.addingTimeInterval(Double(done) * 600)))
                     }
                 }
             default: break
@@ -102,11 +114,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         statusItem = item
 
         // didFail too: a chord macOS refuses is rolled back after didChange, so re-read the store each time.
-        Publishers.Merge(NotificationCenter.default.publisher(for: ShortcutStore.didChange),
-                         NotificationCenter.default.publisher(for: ShortcutStore.didFail))
-            .receive(on: RunLoop.main)
-            .sink { [weak self] _ in self?.openItem?.title = Self.openTitle() }
-            .store(in: &cancellables)
+        Publishers.Merge(
+            NotificationCenter.default.publisher(for: ShortcutStore.didChange),
+            NotificationCenter.default.publisher(for: ShortcutStore.didFail)
+        )
+        .receive(on: RunLoop.main)
+        .sink { [weak self] _ in self?.openItem?.title = Self.openTitle() }
+        .store(in: &cancellables)
     }
 
     private static func openTitle() -> String { "Open Perch (\(ShortcutStore.load().display))" }
@@ -120,13 +134,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var pendingExternalTask: UUID?
 
     private func setupURLScheme() {
-        NSAppleEventManager.shared().setEventHandler(self, andSelector: #selector(handleURL(_:reply:)),
-                                                     forEventClass: AEEventClass(kInternetEventClass), andEventID: AEEventID(kAEGetURL))
+        NSAppleEventManager.shared().setEventHandler(
+            self, andSelector: #selector(handleURL(_:reply:)),
+            forEventClass: AEEventClass(kInternetEventClass), andEventID: AEEventID(kAEGetURL))
     }
 
     @objc func handleURL(_ event: NSAppleEventDescriptor, reply: NSAppleEventDescriptor) {
         guard let store, let raw = event.paramDescriptor(forKeyword: keyDirectObject)?.stringValue,
-              let request = ExternalURLRequest.parse(raw, now: store.engine.now(), resetHour: store.prefs.resetHour) else { return }
+            let request = ExternalURLRequest.parse(raw, now: store.engine.now(), resetHour: store.prefs.resetHour)
+        else { return }
         switch request {
         case .add(let task):
             // One visible request at a time. Neither another URL nor a repeated callback can
@@ -140,7 +156,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 guard confirmed else { return }
                 if store.apply({ try $0.addTasks([task.title], on: task.day, literal: true) }) != nil {
                     // Keep untrusted task text out of status/agent messages.
-                    self.model?.show(.init(kind: .message, title: "Task added", subtitle: "Confirmed external request"), for: 2.5)
+                    self.model?.show(
+                        .init(kind: .message, title: "Task added", subtitle: "Confirmed external request"), for: 2.5)
                 }
             }
         case .open(let page):
@@ -158,11 +175,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let iso = ISO8601DateFormatter()
         iso.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         services.timeline.onPass = { [weak self] showing, wake in
-            let row: [String: Any] = ["at": iso.string(from: Date()), "showing": showing ?? NSNull(),
-                                      "notch": self?.model.activity?.title ?? NSNull(),
-                                      "nextWake": wake.map(iso.string(from:)) ?? NSNull()]
+            let row: [String: Any] = [
+                "at": iso.string(from: Date()), "showing": showing ?? NSNull(),
+                "notch": self?.model.activity?.title ?? NSNull(),
+                "nextWake": wake.map(iso.string(from:)) ?? NSNull(),
+            ]
             guard let data = try? JSONSerialization.data(withJSONObject: row, options: [.sortedKeys]),
-                  let h = try? FileHandle(forWritingTo: url) else { return }
+                let h = try? FileHandle(forWritingTo: url)
+            else { return }
             h.seekToEndOfFile(); h.write(data + Data("\n".utf8)); try? h.close()
         }
         services.timeline.refresh()
@@ -208,29 +228,44 @@ struct WelcomeView: View {
         VStack(spacing: 18) {
             OwlMark(size: 64).padding(.top, 34)
             Text("Your plan lives in the notch now.").font(.system(size: 22, weight: .bold))
-            Text("Hover over the notch, or press \(shortcut). Type or say what's on your mind and it becomes a sorted task.")
-                .multilineTextAlignment(.center).foregroundStyle(.secondary).frame(width: 400)
-                .onReceive(NotificationCenter.default.publisher(for: ShortcutStore.didChange)) { _ in shortcut = ShortcutStore.load().display }
-                .onReceive(NotificationCenter.default.publisher(for: ShortcutStore.didFail)) { _ in shortcut = ShortcutStore.load().display }
+            Text(
+                "Hover over the notch, or press \(shortcut). Type or say what's on your mind and it becomes a sorted task."
+            )
+            .multilineTextAlignment(.center).foregroundStyle(.secondary).frame(width: 400)
+            .onReceive(NotificationCenter.default.publisher(for: ShortcutStore.didChange)) { _ in
+                shortcut = ShortcutStore.load().display
+            }
+            .onReceive(NotificationCenter.default.publisher(for: ShortcutStore.didFail)) { _ in
+                shortcut = ShortcutStore.load().display
+            }
             VStack(spacing: 8) {
-                row("calendar", "Calendar", "Shows today's events next to your list. Perch never edits them.", "cal") { await services.calendar.requestAccess() }
-                row("bell", "Notifications", "A heads-up when a reminder fires or a timer ends.", "notif") { await services.reminders.requestAuthorization() }
+                row("calendar", "Calendar", "Shows today's events next to your list. Perch never edits them.", "cal") {
+                    await services.calendar.requestAccess()
+                }
+                row("bell", "Notifications", "A heads-up when a reminder fires or a timer ends.", "notif") {
+                    await services.reminders.requestAuthorization()
+                }
                 row("mic", "Voice", "Dictate tasks. Speech is processed on this Mac.", "mic") {
-                    _ = await withCheckedContinuation { c in SFSpeechRecognizerBridge.request { c.resume(returning: $0) } }
+                    _ = await withCheckedContinuation { c in
+                        SFSpeechRecognizerBridge.request { c.resume(returning: $0) }
+                    }
                 }
                 row("iphone", "Reminders sync", "Mirror your list to iPhone and Apple Watch.", "rem") {
                     if await services.remindersSync.requestAccess() { store.updatePrefs { $0.remindersSync = true } }
                 }
             }
             .frame(width: 440)
-            Text("Skip any permission for now. You can enable it later in Settings.").font(.caption).foregroundStyle(.secondary)
+            Text("Skip any permission for now. You can enable it later in Settings.").font(.caption).foregroundStyle(
+                .secondary)
             Button("Open my workspace", action: done).keyboardShortcut(.defaultAction).controlSize(.large)
             Spacer()
         }
         .frame(maxWidth: .infinity)
     }
 
-    func row(_ symbol: String, _ title: String, _ detail: String, _ key: String, _ action: @escaping () async -> Void) -> some View {
+    func row(_ symbol: String, _ title: String, _ detail: String, _ key: String, _ action: @escaping () async -> Void)
+        -> some View
+    {
         HStack(spacing: 12) {
             Image(systemName: symbol).frame(width: 22).foregroundStyle(Theme.accent)
             VStack(alignment: .leading, spacing: 1) {
@@ -238,8 +273,14 @@ struct WelcomeView: View {
                 Text(detail).font(.caption).foregroundStyle(.secondary)
             }
             Spacer()
-            if granted.contains(key) { Image(systemName: "checkmark.circle.fill").foregroundStyle(.green) } else {
-                Button("Allow") { Task { await action(); granted.insert(key) } }
+            if granted.contains(key) {
+                Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
+            } else {
+                Button("Allow") {
+                    Task {
+                        await action(); granted.insert(key)
+                    }
+                }
             }
         }
         .padding(10).background(RoundedRectangle(cornerRadius: 10).fill(Color.primary.opacity(0.05)))

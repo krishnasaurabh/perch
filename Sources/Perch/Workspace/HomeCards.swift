@@ -55,7 +55,8 @@ struct FocusCard: View {
             // Opt-in: decorative, and harder to read at a glance.
             DotMatrixText(text: text, dot: text.count > 5 ? 4.5 : 6.5, color: dim ? Theme.secondary : Theme.accent)
         case .minimal:
-            Text(text).font(.system(size: 30, weight: .light).monospacedDigit()).foregroundStyle(dim ? Theme.secondary : Theme.text)
+            Text(text).font(.system(size: 30, weight: .light).monospacedDigit()).foregroundStyle(
+                dim ? Theme.secondary : Theme.text)
         }
     }
 
@@ -63,15 +64,25 @@ struct FocusCard: View {
         HStack(spacing: 8) {
             if active, let f {
                 let running = f.state == .running
-                Button { store.apply { e in running ? try e.pauseTimer() : try e.resumeTimer() } } label: {
+                Button {
+                    store.apply { e in running ? try e.pauseTimer() : try e.resumeTimer() }
+                } label: {
                     Label(running ? "Pause" : "Continue", systemImage: running ? "pause.fill" : "play.fill")
                 }
                 .buttonStyle(PillStyle(prominent: true))
                 .help(running ? "Pause timer" : "Continue timer")
-                if f.limit != nil { GlassButton(symbol: "goforward.5", help: "Add five minutes", size: 26) { store.apply { $0.extendTimer(minutes: 5) } } }
-                GlassButton(symbol: "stop.fill", help: "End focus session", size: 26) { store.apply { _ = $0.stopTimer() } }
+                if f.limit != nil {
+                    GlassButton(symbol: "goforward.5", help: "Add five minutes", size: 26) {
+                        store.apply { $0.extendTimer(minutes: 5) }
+                    }
+                }
+                GlassButton(symbol: "stop.fill", help: "End focus session", size: 26) {
+                    store.apply { _ = $0.stopTimer() }
+                }
                 if let id = f.taskID {
-                    GlassButton(symbol: "checkmark", help: "Mark done", tint: Theme.done, size: 26) { store.apply { try $0.complete(id.uuidString) } }
+                    GlassButton(symbol: "checkmark", help: "Mark done", tint: Theme.done, size: 26) {
+                        store.apply { try $0.complete(id.uuidString) }
+                    }
                 }
             } else {
                 Stepper(value: $minutes, in: 5...180, step: 5) {
@@ -79,9 +90,14 @@ struct FocusCard: View {
                 }
                 .controlSize(.small)
                 Spacer()
-                Button("Start") { store.apply { try $0.startTimer(task: nil, minutes: minutes) } }.buttonStyle(PillStyle(prominent: true))
-                Button { store.apply { $0.startStopwatch(taskID: nil) } } label: { Image(systemName: "stopwatch") }
-                    .buttonStyle(PillStyle()).help("Count up with no limit")
+                Button("Start") { store.apply { try $0.startTimer(task: nil, minutes: minutes) } }.buttonStyle(
+                    PillStyle(prominent: true))
+                Button {
+                    store.apply { $0.startStopwatch(taskID: nil) }
+                } label: {
+                    Image(systemName: "stopwatch")
+                }
+                .buttonStyle(PillStyle()).help("Count up with no limit")
             }
         }
         .frame(maxWidth: .infinity)
@@ -89,14 +105,21 @@ struct FocusCard: View {
 
     var styleMenu: some View {
         Menu {
-            Picker("Timer face", selection: Binding(get: { store.prefs.workspaceTimerStyle }, set: { v in store.updatePrefs { $0.workspaceTimerStyle = v } })) {
+            Picker(
+                "Timer face",
+                selection: Binding(
+                    get: { store.prefs.workspaceTimerStyle },
+                    set: { v in store.updatePrefs { $0.workspaceTimerStyle = v } })
+            ) {
                 Text("Digital").tag(WorkspaceTimerStyle.digital)
                 Text("Minimal").tag(WorkspaceTimerStyle.minimal)
                 Text("Dot grid").tag(WorkspaceTimerStyle.dotMatrix)
             }
-        } label: { Image(systemName: "slider.horizontal.3").font(.system(size: 11)).foregroundStyle(Theme.secondary) }
-            .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
-            .help("Timer face")
+        } label: {
+            Image(systemName: "slider.horizontal.3").font(.system(size: 11)).foregroundStyle(Theme.secondary)
+        }
+        .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
+        .help("Timer face")
     }
 }
 
@@ -128,15 +151,25 @@ struct NotepadCard: View {
         let d = day ?? store.today
         let readOnly = d < store.today
         VStack(alignment: .leading, spacing: 8) {
-            CardHeading("Notepad", trailing: AnyView(
-                Text(flash ?? "⌘↩ makes a task").font(Theme.meta).foregroundStyle(flash == nil ? Theme.tertiary : Theme.accent)))
-            ScratchpadEditor(text: Binding(get: { store.text(for: .notepad(d)) },
-                                          set: { store.setText($0, for: .notepad(d)) }), isEditable: !readOnly, placeholder: "Jot a note", surface: CardTone.tile.fill, onCommandReturn: { line in
-                let clean = line.trimmingCharacters(in: .whitespaces)
-                guard !clean.isEmpty, let t = store.apply({ try $0.lineToTask(clean, day: max(d, store.today)) }) ?? nil else { return }
-                flash = "Added “\(t.title)”"
-                DispatchQueue.main.asyncAfter(deadline: .now() + 2) { flash = nil }
-            }, onEndEditing: { store.flushPendingText() })
+            CardHeading(
+                "Notepad",
+                trailing: AnyView(
+                    Text(flash ?? "⌘↩ makes a task").font(Theme.meta).foregroundStyle(
+                        flash == nil ? Theme.tertiary : Theme.accent)))
+            ScratchpadEditor(
+                text: Binding(
+                    get: { store.text(for: .notepad(d)) },
+                    set: { store.setText($0, for: .notepad(d)) }), isEditable: !readOnly, placeholder: "Jot a note",
+                surface: CardTone.tile.fill,
+                onCommandReturn: { line in
+                    let clean = line.trimmingCharacters(in: .whitespaces)
+                    guard !clean.isEmpty,
+                        let t = store.apply({ try $0.lineToTask(clean, day: max(d, store.today)) }) ?? nil
+                    else { return }
+                    flash = "Added “\(t.title)”"
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 2) { flash = nil }
+                }, onEndEditing: { store.flushPendingText() }
+            )
             .focused($editing)
         }
         .card(.tile)
@@ -212,9 +245,13 @@ struct ScratchpadEditor: NSViewRepresentable {
             clip.postsFrameChangedNotifications = true
             scroll.documentView?.postsFrameChangedNotifications = true
             let nc = NotificationCenter.default
-            nc.addObserver(self, selector: #selector(viewChanged), name: NSView.boundsDidChangeNotification, object: clip)
-            nc.addObserver(self, selector: #selector(viewChanged), name: NSView.frameDidChangeNotification, object: clip)
-            nc.addObserver(self, selector: #selector(viewChanged), name: NSView.frameDidChangeNotification, object: scroll.documentView)
+            nc.addObserver(
+                self, selector: #selector(viewChanged), name: NSView.boundsDidChangeNotification, object: clip)
+            nc.addObserver(
+                self, selector: #selector(viewChanged), name: NSView.frameDidChangeNotification, object: clip)
+            nc.addObserver(
+                self, selector: #selector(viewChanged), name: NSView.frameDidChangeNotification,
+                object: scroll.documentView)
             refreshFade()
         }
 
@@ -224,11 +261,13 @@ struct ScratchpadEditor: NSViewRepresentable {
         func refreshFade() {
             guard let scroll, let fade, let doc = scroll.documentView else { return }
             let h = min(ScratchpadEditor.fadeHeight, scroll.bounds.height)
-            fade.frame = NSRect(x: 0, y: scroll.isFlipped ? scroll.bounds.height - h : 0, width: scroll.bounds.width, height: h)
+            fade.frame = NSRect(
+                x: 0, y: scroll.isFlipped ? scroll.bounds.height - h : 0, width: scroll.bounds.width, height: h)
             let visible = scroll.contentView.bounds
-            fade.isHidden = !EdgeFade.showsBottomFade(contentHeight: Double(doc.frame.height),
-                                                      visibleOffset: Double(visible.minY),
-                                                      visibleHeight: Double(visible.height))
+            fade.isHidden = !EdgeFade.showsBottomFade(
+                contentHeight: Double(doc.frame.height),
+                visibleOffset: Double(visible.minY),
+                visibleHeight: Double(visible.height))
         }
 
         func textDidEndEditing(_ n: Notification) { parent.onEndEditing() }
@@ -240,7 +279,8 @@ struct ScratchpadEditor: NSViewRepresentable {
         }
         func textView(_ tv: NSTextView, doCommandBy sel: Selector) -> Bool {
             guard sel == #selector(NSResponder.insertNewline(_:)),
-                  NSApp.currentEvent?.modifierFlags.contains(.command) == true else { return false }
+                NSApp.currentEvent?.modifierFlags.contains(.command) == true
+            else { return false }
             let ns = tv.string as NSString
             let line = ns.substring(with: ns.lineRange(for: tv.selectedRange()))
             parent.onCommandReturn(line.trimmingCharacters(in: .newlines))
@@ -284,7 +324,8 @@ private struct AgendaBody: View {
         VStack(alignment: .leading, spacing: 8) {
             CardHeading("Today's agenda")
             if !calendar.hasAccess {
-                Text("Allow calendar access to list today's events here.").font(Theme.meta).foregroundStyle(Theme.secondary)
+                Text("Allow calendar access to list today's events here.").font(Theme.meta).foregroundStyle(
+                    Theme.secondary)
                 Button("Allow Calendar Access") { Task { await calendar.requestAccess() } }.buttonStyle(PillStyle())
             } else {
                 // Ended events stay listed so they can still be checked off (or reopened) for the rest of the day.
@@ -296,14 +337,21 @@ private struct AgendaBody: View {
                         ForEach(events.prefix(4)) { e in
                             let completed = store.planner.completedCalendarEventIDs.contains(e.id)
                             HStack(alignment: .firstTextBaseline, spacing: 8) {
-                                Toggle(e.title, isOn: Binding(
-                                    get: { store.planner.completedCalendarEventIDs.contains(e.id) },
-                                    set: { value in store.apply { try $0.setCalendarEventCompleted(e.id, completed: value) } }
-                                ))
+                                Toggle(
+                                    e.title,
+                                    isOn: Binding(
+                                        get: { store.planner.completedCalendarEventIDs.contains(e.id) },
+                                        set: { value in
+                                            store.apply { try $0.setCalendarEventCompleted(e.id, completed: value) }
+                                        }
+                                    )
+                                )
                                 .toggleStyle(.checkbox)
                                 .labelsHidden()
                                 .accessibilityLabel("Complete calendar event: \(e.title)")
-                                .help(completed ? "Mark incomplete in Perch" : "Mark complete in Perch (Calendar is unchanged)")
+                                .help(
+                                    completed
+                                        ? "Mark incomplete in Perch" : "Mark complete in Perch (Calendar is unchanged)")
                                 Text(e.allDay ? "All day" : e.start.formatted(date: .omitted, time: .shortened))
                                     .font(Theme.meta.monospacedDigit()).foregroundStyle(Theme.secondary)
                                     .frame(width: 58, alignment: .leading)

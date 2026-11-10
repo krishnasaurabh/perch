@@ -5,8 +5,9 @@ import SwiftUI
 extension NotchLayout.Screen {
     /// Reads everything `NotchLayout` needs from a live screen.
     init(_ s: NSScreen) {
-        self.init(frame: s.frame, visibleFrame: s.visibleFrame, safeAreaTop: s.safeAreaInsets.top,
-                  auxiliaryLeftWidth: s.auxiliaryTopLeftArea?.width, auxiliaryRightWidth: s.auxiliaryTopRightArea?.width)
+        self.init(
+            frame: s.frame, visibleFrame: s.visibleFrame, safeAreaTop: s.safeAreaInsets.top,
+            auxiliaryLeftWidth: s.auxiliaryTopLeftArea?.width, auxiliaryRightWidth: s.auxiliaryTopRightArea?.width)
     }
 }
 
@@ -46,8 +47,9 @@ struct NotchGeometry: Equatable {
     /// A running timer: that plus a detached capsule on its side. A nudge: a strip below.
     func idle(timer: NotchTimerPlacement?, activity: Bool) -> NSRect {
         if activity {
-            return NotchLayout.idleFrame(screen: screen, leftWing: Self.activityWing, rightWing: Self.activityWing,
-                                         below: Self.activityDepth, minWidth: Self.activityWidth)
+            return NotchLayout.idleFrame(
+                screen: screen, leftWing: Self.activityWing, rightWing: Self.activityWing,
+                below: Self.activityDepth, minWidth: Self.activityWidth)
         }
         if let side = timer { return tuckedNotch.union(pill(side: side)) }
         return tuckedNotch
@@ -56,7 +58,9 @@ struct NotchGeometry: Equatable {
     /// The housing, 1pt inside on the sides and bottom; the drawn notch on a flat screen.
     var tuckedNotch: NSRect {
         guard let cam = camera else { return notchRect }
-        return NSRect(x: cam.minX + Self.tuck, y: cam.minY + Self.tuck, width: cam.width - 2 * Self.tuck, height: cam.height - Self.tuck)
+        return NSRect(
+            x: cam.minX + Self.tuck, y: cam.minY + Self.tuck, width: cam.width - 2 * Self.tuck,
+            height: cam.height - Self.tuck)
     }
 
     /// The timer capsule: about three quarters of the notch's height, centred on it vertically, `pillGap` from its side.
@@ -76,7 +80,8 @@ struct NotchGeometry: Equatable {
 
     /// Where hovering opens the notch (closed), or keeps it open (expanded: exactly the workspace).
     func hover(expanded: Bool, timer: NotchTimerPlacement?, activity: Bool) -> NSRect {
-        NotchLayout.hoverFrame(idle: idle(timer: timer, activity: activity), workspace: workspace, expanded: expanded, screen: screen)
+        NotchLayout.hoverFrame(
+            idle: idle(timer: timer, activity: activity), workspace: workspace, expanded: expanded, screen: screen)
     }
 
     /// Open on a flat screen: the strip of menu bar between the notch and the floating workspace. The pointer may
@@ -87,8 +92,12 @@ struct NotchGeometry: Equatable {
 
     /// The transparent window: fixed per screen and large enough for every shape, so it never moves while animating.
     var window: NSRect {
-        NotchLayout.windowFrame(screen: screen, containing: [idle(timer: nil, activity: true), idle(timer: .left, activity: false),
-                                                                idle(timer: .right, activity: false), workspace])
+        NotchLayout.windowFrame(
+            screen: screen,
+            containing: [
+                idle(timer: nil, activity: true), idle(timer: .left, activity: false),
+                idle(timer: .right, activity: false), workspace,
+            ])
     }
 
     static func radii(expanded: Bool) -> (top: CGFloat, bottom: CGFloat) { expanded ? (10, 26) : (6, 12) }
@@ -128,7 +137,8 @@ struct NotchShape: Shape {
 
     func path(in r: CGRect) -> Path {
         if !attached {
-            return RoundedRectangle(cornerRadius: min(bottomRadius, r.height / 2, r.width / 2), style: .continuous).path(in: r)
+            return RoundedRectangle(cornerRadius: min(bottomRadius, r.height / 2, r.width / 2), style: .continuous)
+                .path(in: r)
         }
         var p = Path()
         let t = topRadius, b = min(bottomRadius, r.height / 2)
@@ -191,13 +201,16 @@ final class NotchHostingView<Content: View>: NSHostingView<Content> {
 /// Reads the on-screen window list for `NotchLayout.isFullScreen`. Bounds and layers need no permission.
 enum WindowList {
     static func current() -> [NotchLayout.Window] {
-        guard let list = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]]
+        guard
+            let list = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID)
+                as? [[String: Any]]
         else { return [] }
         let me = ProcessInfo.processInfo.processIdentifier
         return list.compactMap { w in
             guard let layer = w[kCGWindowLayer as String] as? Int,
-                  let b = w[kCGWindowBounds as String] as? NSDictionary,
-                  let r = CGRect(dictionaryRepresentation: b as CFDictionary) else { return nil }
+                let b = w[kCGWindowBounds as String] as? NSDictionary,
+                let r = CGRect(dictionaryRepresentation: b as CFDictionary)
+            else { return nil }
             return NotchLayout.Window(bounds: r, layer: layer, isOwn: (w[kCGWindowOwnerPID as String] as? pid_t) == me)
         }
     }

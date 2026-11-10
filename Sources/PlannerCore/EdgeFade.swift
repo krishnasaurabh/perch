@@ -8,8 +8,10 @@ public enum EdgeFade {
     ///   - contentHeight: height of the scrolled document (the text view's frame).
     ///   - visibleOffset: how far the visible area is scrolled from the top.
     ///   - visibleHeight: height of the visible area.
-    public static func showsBottomFade(contentHeight: Double, visibleOffset: Double, visibleHeight: Double,
-                                       tolerance: Double = 0.5) -> Bool {
+    public static func showsBottomFade(
+        contentHeight: Double, visibleOffset: Double, visibleHeight: Double,
+        tolerance: Double = 0.5
+    ) -> Bool {
         guard visibleHeight > 0 else { return false }
         return contentHeight - (visibleOffset + visibleHeight) > tolerance
     }

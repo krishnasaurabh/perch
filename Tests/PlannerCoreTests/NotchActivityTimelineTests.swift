@@ -18,10 +18,12 @@ final class NotchActivityTimelineTests: XCTestCase {
     func testTriggersIncludeOpenRemindersBothEventPhasesAndScreenshots() {
         var p = Planner()
         let task = PlanTask(title: "Call", day: "2026-11-09", remindAt: time)
-        p.tasks = [task,
-                   PlanTask(title: "Done", day: "2026-11-09", done: true, remindAt: time),
-                   PlanTask(title: "Inbox", day: nil, remindAt: time),
-                   PlanTask(title: "No alarm", day: "2026-11-09")]
+        p.tasks = [
+            task,
+            PlanTask(title: "Done", day: "2026-11-09", done: true, remindAt: time),
+            PlanTask(title: "Inbox", day: nil, remindAt: time),
+            PlanTask(title: "No alarm", day: "2026-11-09"),
+        ]
         let event = NotchActivityTimeline.Event(id: "event", title: "Meeting", start: time.addingTimeInterval(600))
         let allDay = NotchActivityTimeline.Event(id: "all-day", title: "Holiday", start: time, isAllDay: true)
         let url = URL(fileURLWithPath: "/screenshots/capture.png")
@@ -33,7 +35,8 @@ final class NotchActivityTimelineTests: XCTestCase {
         XCTAssertEqual(triggers.first { $0.kind == .eventSoon }?.date, time.addingTimeInterval(300))
         XCTAssertEqual(triggers.first { $0.kind == .eventNow }?.date, event.start)
         XCTAssertEqual(triggers.first { $0.kind == .screenshot }?.fileURL, url)
-        XCTAssertEqual(triggers, NotchActivityTimeline.triggers(planner: p, events: [event, allDay], screenshots: [screenshot]))
+        XCTAssertEqual(
+            triggers, NotchActivityTimeline.triggers(planner: p, events: [event, allDay], screenshots: [screenshot]))
     }
 
     func testEveryKindHasHalfOpenVisibilityWindow() {
@@ -77,7 +80,8 @@ final class NotchActivityTimelineTests: XCTestCase {
         XCTAssertEqual(timeline.showing(at: time, dismissed: [event.id, reminder.id]), shot)
         XCTAssertEqual(timeline.showing(at: time, dismissed: [event.id, reminder.id, shot.id]), soon)
         XCTAssertNil(timeline.showing(at: time, dismissed: Set([event.id, reminder.id, shot.id, soon.id])))
-        XCTAssertEqual(timeline.nextChange(after: time), event.end, "skip changes hidden behind higher-priority activity")
+        XCTAssertEqual(
+            timeline.nextChange(after: time), event.end, "skip changes hidden behind higher-priority activity")
         XCTAssertEqual(timeline.nextChange(after: time, dismissed: [event.id, reminder.id]), shot.end)
     }
 

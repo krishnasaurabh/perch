@@ -188,10 +188,11 @@ final class PlannerFileConcurrencyTests: XCTestCase {
         let file = PlannerFile(url: url)
         try seed(file, titles: ["keep me"])
         let before = try Data(contentsOf: url)
-        XCTAssertThrowsError(try file.mutate { p in
-            p.tasks.removeAll()
-            throw PlannerError("nope")
-        })
+        XCTAssertThrowsError(
+            try file.mutate { p in
+                p.tasks.removeAll()
+                throw PlannerError("nope")
+            })
         XCTAssertEqual(try Data(contentsOf: url), before)
         XCTAssertEqual(try file.load().tasks.map(\.title), ["keep me"])
     }

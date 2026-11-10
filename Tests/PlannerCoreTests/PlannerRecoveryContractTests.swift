@@ -22,15 +22,16 @@ final class PlannerRecoveryContractTests: XCTestCase {
     }
 
     func testRecoveryReportsKeptRecordsRejectedRecordsAndRejectedFieldsSeparately() throws {
-        let raw = Data(#"""
-        {"tasks":[
-            {"id":"00000000-0000-0000-0000-000000000001","title":"Synthetic task","createdAt":"2026-11-09T12:00:00Z"},
-            {"id":"00000000-0000-0000-0000-000000000002","title":"Synthetic task","createdAt":"2026-11-09T12:00:00Z","priority":"future"},
-            null],
-         "notes":[{"day":"2026-11-09","text":"Synthetic note"},false],
-         "completedCalendarEventDays":{"event":"2026-11-09","invalid":"not-a-day"},
-         "projects":null,"preferences":{"carryMode":"future"}}
-        """#.utf8)
+        let raw = Data(
+            #"""
+            {"tasks":[
+                {"id":"00000000-0000-0000-0000-000000000001","title":"Synthetic task","createdAt":"2026-11-09T12:00:00Z"},
+                {"id":"00000000-0000-0000-0000-000000000002","title":"Synthetic task","createdAt":"2026-11-09T12:00:00Z","priority":"future"},
+                null],
+             "notes":[{"day":"2026-11-09","text":"Synthetic note"},false],
+             "completedCalendarEventDays":{"event":"2026-11-09","invalid":"not-a-day"},
+             "projects":null,"preferences":{"carryMode":"future"}}
+            """#.utf8)
         try raw.write(to: file.url)
         do {
             let error = try loadError()
@@ -42,7 +43,8 @@ final class PlannerRecoveryContractTests: XCTestCase {
             XCTAssertEqual(recovery.quarantineURL, recovery.originalURL)
             XCTAssertEqual(try Data(contentsOf: recovery.quarantineURL), raw)
             XCTAssertTrue(recovery.localizedDescription.contains("Kept 3 valid record(s)"))
-            XCTAssertTrue(recovery.localizedDescription.contains("Quarantined 4 invalid record(s) and 2 invalid field(s)"))
+            XCTAssertTrue(
+                recovery.localizedDescription.contains("Quarantined 4 invalid record(s) and 2 invalid field(s)"))
             XCTAssertTrue(recovery.localizedDescription.contains(recovery.originalURL.path))
             XCTAssertTrue(recovery.localizedDescription.contains("original planner is unchanged"))
         }
@@ -50,18 +52,19 @@ final class PlannerRecoveryContractTests: XCTestCase {
     }
 
     func testCountsIncludeEveryCollectionAndCountNestedFailureOnce() throws {
-        let raw = Data(#"""
-        {"tasks":[
-            {"id":"00000000-0000-0000-0000-000000000001","title":"Synthetic task","createdAt":"2026-11-09T12:00:00Z"},
-            {"id":"00000000-0000-0000-0000-000000000002","title":"Synthetic task","createdAt":"2026-11-09T12:00:00Z","steps":[{},{}]}],
-         "projects":[{"id":"00000000-0000-0000-0000-000000000001","name":"Synthetic project","colorHex":"#123456"},false],
-         "notes":[{"day":"2026-11-09","text":"Synthetic note"},false],
-         "focusSegments":[{"start":"2026-11-09T12:00:00Z","end":"2026-11-09T12:01:00Z"},{}],
-         "dismissedOverdue":["00000000-0000-0000-0000-000000000001",false],
-         "repeatOccurrences":[{"seriesID":"00000000-0000-0000-0000-000000000001","day":"2026-11-09"},{}],
-         "completedCalendarEventIDs":["event","event",false],
-         "completedCalendarEventDays":{"event":"2026-11-09","invalid":"not-a-day"}}
-        """#.utf8)
+        let raw = Data(
+            #"""
+            {"tasks":[
+                {"id":"00000000-0000-0000-0000-000000000001","title":"Synthetic task","createdAt":"2026-11-09T12:00:00Z"},
+                {"id":"00000000-0000-0000-0000-000000000002","title":"Synthetic task","createdAt":"2026-11-09T12:00:00Z","steps":[{},{}]}],
+             "projects":[{"id":"00000000-0000-0000-0000-000000000001","name":"Synthetic project","colorHex":"#123456"},false],
+             "notes":[{"day":"2026-11-09","text":"Synthetic note"},false],
+             "focusSegments":[{"start":"2026-11-09T12:00:00Z","end":"2026-11-09T12:01:00Z"},{}],
+             "dismissedOverdue":["00000000-0000-0000-0000-000000000001",false],
+             "repeatOccurrences":[{"seriesID":"00000000-0000-0000-0000-000000000001","day":"2026-11-09"},{}],
+             "completedCalendarEventIDs":["event","event",false],
+             "completedCalendarEventDays":{"event":"2026-11-09","invalid":"not-a-day"}}
+            """#.utf8)
         try raw.write(to: file.url)
         var quarantineURL: URL?
         for _ in 0..<3 {

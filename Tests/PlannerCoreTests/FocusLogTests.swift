@@ -3,7 +3,8 @@ import XCTest
 
 final class FocusLogTests: XCTestCase {
     var clock = Fixture.now
-    lazy var engine = PlannerEngine(planner: Planner(), now: { [unowned self] in self.clock }, calendar: Fixture.calendar)
+    lazy var engine = PlannerEngine(
+        planner: Planner(), now: { [unowned self] in self.clock }, calendar: Fixture.calendar)
 
     func testTickCheckpointsAtThirtySecondsWithoutFinishingOrDoubleCounting() throws {
         let task = try engine.addTasks(["work"]).first!
@@ -75,7 +76,8 @@ final class FocusLogTests: XCTestCase {
         engine.planner = try PlannerFile.decoder.decode(Planner.self, from: PlannerFile.encoder.encode(before))
         XCTAssertEqual(engine.planner, before)
         XCTAssertFalse(engine.checkpointFocus(), "same instant must not accrue time after persistence")
-        XCTAssertEqual(engine.planner.focusLog.reduce(0) { $0 + $1.seconds }, before.focusLog.reduce(0) { $0 + $1.seconds })
+        XCTAssertEqual(
+            engine.planner.focusLog.reduce(0) { $0 + $1.seconds }, before.focusLog.reduce(0) { $0 + $1.seconds })
         clock += 0.125678
         _ = engine.stopTimer()
         XCTAssertEqual(engine.planner.focusLog.reduce(0) { $0 + $1.seconds }, 30.876912, accuracy: 0.000001)
@@ -114,7 +116,9 @@ final class FocusLogTests: XCTestCase {
         XCTAssertEqual(engine.insights().today.focusSeconds, 600)
         XCTAssertEqual(engine.insights().lastSeven.dropLast().last?.focusSeconds, 600)
         engine.planner.preferences.resetHour = 0
-        engine.planner.focusLog = [FocusSegment(taskID: nil, start: Fixture.date("2026-11-09 23:50"), end: Fixture.date("2026-11-10 00:10"))]
+        engine.planner.focusLog = [
+            FocusSegment(taskID: nil, start: Fixture.date("2026-11-09 23:50"), end: Fixture.date("2026-11-10 00:10"))
+        ]
         XCTAssertEqual(engine.insights().today.focusSeconds, 600)
         XCTAssertEqual(engine.insights().allTimeFocusSeconds, 1200)
     }

@@ -5,20 +5,23 @@ extension PlannerEngine {
     /// schedule until their predecessor finishes, so completion handles those instead.
     @discardableResult
     public mutating func applyRepeats(on day: DayKey) -> [PlanTask] {
-        let series = Dictionary(grouping: planner.tasks.filter { $0.repeatRule != nil && $0.day != nil }, by: \.repeatSeriesID)
+        let series = Dictionary(
+            grouping: planner.tasks.filter { $0.repeatRule != nil && $0.day != nil }, by: \.repeatSeriesID)
         var added: [PlanTask] = []
         // Preserve task order rather than depending on Dictionary's iteration order.
         var seen = Set<UUID>()
         for task in planner.tasks {
             let id = task.repeatSeriesID
             guard seen.insert(id).inserted, let members = series[id],
-                  let template = members.filter({ $0.day! <= day }).max(by: { $0.day! < $1.day! }),
-                  let rule = template.repeatRule, !rule.fromCompletion else { continue }
+                let template = members.filter({ $0.day! <= day }).max(by: { $0.day! < $1.day! }),
+                let rule = template.repeatRule, !rule.fromCompletion
+            else { continue }
             // Old v1 exports have unlinked completed predecessors beside live successors.
             // Retain that history, but do not turn each completed singleton into a new series.
             if isLegacyRetiredSingleton(template) { continue }
             guard let start = repeatAnchor(for: template), day > start,
-                  rule.occurs(on: day, starting: start, calendar: calendar) else { continue }
+                rule.occurs(on: day, starting: start, calendar: calendar)
+            else { continue }
             preserveRepeatAnchor(of: template.id)
             if let copy = materializeRepeat(template, on: day) { added.append(copy) }
         }
@@ -44,13 +47,18 @@ extension PlannerEngine {
 
     private func isLegacyRetiredSingleton(_ task: PlanTask) -> Bool {
         task.done && task.repeatedFrom == nil && task.repeatAnchor == nil
-            && !planner.tasks.contains { $0.id != task.id && $0.repeatSeriesID == task.repeatSeriesID && $0.repeatRule != nil }
+            && !planner.tasks.contains {
+                $0.id != task.id && $0.repeatSeriesID == task.repeatSeriesID && $0.repeatRule != nil
+            }
     }
 
     mutating func preserveRepeatAnchor(of id: UUID) {
-        guard let task = planner.tasks.first(where: { $0.id == id }), task.repeatRule != nil, !isLegacyRetiredSingleton(task),
-              let anchor = repeatAnchor(for: task) else { return }
-        for i in planner.tasks.indices where planner.tasks[i].repeatSeriesID == task.repeatSeriesID && planner.tasks[i].repeatRule != nil {
+        guard let task = planner.tasks.first(where: { $0.id == id }), task.repeatRule != nil,
+            !isLegacyRetiredSingleton(task),
+            let anchor = repeatAnchor(for: task)
+        else { return }
+        for i in planner.tasks.indices
+        where planner.tasks[i].repeatSeriesID == task.repeatSeriesID && planner.tasks[i].repeatRule != nil {
             planner.tasks[i].repeatAnchor = anchor
         }
     }
@@ -66,7 +74,9 @@ extension PlannerEngine {
         let occurrence = RepeatOccurrence(seriesID: task.repeatSeriesID, day: day)
         guard !planner.repeatOccurrences.contains(occurrence) else { return nil }
         planner.repeatOccurrences.append(occurrence)
-        guard !planner.tasks.contains(where: { $0.repeatSeriesID == task.repeatSeriesID && $0.day == day }) else { return nil }
+        guard !planner.tasks.contains(where: { $0.repeatSeriesID == task.repeatSeriesID && $0.day == day }) else {
+            return nil
+        }
         var copy = task
         copy.id = UUID(); copy.day = day; copy.done = false; copy.completedAt = nil; copy.createdAt = now()
         copy.repeatedFrom = task.repeatSeriesID; copy.carryCount = 0
@@ -75,7 +85,8 @@ extension PlannerEngine {
         copy.steps = task.steps.map { Subtask(title: $0.title) }
         if let reminder = task.remindAt {
             let time = calendar.dateComponents([.hour, .minute], from: reminder)
-            copy.remindAt = day.reminderDate(hour: time.hour!, minute: time.minute!, resetHour: planner.preferences.resetHour, calendar: calendar)
+            copy.remindAt = day.reminderDate(
+                hour: time.hour!, minute: time.minute!, resetHour: planner.preferences.resetHour, calendar: calendar)
         }
         planner.tasks.append(copy)
         return copy
@@ -96,16 +107,22 @@ extension TaskRepeat {
         switch unit {
         case .day:
             let stride = interval
-            let elapsed = calendar.dateComponents([.day], from: anchor.date(calendar: calendar), to: base.date(calendar: calendar)).day!
+            let elapsed = calendar.dateComponents(
+                [.day], from: anchor.date(calendar: calendar), to: base.date(calendar: calendar)
+            ).day!
             return anchor.adding(days: (elapsed / stride + 1) * stride, calendar: calendar)
         case .week:
             if weekdays.isEmpty {
-                let elapsed = calendar.dateComponents([.day], from: anchor.date(calendar: calendar), to: base.date(calendar: calendar)).day!
+                let elapsed = calendar.dateComponents(
+                    [.day], from: anchor.date(calendar: calendar), to: base.date(calendar: calendar)
+                ).day!
                 let stride = interval * 7
                 return anchor.adding(days: (elapsed / stride + 1) * stride, calendar: calendar)
             }
             let sunday = anchor.adding(days: -(anchor.weekday(calendar: calendar) - 1), calendar: calendar)
-            let elapsed = calendar.dateComponents([.day], from: sunday.date(calendar: calendar), to: base.date(calendar: calendar)).day!
+            let elapsed = calendar.dateComponents(
+                [.day], from: sunday.date(calendar: calendar), to: base.date(calendar: calendar)
+            ).day!
             let cycle = elapsed / (interval * 7)
             for offset in [cycle, cycle + 1] {
                 for weekday in weekdays.sorted() {
@@ -119,8 +136,15 @@ extension TaskRepeat {
             let b = calendar.dateComponents([.year, .month], from: base.date(calendar: calendar))
             let elapsed = (b.year! - a.year!) * 12 + b.month! - a.month!
             var offset = (elapsed / interval) * interval
-            var next = DayKey(calendar.date(byAdding: .month, value: offset, to: anchor.date(calendar: calendar))!, calendar: calendar)
-            if next <= day { offset += interval; next = DayKey(calendar.date(byAdding: .month, value: offset, to: anchor.date(calendar: calendar))!, calendar: calendar) }
+            var next = DayKey(
+                calendar.date(byAdding: .month, value: offset, to: anchor.date(calendar: calendar))!, calendar: calendar
+            )
+            if next <= day {
+                offset += interval;
+                next = DayKey(
+                    calendar.date(byAdding: .month, value: offset, to: anchor.date(calendar: calendar))!,
+                    calendar: calendar)
+            }
             return next
         }
     }
@@ -143,7 +167,8 @@ extension TaskRepeat {
             let b = calendar.dateComponents([.year, .month], from: target)
             let months = (b.year! - a.year!) * 12 + b.month! - a.month!
             guard months % max(1, interval) == 0,
-                  let occurrence = calendar.date(byAdding: .month, value: months, to: start) else { return false }
+                let occurrence = calendar.date(byAdding: .month, value: months, to: start)
+            else { return false }
             return DayKey(occurrence, calendar: calendar) == day
         }
     }
