@@ -1,12 +1,16 @@
 import Foundation
 
 /// A conditional, field-scoped inverse of a user edit, never a document snapshot.
-/// Runtime, focus credits, service links and caller identity are deliberately excluded.
+/// Runtime, service links and caller identity are never restored; focus credit comes from the current ledger.
 public struct PlannerEdit {
     private var changes: [(inout Planner) -> Void] = []
     public var isEmpty: Bool { changes.isEmpty }
 
     public init(before: Planner, after: Planner) {
+        self.init(before: before, after: after, reversingRestoration: false)
+    }
+
+    fileprivate init(before: Planner, after: Planner, reversingRestoration: Bool) {
         for old in before.tasks {
             if let new = after.tasks.first(where: { $0.id == old.id }) {
                 taskField(\.title, id: old.id, before: old, after: new)
@@ -42,11 +46,15 @@ public struct PlannerEdit {
         }
         for added in after.tasks where !before.tasks.contains(where: { $0.id == added.id }) {
             let content = Self.content(of: added)
+            // Only an inverse made while applying history can remove a restored task
+            // with existing focus. These values are conflict guards, never snapshots to restore.
+            let expectedCredit = reversingRestoration ? added.focusedSeconds : 0
+            let expectedLedger = reversingRestoration ? after.focusSegments.filter { $0.taskID == added.id } : []
             changes.append { planner in
                 guard let i = planner.tasks.firstIndex(where: { $0.id == content.id }),
                       Self.content(of: planner.tasks[i]) == content,
-                      planner.tasks[i].focusedSeconds == 0,
-                      !planner.focusSegments.contains(where: { $0.taskID == content.id }),
+                      planner.tasks[i].focusedSeconds == expectedCredit,
+                      planner.focusSegments.filter({ $0.taskID == content.id }) == expectedLedger,
                       planner.focus?.taskID != content.id else { return }
                 planner.tasks.remove(at: i)
             }
@@ -200,7 +208,7 @@ public struct PlannerUndoHistory {
         try transaction { planner in
             let before = planner
             edit.restore(in: &planner)
-            let delta = PlannerEdit(before: before, after: planner)
+            let delta = PlannerEdit(before: before, after: planner, reversingRestoration: true)
             if !delta.isEmpty { inverse = delta }
         }
         return inverse
