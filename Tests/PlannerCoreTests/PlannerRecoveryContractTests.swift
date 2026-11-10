@@ -15,6 +15,12 @@ final class PlannerRecoveryContractTests: XCTestCase {
         try FileManager.default.removeItem(at: directory)
     }
 
+    private func loadError(file sourceFile: StaticString = #filePath, line: UInt = #line) throws -> Error {
+        var caught: Error?
+        XCTAssertThrowsError(try file.load(), file: sourceFile, line: line) { caught = $0 }
+        return try XCTUnwrap(caught, file: sourceFile, line: line)
+    }
+
     func testRecoveryReportsKeptRecordsRejectedRecordsAndRejectedFieldsSeparately() throws {
         let raw = Data(#"""
         {"tasks":[
@@ -26,7 +32,8 @@ final class PlannerRecoveryContractTests: XCTestCase {
          "projects":null,"preferences":{"carryMode":"future"}}
         """#.utf8)
         try raw.write(to: file.url)
-        try XCTAssertThrowsError(try file.load()) { error in
+        do {
+            let error = try loadError()
             guard let recovery = error as? PlannerRecoveryError else { return XCTFail("Expected record recovery") }
             XCTAssertEqual(recovery.issues.count, 6)
             XCTAssertEqual(recovery.keptCount, 3)
@@ -58,7 +65,8 @@ final class PlannerRecoveryContractTests: XCTestCase {
         try raw.write(to: file.url)
         var quarantineURL: URL?
         for _ in 0..<3 {
-            try XCTAssertThrowsError(try file.load()) { error in
+            do {
+                let error = try loadError()
                 guard let recovery = error as? PlannerRecoveryError else { return XCTFail("Expected record recovery") }
                 XCTAssertEqual(recovery.keptCount, [1, 1, 1, 1, 1, 1, 2, 1].reduce(0, +))
                 XCTAssertEqual(recovery.quarantinedCount, 8)
@@ -76,7 +84,8 @@ final class PlannerRecoveryContractTests: XCTestCase {
     func testWholeFieldCorruptionHasNoInventedRecordCounts() throws {
         let raw = Data(#"{"tasks":null,"projects":42,"preferences":{"carryMode":"future"}}"#.utf8)
         try raw.write(to: file.url)
-        try XCTAssertThrowsError(try file.load()) { error in
+        do {
+            let error = try loadError()
             guard let recovery = error as? PlannerRecoveryError else { return XCTFail("Expected field recovery") }
             XCTAssertEqual(recovery.keptCount, 0)
             XCTAssertEqual(recovery.quarantinedCount, 0)
@@ -130,7 +139,8 @@ final class PlannerRecoveryContractTests: XCTestCase {
     func testTruncatedJSONHasDistinctTypedFailureAndVerifiedQuarantine() throws {
         let raw = Data(#"{"tasks":["#.utf8)
         try raw.write(to: file.url)
-        try XCTAssertThrowsError(try file.load()) { error in
+        do {
+            let error = try loadError()
             guard case let PlannerDataError.corrupt(url, quarantineURL, _) = error else {
                 return XCTFail("Expected a typed corrupt-data error, got \(error)")
             }
