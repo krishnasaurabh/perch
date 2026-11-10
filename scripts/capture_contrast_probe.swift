@@ -3,6 +3,11 @@
 // tasks, plus the Week page, so scripts/measure_capture_contrast.py can measure the rendered prompt (review F02).
 import AppKit
 import PlannerCore
+#if canImport(PerchApp)
+    @testable import PerchApp
+    import PerchUI
+    import PerchMCP
+#endif
 
 @MainActor
 func require(_ condition: @autoclosure () -> Bool, _ message: String) {

@@ -44,7 +44,7 @@ PROBE=$(mktemp -d "$OUT/build.XXXXXX")
 trap 'rm -rf "$PROBE"' EXIT
 cp "$ROOT/Package.swift" "$PROBE/"
 cp -R "$ROOT/Sources" "$ROOT/Tests" "$PROBE/"
-python3 - "$PROBE/Sources/Perch/Workspace/WeekAndClips.swift" <<'PY'
+python3 - "$PROBE/Sources/PerchApp/Workspace/WeekAndClips.swift" <<'PY'
 from pathlib import Path
 import sys
 p = Path(sys.argv[1]); week, clips = p.read_text().split('/// Clips:', 1)
@@ -63,10 +63,15 @@ assert 'title(size: WeekColumnLayout.titleSize)' in week
 assert '.lineLimit(2).truncationMode(.tail)' in week
 assert 'minimumScaleFactor' not in week and 'titleFit(' not in week
 PY
-cat > "$PROBE/Sources/Perch/App/main.swift" <<'SWIFT'
+cat > "$PROBE/Sources/Perch/main.swift" <<'SWIFT'
 import AppKit
 import SwiftUI
 import PlannerCore
+#if canImport(PerchApp)
+@testable import PerchApp
+import PerchUI
+import PerchMCP
+#endif
 import Vision
 
 func require(_ condition: Bool, _ message: String = "Week assertion failed") {
@@ -216,5 +221,20 @@ MainActor.assumeIsolated {
     withExtendedLifetime((window, store, model)) { app.run() }
 }
 SWIFT
-swift build --package-path "$PROBE" -c release --product Perch
+# The instrumented Week view is in the app library, so its measurement helper must
+# live there too. Keep one shared registry; the executable reads it with @testable.
+python3 - "$PROBE" <<'PY'
+from pathlib import Path
+import sys
+root = Path(sys.argv[1])
+entry = root / 'Sources/Perch/main.swift'
+source = entry.read_text()
+start = source.index('@MainActor var measurements:')
+end = source.index('@MainActor func settle()', start)
+helper = source[start:end]
+(root / 'Sources/PerchApp/Workspace/WeekMeasure.swift').write_text(
+    'import AppKit\nimport SwiftUI\n\n' + helper)
+entry.write_text(source[:start] + source[end:])
+PY
+swift build -Xswiftc -enable-testing --package-path "$PROBE" -c release --product Perch
 PERCH_DATA="$DATA" WEEK_OUTPUT="$OUT" "$PROBE/.build/release/Perch"

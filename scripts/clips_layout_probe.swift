@@ -2,6 +2,11 @@
 import AppKit
 import SwiftUI
 import PlannerCore
+#if canImport(PerchApp)
+    @testable import PerchApp
+    import PerchUI
+    import PerchMCP
+#endif
 
 @MainActor
 func capture(_ view: NSView, to url: URL) throws {

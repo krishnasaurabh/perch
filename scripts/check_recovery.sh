@@ -11,10 +11,15 @@ PROBE=$(mktemp -d "$OUT/build.XXXXXX")
 trap 'rm -rf "$PROBE"' EXIT
 cp "$ROOT/Package.swift" "$PROBE/"
 cp -R "$ROOT/Sources" "$ROOT/Tests" "$PROBE/"
-cat > "$PROBE/Sources/Perch/App/main.swift" <<'SWIFT'
+cat > "$PROBE/Sources/Perch/main.swift" <<'SWIFT'
 import AppKit
 import Darwin
 import PlannerCore
+#if canImport(PerchApp)
+@testable import PerchApp
+import PerchUI
+import PerchMCP
+#endif
 import SwiftUI
 
 @MainActor
@@ -316,6 +321,6 @@ Task { @MainActor in
 }
 app.run()
 SWIFT
-swift build --package-path "$PROBE" -j 2 -c release --product Perch
+swift build -Xswiftc -enable-testing --package-path "$PROBE" -j 2 -c release --product Perch
 DATA=$(mktemp -d "$OUT/data.XXXXXX")
 PERCH_DATA="$DATA/planner.json" RECOVERY_OUTPUT="$OUT" "$PROBE/.build/release/Perch"

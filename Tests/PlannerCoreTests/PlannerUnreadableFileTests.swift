@@ -1,3 +1,4 @@
+import PlannerTestSupport
 import Foundation
 import XCTest
 #if canImport(Glibc)

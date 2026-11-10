@@ -1,6 +1,11 @@
 // CI-only entry point: render production views and color pairs, without changing system preferences.
 import AppKit
 import PlannerCore
+#if canImport(PerchApp)
+    @testable import PerchApp
+    import PerchUI
+    import PerchMCP
+#endif
 import SwiftUI
 
 struct ColorPair {

@@ -96,6 +96,11 @@ public struct PlannerEngine {
 
     public func project(id: UUID?) -> TaskProject? { id.flatMap { i in planner.projects.first { $0.id == i } } }
 
+    /// Resolves the same full ID, short ID or title reference accepted by task mutations.
+    public func task(_ reference: String, on day: DayRef) throws -> PlanTask {
+        planner.tasks[try index(of: reference, on: resolved(day))]
+    }
+
     func index(of ref: String, on day: DayRef) throws -> Int {
         let trimmed = ref.trimmingCharacters(in: .whitespaces)
         if let id = UUID(uuidString: trimmed), let i = planner.tasks.firstIndex(where: { $0.id == id }) { return i }

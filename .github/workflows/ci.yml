@@ -55,7 +55,10 @@ jobs:
         with: { swift-version: "6.1" }
       - name: Motion evidence classification regression
         run: python3 -m unittest discover -s scripts -p test_motion_evidence.py
-      - run: swift test
+      - name: Domain, MCP and portable UI tests
+        run: |
+          python3 -m unittest discover -s Tests/ArchitectureTests
+          swift test
       - run: swift build -c release --product perch-cli
       - name: MCP end-to-end with the official Python SDK
         run: |
@@ -94,7 +97,7 @@ jobs:
                       macos = True  # Rewritten/unavailable base: fail open to all tests.
                   else:
                       paths = [p for p in paths if p]
-                      core_only = lambda p: p.startswith(('Sources/PlannerCore/', 'Tests/')) or re.fullmatch(r'scripts/test_[^/]*\.py', p)
+                      core_only = lambda p: p.startswith(('Sources/PlannerCore/', 'Sources/PerchMCP/', 'Tests/PlannerCoreTests/', 'Tests/PerchMCPTests/', 'Tests/PerchUITests/', 'Tests/PlannerTestSupport/')) or re.fullmatch(r'scripts/test_[^/]*\.py', p)
                       macos = not paths or not all(core_only(p) for p in paths)
           with open(os.environ['GITHUB_OUTPUT'], 'a') as out:
               out.write(f'macos={str(macos).lower()}\n')
@@ -112,7 +115,10 @@ jobs:
         run: |
           sudo xcode-select -s "$(ls -d /Applications/Xcode_26*.app 2>/dev/null | sort -V | tail -1 || ls -d /Applications/Xcode*.app | sort -V | tail -1)"
           swift --version
-      - run: swift test
+      - name: Domain, MCP, UI logic and macOS app-layer tests
+        run: |
+          python3 -m unittest discover -s Tests/ArchitectureTests
+          swift test
       - name: Build and bundle
         run: |
           scripts/bundle.sh
@@ -381,7 +387,7 @@ jobs:
         run: |
           python3 - <<'PY'
           from pathlib import Path
-          p=Path('Sources/Perch/Notch/NotchRootView.swift')
+          p=Path('Sources/PerchApp/Notch/NotchRootView.swift')
           s=p.read_text()
           old='WorkspaceView(notchHeight: g.notchSize.height)'
           assert s.count(old)==1

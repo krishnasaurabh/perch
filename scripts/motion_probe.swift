@@ -2,6 +2,14 @@
 import AppKit
 import Combine
 import PlannerCore
+#if canImport(PerchApp)
+    @testable import PerchApp
+    import PerchUI
+    import PerchMCP
+    private typealias ProbeActivity = PerchApp.NotchActivity
+#else
+    private typealias ProbeActivity = NotchActivity
+#endif
 import SwiftUI
 
 @MainActor
@@ -166,7 +174,7 @@ MainActor.assumeIsolated {
                 "\(prefix): actual root renders open state")
             Motion.animate(Motion.page, policy: policy) { model.page = .week }
             evidence.require(model.page == .week, "\(prefix): page final state")
-            let activity = NotchActivity(kind: .message, title: "Motion policy probe", subtitle: "Isolated fixture")
+            let activity = ProbeActivity(kind: .message, title: "Motion policy probe", subtitle: "Isolated fixture")
             model.show(activity)
             evidence.require(model.activity?.id == activity.id, "\(prefix): activity final state")
             model.dismissActivity()
