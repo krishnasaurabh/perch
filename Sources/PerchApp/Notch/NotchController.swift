@@ -14,21 +14,12 @@ enum NotchPage: String, CaseIterable, Identifiable {
     }
 }
 
-/// A short-lived thing the closed notch shows: a reminder nudge, a finished timer, a caught clip.
-struct NotchActivity: Identifiable, Equatable {
-    enum Kind: Equatable { case reminder(UUID), focusDone(UUID?), eventSoon(String), clip(URL), message }
-    let id = UUID()
-    var kind: Kind
-    var title: String
-    var subtitle: String
-}
-
 /// UI state shared by every notch on every screen. Only the active screen (`screenID`) opens or shows activity.
 @MainActor
 final class NotchModel: ObservableObject {
     @Published var expanded = false
     @Published var page: NotchPage = .home
-    @Published var activity: NotchActivity?
+    @Published var activity: PresentedNotchActivity?
     /// The screen whose notch is open or showing activity.
     @Published var screenID: CGDirectDisplayID = 0
     /// Geometry of the active screen.
@@ -59,7 +50,7 @@ final class NotchModel: ObservableObject {
         Motion.animate(Motion.close, policy: motionPolicy) { expanded = false }
     }
 
-    func show(_ a: NotchActivity, for seconds: Double? = nil) {
+    func show(_ a: PresentedNotchActivity, for seconds: Double? = nil) {
         Motion.animate(Motion.activity, policy: motionPolicy) { activity = a }
         if let s = seconds {
             let id = a.id

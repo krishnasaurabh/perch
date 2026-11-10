@@ -6,9 +6,9 @@ import PlannerCore
     @testable import PerchApp
     import PerchUI
     import PerchMCP
-    private typealias ProbeActivity = PerchApp.NotchActivity
+    private typealias ProbeActivity = PerchApp.PresentedNotchActivity
 #else
-    private typealias ProbeActivity = NotchActivity
+    private typealias ProbeActivity = PresentedNotchActivity
 #endif
 import SwiftUI
 

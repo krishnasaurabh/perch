@@ -15,7 +15,7 @@ struct NotchRootView: View {
 
     private var active: Bool { model.screenID == screen.id }
     private var expanded: Bool { active && model.expanded }
-    private var activity: NotchActivity? { active ? model.activity : nil }
+    private var activity: PresentedNotchActivity? { active ? model.activity : nil }
 
     var body: some View {
         let g = screen.geometry
@@ -114,7 +114,7 @@ struct NotchRootView: View {
 /// Closed state with a nudge: a strip below the notch. Nothing to show: nothing drawn beyond the housing.
 struct ClosedNotchView: View {
     let notch: CGSize
-    let activity: NotchActivity?
+    let activity: PresentedNotchActivity?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -169,7 +169,7 @@ struct TimerPillLayer: View {
 
 /// Upcoming-event nudges, reminder rings, finished timers: with actions right in the notch.
 struct ActivityStrip: View {
-    let activity: NotchActivity
+    let activity: PresentedNotchActivity
     @EnvironmentObject var store: PlannerStore
     @EnvironmentObject var model: NotchModel
     @EnvironmentObject var services: Services

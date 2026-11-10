@@ -31,6 +31,8 @@ def hex_rgb(rgb):
 
 def source_rows():
     source = (ROOT / 'Sources/PerchApp/Workspace/Theme.swift').read_text()
+    surface = (ROOT / 'Sources/PerchApp/Workspace/Components/CardSurface.swift').read_text()
+    pills = (ROOT / 'Sources/PerchApp/Workspace/Components/SegmentPills.swift').read_text()
     def token(name, mode, background=None):
         match = re.search(rf'static let {name} = Color.dynamic\(light: \(0x([A-Fa-f0-9]+), ([.0-9]+)\), dark: \(0x([A-Fa-f0-9]+), ([.0-9]+)\)\)', source)
         if match:
@@ -48,19 +50,19 @@ def source_rows():
         'static let danger = Color.dynamic(light: (0x5C110B, 1), dark: (0xFF6B6B, 1))',
         'case .high: return priorityHigh',
         'static let selectedPill = Color.dynamic(light: (0x9DADA1, 1), dark: (0x333333, 1))',
-        '.background(Capsule().fill(on ? Theme.selectedPill : .clear))',
     ]:
         assert expected in source, expected
-    pills = source.split('struct SegmentPills', 1)[1].split('struct GlassButton', 1)[0]
+    assert '.background(Capsule().fill(on ? Theme.selectedPill : .clear))' in pills
     assert 'Theme.fill)' not in pills, 'Nested segment track fill returned'
     # Cover the production wiring, not just a disconnected palette.
     tasks = (ROOT / 'Sources/PerchApp/Workspace/TasksCard.swift').read_text()
-    week = (ROOT / 'Sources/PerchApp/Workspace/WeekAndClips.swift').read_text()
+    week = (ROOT / 'Sources/PerchApp/Workspace/WeekPage.swift').read_text()
     assert '.strokeBorder(Theme.inputStroke, lineWidth: focused ? 2 : 1)' in tasks
-    assert '.strokeBorder(Theme.cardStroke, lineWidth: 1)' in source
+    assert '.strokeBorder(Theme.cardStroke, lineWidth: 1)' in surface
     assert '.strokeBorder(Theme.cardStroke)' in week
     assert '.strokeBorder(Theme.inputStroke, lineWidth: 1)' in week
-    assert '.stroke(Theme.rope,' in week
+    clips = (ROOT / 'Sources/PerchApp/Workspace/ClipsPage.swift').read_text()
+    assert '.stroke(Theme.rope,' in clips
     rows = []
     for mode in ('light', 'dark'):
         card = token('sage' if mode == 'light' else 'tile', mode)

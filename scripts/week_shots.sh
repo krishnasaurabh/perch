@@ -44,10 +44,10 @@ PROBE=$(mktemp -d "$OUT/build.XXXXXX")
 trap 'rm -rf "$PROBE"' EXIT
 cp "$ROOT/Package.swift" "$PROBE/"
 cp -R "$ROOT/Sources" "$ROOT/Tests" "$PROBE/"
-python3 - "$PROBE/Sources/PerchApp/Workspace/WeekAndClips.swift" <<'PY'
+python3 - "$PROBE/Sources/PerchApp/Workspace/WeekPage.swift" <<'PY'
 from pathlib import Path
 import sys
-p = Path(sys.argv[1]); week, clips = p.read_text().split('/// Clips:', 1)
+p = Path(sys.argv[1]); week = p.read_text()
 edits = {
     '.layoutPriority(1)': '.layoutPriority(1)\n                .background(WeekMeasure(key: "title:\\(task.id)"))',
     '.coordinateSpace(.named(Self.space))': '.coordinateSpace(.named(Self.space))\n            .background(WeekMeasure(key: "list:\\(ref.key?.raw ?? "inbox")"))',
@@ -58,7 +58,7 @@ edits = {
 for old, new in edits.items():
     assert week.count(old) == 1, f'Week measurement hook changed: {old}'
     week = week.replace(old, new)
-p.write_text(week + '/// Clips:' + clips)
+p.write_text(week)
 assert 'title(size: WeekColumnLayout.titleSize)' in week
 assert '.lineLimit(2).truncationMode(.tail)' in week
 assert 'minimumScaleFactor' not in week and 'titleFit(' not in week

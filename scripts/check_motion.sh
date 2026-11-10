@@ -13,8 +13,8 @@ python3 - "$ROOT" <<'PY'
 from pathlib import Path
 import sys
 root = Path(sys.argv[1])
-theme = (root / 'Sources/PerchApp/Workspace/Theme.swift').read_text()
-owl = theme.split('struct OwlMark: View {', 1)[1].split('struct Triangle:', 1)[0]
+source = (root / 'Sources/PerchApp/Workspace/Components/OwlMark.swift').read_text()
+owl = source.split('struct OwlMark: View {', 1)[1].split('struct Triangle:', 1)[0]
 for forbidden in ['@State', '.task', 'withAnimation', 'Task.sleep', 'Timer', 'repeatForever']:
     assert forbidden not in owl, f'Owl regained autonomous motion: {forbidden}'
 notch = (root / 'Sources/PerchApp/Notch/NotchRootView.swift').read_text()
