@@ -19,8 +19,20 @@ struct TasksCard: View {
             ($0, $0 == .active ? "To do \(open.count)" : "Completed \(finished.count)")
         }
         VStack(alignment: .leading, spacing: 10) {
-            CardHeading("Today's tasks", trailing: AnyView(
-                SegmentPills(items: pills, selection: selection)))
+            // Keep the first-use action visible without squeezing titles or tabs at narrow widths.
+            ViewThatFits(in: .horizontal) {
+                CardHeading("Today's tasks", trailing: AnyView(
+                    HStack(spacing: 8) {
+                        startFocus
+                        SegmentPills(items: pills, selection: selection)
+                    }.fixedSize()))
+                    .fixedSize(horizontal: true, vertical: false)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                VStack(alignment: .leading, spacing: 4) {
+                    CardHeading("Today's tasks", trailing: AnyView(startFocus))
+                    SegmentPills(items: pills, selection: selection)
+                }
+            }
             GeometryReader { viewport in
                 ScrollView {
                     // A plain VStack lets a ticked row fade out. The viewport, not the
@@ -53,6 +65,24 @@ struct TasksCard: View {
             tab = TodayTabs.resolved(tab, completedCount: count)
         }
         .showsDays([store.today])
+    }
+
+    @ViewBuilder private var startFocus: some View {
+        if store.planner.focus.map({ $0.state == .running || $0.state == .paused }) != true {
+            Button {
+                // Recheck at activation so a stale accessibility press cannot replace a live session.
+                guard store.planner.focus.map({ $0.state == .running || $0.state == .paused }) != true else { return }
+                store.apply { try $0.startTimer(task: nil, minutes: nil) }
+            } label: {
+                Label("Start focus", systemImage: "play.fill")
+                    .font(.system(size: 11, weight: .semibold))
+                    .fixedSize()
+            }
+            .buttonStyle(PillStyle())
+            .accessibilityLabel("Start focus")
+            .accessibilityHint("Starts a focus session using your default duration")
+            .accessibilityIdentifier("today-start-focus")
+        }
     }
 
     /// Task rows are separated by a dotted rule.
