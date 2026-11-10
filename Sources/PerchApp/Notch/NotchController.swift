@@ -108,11 +108,6 @@ final class NotchController {
 
     func start() {
         updateScreens()
-        model.$page.removeDuplicates().sink { [weak store] page in
-            guard let store else { return }
-            let count = page == .week ? 7 : 1
-            store.materializeRepeats(on: (0..<count).map { store.today.adding(days: $0) })
-        }.store(in: &cancellables)
 
         let mask: NSEvent.EventTypeMask = [.mouseMoved, .leftMouseDragged, .leftMouseDown]
         monitors.append(

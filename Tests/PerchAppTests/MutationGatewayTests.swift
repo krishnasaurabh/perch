@@ -1,6 +1,7 @@
 import AppKit
 import EventKit
 import PlannerCore
+import PerchUI
 import UserNotifications
 import XCTest
 @testable import PerchApp
@@ -21,6 +22,10 @@ private final class FakeNotifications: NotificationAccess {
     func isAuthorized() async -> Bool { authorized }
     func requestAuthorization() async throws { authorized = true }
     func post(id: String, title: String, body: String) { messages.append(id) }
+    func pendingReminders() async -> [ScheduledReminder] { [] }
+    func deliveredReminderIDs() async -> Set<String> { [] }
+    func schedule(_ reminder: ScheduledReminder) async throws {}
+    func removeReminders(ids: [String]) {}
 }
 
 @MainActor
@@ -152,7 +157,7 @@ final class MutationGatewayTests: XCTestCase {
             let store = PlannerStore(
                 file: PlannerFile(url: root.appendingPathComponent("planner.json")), watching: false)
             let source = FakeNotifications()
-            return (ReminderService(store: store, source: source), source)
+            return (ReminderService(store: store, source: source, observing: false), source)
         }
         await service.requestAuthorization()
         await MainActor.run {
