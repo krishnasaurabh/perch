@@ -174,7 +174,8 @@ final class ReminderServiceTests: XCTestCase {
     func testLaunchAndLogicalRolloverMaterializeHorizonWithoutViews() throws {
         let f = ReminderFixture(); defer { f.clean() }; let id = f.task()
         f.store.updatePrefs { $0.resetHour = 4 }
-        f.store.updateTask(id) { $0.repeatRule = TaskRepeat(unit: .day, interval: 2) }
+        var edit = TaskEdit(); edit.repeatRule = TaskRepeat(unit: .day, interval: 2).description
+        XCTAssertNotNil(f.store.send(.update(id, edit)))
         f.store.beginApplication()
         let before = f.store.planner.tasks
         XCTAssertEqual(before.count, 7)
@@ -202,7 +203,8 @@ final class ReminderServiceTests: XCTestCase {
         let day = f.store.today
         f.time.now = day.adding(days: 1).start(resetHour: 4).addingTimeInterval(-60)
         let id = f.task()
-        f.store.updateTask(id) { $0.repeatRule = .daily }
+        var edit = TaskEdit(); edit.repeatRule = "daily"
+        XCTAssertNotNil(f.store.send(.update(id, edit)))
         f.store.beginApplication()
         XCTAssertEqual(f.store.today, day)
         XCTAssertEqual(f.store.planner.tasks.count, 14)
@@ -220,7 +222,8 @@ final class ReminderServiceTests: XCTestCase {
     @MainActor
     func testCompletionRelativeRepeatsAreNotExpandedBeforeCompletion() throws {
         let f = ReminderFixture(); defer { f.clean() }; let id = f.task()
-        f.store.updateTask(id) { $0.repeatRule = TaskRepeat(unit: .day, fromCompletion: true) }
+        var edit = TaskEdit(); edit.repeatRule = TaskRepeat(unit: .day, fromCompletion: true).description
+        XCTAssertNotNil(f.store.send(.update(id, edit)))
         f.store.beginApplication()
         XCTAssertEqual(f.store.planner.tasks.count, 1)
         f.store.send(.complete(id))
