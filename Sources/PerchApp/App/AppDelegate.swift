@@ -18,7 +18,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         store = PlannerStore()
         // Once per launch, before the first tick: a timer left running by a crash or kill -9 comes back
         // paused with its last checkpoint banked. The time the app was gone is not focus time.
-        store.applyUntracked { $0.recoverFocus() }
+        store.beginApplication()
         model = NotchModel(motionPolicy: MotionScript.policyOverride)
         services = Services(store: store)
         services.attach(model: model)

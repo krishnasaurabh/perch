@@ -54,10 +54,14 @@ struct WeekPage: View {
                 .scrollIndicators(.visible)
             }
         }
-        .showsDays(days)
+
     }
 
-    private func go(_ week: Int) { Motion.animate(Motion.page) { anchor = week } }
+    private func go(_ week: Int) {
+        let start = store.today.adding(days: week * 7)
+        store.materializeRepeats(on: (0..<7).map { start.adding(days: $0) })
+        Motion.animate(Motion.page) { anchor = week }
+    }
 
     func column(title: String, subtitle: String, ref: DayRef, isToday: Bool, past: Bool) -> some View {
         let tasks = store.engine.tasks(on: ref)
@@ -102,7 +106,7 @@ struct WeekPage: View {
                 guard let s = s as? String, let id = UUID(uuidString: s) else { return }
                 Task { @MainActor in
                     guard let t = store.planner.tasks.first(where: { $0.id == id }) else { return }
-                    store.apply { try $0.move(id.uuidString, from: t.day.map { .day($0) } ?? .inbox, to: ref) }
+                    store.apply { try $0.move(id, from: t.day.map { .day($0) } ?? .inbox, to: ref) }
                 }
             }
             return true

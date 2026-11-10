@@ -19,7 +19,7 @@ final class RepeatIntegrationTests: XCTestCase {
         ]
         var e = PlannerEngine(planner: try withoutAnchors(p), now: { Fixture.now }, calendar: Fixture.calendar)
         var edit = TaskEdit(); edit.notes = "Historical note"
-        _ = try e.update(p.tasks[0].id.uuidString, on: .day("2026-11-09"), edit)
+        _ = try e.update(p.tasks[0].id, on: .day("2026-11-09"), edit)
         XCTAssertEqual(e.applyRepeats(on: "2026-11-11").count, 1)
     }
 
@@ -65,7 +65,7 @@ final class RepeatIntegrationTests: XCTestCase {
         var p = Planner(); p.tasks = [root]
         var e = PlannerEngine(planner: p, now: { Fixture.date("2026-11-10 15:00") }, calendar: Fixture.calendar)
         let copy = try XCTUnwrap(e.carryForward([root.id], to: "2026-11-10").first)
-        _ = try e.complete(copy.id.uuidString)
+        _ = try e.complete(copy.id)
         _ = e.applyRepeats(on: "2026-11-12")
         XCTAssertEqual(e.planner.tasks.compactMap(\.day).filter { $0 > "2026-11-10" }, ["2026-11-12"])
     }
@@ -77,7 +77,7 @@ final class RepeatIntegrationTests: XCTestCase {
         var p = Planner(); p.tasks = [root]
         var e = PlannerEngine(planner: p, now: { Fixture.date("2026-11-10 15:00") }, calendar: Fixture.calendar)
         let copy = try XCTUnwrap(e.carryForward([root.id], to: "2026-11-10").first)
-        _ = try e.complete(copy.id.uuidString)
+        _ = try e.complete(copy.id)
         XCTAssertEqual(e.planner.tasks.compactMap(\.day).filter { $0 > "2026-11-10" }, ["2026-11-13"])
     }
 
@@ -85,7 +85,7 @@ final class RepeatIntegrationTests: XCTestCase {
         var e = PlannerEngine(planner: Planner(), now: { Fixture.date("2026-01-31 15:00") }, calendar: Fixture.calendar)
         let root = try XCTUnwrap(e.addTasks(["Review queue every month"]).first)
         XCTAssertEqual(e.applyRepeats(on: "2026-02-28").count, 1)
-        _ = try e.delete(root.id.uuidString, on: .day("2026-01-31"))
+        _ = try e.delete(root.id, on: .day("2026-01-31"))
         let saved = try PlannerFile.decoder.decode(Planner.self, from: PlannerFile.encoder.encode(e.planner))
         e = PlannerEngine(planner: saved, now: { Fixture.date("2026-02-28 15:00") }, calendar: Fixture.calendar)
         XCTAssertEqual(e.applyRepeats(on: "2026-03-31").count, 1)
@@ -97,7 +97,7 @@ final class RepeatIntegrationTests: XCTestCase {
         let copy = PlanTask(title: "Review queue", day: "2026-02-28", repeatRule: .monthly, repeatedFrom: root.id)
         var p = Planner(); p.tasks = [root, copy]
         var e = PlannerEngine(planner: p, now: { Fixture.date("2026-01-31 15:00") }, calendar: Fixture.calendar)
-        _ = try e.delete(root.id.uuidString, on: .day("2026-01-31"))
+        _ = try e.delete(root.id, on: .day("2026-01-31"))
         XCTAssertEqual(e.applyRepeats(on: "2026-03-31").count, 1)
         XCTAssertTrue(e.applyRepeats(on: "2026-03-28").isEmpty)
     }
@@ -107,10 +107,10 @@ final class RepeatIntegrationTests: XCTestCase {
         let root = try XCTUnwrap(e.addTasks(["Review queue every day"]).first)
         let copy = try XCTUnwrap(e.applyRepeats(on: "2026-11-10").first)
         var edit = TaskEdit(); edit.repeatRule = "weekly"
-        _ = try e.update(root.id.uuidString, on: .day("2026-11-09"), edit)
+        _ = try e.update(root.id, on: .day("2026-11-09"), edit)
         XCTAssertNil(e.planner.tasks.first { $0.id == copy.id }?.repeatRule)
         edit.repeatRule = "daily"
-        _ = try e.update(copy.id.uuidString, on: .day("2026-11-10"), edit)
+        _ = try e.update(copy.id, on: .day("2026-11-10"), edit)
         XCTAssertEqual(e.planner.tasks.first { $0.id == root.id }?.repeatRule, .weekly)
         let saved = try PlannerFile.decoder.decode(Planner.self, from: PlannerFile.encoder.encode(e.planner))
         e = PlannerEngine(planner: saved, now: { Fixture.now }, calendar: Fixture.calendar)
@@ -129,7 +129,7 @@ final class RepeatIntegrationTests: XCTestCase {
     func testMovingMonthlyRootDoesNotReanchorSchedule() throws {
         var e = PlannerEngine(planner: Planner(), now: { Fixture.date("2026-01-31 15:00") }, calendar: Fixture.calendar)
         let root = try XCTUnwrap(e.addTasks(["Review queue every month"]).first)
-        _ = try e.move(root.id.uuidString, from: .day("2026-01-31"), to: .day("2026-02-02"))
+        _ = try e.move(root.id, from: .day("2026-01-31"), to: .day("2026-02-02"))
         XCTAssertEqual(e.applyRepeats(on: "2026-02-28").count, 1)
         XCTAssertTrue(e.applyRepeats(on: "2026-03-02").isEmpty)
     }
@@ -140,7 +140,7 @@ final class RepeatIntegrationTests: XCTestCase {
         var p = Planner(); p.tasks = [root]
         var e = PlannerEngine(planner: p, now: { Fixture.date("2026-11-16 15:00") }, calendar: Fixture.calendar)
         let copy = try XCTUnwrap(e.carryForward([root.id], to: "2026-11-16").first)
-        _ = try e.complete(copy.id.uuidString)
+        _ = try e.complete(copy.id)
         XCTAssertEqual(e.planner.tasks.compactMap(\.day).filter { $0 > "2026-11-16" }, ["2026-11-23"])
     }
 }

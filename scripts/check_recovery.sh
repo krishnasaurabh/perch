@@ -14,7 +14,7 @@ cp -R "$ROOT/Sources" "$ROOT/Tests" "$PROBE/"
 cat > "$PROBE/Sources/Perch/main.swift" <<'SWIFT'
 import AppKit
 import Darwin
-import PlannerCore
+@testable import PlannerCore
 #if canImport(PerchApp)
 @testable import PerchApp
 import PerchUI
@@ -132,11 +132,11 @@ func checkRecovery() async throws {
     require(!FileManager.default.fileExists(atPath: file.backupDirectory.path), "no automatic backup revision was written")
 
     // Every persistence entry point must refuse before the edit body runs.
-    func refuse(_ label: String, _ edit: (inout PlannerEngine) -> Void) throws {
+    func refuse(_ label: String, _ edit: (PlannerCommands) throws -> Void) throws {
         var ran = false
         let refused: Bool? = store.apply { engine in
             ran = true
-            edit(&engine)
+            try edit(engine)
             return true
         }
         let unchanged = try contents(url) == raw
@@ -153,8 +153,8 @@ func checkRecovery() async throws {
         require(unchanged, label + ": original stays byte-identical")
     }
 
-    try refuse("tracked task edit") { engine in engine.planner.tasks.removeAll() }
-    try refuse("preference change") { engine in engine.planner.preferences.resetHour = 5 }
+    try refuse("tracked task edit") { engine in _ = try engine.addTasks(["Refused"]) }
+    try refuse("preference change") { engine in try engine.updatePrefs { $0.resetHour = 5 } }
 
     var syncRan = false
     store.updateTask(id) { task in
@@ -164,11 +164,11 @@ func checkRecovery() async throws {
     require(!syncRan && store.planner.tasks[0].reminderLink == nil, "synthetic sync-link update is refused")
     try untouched("synthetic sync-link update")
 
-    let ticked: Bool? = store.applyUntracked { $0.tick() }
+    let ticked: Bool? = store.applyUntracked { try $0.tick() }
     require(ticked == nil, "timer tick checkpoint write is refused")
     try untouched("timer tick checkpoint")
 
-    let resumed: Bool? = store.applyUntracked { $0.recoverFocus() }
+    let resumed: Bool? = store.applyUntracked { try $0.recoverFocus() }
     require(resumed == nil, "launch timer recovery write is refused")
     try untouched("launch timer recovery")
 
@@ -361,7 +361,7 @@ func checkRecovery() async throws {
     let futureFiles = try listing(url)
     require(futureFiles == beforeFuture, "a newer schema is never quarantined or rewritten")
     let futureEdit: Bool? = newer.apply { engine in
-        engine.planner.tasks.append(PlanTask(title: "Refused", day: nil))
+        _ = try engine.addTasks(["Refused"], on: .inbox)
         return true
     }
     require(futureEdit == nil, "a newer schema refuses edits")

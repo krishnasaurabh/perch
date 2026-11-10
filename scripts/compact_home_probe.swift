@@ -1,6 +1,6 @@
 // Temporary CI entry point using the real controller/views and an isolated planner.
 import AppKit
-import PlannerCore
+@testable import PlannerCore
 #if canImport(PerchApp)
     @testable import PerchApp
     import PerchUI
@@ -73,7 +73,7 @@ MainActor.assumeIsolated {
             if !geometryOnly {
                 for scenario in ["empty", "three", "timer", "long-title", "dense", "timer-notepad"] {
                     delegate.model.close()
-                    delegate.store.apply { e in
+                    delegate.store.seedFixture { e in
                         e.planner.tasks = []
                         e.planner.focus = nil
                         e.planner.preferences.hiddenWorkspaceCards = ["notepad"]
@@ -92,7 +92,7 @@ MainActor.assumeIsolated {
                             _ = try e.addTasks(titles, on: .day(e.today))
                         }
                         if scenario == "timer" || scenario == "timer-notepad" {
-                            _ = try e.startTimer(task: e.planner.tasks[0].id.uuidString, minutes: 45)
+                            _ = try e.startTimer(task: e.planner.tasks[0].id, minutes: 45)
                             try e.pauseTimer()
                         }
                         if scenario == "timer-notepad" { e.planner.preferences.hiddenWorkspaceCards = [] }
@@ -178,7 +178,7 @@ MainActor.assumeIsolated {
                 // Same real Home at both supported widths, including its narrower running-focus column.
                 for width in [CGFloat(820), CGFloat(620)] {
                     for running in [false, true] {
-                        delegate.store.apply { e in
+                        delegate.store.seedFixture { e in
                             e.planner.tasks = []; e.planner.focus = nil
                             e.planner.preferences.hiddenWorkspaceCards = ["notepad"]
                             if running { _ = try e.startTimer(task: nil, minutes: 45) }
@@ -217,7 +217,7 @@ MainActor.assumeIsolated {
                         delegate.store.apply { try $0.addTasks(["Inspect one short checklist"], on: .day($0.today)) }
                         await settle()
                         if !geometryOnly { require(fade()!.isHidden, "\(name): no fade for fitting rows") }
-                        delegate.store.apply { e in
+                        delegate.store.seedFixture { e in
                             e.planner.tasks = []
                             _ = try e.addTasks(
                                 (1...24).map {
@@ -269,7 +269,7 @@ MainActor.assumeIsolated {
                             "taskViewport": NSStringFromRect(list.convert(list.bounds, to: nil)),
                         ])
                         // Shrinking content must also clear the cue without any user scroll.
-                        delegate.store.apply { $0.planner.tasks = [] }
+                        delegate.store.seedFixture { $0.planner.tasks = [] }
                         await settle()
                         if !geometryOnly { require(fade()!.isHidden, "\(name): fade clears after content removal") }
                         window.orderOut(nil)
@@ -283,4 +283,19 @@ MainActor.assumeIsolated {
         }
     }
     withExtendedLifetime(delegate) { app.run() }
+}
+
+// Deliberately authored fixture setup, not a production mutation entry point.
+@MainActor
+private extension PlannerStore {
+    func seedFixture(_ body: (inout PlannerEngine) throws -> Void) {
+        do {
+            try file.mutate { planner in
+                var engine = PlannerEngine(planner: planner)
+                try body(&engine)
+                planner = engine.planner
+            }
+            reloadFromDisk(external: false)
+        } catch { lastError = error.localizedDescription }
+    }
 }

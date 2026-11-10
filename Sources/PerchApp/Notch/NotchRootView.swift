@@ -206,23 +206,23 @@ struct ActivityStrip: View {
         switch activity.kind {
         case .reminder(let id):
             pill("Start") {
-                store.apply { try $0.startTimer(task: id.uuidString, minutes: nil) }
+                store.apply { try $0.startTimer(task: id, minutes: nil) }
                 model.dismissActivity()
             }
             pill("Snooze 5 min") {
-                store.apply { try $0.snooze(id.uuidString, minutes: 5) }; model.dismissActivity()
+                store.apply { try $0.snooze(id, minutes: 5) }; model.dismissActivity()
             }
             pill("Done") {
-                store.apply { try $0.complete(id.uuidString) }; model.dismissActivity()
+                store.apply { try $0.complete(id) }; model.dismissActivity()
             }
         case .focusDone(let id):
             if let id {
                 pill("Mark done") {
-                    store.apply { try $0.complete(id.uuidString) }; model.dismissActivity()
+                    store.apply { try $0.complete(id) }; model.dismissActivity()
                 }
             }
             pill("+5 min") {
-                store.apply { $0.extendTimer(minutes: 5) }; model.dismissActivity()
+                store.apply { try $0.extendTimer(minutes: 5) }; model.dismissActivity()
             }
         case .clip:
             pill("Open line") {

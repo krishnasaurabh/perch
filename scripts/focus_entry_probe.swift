@@ -1,7 +1,7 @@
 // CI-only entry point. Real views and button actions; direct mutations are fixture setup only.
 import AppKit
 import ApplicationServices
-import PlannerCore
+@testable import PlannerCore
 #if canImport(PerchApp)
     @testable import PerchApp
     import PerchUI
@@ -129,7 +129,7 @@ MainActor.assumeIsolated {
 
             // Widths are test-only proposals to the real WorkspaceView; no product sizing is changed.
             for (name, width) in [("normal", CGFloat(820)), ("compact", CGFloat(620))] {
-                store.apply { e in
+                store.seedFixture { e in
                     e.planner.tasks = []; e.planner.focus = nil
                     e.planner.preferences.defaultFocusMinutes = name == "normal" ? 25 : 40
                     e.planner.preferences.hiddenWorkspaceCards = ["notepad"]
@@ -164,9 +164,8 @@ MainActor.assumeIsolated {
                         ["Inspect the release checklist", "Inspect the release checklist", "Label the storage bins"],
                         on: .day(store.today))
                 }!
-                store.updateTask(added[1].id) {
-                    $0.done = true; $0.completedAt = Date()
-                }
+                let completion = store.send(.complete(added[1].id))
+                require(completion?.tasks.first?.done == true, "\(name): completion uses the validated gateway")
                 await settle()
                 require(control("Completed 1", in: root) != nil, "\(name): completed tab retained beside entry")
                 require(frame(capture) == initialCapture, "\(name): population leaves capture pinned")
@@ -250,7 +249,7 @@ MainActor.assumeIsolated {
             }
             print("Keyboard activation before task route: \(keyboardVerified)")
             // Existing task focus: ask the real hosted row for its context menu, then activate its actual item.
-            store.apply { e in
+            store.seedFixture { e in
                 e.planner.tasks = []; e.planner.focus = nil
             }
             let linked = store.apply { try $0.addTasks(["Verify a single linked task"], on: .day(store.today)) }![0]
@@ -305,4 +304,19 @@ MainActor.assumeIsolated {
         }
     }
     withExtendedLifetime(delegate) { app.run() }
+}
+
+// Deliberately authored fixture setup, not a production mutation entry point.
+@MainActor
+private extension PlannerStore {
+    func seedFixture(_ body: (inout PlannerEngine) throws -> Void) {
+        do {
+            try file.mutate { planner in
+                var engine = PlannerEngine(planner: planner)
+                try body(&engine)
+                planner = engine.planner
+            }
+            reloadFromDisk(external: false)
+        } catch { lastError = error.localizedDescription }
+    }
 }

@@ -1,7 +1,7 @@
 // Replaces App/main.swift only in the temporary CI probe package. Uses the actual views/controller.
 import AppKit
 import ApplicationServices
-import PlannerCore
+@testable import PlannerCore
 #if canImport(PerchApp)
     @testable import PerchApp
     import PerchUI
@@ -65,7 +65,7 @@ func probeWeekBars(_ focusOnly: Insights, output: URL) async {
     // Rendered frames: today has 4 planned, 1 completed.
     var engine = PlannerEngine(planner: Planner())
     let added = (try? engine.addTasks(["a", "b", "c", "d"])) ?? []
-    _ = try? engine.complete(added[0].id.uuidString)
+    _ = try? engine.complete(added[0].id)
     let insights = engine.insights()
     require(
         insights.lastSeven.last?.planned == 4 && insights.lastSeven.last?.completed == 1, "frame fixture: 1 of 4 today")
@@ -251,7 +251,7 @@ MainActor.assumeIsolated {
             delegate.notch.snapshot(into: output.appendingPathComponent("today-populated"))
 
             let id = delegate.store.planner.tasks[0].id
-            delegate.store.apply { try $0.complete(id.uuidString) }
+            delegate.store.apply { try $0.complete(id) }
             await settle()
             delegate.notch.snapshot(into: output.appendingPathComponent("today-cleared"))
             require(
@@ -274,15 +274,15 @@ MainActor.assumeIsolated {
                 "reopening the last completion hides its pill")
             require(findControl("Check off task") != nil, "last completion reopened: To do rows are visible")
             delegate.notch.snapshot(into: output.appendingPathComponent("today-tab-fallback"))
-            delegate.store.apply { try $0.complete(id.uuidString) }
+            delegate.store.apply { try $0.complete(id) }
             await settle()
             require(
                 findControl("Completed 1") != nil && findControl("Check off task") != nil
                     && findControl("Uncheck task") == nil,
                 "a new completion does not resurrect the hidden tab selection")
-            delegate.store.apply { engine in
+            delegate.store.seedFixture { engine in
                 engine.planner.tasks = []
-                _ = engine.startStopwatch(taskID: nil)
+                _ = try engine.startStopwatch(taskID: nil)
                 let later = Date().addingTimeInterval(60)
                 engine.now = { later }
                 _ = engine.stopTimer()
@@ -321,4 +321,19 @@ MainActor.assumeIsolated {
         }
     }
     withExtendedLifetime(delegate) { app.run() }
+}
+
+// Deliberately authored fixture setup, not a production mutation entry point.
+@MainActor
+private extension PlannerStore {
+    func seedFixture(_ body: (inout PlannerEngine) throws -> Void) {
+        do {
+            try file.mutate { planner in
+                var engine = PlannerEngine(planner: planner)
+                try body(&engine)
+                planner = engine.planner
+            }
+            reloadFromDisk(external: false)
+        } catch { lastError = error.localizedDescription }
+    }
 }

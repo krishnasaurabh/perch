@@ -304,6 +304,14 @@ public final class PlannerFile: @unchecked Sendable {
     /// read-only display. No normal load ever returns a silently reduced list.
     public func load() throws -> Planner { try withLock { try loadLocked() } }
 
+    /// Atomic replacement makes this a consistent read without lock/recovery side effects.
+    public func snapshot() throws -> Planner {
+        guard let data = try readIfPresent(url) else { return Planner() }
+        do { return try Self.decode(data) } catch let error as PlannerSchemaError { throw error } catch {
+            throw PlannerError("Unable to load planner data.")
+        }
+    }
+
     private func loadLocked() throws -> Planner {
         guard let data = try readIfPresent(url) else { return Planner() }
         do { return try Self.decode(data) } catch let error as PlannerSchemaError { throw error } catch {
@@ -340,7 +348,7 @@ public final class PlannerFile: @unchecked Sendable {
     }
 
     /// A save fails closed if the previous revision cannot be validated and backed up.
-    public func save(_ planner: Planner) throws { try withLock { try saveLocked(planner) } }
+    func save(_ planner: Planner) throws { try withLock { try saveLocked(planner) } }
 
     private func saveLocked(_ planner: Planner) throws {
         let data = try Self.encoder.encode(planner)
@@ -419,7 +427,7 @@ public final class PlannerFile: @unchecked Sendable {
     /// Explicit recovery only: choose the newest readable, decodable backup. Never
     /// silently fall back to empty data or overwrite an unreadable current file.
     @discardableResult
-    public func restoreLatestBackup() throws -> Planner {
+    func restoreLatestBackup() throws -> Planner {
         try withLock {
             var candidate: (Data, Planner)?
             for backup in try backupURLsLocked() {
@@ -449,7 +457,7 @@ public final class PlannerFile: @unchecked Sendable {
 
     /// Exclusive read-modify-write across processes. Internal helpers avoid nested locks.
     @discardableResult
-    public func mutate<T>(_ body: (inout Planner) throws -> T) throws -> T {
+    func mutate<T>(_ body: (inout Planner) throws -> T) throws -> T {
         try withLock {
             var p = try loadLocked()
             let before = p

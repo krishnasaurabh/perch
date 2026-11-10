@@ -74,15 +74,15 @@ struct FocusCard: View {
                 .help(running ? "Pause timer" : "Continue timer")
                 if f.limit != nil {
                     GlassButton(symbol: "goforward.5", help: "Add five minutes", size: 26) {
-                        store.apply { $0.extendTimer(minutes: 5) }
+                        store.apply { try $0.extendTimer(minutes: 5) }
                     }
                 }
                 GlassButton(symbol: "stop.fill", help: "End focus session", size: 26) {
-                    store.apply { _ = $0.stopTimer() }
+                    store.apply { _ = try $0.stopTimer() }
                 }
                 if let id = f.taskID {
                     GlassButton(symbol: "checkmark", help: "Mark done", tint: Theme.done, size: 26) {
-                        store.apply { try $0.complete(id.uuidString) }
+                        store.apply { try $0.complete(id) }
                     }
                 }
             } else {
@@ -94,7 +94,7 @@ struct FocusCard: View {
                 Button("Start") { store.apply { try $0.startTimer(task: nil, minutes: minutes) } }.buttonStyle(
                     PillStyle(prominent: true))
                 Button {
-                    store.apply { $0.startStopwatch(taskID: nil) }
+                    store.apply { try $0.startStopwatch(taskID: nil) }
                 } label: {
                     Image(systemName: "stopwatch")
                 }

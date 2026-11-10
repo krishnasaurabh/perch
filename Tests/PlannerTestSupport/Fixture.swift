@@ -22,4 +22,10 @@ public enum Fixture {
         f.dateFormat = "yyyy-MM-dd HH:mm"
         return f.string(from: d)
     }
+    /// Synthetic fixture lookup; production domain APIs accept only UUIDs.
+    public static func taskID(_ title: String, in planner: Planner) throws -> UUID {
+        let matches = planner.tasks.filter { $0.title.caseInsensitiveCompare(title) == .orderedSame }
+        guard let task = matches.first else { throw PlannerError("Fixture task not found.") }
+        return task.id
+    }
 }

@@ -9,7 +9,7 @@ final class FocusLogTests: XCTestCase {
 
     func testTickCheckpointsAtThirtySecondsWithoutFinishingOrDoubleCounting() throws {
         let task = try engine.addTasks(["work"]).first!
-        try engine.startTimer(task: task.id.uuidString, minutes: 2)
+        try engine.startTimer(task: task.id, minutes: 2)
         clock += 29
         XCTAssertFalse(engine.tick())
         XCTAssertTrue(engine.planner.focusLog.isEmpty)
@@ -34,8 +34,8 @@ final class FocusLogTests: XCTestCase {
         XCTAssertFalse(engine.checkpointFocus())
     }
 
-    func testExplicitCheckpointBanksSubsecondTimeAndStopOnlyRecordsTail() {
-        engine.startStopwatch(taskID: nil)
+    func testExplicitCheckpointBanksSubsecondTimeAndStopOnlyRecordsTail() throws {
+        try engine.startStopwatch(taskID: nil)
         clock += 0.5
         XCTAssertTrue(engine.checkpointFocus())
         XCTAssertEqual(engine.planner.focusLog.first?.seconds, 0.5)
@@ -49,7 +49,7 @@ final class FocusLogTests: XCTestCase {
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: dir) }
         let file = PlannerFile(url: dir.appendingPathComponent("planner.json"))
-        engine.startStopwatch(taskID: nil)
+        try engine.startStopwatch(taskID: nil)
         clock += 30
         XCTAssertFalse(engine.tick())
         try file.save(engine.planner)
@@ -70,7 +70,7 @@ final class FocusLogTests: XCTestCase {
 
     func testSubsecondCheckpointsRoundTripWithoutPhantomFocus() throws {
         clock += 0.123456
-        engine.startStopwatch(taskID: nil)
+        try engine.startStopwatch(taskID: nil)
         clock += 30.751234
         XCTAssertTrue(engine.checkpointFocus())
         let before = engine.planner
@@ -84,7 +84,7 @@ final class FocusLogTests: XCTestCase {
         XCTAssertEqual(engine.planner.focusLog.reduce(0) { $0 + $1.seconds }, 30.876912, accuracy: 0.000001)
     }
 
-    func testActivitySplitsHoursClipsSinceAndIgnoresInvalidIntervals() {
+    func testActivitySplitsHoursClipsSinceAndIgnoresInvalidIntervals() throws {
         engine.planner.focusLog = [
             FocusSegment(taskID: nil, start: Fixture.date("2026-11-09 09:50"), end: Fixture.date("2026-11-09 11:10")),
             FocusSegment(taskID: nil, start: Fixture.date("2026-11-08 09:00"), end: Fixture.date("2026-11-08 09:10")),
@@ -110,7 +110,7 @@ final class FocusLogTests: XCTestCase {
         XCTAssertEqual(engine.activityByHour(since: Fixture.date("2026-11-09 00:00")), hours)
     }
 
-    func testFocusSummariesSplitAtResetBoundaryAndMidnight() {
+    func testFocusSummariesSplitAtResetBoundaryAndMidnight() throws {
         clock = Fixture.date("2026-11-10 04:10")
         engine.planner.preferences.resetHour = 4
         engine.planner.focusLog = [FocusSegment(taskID: nil, start: Fixture.date("2026-11-10 03:50"), end: clock)]
@@ -124,7 +124,7 @@ final class FocusLogTests: XCTestCase {
         XCTAssertEqual(engine.insights().allTimeFocusSeconds, 1200)
     }
 
-    func testHourlyActivityHandlesBothDSTTransitionsByElapsedTime() {
+    func testHourlyActivityHandlesBothDSTTransitionsByElapsedTime() throws {
         for (start, end, expected) in [
             ("2026-03-08 01:30", "2026-03-08 03:30", [1: 1800.0, 3: 1800.0]),
             ("2026-11-01 00:30", "2026-11-01 02:30", [0: 1800.0, 1: 7200.0, 2: 1800.0]),

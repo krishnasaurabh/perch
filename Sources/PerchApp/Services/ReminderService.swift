@@ -10,33 +10,27 @@ final class ReminderService: NSObject, UNUserNotificationCenterDelegate {
     let store: PlannerStore
     @Published var notificationsAllowed = false
 
-    init(store: PlannerStore) {
+    private let source: any NotificationAccess
+
+    init(store: PlannerStore, source: (any NotificationAccess)? = nil) {
         self.store = store
+        self.source = source ?? SystemNotificationAccess()
         super.init()
-        if Bundle.main.bundleIdentifier != nil {
-            UNUserNotificationCenter.current().delegate = self
-            refreshAuthorization()
-        }
-    }
-
-    func refreshAuthorization() {
-        guard Bundle.main.bundleIdentifier != nil else { return }
-        UNUserNotificationCenter.current().getNotificationSettings { s in
-            Task { @MainActor in self.notificationsAllowed = s.authorizationStatus == .authorized }
-        }
-    }
-
-    func requestAuthorization() async {
-        guard Bundle.main.bundleIdentifier != nil else { return }
-        _ = try? await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound])
+        self.source.setDelegate(self)
         refreshAuthorization()
     }
 
+    func refreshAuthorization() {
+        Task { @MainActor in notificationsAllowed = await source.isAuthorized() }
+    }
+
+    func requestAuthorization() async {
+        _ = try? await source.requestAuthorization()
+        notificationsAllowed = await source.isAuthorized()
+    }
+
     func notify(id: String, title: String, body: String) {
-        guard Bundle.main.bundleIdentifier != nil else { return }
-        let c = UNMutableNotificationContent()
-        c.title = title; c.body = body; c.sound = .default
-        UNUserNotificationCenter.current().add(UNNotificationRequest(identifier: id, content: c, trigger: nil))
+        source.post(id: id, title: title, body: body)
     }
 
     nonisolated func userNotificationCenter(

@@ -53,7 +53,7 @@ struct TaskDetailsSheet: View {
                                         get: { r },
                                         set: { v in
                                             store.updateTask(t.id) {
-                                                $0.remindAt = v; $0.day = store.dayKey(v)
+                                                $0.remindAt = v
                                             }
                                         })
                                 )
@@ -66,7 +66,7 @@ struct TaskDetailsSheet: View {
                                         Date().addingTimeInterval(3600),
                                         Calendar.current.date(bySettingHour: 9, minute: 0, second: 0, of: base)!)
                                     store.updateTask(t.id) {
-                                        $0.remindAt = at; $0.day = store.dayKey(at)
+                                        $0.remindAt = at
                                     }
                                 }.disabled(t.day == nil || t.done)
                             }
@@ -184,7 +184,7 @@ struct TaskDetailsSheet: View {
                     }
                     Spacer()
                     Button("Delete Task", role: .destructive) {
-                        store.apply { try $0.delete(t.id.uuidString, on: t.day.map { .day($0) } ?? .inbox) }
+                        store.apply { try $0.delete(t.id, on: t.day.map { .day($0) } ?? .inbox) }
                         dismiss()
                     }.disabled(readOnly)
                 }
@@ -215,7 +215,7 @@ struct TaskDetailsSheet: View {
     }
 
     func move(_ t: PlanTask, _ to: DayRef) {
-        store.apply { try $0.move(t.id.uuidString, from: t.day.map { .day($0) } ?? .inbox, to: to) }
+        store.apply { try $0.move(t.id, from: t.day.map { .day($0) } ?? .inbox, to: to) }
     }
 
     func stopRepeating(_ t: PlanTask) {
@@ -224,7 +224,7 @@ struct TaskDetailsSheet: View {
 
     func applyRepeat(_ t: PlanTask) {
         var e = TaskEdit(); e.repeatRule = repeatText.isEmpty ? "none" : repeatText
-        if store.apply({ try $0.update(t.id.uuidString, on: t.day.map { .day($0) } ?? .inbox, e) }) != nil {
+        if store.apply({ try $0.update(t.id, on: t.day.map { .day($0) } ?? .inbox, e) }) != nil {
             repeatText = store.planner.tasks.first { $0.id == t.id }?.repeatRule?.description ?? ""
         }
     }

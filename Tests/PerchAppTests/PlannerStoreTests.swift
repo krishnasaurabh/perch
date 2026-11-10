@@ -1,6 +1,6 @@
 import AppKit
 import Foundation
-import PlannerCore
+@testable import PlannerCore
 import PerchUI
 import XCTest
 @testable import PerchApp
@@ -79,7 +79,7 @@ final class PlannerStoreTests: XCTestCase {
             let store = PlannerStore(
                 file: PlannerFile(url: root.appendingPathComponent("planner.json")), now: { now }, watching: false)
             let tasks = try XCTUnwrap(store.apply { try $0.addTasks(["Focus fixture"], on: .day($0.today)) })
-            XCTAssertNotNil(store.apply { try $0.startTimer(task: tasks[0].id.uuidString, minutes: 5) })
+            XCTAssertNotNil(store.apply { try $0.startTimer(task: tasks[0].id, minutes: 5) })
             now.addTimeInterval(12.5)
             store.apply { try $0.pauseTimer() }
             XCTAssertEqual(store.planner.tasks[0].focusedSeconds, 12.5)

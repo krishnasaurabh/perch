@@ -28,7 +28,7 @@ final class PlannerUndoTests: XCTestCase {
 
     func testTimerActionsDoNotConsumeHistory() throws {
         let f = Fixture()
-        try f.edit { _ = try $0.startTimer(task: f.id.uuidString, minutes: 5) }
+        try f.edit { _ = try $0.startTimer(task: f.id, minutes: 5) }
         XCTAssertFalse(f.history.canUndo)
         f.edit { $0.planner.tasks[0].title = "Edited" }
         f.clock.advance(30.25)
@@ -56,9 +56,9 @@ final class PlannerUndoTests: XCTestCase {
 
     func testCompletionUndoDoesNotRestartSessionOrRevertCredits() throws {
         let f = Fixture()
-        try f.edit { _ = try $0.startTimer(task: f.id.uuidString, minutes: 1) }
+        try f.edit { _ = try $0.startTimer(task: f.id, minutes: 1) }
         f.clock.advance(20)
-        try f.edit { _ = try $0.complete(f.id.uuidString) }
+        try f.edit { _ = try $0.complete(f.id) }
         let ended = f.planner.focus
         XCTAssertTrue(f.planner.tasks[0].done)
         f.clock.advance(3600)
@@ -75,7 +75,7 @@ final class PlannerUndoTests: XCTestCase {
     func testAutomaticCompletionCheckpointsAndRecoveryAreNotUndoable() throws {
         let f = Fixture()
         f.edit { $0.planner.tasks[0].notes = "Edited" }
-        try f.edit { _ = try $0.startTimer(task: f.id.uuidString, minutes: 1) }
+        try f.edit { _ = try $0.startTimer(task: f.id, minutes: 1) }
         f.clock.advance(30)
         f.edit { _ = $0.tick() }
         let checkpoint = f.planner.focus
@@ -209,14 +209,14 @@ final class PlannerUndoTests: XCTestCase {
         let f = Fixture()
         f.planner.tasks[0].reminderLink = "retired-synthetic-link"
         f.planner.tasks[0].agentID = "retired-synthetic-caller"
-        try f.edit { _ = try $0.startTimer(task: f.id.uuidString, minutes: 1) }
+        try f.edit { _ = try $0.startTimer(task: f.id, minutes: 1) }
         f.clock.advance(30.25)
         try f.edit { try $0.pauseTimer() }
         f.clock.advance(600)
         try f.edit { try $0.resumeTimer() }
         f.clock.advance(29.75)
         f.edit { _ = $0.tick() }
-        try f.edit { _ = try $0.delete(f.id.uuidString, on: .day($0.today)) }
+        try f.edit { _ = try $0.delete(f.id, on: .day($0.today)) }
         return f
     }
 
@@ -292,7 +292,7 @@ final class PlannerUndoTests: XCTestCase {
     func testDeletionRedoPreservesNewFocusAfterUndo() throws {
         let f = try deletedFocusedFixture()
         f.undo()
-        try f.edit { _ = try $0.startTimer(task: f.id.uuidString, minutes: 1) }
+        try f.edit { _ = try $0.startTimer(task: f.id, minutes: 1) }
         f.clock.advance(8.5)
         f.edit { _ = $0.stopTimer() }
         XCTAssertTrue(f.history.canRedo)
@@ -307,7 +307,7 @@ final class PlannerUndoTests: XCTestCase {
         for paused in [false, true] {
             let f = try deletedFocusedFixture()
             f.undo()
-            try f.edit { _ = try $0.startTimer(task: f.id.uuidString, minutes: 1) }
+            try f.edit { _ = try $0.startTimer(task: f.id, minutes: 1) }
             if paused { try f.edit { try $0.pauseTimer() } }
             let current = f.planner
             XCTAssertEqual(current.tasks[0].focusedSeconds, 60)
@@ -348,7 +348,7 @@ final class PlannerUndoTests: XCTestCase {
         let originalLedger = f.planner.focusSegments
         let other = PlanTask(title: "Other", day: DayKey(f.clock.time))
         f.planner.tasks.append(other)
-        try f.edit { _ = try $0.startTimer(task: other.id.uuidString, minutes: 1) }
+        try f.edit { _ = try $0.startTimer(task: other.id, minutes: 1) }
         f.clock.advance(30)
         f.edit { _ = $0.tick() }
         f.planner.tasks[1].notes = "External note"
@@ -382,7 +382,7 @@ final class PlannerUndoTests: XCTestCase {
                     FocusSegment(taskID: added.id, start: f.clock.time, end: f.clock.time.addingTimeInterval(5)))
             }
             if kind == "running" || kind == "paused" {
-                try f.edit { _ = try $0.startTimer(task: added.id.uuidString, minutes: 1) }
+                try f.edit { _ = try $0.startTimer(task: added.id, minutes: 1) }
                 if kind == "paused" { try f.edit { try $0.pauseTimer() } }
             }
             let current = f.planner

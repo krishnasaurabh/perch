@@ -90,8 +90,8 @@ enum MotionScript {
                 if e.planner.tasks.isEmpty {
                     _ = try e.addTasks(["Draft launch notes", "Reply to Sam", "Water the plants every 3 days"])
                 }
-                _ = e.stopTimer()
-                e.planner.preferences.welcomeCompleted = true
+                _ = try e.stopTimer()
+                try e.updatePrefs { $0.welcomeCompleted = true }
             }
         }
 

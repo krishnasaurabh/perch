@@ -159,7 +159,6 @@ private struct HomeBody: View {
 struct OverdueBanner: View {
     @EnvironmentObject var store: PlannerStore
     @EnvironmentObject var model: NotchModel
-    @State private var lastPolicyDay: DayKey?
 
     var body: some View {
         let overdue = store.engine.overdue()
@@ -180,17 +179,17 @@ struct OverdueBanner: View {
                                 .fixedSize(horizontal: false, vertical: true)
                             Spacer(minLength: 8)
                             Button("Bring to today") {
-                                store.apply { $0.carryForward(overdue.map(\.id), to: $0.today) }
+                                store.apply { try $0.carryForward(overdue.map(\.id), to: $0.today) }
                             }
                             .buttonStyle(PillStyle(prominent: true))
                             .help("Copy these tasks to today and keep the originals in history.")
                             Button("Mark all done") {
-                                store.apply { $0.completeOverdue(overdue.map(\.id)) }
+                                store.apply { try $0.completeOverdue(overdue.map(\.id)) }
                             }
                             .buttonStyle(PillStyle())
                             .help("Complete these tasks on their original days, without moving them.")
                             Button("Leave in history") {
-                                store.apply { $0.dismissOverdue(overdue.map(\.id)) }
+                                store.apply { try $0.dismissOverdue(overdue.map(\.id)) }
                             }
                             .buttonStyle(PillStyle())
                         }
@@ -199,10 +198,7 @@ struct OverdueBanner: View {
                 .card(padding: 10)
             }
         }
-        .onAppear { applyPolicyIfNeeded(force: true) }
-        // Run once per logical day, not after each mutation: Undo must not immediately
-        // trigger the same automatic action again and erase the redo stack.
-        .onReceive(model.$now) { _ in applyPolicyIfNeeded() }
+
     }
 
     private var policyMenu: some View {
@@ -212,10 +208,7 @@ struct OverdueBanner: View {
                 selection: Binding(
                     get: { store.prefs.carryMode },
                     set: { mode in
-                        store.apply { engine in
-                            engine.planner.preferences.carryMode = mode
-                            engine.applyCarryMode()
-                        }
+                        store.updatePrefs { $0.carryMode = mode }
                     }
                 )
             ) {
@@ -248,13 +241,6 @@ struct OverdueBanner: View {
         }
     }
 
-    private func applyPolicyIfNeeded(force: Bool = false) {
-        let day = store.engine.today
-        guard force || lastPolicyDay != day else { return }
-        lastPolicyDay = day
-        guard store.prefs.carryMode != .ask, !store.engine.overdue().isEmpty else { return }
-        store.apply { $0.applyCarryMode() }
-    }
 }
 
 struct PillStyle: ButtonStyle {

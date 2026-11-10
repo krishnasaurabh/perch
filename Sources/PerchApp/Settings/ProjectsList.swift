@@ -18,12 +18,7 @@ struct ProjectsList: View {
                         Text("\(open.count) open · \(tasks.filter(\.done).count) done").foregroundStyle(.secondary)
                         Spacer()
                         Button("Delete Project", role: .destructive) {
-                            store.apply { e in
-                                e.planner.projects.removeAll { $0.id == p.id }
-                                for i in e.planner.tasks.indices where e.planner.tasks[i].projectID == p.id {
-                                    e.planner.tasks[i].projectID = nil
-                                }
-                            }
+                            store.apply { try $0.deleteProject(p.id) }
                         }.buttonStyle(.borderless)
                     }
                     ForEach(open) { t in DashboardTaskLine(task: t) }

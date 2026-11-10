@@ -116,7 +116,7 @@ final class FocusSessionEdgeTests: XCTestCase {
         let (varEngine, setClock) = makeEngine()
         var engine = varEngine
         _ = try engine.addTasks(["deep work"])
-        try engine.startTimer(task: "deep work", minutes: 25)
+        try engine.startTimer(task: try Fixture.taskID("deep work", in: engine.planner), minutes: 25)
 
         setClock(10)
         try engine.pauseTimer()
@@ -163,7 +163,7 @@ final class FocusSessionEdgeTests: XCTestCase {
         let (varEngine, setClock) = makeEngine()
         var engine = varEngine
         _ = try engine.addTasks(["a"])
-        try engine.startTimer(task: "a", minutes: 25)
+        try engine.startTimer(task: try Fixture.taskID("a", in: engine.planner), minutes: 25)
         setClock(24.983)
         XCTAssertFalse(engine.tick())
         setClock(25)
@@ -177,7 +177,7 @@ final class FocusSessionEdgeTests: XCTestCase {
         let (varEngine, setClock) = makeEngine()
         var engine = varEngine
         _ = try engine.addTasks(["a"])
-        try engine.startTimer(task: "a", minutes: 25)
+        try engine.startTimer(task: try Fixture.taskID("a", in: engine.planner), minutes: 25)
         setClock(180)  // woke up three hours later
         XCTAssertTrue(engine.tick())
         XCTAssertEqual(engine.planner.tasks[0].focusedSeconds, 1500, accuracy: 0.5)
@@ -188,12 +188,12 @@ final class FocusSessionEdgeTests: XCTestCase {
         let (varEngine, setClock) = makeEngine()
         var engine = varEngine
         _ = try engine.addTasks(["a"])
-        try engine.startTimer(task: "a", minutes: 25)
+        try engine.startTimer(task: try Fixture.taskID("a", in: engine.planner), minutes: 25)
         setClock(25)
         XCTAssertTrue(engine.tick())
         XCTAssertEqual(engine.planner.focus?.state, .finished)
 
-        engine.extendTimer(minutes: 5)
+        try engine.extendTimer(minutes: 5)
         XCTAssertEqual(engine.planner.focus?.state, .paused, "keep focusing puts the clock back in a resumable state")
         XCTAssertEqual(engine.planner.focus?.limit, 1800)
 
@@ -210,7 +210,7 @@ final class FocusSessionEdgeTests: XCTestCase {
         var engine = varEngine
         try engine.startTimer(task: nil, minutes: 10)
         setClock(4)
-        engine.extendTimer(minutes: 5)
+        try engine.extendTimer(minutes: 5)
         XCTAssertEqual(engine.planner.focus!.remaining(at: at(4))!, 660, accuracy: 0.5)
         setClock(14)
         XCTAssertFalse(engine.tick())
@@ -222,7 +222,7 @@ final class FocusSessionEdgeTests: XCTestCase {
         let (varEngine, setClock) = makeEngine()
         var engine = varEngine
         _ = try engine.addTasks(["a"])
-        try engine.startTimer(task: "a", minutes: 25)
+        try engine.startTimer(task: try Fixture.taskID("a", in: engine.planner), minutes: 25)
         setClock(10)
         try engine.startTimer(task: nil, minutes: 10)
         XCTAssertEqual(engine.planner.focusSegments.first?.seconds ?? -1, 600, accuracy: 0.5)
@@ -234,12 +234,12 @@ final class FocusSessionEdgeTests: XCTestCase {
         let (varEngine, _) = makeEngine()
         var engine = varEngine
         _ = try engine.addTasks(["a"])
-        try engine.startTimer(task: "a", minutes: nil)
+        try engine.startTimer(task: try Fixture.taskID("a", in: engine.planner), minutes: nil)
         XCTAssertEqual(engine.planner.focus?.limit, 1500, "default 25 minutes")
 
         var edit = TaskEdit(); edit.minutes = 50
-        _ = try engine.update("a", on: .day("2026-11-09"), edit)
-        try engine.startTimer(task: "a", minutes: nil)
+        _ = try engine.update(try Fixture.taskID("a", in: engine.planner), on: .day("2026-11-09"), edit)
+        try engine.startTimer(task: try Fixture.taskID("a", in: engine.planner), minutes: nil)
         XCTAssertEqual(engine.planner.focus?.limit, 3000)
 
         try engine.startTimer(task: nil, minutes: 5)
@@ -263,11 +263,13 @@ final class FocusSessionEdgeTests: XCTestCase {
         let (varEngine, _) = makeEngine()
         var engine = varEngine
         _ = try engine.addTasks(["future thing tomorrow"])
-        XCTAssertThrowsError(try engine.startTimer(task: "future thing", minutes: nil))
+        XCTAssertThrowsError(
+            try engine.startTimer(task: try Fixture.taskID("future thing", in: engine.planner), minutes: nil))
 
         _ = try engine.addTasks(["a"])
-        _ = try engine.complete("a")
-        XCTAssertThrowsError(try engine.startTimer(task: "a", minutes: nil)) { e in
+        _ = try engine.complete(try Fixture.taskID("a", in: engine.planner))
+        XCTAssertThrowsError(try engine.startTimer(task: try Fixture.taskID("a", in: engine.planner), minutes: nil)) {
+            e in
             XCTAssertTrue("\(e)".contains("Reopen this task before starting focus"), "\(e)")
         }
     }
@@ -276,10 +278,10 @@ final class FocusSessionEdgeTests: XCTestCase {
         let (varEngine, setClock) = makeEngine()
         var engine = varEngine
         _ = try engine.addTasks(["a"])
-        try engine.startTimer(task: "a", minutes: 25)
+        try engine.startTimer(task: try Fixture.taskID("a", in: engine.planner), minutes: 25)
         setClock(10)
         try engine.pauseTimer()
-        _ = try engine.complete("a")
+        _ = try engine.complete(try Fixture.taskID("a", in: engine.planner))
         XCTAssertNil(engine.planner.focus)
         XCTAssertEqual(engine.planner.tasks[0].focusedSeconds, 600, accuracy: 0.5)
         XCTAssertEqual(engine.planner.focusSegments.count, 1)
@@ -289,9 +291,9 @@ final class FocusSessionEdgeTests: XCTestCase {
         let (varEngine, setClock) = makeEngine()
         var engine = varEngine
         _ = try engine.addTasks(["a"])
-        try engine.startTimer(task: "a", minutes: 25)
+        try engine.startTimer(task: try Fixture.taskID("a", in: engine.planner), minutes: 25)
         setClock(5)
-        _ = try engine.delete("a", on: .day("2026-11-09"))
+        _ = try engine.delete(try Fixture.taskID("a", in: engine.planner), on: .day("2026-11-09"))
         XCTAssertNil(engine.planner.focus)
     }
 
@@ -325,7 +327,7 @@ final class FocusSessionEdgeTests: XCTestCase {
         let (varEngine, setClock) = makeEngine()
         var engine = varEngine
         let task = try engine.addTasks(["a"]).first!
-        _ = engine.startStopwatch(taskID: task.id)
+        _ = try engine.startStopwatch(taskID: task.id)
         setClock(60)
         XCTAssertEqual(
             engine.insights().today.focusSeconds, 3600, accuracy: 1, "a running session shows up in Insights")
@@ -341,7 +343,7 @@ final class FocusSessionEdgeTests: XCTestCase {
         let box = Box(start)
         var engine = PlannerEngine(planner: Planner(), now: { box.clock }, calendar: Fixture.calendar)
         _ = try engine.addTasks(["dst run"])
-        try engine.startTimer(task: "dst run", minutes: 20)
+        try engine.startTimer(task: try Fixture.taskID("dst run", in: engine.planner), minutes: 20)
         box.clock = start.addingTimeInterval(1200)
         XCTAssertTrue(engine.tick())
         XCTAssertEqual(engine.planner.tasks[0].focusedSeconds, 1200, accuracy: 0.5)

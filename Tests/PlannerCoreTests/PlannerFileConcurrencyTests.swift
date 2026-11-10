@@ -228,7 +228,7 @@ final class PlannerFileConcurrencyTests: XCTestCase {
             do {
                 try file.mutate { p in
                     var e = PlannerEngine(planner: p, now: { Fixture.now }, calendar: self.fixtureCalendar)
-                    _ = try e.complete(ids[i].uuidString)
+                    _ = try e.complete(ids[i])
                     p = e.planner
                 }
             } catch {

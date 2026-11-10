@@ -177,8 +177,8 @@ final class CarryModeTests: XCTestCase {
         let current = PlanTask(title: "Current", day: "2026-11-09")
         let old = PlanTask(title: "Old", day: "2026-11-08")
         var e = engine([old, current], at: Fixture.date("2026-11-10 02:00"), resetHour: 4)
-        XCTAssertThrowsError(try e.complete(old.id.uuidString))
-        XCTAssertThrowsError(try e.rename(old.id.uuidString, on: .day(old.day!), to: "No"))
+        XCTAssertThrowsError(try e.complete(old.id))
+        XCTAssertThrowsError(try e.rename(old.id, on: .day(old.day!), to: "No"))
         XCTAssertEqual(e.completeOverdue([old.id, current.id]).map(\.id), [old.id])
         XCTAssertFalse(e.planner.tasks[1].done)
     }
