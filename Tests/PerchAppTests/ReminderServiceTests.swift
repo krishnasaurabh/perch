@@ -1,3 +1,4 @@
+import Combine
 import Foundation
 import PerchUI
 import PlannerCore
@@ -203,12 +204,14 @@ final class ReminderServiceTests: XCTestCase {
         let day = f.store.today
         f.time.now = day.adding(days: 1).start(resetHour: 4).addingTimeInterval(-60)
         let id = f.task()
+        f.store.updateTask(id) { $0.remindAt = f.time.now }
         var edit = TaskEdit(); edit.repeatRule = "daily"
         XCTAssertNotNil(f.store.send(.update(id, edit)))
         f.store.beginApplication()
         XCTAssertEqual(f.store.today, day)
         XCTAssertEqual(f.store.planner.tasks.count, 14)
         let future = try XCTUnwrap(f.store.planner.tasks.first { $0.day == day.adding(days: 3) })
+        XCTAssertEqual(future.remindAt, day.adding(days: 4).start(resetHour: 4).addingTimeInterval(-60))
         f.store.send(.delete(future.id))
         f.store.renewReminderHorizon()
         XCTAssertFalse(f.store.planner.tasks.contains { $0.id == future.id || $0.day == future.day })
@@ -217,6 +220,23 @@ final class ReminderServiceTests: XCTestCase {
         XCTAssertEqual(f.store.today, day.adding(days: 1))
         XCTAssertTrue(f.store.planner.tasks.contains { $0.day == day.adding(days: 14) })
         XCTAssertFalse(f.store.planner.tasks.contains { $0.day == future.day })
+    }
+
+    @MainActor
+    func testChangingRepeatRuleRenewsThroughSubscriptionWithoutChangingReminder() async throws {
+        let f = ReminderFixture(); defer { f.clean() }; let id = f.task()
+        let service = ReminderService(
+            store: f.store, source: f.source,
+            clock: ClosurePlannerClock { f.time.now }, observing: true)
+        await service.reconcile()
+        let expanded = expectation(description: "Repeat edit renews the horizon")
+        let token = f.store.$planner.first(where: { $0.tasks.count == 14 }).sink { _ in expanded.fulfill() }
+        var edit = TaskEdit(); edit.repeatRule = "daily"
+        XCTAssertNotNil(f.store.send(.update(id, edit)))
+        await fulfillment(of: [expanded], timeout: 3)
+        await service.reconcile()
+        XCTAssertEqual(f.source.pending.count, 14)
+        withExtendedLifetime(token) {}
     }
 
     @MainActor

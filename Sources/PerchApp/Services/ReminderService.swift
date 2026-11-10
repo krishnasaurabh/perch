@@ -39,12 +39,30 @@ final class ReminderService: NSObject, UNUserNotificationCenterDelegate {
         if observing { start() }
     }
 
-    private func start() {
-        let alarms = store.$planner.map { NotchActivityTimeline.triggers(planner: $0) }.removeDuplicates().map { _ in ()
+    private struct Inputs: Equatable {
+        struct RepeatSource: Equatable {
+            let id: UUID
+            let day: DayKey?
+            let anchor: DayKey?
+            let rule: TaskRepeat?
+            let done: Bool
         }
-        let reset = store.$planner.map { $0.preferences.resetHour }.removeDuplicates().map { _ in () }
-        alarms.merge(with: reset).receive(on: RunLoop.main).sink { [weak self] in self?.requestRefresh() }
-            .store(in: &subscriptions)
+        let reminders: [NotchActivity]
+        let repeats: [RepeatSource]
+        let resetHour: Int
+        init(_ planner: Planner) {
+            reminders = NotchActivityTimeline.triggers(planner: planner)
+            repeats = planner.tasks.filter { $0.repeatRule != nil }.map {
+                RepeatSource(id: $0.id, day: $0.day, anchor: $0.repeatAnchor, rule: $0.repeatRule, done: $0.done)
+            }
+            resetHour = planner.preferences.resetHour
+        }
+    }
+
+    private func start() {
+        // A rule edit can require new occurrences even when the existing reminder's ID/date is unchanged.
+        store.$planner.map { Inputs($0) }.removeDuplicates().receive(on: RunLoop.main)
+            .sink { [weak self] _ in self?.requestRefresh() }.store(in: &subscriptions)
         for name in [
             Notification.Name.NSCalendarDayChanged, .NSSystemClockDidChange,
             NSNotification.Name.NSSystemTimeZoneDidChange,
