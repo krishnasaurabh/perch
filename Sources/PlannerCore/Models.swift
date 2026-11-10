@@ -34,6 +34,9 @@ public struct PlanTask: Codable, Equatable, Identifiable, Sendable {
     public var done: Bool
     public var completedAt: Date?
     public var createdAt: Date
+    public var updatedAt: Date
+    /// Credit predating a detailed ledger; retained independently of recorded intervals.
+    public var unloggedFocusedSeconds: Double
     public var remindAt: Date?
     public var deadline: DayKey?
     public var priority: TaskPriority
@@ -65,9 +68,11 @@ public struct PlanTask: Codable, Equatable, Identifiable, Sendable {
         priority: TaskPriority = .none, projectID: UUID? = nil, notes: String = "",
         repeatRule: TaskRepeat? = nil, minutes: Int? = nil, steps: [Subtask] = [],
         focusedSeconds: Double = 0, carriedFrom: DayKey? = nil, reminderLink: String? = nil,
-        repeatedFrom: UUID? = nil, carryCount: Int = 0, agentID: String? = nil, repeatAnchor: DayKey? = nil
+        repeatedFrom: UUID? = nil, carryCount: Int = 0, agentID: String? = nil, repeatAnchor: DayKey? = nil,
+        updatedAt: Date? = nil, unloggedFocusedSeconds: Double = 0
     ) {
         self.id = id; self.title = title; self.day = day; self.done = done
+        self.updatedAt = updatedAt ?? createdAt; self.unloggedFocusedSeconds = unloggedFocusedSeconds
         self.completedAt = completedAt; self.createdAt = createdAt; self.remindAt = remindAt
         self.deadline = deadline; self.priority = priority; self.projectID = projectID
         self.notes = notes; self.repeatRule = repeatRule; self.minutes = minutes; self.steps = steps
@@ -84,6 +89,8 @@ public struct PlanTask: Codable, Equatable, Identifiable, Sendable {
         done = try c.decodeMissing(Bool.self, forKey: .done, default: false)
         completedAt = try c.decodeIfPresent(Date.self, forKey: .completedAt)
         createdAt = try c.decode(Date.self, forKey: .createdAt)
+        updatedAt = try c.decodeMissing(Date.self, forKey: .updatedAt, default: createdAt)
+        unloggedFocusedSeconds = try c.decodeMissing(Double.self, forKey: .unloggedFocusedSeconds, default: 0)
         remindAt = try c.decodeIfPresent(Date.self, forKey: .remindAt)
         deadline = try c.decodeIfPresent(DayKey.self, forKey: .deadline)
         priority = try c.decodeMissing(TaskPriority.self, forKey: .priority, default: .none)
@@ -218,8 +225,19 @@ public struct FocusSegment: Codable, Equatable, Sendable {
     public var taskID: UUID?
     public var start: Date
     public var end: Date
+    /// Pending remote records are never compacted or archived.
+    public var isSynced: Bool = true
     public var seconds: Double { end.timeIntervalSince(start) }
-    public init(taskID: UUID?, start: Date, end: Date) { self.taskID = taskID; self.start = start; self.end = end }
+    public init(taskID: UUID?, start: Date, end: Date, isSynced: Bool = true) {
+        self.taskID = taskID; self.start = start; self.end = end; self.isSynced = isSynced
+    }
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        taskID = try c.decodeIfPresent(UUID.self, forKey: .taskID)
+        start = try c.decode(Date.self, forKey: .start)
+        end = try c.decode(Date.self, forKey: .end)
+        isSynced = try c.decodeMissing(Bool.self, forKey: .isSynced, default: true)
+    }
 }
 
 /// How unfinished tasks from earlier days are handled when Home is opened.
@@ -309,12 +327,12 @@ extension KeyedDecodingContainer {
 public struct PlannerSchemaError: Error, LocalizedError, CustomStringConvertible {
     public let version: Int
     public var description: String {
-        "Planner schema version \(version) is not supported (supported: 1). Open it with a compatible Perch version. No data was rewritten or restored."
+        "Planner schema version \(version) is not supported by this document reader. Open it with a compatible Perch version. No data was rewritten or restored."
     }
     public var errorDescription: String? { description }
 }
 
-/// The whole planner document, persisted as planner.json.
+/// In-memory planner and the stable version-1 export contract. Disk storage uses its own DTO.
 public struct Planner: Codable, Equatable, Sendable {
     public static let currentVersion = 1
     public var version: Int = Planner.currentVersion

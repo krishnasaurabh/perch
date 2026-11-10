@@ -78,17 +78,13 @@ extension PlannerEngine {
         guard !planner.tasks.contains(where: { $0.repeatSeriesID == task.repeatSeriesID && $0.day == day }) else {
             return nil
         }
-        var copy = task
-        copy.id = UUID(); copy.day = day; copy.done = false; copy.completedAt = nil; copy.createdAt = now()
-        copy.repeatedFrom = task.repeatSeriesID; copy.carryCount = 0
-        copy.repeatAnchor = repeatAnchor(for: task)
-        copy.focusedSeconds = 0; copy.carriedFrom = nil; copy.reminderLink = nil
-        copy.steps = task.steps.map { Subtask(title: $0.title) }
+        var reminderDate: Date?
         if let reminder = task.remindAt {
             let time = calendar.dateComponents([.hour, .minute], from: reminder)
-            copy.remindAt = day.reminderDate(
+            reminderDate = day.reminderDate(
                 hour: time.hour!, minute: time.minute!, resetHour: planner.preferences.resetHour, calendar: calendar)
         }
+        let copy = task.repeatInstance(on: day, anchor: repeatAnchor(for: task), at: now(), reminder: reminderDate)
         planner.tasks.append(copy)
         return copy
     }

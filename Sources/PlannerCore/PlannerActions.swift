@@ -78,7 +78,10 @@ extension PlannerEngine {
     @discardableResult
     public mutating func execute(_ action: PlannerAction) throws -> PlannerActionResult {
         var candidate = self
-        let result = try candidate.reduce(action)
+        var result = try candidate.reduce(action)
+        candidate.planner.stampTaskChanges(from: planner, at: now())
+        let current = Dictionary(candidate.planner.tasks.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        result.tasks = result.tasks.map { current[$0.id] ?? $0 }
         self = candidate
         return result
     }

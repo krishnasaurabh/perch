@@ -5,7 +5,8 @@ import XCTest
 final class PlannerMigrationTests: XCTestCase {
     // Frozen version-1 shape, including populated tasks. An empty tasks array would hide
     // a failed nested PlanTask decode because legacy Planner decoding defaults that array.
-    let versionOne = #"""
+    var versionOne: String { Self.legacyDocument }
+    static let legacyDocument = #"""
         {
           "version": 1,
           "tasks": [
