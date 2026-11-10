@@ -25,6 +25,37 @@ func captureEditor() -> NSTextView? {
     return editor
 }
 
+// A decorative SwiftUI Image can be omitted from AX altogether. Check the exact
+// source compiled into this probe, rather than passing on an absent AX label.
+@MainActor
+func requireNoCapturePlus() {
+    let path = ProcessInfo.processInfo.environment["TASK_COMPOSER_SOURCE"]!
+    let source = try! String(contentsOfFile: path, encoding: .utf8)
+    let start = source.range(of: "struct TaskComposer: View {")!
+    let end = source.range(of: "struct VoiceButton: View {", range: start.upperBound..<source.endIndex)!
+    let composer = String(source[start.lowerBound..<end.lowerBound])
+    let plusImage = #"Image\s*\(\s*systemName\s*:\s*"plus(?:\.[^"]*)?""#
+    require(composer.range(of: plusImage, options: .regularExpression) == nil,
+            "TaskComposer contains no plus image")
+}
+
+@MainActor
+func pressReturn() {
+    guard let window = NSApp.keyWindow,
+          let event = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0,
+                                      windowNumber: window.windowNumber, context: nil, characters: "\r",
+                                      charactersIgnoringModifiers: "\r", isARepeat: false, keyCode: 36) else {
+        require(false, "Return event can be constructed"); return
+    }
+    NSApp.sendEvent(event)
+}
+
+@MainActor
+func requireCaptureReady(_ state: String) {
+    require(captureEditor() != nil, "capture keeps focus \(state)")
+    require(captureEditor()?.string == "", "capture clears \(state)")
+}
+
 /// Insights chart motion and scale (F07/F11). Pure checks on the WeekBars rules, then real rendered frames of a
 /// hosted WeekBars: Planned must already stand at final height on the first frames, Completed must still be on the
 /// baseline and then grow. Frames are written next to the snapshots as evidence.
@@ -156,6 +187,7 @@ MainActor.assumeIsolated {
 
     DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
         Task { @MainActor in
+            requireNoCapturePlus()
             require(delegate.store.planner.tasks.isEmpty, "isolated planner starts empty")
             require(!delegate.model.expanded, "normal launch starts closed")
             delegate.store.updatePrefs { $0.catchCopies = false; $0.catchScreenshots = false }
@@ -186,6 +218,7 @@ MainActor.assumeIsolated {
             require(captureEditor() != nil, "explicit opening refocuses an already-open Today")
             await wakeAccessibility()
             await settle()
+            require(findControl("Add a task") != nil, "real capture field is exposed")
             require(findControl("To do 0") != nil, "empty Today exposes To do")
             require(findControl("Completed 0") == nil, "empty Today hides Completed 0")
             delegate.notch.snapshot(into: output.appendingPathComponent("today-empty"))
@@ -208,16 +241,34 @@ MainActor.assumeIsolated {
             captureEditor()?.insertText("Capture probe task", replacementRange: NSRange(location: NSNotFound, length: 0))
             await settle()
             require(captureEditor()?.string == "Capture probe task", "typing without a click reaches capture")
-            if let window = NSApp.keyWindow,
-               let enter = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0,
-                                            windowNumber: window.windowNumber, context: nil, characters: "\r",
-                                            charactersIgnoringModifiers: "\r", isARepeat: false, keyCode: 36) {
-                NSApp.sendEvent(enter)
-            }
+            delegate.notch.snapshot(into: output.appendingPathComponent("today-capture-typed"))
+            pressReturn()
             await settle()
-            require(delegate.store.planner.tasks.count == 1, "Return creates one task")
+            require(delegate.store.planner.tasks.count == 1, "first Return creates exactly one task")
             require(delegate.store.planner.tasks.first?.title == "Capture probe task", "capture text is persisted")
-            require(captureEditor()?.string == "", "capture clears and stays focused after add")
+            requireCaptureReady("after first Return")
+
+            pressReturn()
+            await settle()
+            require(delegate.store.planner.tasks.count == 1, "empty Return does not duplicate a task")
+            requireCaptureReady("after empty Return")
+
+            captureEditor()?.insertText("Second capture probe task", replacementRange: NSRange(location: NSNotFound, length: 0))
+            await settle()
+            require(captureEditor()?.string == "Second capture probe task", "second task needs no refocus click")
+            pressReturn()
+            await settle()
+            let captured = delegate.store.planner.tasks
+            require(captured.count == 2 && Set(captured.map(\.id)).count == 2,
+                    "second Return creates exactly one additional task")
+            require(captured.filter { $0.title == "Second capture probe task" }.count == 1,
+                    "second capture text is persisted exactly once")
+            requireCaptureReady("after second Return")
+            // Restore the original one-task fixture for the completion/tab checks below.
+            let second = captured.first { $0.title == "Second capture probe task" }!
+            delegate.store.apply { try $0.delete(second.id.uuidString, on: .day(delegate.store.today)) }
+            await settle()
+            require(delegate.store.planner.tasks.count == 1, "completion fixture restored to one task")
             delegate.notch.snapshot(into: output.appendingPathComponent("today-populated"))
 
             let id = delegate.store.planner.tasks[0].id
@@ -267,7 +318,7 @@ MainActor.assumeIsolated {
                 require(NSImage(systemSymbolName: symbol, accessibilityDescription: nil) != nil,
                         "SF Symbol exists: \(symbol)")
             }
-            for name in ["today-empty", "week-empty", "clips-empty", "today-populated", "today-cleared", "today-three-one-completed", "today-completed-tab", "today-tab-fallback", "insights-focus-only"] {
+            for name in ["today-empty", "week-empty", "clips-empty", "today-capture-typed", "today-populated", "today-cleared", "today-three-one-completed", "today-completed-tab", "today-tab-fallback", "insights-focus-only"] {
                 let files = (try? FileManager.default.contentsOfDirectory(at: output.appendingPathComponent(name),
                                                                          includingPropertiesForKeys: nil)) ?? []
                 require(files.contains { $0.pathExtension == "png" && NSImage(contentsOf: $0) != nil },

@@ -15,12 +15,13 @@ cp -R "$ROOT/Tests" "$PROBE/"
 cp "$ROOT/scripts/empty_states_probe.swift" "$PROBE/Sources/Perch/App/main.swift"
 swift build --package-path "$PROBE" -c release --product Perch
 # The small watchdog makes a missing run loop / focus callback a failure rather than a stuck CI job.
-python3 - "$PROBE/.build/release/Perch" "$OUT" <<'PY'
+python3 - "$PROBE/.build/release/Perch" "$OUT" "$PROBE/Sources/Perch/Workspace/TasksCard.swift" <<'PY'
 import json, os, pathlib, subprocess, sys
-binary, output = sys.argv[1:]
+binary, output, composer_source = sys.argv[1:]
 data = pathlib.Path(output) / 'planner.json'
 data.write_text(json.dumps({'preferences': {'welcomeCompleted': True,
                                           'catchCopies': False, 'catchScreenshots': False}}))
-env = dict(os.environ, PERCH_DATA=str(data), EMPTY_STATES_OUTPUT=output)
+env = dict(os.environ, PERCH_DATA=str(data), EMPTY_STATES_OUTPUT=output,
+           TASK_COMPOSER_SOURCE=composer_source)
 subprocess.run([binary], env=env, check=True, timeout=45)
 PY
