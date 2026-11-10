@@ -136,6 +136,30 @@ final class PlannerRecoveryContractTests: XCTestCase {
         XCTAssertEqual(try Data(contentsOf: file.url), raw)
     }
 
+    func testRecoveryPathsStayStableThroughASymlinkedDataDirectory() throws {
+        let real = directory.appendingPathComponent("real", isDirectory: true)
+        let alias = directory.appendingPathComponent("alias", isDirectory: true)
+        try FileManager.default.createDirectory(at: real, withIntermediateDirectories: true)
+        try FileManager.default.createSymbolicLink(at: alias, withDestinationURL: real)
+        let aliasedFile = PlannerFile(url: alias.appendingPathComponent("planner.json"))
+        let raw = Data(#"{"tasks":[{}]}"#.utf8)
+        try raw.write(to: aliasedFile.url)
+        var firstError: PlannerRecoveryError?
+        XCTAssertThrowsError(try aliasedFile.load()) { firstError = $0 as? PlannerRecoveryError }
+        let first = try XCTUnwrap(firstError)
+        for _ in 0..<3 {
+            var nextError: PlannerRecoveryError?
+            XCTAssertThrowsError(try aliasedFile.load()) { nextError = $0 as? PlannerRecoveryError }
+            let next = try XCTUnwrap(nextError)
+            XCTAssertEqual(next.quarantineURL, first.quarantineURL)
+            XCTAssertEqual(next.recoveredURL, first.recoveredURL)
+            XCTAssertEqual(next.issuesURL, first.issuesURL)
+            XCTAssertEqual(next.localizedDescription, first.localizedDescription)
+            XCTAssertEqual(try Data(contentsOf: next.quarantineURL), raw)
+        }
+        XCTAssertEqual(try Data(contentsOf: aliasedFile.url), raw)
+    }
+
     func testTruncatedJSONHasDistinctTypedFailureAndVerifiedQuarantine() throws {
         let raw = Data(#"{"tasks":["#.utf8)
         try raw.write(to: file.url)

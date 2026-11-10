@@ -262,10 +262,14 @@ public final class PlannerFile: @unchecked Sendable {
         // Identical repeated reloads reuse their quarantine instead of producing
         // an unbounded set of copies. Never prune a user's recovery material.
         let prefix = url.deletingPathExtension().lastPathComponent + ".corrupt-"
-        let entries = try FileManager.default.contentsOfDirectory(at: url.deletingLastPathComponent(), includingPropertiesForKeys: nil)
+        let entries = try FileManager.default.contentsOfDirectory(at: url.deletingLastPathComponent().resolvingSymlinksInPath(), includingPropertiesForKeys: nil)
         for entry in entries.sorted(by: { $0.lastPathComponent < $1.lastPathComponent })
             where entry.lastPathComponent.hasPrefix(prefix) && !entry.lastPathComponent.contains(".recovered.") && !entry.lastPathComponent.contains(".issues.") {
-            if (try? io.read(entry)) == data { return entry }
+            if (try? io.read(entry)) == data {
+                // Directory enumeration may resolve a symlinked parent differently
+                // from the configured data URL. Keep recovery paths stable across loads.
+                return url.deletingLastPathComponent().appendingPathComponent(entry.lastPathComponent)
+            }
         }
         let copy = url.deletingPathExtension().appendingPathExtension("corrupt-\(UUID().uuidString).json")
         do {
