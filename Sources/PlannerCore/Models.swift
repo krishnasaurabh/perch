@@ -29,7 +29,7 @@ public struct TaskProject: Codable, Equatable, Hashable, Identifiable, Sendable 
 public struct PlanTask: Codable, Equatable, Identifiable, Sendable {
     public var id: UUID
     public var title: String
-    /// yyyy-MM-dd in the user's calendar, nil = Inbox.
+    /// Gregorian yyyy-MM-dd in the local time zone, nil = Inbox.
     public var day: DayKey?
     public var done: Bool
     public var completedAt: Date?
@@ -81,23 +81,23 @@ public struct PlanTask: Codable, Equatable, Identifiable, Sendable {
         id = try c.decode(UUID.self, forKey: .id)
         title = try c.decode(String.self, forKey: .title)
         day = try c.decodeIfPresent(DayKey.self, forKey: .day)
-        done = try c.decodeIfPresent(Bool.self, forKey: .done) ?? false
+        done = try c.decodeMissing(Bool.self, forKey: .done, default: false)
         completedAt = try c.decodeIfPresent(Date.self, forKey: .completedAt)
         createdAt = try c.decode(Date.self, forKey: .createdAt)
         remindAt = try c.decodeIfPresent(Date.self, forKey: .remindAt)
         deadline = try c.decodeIfPresent(DayKey.self, forKey: .deadline)
-        priority = try c.decodeIfPresent(TaskPriority.self, forKey: .priority) ?? .none
+        priority = try c.decodeMissing(TaskPriority.self, forKey: .priority, default: .none)
         projectID = try c.decodeIfPresent(UUID.self, forKey: .projectID)
-        notes = try c.decodeIfPresent(String.self, forKey: .notes) ?? ""
+        notes = try c.decodeMissing(String.self, forKey: .notes, default: "")
         repeatRule = try c.decodeIfPresent(TaskRepeat.self, forKey: .repeatRule)
         minutes = try c.decodeIfPresent(Int.self, forKey: .minutes)
-        steps = try c.decodeIfPresent([Subtask].self, forKey: .steps) ?? []
-        focusedSeconds = try c.decodeIfPresent(Double.self, forKey: .focusedSeconds) ?? 0
+        steps = try c.decodeMissing([Subtask].self, forKey: .steps, default: [])
+        focusedSeconds = try c.decodeMissing(Double.self, forKey: .focusedSeconds, default: 0)
         carriedFrom = try c.decodeIfPresent(DayKey.self, forKey: .carriedFrom)
         reminderLink = try c.decodeIfPresent(String.self, forKey: .reminderLink)
         repeatedFrom = try c.decodeIfPresent(UUID.self, forKey: .repeatedFrom)
         repeatAnchor = try c.decodeIfPresent(DayKey.self, forKey: .repeatAnchor)
-        carryCount = try c.decodeIfPresent(Int.self, forKey: .carryCount) ?? 0
+        carryCount = try c.decodeMissing(Int.self, forKey: .carryCount, default: 0)
         agentID = try c.decodeIfPresent(String.self, forKey: .agentID)
     }
 
@@ -111,15 +111,29 @@ public struct DayKey: Codable, Hashable, Comparable, Sendable, CustomStringConve
         guard DayKey.parse(raw) != nil else { return nil }
         self.raw = raw
     }
-    public init(stringLiteral value: String) { self.raw = value }
+    public init(stringLiteral value: String) {
+        precondition(DayKey.parse(value) != nil, "Invalid Gregorian day literal")
+        self.raw = value
+    }
     public init(_ date: Date, resetHour: Int = 0, calendar: Calendar = .current) {
-        let boundary = calendar.date(bySettingHour: min(23, max(0, resetHour)), minute: 0, second: 0, of: date)!
+        let calendar = calendar.plannerStorage
+        let boundary = DayKey.wallTime(on: date, hour: min(23, max(0, resetHour)), calendar: calendar)
         let logicalDate = date < boundary ? calendar.date(byAdding: .day, value: -1, to: calendar.startOfDay(for: date))! : date
         let c = calendar.dateComponents([.year, .month, .day], from: logicalDate)
         raw = String(format: "%04d-%02d-%02d", c.year!, c.month!, c.day!)
     }
-    public init(from decoder: Decoder) throws { raw = try decoder.singleValueContainer().decode(String.self) }
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.singleValueContainer()
+        let value = try c.decode(String.self)
+        guard DayKey.parse(value) != nil else {
+            throw DecodingError.dataCorruptedError(in: c, debugDescription: "Expected a valid Gregorian yyyy-MM-dd day.")
+        }
+        raw = value
+    }
     public func encode(to encoder: Encoder) throws {
+        guard DayKey.parse(raw) != nil else {
+            throw EncodingError.invalidValue(raw, .init(codingPath: encoder.codingPath, debugDescription: "Invalid Gregorian day."))
+        }
         var c = encoder.singleValueContainer(); try c.encode(raw)
     }
     public var description: String { raw }
@@ -128,37 +142,61 @@ public struct DayKey: Codable, Hashable, Comparable, Sendable, CustomStringConve
     static func parse(_ s: String) -> DateComponents? {
         let p = s.split(separator: "-")
         guard p.count == 3, p[0].count == 4, let y = Int(p[0]), let m = Int(p[1]), let d = Int(p[2]),
-              (1...12).contains(m), (1...31).contains(d),
+              (1...9999).contains(y), (1...12).contains(m), (1...31).contains(d),
               s == String(format: "%04d-%02d-%02d", y, m, d) else { return nil }
         let components = DateComponents(year: y, month: m, day: d)
         // Calendar normalizes impossible dates. Require an exact round-trip in a
         // fixed zone so validation is independent of local DST and skipped days.
         var calendar = Calendar(identifier: .gregorian)
+        calendar.locale = Locale(identifier: "en_US_POSIX")
         calendar.timeZone = TimeZone(secondsFromGMT: 0)!
         guard let date = calendar.date(from: components),
               calendar.dateComponents([.year, .month, .day], from: date) == components else { return nil }
         return components
     }
 
+    /// Resolve a local wall time, using the first valid instant after a DST gap.
+    private static func wallTime(on date: Date, hour: Int, minute: Int = 0, calendar: Calendar) -> Date {
+        let matched = calendar.date(bySettingHour: hour, minute: minute, second: 0, of: date)!
+        if calendar.isDate(matched, inSameDayAs: date) { return matched }
+
+        // Exact-time matching can skip a whole day for a non-hour DST gap.
+        // Component construction stays on the civil day but preserves missing
+        // minutes; clamp to the transition to retain the next-valid-time policy.
+        var components = calendar.dateComponents([.era, .year, .month, .day], from: date)
+        components.hour = hour
+        components.minute = minute
+        components.second = 0
+        let normalized = calendar.date(from: components)!
+        if let transition = calendar.timeZone.nextDaylightSavingTimeTransition(after: calendar.startOfDay(for: date)),
+           transition <= normalized, calendar.isDate(transition, inSameDayAs: date) {
+            return transition
+        }
+        return normalized
+    }
+
     /// Midnight at the start of this day.
     public func date(calendar: Calendar = .current) -> Date {
-        calendar.date(from: DayKey.parse(raw)!)!
+        calendar.plannerStorage.date(from: DayKey.parse(raw)!)!
     }
     /// The start of a planner day, using local wall time even across daylight saving changes.
     public func start(resetHour: Int, calendar: Calendar = .current) -> Date {
-        calendar.date(bySettingHour: min(23, max(0, resetHour)), minute: 0, second: 0, of: date(calendar: calendar))!
+        let calendar = calendar.plannerStorage
+        return DayKey.wallTime(on: date(calendar: calendar), hour: min(23, max(0, resetHour)), calendar: calendar)
     }
 
     func reminderDate(hour: Int, minute: Int, resetHour: Int, calendar: Calendar) -> Date {
+        let calendar = calendar.plannerStorage
         let civilDay = hour < resetHour ? adding(days: 1, calendar: calendar) : self
-        return calendar.date(bySettingHour: hour, minute: minute, second: 0, of: civilDay.date(calendar: calendar))!
+        return DayKey.wallTime(on: civilDay.date(calendar: calendar), hour: hour, minute: minute, calendar: calendar)
     }
 
     public func adding(days n: Int, calendar: Calendar = .current) -> DayKey {
-        DayKey(calendar.date(byAdding: .day, value: n, to: date(calendar: calendar))!, calendar: calendar)
+        let calendar = calendar.plannerStorage
+        return DayKey(calendar.date(byAdding: .day, value: n, to: date(calendar: calendar))!, calendar: calendar)
     }
     public func weekday(calendar: Calendar = .current) -> Int {
-        calendar.component(.weekday, from: date(calendar: calendar))
+        calendar.plannerStorage.component(.weekday, from: date(calendar: calendar))
     }
 }
 
@@ -214,28 +252,28 @@ public struct Preferences: Codable, Equatable, Sendable {
     public init() {}
 
     public init(from decoder: Decoder) throws {
-        // Tolerant decoding so new preferences never break an old file.
+        // Older files may omit new settings; present malformed settings are errors.
         let d = Preferences()
         let c = try decoder.container(keyedBy: CodingKeys.self)
-        resetHour = min(23, max(0, (try? c.decode(Int.self, forKey: .resetHour)) ?? d.resetHour))
-        carryMode = (try? c.decode(CarryMode.self, forKey: .carryMode)) ?? d.carryMode
-        defaultFocusMinutes = (try? c.decode(Int.self, forKey: .defaultFocusMinutes)) ?? d.defaultFocusMinutes
-        focusCompletionSound = (try? c.decode(Bool.self, forKey: .focusCompletionSound)) ?? d.focusCompletionSound
-        notchTimerPlacement = (try? c.decode(NotchTimerPlacement.self, forKey: .notchTimerPlacement)) ?? d.notchTimerPlacement
-        workspaceTimerStyle = (try? c.decode(WorkspaceTimerStyle.self, forKey: .workspaceTimerStyle)) ?? d.workspaceTimerStyle
-        notchOpenTrigger = (try? c.decode(NotchOpenTrigger.self, forKey: .notchOpenTrigger)) ?? d.notchOpenTrigger
-        notchOnMonitors = (try? c.decode(Bool.self, forKey: .notchOnMonitors)) ?? d.notchOnMonitors
-        showOnDisplay = try? c.decodeIfPresent(String.self, forKey: .showOnDisplay)
-        remindersSync = (try? c.decode(Bool.self, forKey: .remindersSync)) ?? d.remindersSync
-        ringOnPhone = (try? c.decode(Bool.self, forKey: .ringOnPhone)) ?? d.ringOnPhone
-        sortWithAI = (try? c.decode(Bool.self, forKey: .sortWithAI)) ?? d.sortWithAI
-        includeWeekendsInStreak = (try? c.decode(Bool.self, forKey: .includeWeekendsInStreak)) ?? d.includeWeekendsInStreak
-        catchScreenshots = (try? c.decode(Bool.self, forKey: .catchScreenshots)) ?? d.catchScreenshots
-        catchCopies = (try? c.decode(Bool.self, forKey: .catchCopies)) ?? d.catchCopies
-        workspaceCardOrder = (try? c.decode([String].self, forKey: .workspaceCardOrder)) ?? d.workspaceCardOrder
-        hiddenWorkspaceCards = (try? c.decode([String].self, forKey: .hiddenWorkspaceCards)) ?? d.hiddenWorkspaceCards
-        hiddenCalendarIDs = (try? c.decode([String].self, forKey: .hiddenCalendarIDs)) ?? d.hiddenCalendarIDs
-        welcomeCompleted = (try? c.decode(Bool.self, forKey: .welcomeCompleted)) ?? d.welcomeCompleted
+        resetHour = min(23, max(0, try c.decodeMissing(Int.self, forKey: .resetHour, default: d.resetHour)))
+        carryMode = try c.decodeMissing(CarryMode.self, forKey: .carryMode, default: d.carryMode)
+        defaultFocusMinutes = try c.decodeMissing(Int.self, forKey: .defaultFocusMinutes, default: d.defaultFocusMinutes)
+        focusCompletionSound = try c.decodeMissing(Bool.self, forKey: .focusCompletionSound, default: d.focusCompletionSound)
+        notchTimerPlacement = try c.decodeMissing(NotchTimerPlacement.self, forKey: .notchTimerPlacement, default: d.notchTimerPlacement)
+        workspaceTimerStyle = try c.decodeMissing(WorkspaceTimerStyle.self, forKey: .workspaceTimerStyle, default: d.workspaceTimerStyle)
+        notchOpenTrigger = try c.decodeMissing(NotchOpenTrigger.self, forKey: .notchOpenTrigger, default: d.notchOpenTrigger)
+        notchOnMonitors = try c.decodeMissing(Bool.self, forKey: .notchOnMonitors, default: d.notchOnMonitors)
+        showOnDisplay = try c.decodeIfPresent(String.self, forKey: .showOnDisplay)
+        remindersSync = try c.decodeMissing(Bool.self, forKey: .remindersSync, default: d.remindersSync)
+        ringOnPhone = try c.decodeMissing(Bool.self, forKey: .ringOnPhone, default: d.ringOnPhone)
+        sortWithAI = try c.decodeMissing(Bool.self, forKey: .sortWithAI, default: d.sortWithAI)
+        includeWeekendsInStreak = try c.decodeMissing(Bool.self, forKey: .includeWeekendsInStreak, default: d.includeWeekendsInStreak)
+        catchScreenshots = try c.decodeMissing(Bool.self, forKey: .catchScreenshots, default: d.catchScreenshots)
+        catchCopies = try c.decodeMissing(Bool.self, forKey: .catchCopies, default: d.catchCopies)
+        workspaceCardOrder = try c.decodeMissing([String].self, forKey: .workspaceCardOrder, default: d.workspaceCardOrder)
+        hiddenWorkspaceCards = try c.decodeMissing([String].self, forKey: .hiddenWorkspaceCards, default: d.hiddenWorkspaceCards)
+        hiddenCalendarIDs = try c.decodeMissing([String].self, forKey: .hiddenCalendarIDs, default: d.hiddenCalendarIDs)
+        welcomeCompleted = try c.decodeMissing(Bool.self, forKey: .welcomeCompleted, default: d.welcomeCompleted)
     }
 }
 
@@ -246,9 +284,26 @@ public struct RepeatOccurrence: Codable, Equatable, Hashable, Sendable {
     public init(seriesID: UUID, day: DayKey) { self.seriesID = seriesID; self.day = day }
 }
 
+/// Only absent keys get migration defaults. A present null or malformed value
+/// must not silently replace persisted data with a default.
+extension KeyedDecodingContainer {
+    func decodeMissing<T: Decodable>(_ type: T.Type, forKey key: Key, default value: T) throws -> T {
+        contains(key) ? try decode(type, forKey: key) : value
+    }
+}
+
+public struct PlannerSchemaError: Error, LocalizedError, CustomStringConvertible {
+    public let version: Int
+    public var description: String {
+        "Planner schema version \(version) is not supported (supported: 1). Open it with a compatible Perch version. No data was rewritten or restored."
+    }
+    public var errorDescription: String? { description }
+}
+
 /// The whole planner document, persisted as planner.json.
 public struct Planner: Codable, Equatable, Sendable {
-    public var version: Int = 1
+    public static let currentVersion = 1
+    public var version: Int = Planner.currentVersion
     public var tasks: [PlanTask] = []
     public var projects: [TaskProject] = []
     public var notes: [QuickNote] = []
@@ -268,18 +323,42 @@ public struct Planner: Codable, Equatable, Sendable {
     public var preferences: Preferences = Preferences()
     public init() {}
 
+    enum CodingKeys: String, CodingKey {
+        case version, tasks, projects, notes, focusSegments, focus, dismissedOverdue
+        case repeatOccurrences, completedCalendarEventIDs, completedCalendarEventDays, preferences
+    }
+
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
-        version = (try? c.decode(Int.self, forKey: .version)) ?? 1
-        tasks = (try? c.decode([PlanTask].self, forKey: .tasks)) ?? []
-        projects = (try? c.decode([TaskProject].self, forKey: .projects)) ?? []
-        notes = (try? c.decode([QuickNote].self, forKey: .notes)) ?? []
-        focusSegments = (try? c.decode([FocusSegment].self, forKey: .focusSegments)) ?? []
-        focus = try? c.decodeIfPresent(FocusSession.self, forKey: .focus)
-        repeatOccurrences = (try? c.decode([RepeatOccurrence].self, forKey: .repeatOccurrences)) ?? []
-        dismissedOverdue = (try? c.decode([UUID].self, forKey: .dismissedOverdue)) ?? []
-        completedCalendarEventIDs = (try? c.decode(Set<String>.self, forKey: .completedCalendarEventIDs)) ?? []
-        completedCalendarEventDays = (try? c.decode([String: DayKey].self, forKey: .completedCalendarEventDays)) ?? [:]
-        preferences = (try? c.decode(Preferences.self, forKey: .preferences)) ?? Preferences()
+        version = try c.decodeMissing(Int.self, forKey: .version, default: Self.currentVersion)
+        guard version == Self.currentVersion else { throw PlannerSchemaError(version: version) }
+        tasks = try c.decodeMissing([PlanTask].self, forKey: .tasks, default: [])
+        projects = try c.decodeMissing([TaskProject].self, forKey: .projects, default: [])
+        notes = try c.decodeMissing([QuickNote].self, forKey: .notes, default: [])
+        focusSegments = try c.decodeMissing([FocusSegment].self, forKey: .focusSegments, default: [])
+        focus = try c.decodeIfPresent(FocusSession.self, forKey: .focus)
+        repeatOccurrences = try c.decodeMissing([RepeatOccurrence].self, forKey: .repeatOccurrences, default: [])
+        dismissedOverdue = try c.decodeMissing([UUID].self, forKey: .dismissedOverdue, default: [])
+        completedCalendarEventIDs = try c.decodeMissing(Set<String>.self, forKey: .completedCalendarEventIDs, default: [])
+        completedCalendarEventDays = try c.decodeMissing([String: DayKey].self, forKey: .completedCalendarEventDays, default: [:])
+        preferences = try c.decodeMissing(Preferences.self, forKey: .preferences, default: Preferences())
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(version, forKey: .version)
+        try c.encode(tasks, forKey: .tasks)
+        try c.encode(projects, forKey: .projects)
+        try c.encode(notes, forKey: .notes)
+        try c.encode(focusSegments, forKey: .focusSegments)
+        try c.encodeIfPresent(focus, forKey: .focus)
+        try c.encode(dismissedOverdue, forKey: .dismissedOverdue)
+        try c.encode(repeatOccurrences, forKey: .repeatOccurrences)
+        // Set iteration order changes between decodes, so writing it directly would make an
+        // unchanged document serialize differently on every save and evict the backup history
+        // that byte comparison is supposed to deduplicate.
+        try c.encode(completedCalendarEventIDs.sorted(), forKey: .completedCalendarEventIDs)
+        try c.encode(completedCalendarEventDays, forKey: .completedCalendarEventDays)
+        try c.encode(preferences, forKey: .preferences)
     }
 }

@@ -13,8 +13,25 @@ final class CarryModeTests: XCTestCase {
 
     func testCarryModeDefaultsAndTolerantDecoding() throws {
         XCTAssertEqual(Preferences().carryMode, .ask)
-        for json in ["{}", #"{"carryMode":null}"#, #"{"carryMode":"future-value"}"#, #"{"carryMode":42}"#] {
-            XCTAssertEqual(try PlannerFile.decoder.decode(Preferences.self, from: Data(json.utf8)).carryMode, .ask)
+        XCTAssertEqual(try PlannerFile.decoder.decode(Preferences.self, from: Data("{}".utf8)).carryMode, .ask)
+        for (json, expectedError) in [
+            (#"{"carryMode":null}"#, "valueNotFound"),
+            (#"{"carryMode":"future-value"}"#, "dataCorrupted"),
+            (#"{"carryMode":42}"#, "typeMismatch")
+        ] {
+            XCTAssertThrowsError(try PlannerFile.decoder.decode(Preferences.self, from: Data(json.utf8)),
+                                 "Only an absent preference gets the migration default") { error in
+                let kind: String
+                let context: DecodingError.Context
+                switch error {
+                case DecodingError.valueNotFound(_, let detail): (kind, context) = ("valueNotFound", detail)
+                case DecodingError.dataCorrupted(let detail): (kind, context) = ("dataCorrupted", detail)
+                case DecodingError.typeMismatch(_, let detail): (kind, context) = ("typeMismatch", detail)
+                default: return XCTFail("Expected a typed decoding error, got \(error)")
+                }
+                XCTAssertEqual(kind, expectedError)
+                XCTAssertEqual(context.codingPath.map(\.stringValue), ["carryMode"])
+            }
         }
         for mode in CarryMode.allCases {
             var p = Preferences(); p.carryMode = mode; p.resetHour = 4
