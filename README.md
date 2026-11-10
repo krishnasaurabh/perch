@@ -1,9 +1,11 @@
+<p align="center"><img src="docs/images/icon.png" width="128" alt="Perch app icon: an orange owl on a branch"></p>
+
 # Perch
 
 A task manager, focus timer and notepad that live in your Mac's notch.
 
 Hover the notch or press **⌥N** (configurable in Settings). Type or dictate a task.
-Version **1.1.0** keeps Today compact and puts charts on a separate Insights tab.
+Today stays compact; charts live on a separate Insights tab.
 
 <p align="center">
   <img src="docs/images/today.png" width="820" alt="Perch Today page: three tasks on the left and a running 50-minute focus timer on the right">
@@ -17,18 +19,42 @@ Version **1.1.0** keeps Today compact and puts charts on a separate Insights tab
 
 1. Download `Perch-<version>.dmg` from the [latest release](https://github.com/krishnasaurabh/perch/releases/latest).
 2. Open the DMG and drag **Perch** to **Applications**.
-3. Open Perch from Applications. It runs from the notch and a bird icon in the menu bar; it has no Dock icon.
+3. Open Perch from Applications. It lives in the notch and a bird icon in the menu bar; it has no Dock icon.
 
 Perch needs macOS 14 or later and runs natively on Apple silicon and Intel Macs.
 AI sorting additionally needs macOS 26 with Apple Intelligence.
+If you would rather not run a downloaded app, [build it yourself](#build-it-yourself).
 
-**First launch.** Release builds are ad-hoc signed and not notarized, so macOS blocks the first
-launch. After the warning, open **System Settings › Privacy & Security**, scroll to Security
-and click **Open Anyway** next to the Perch message, then confirm. If macOS instead says the app
-is damaged or offers no Open Anyway button, clear the download quarantine flag and open it again:
+### "Perch.app" Not Opened
+
+Release builds are not notarized by Apple, so the first launch shows
+**"Perch.app" Not Opened: Apple could not verify "Perch.app" is free of malware…** with the
+buttons **Move to Trash** and **Done**. Click **Done**, not Move to Trash, then use either option.
+
+**Option A: Terminal (most reliable)**
 
 ```sh
 xattr -dr com.apple.quarantine /Applications/Perch.app
+open /Applications/Perch.app
+```
+
+This removes the "downloaded from the internet" flag from Perch only. It does not change any
+system security setting.
+
+**Option B: System Settings**
+
+1. Open **System Settings › Privacy & Security**.
+2. Scroll to **Security**. Next to *"Perch.app" was blocked to protect your Mac*, click **Open Anyway**.
+3. In the prompt that follows, choose **Open Anyway** and confirm with your password or Touch ID.
+
+The Open Anyway button only appears for about an hour after a blocked launch. If it is missing,
+open Perch again to trigger the warning, then return to Privacy & Security.
+
+You only do this once per installed version. To check that your download is intact first, compare
+it with the `.sha256` file on the release page:
+
+```sh
+shasum -a 256 ~/Downloads/Perch-*.dmg
 ```
 
 **Permissions.** macOS asks for access the first time you use a feature that needs it:
@@ -38,8 +64,9 @@ watching for Clips). Each is optional. You can change them later in System Setti
 
 **Open at login** is a toggle in Perch's Settings.
 
-**Updating.** There is no automatic updater. Quit Perch, then install the new DMG over the old app.
-Your data is kept.
+**Updating.** There is no automatic updater. Quit Perch, then install the new DMG over the old app
+and repeat the first-launch step. Your data is kept. A newer Perch may upgrade the planner file
+in a way older versions refuse to open, so keep the newer version once you have run it.
 
 **Uninstalling.** Choose **Quit Perch** from the menu bar icon and delete `/Applications/Perch.app`.
 To also remove your tasks, notes and clips, delete `~/Library/Application Support/Perch`, and run
@@ -89,21 +116,58 @@ The tools are `add_tasks`, `list_tasks`, `get_task`, `complete_task`, `reopen_ta
 The app and the MCP process share `~/Library/Application Support/Perch/planner.json`. Writes use an
 `flock` and atomic file replacement; the app polls for external changes.
 
-## Build from source
+## Build it yourself
+
+You need a Mac with macOS 14 or later and **Xcode 26** from the App Store. The Command Line Tools
+alone are not enough, because the app uses SwiftUI macros that ship with Xcode.
 
 ```sh
-swift test                      # domain, MCP and portable UI tests (macOS or Linux)
-scripts/bundle.sh               # macOS: dist/Perch.app + dist/Perch-<ver>.dmg (universal, ad-hoc signed)
-SIGN_ID="Developer ID Application: …" scripts/bundle.sh   # real signing
-swift run perch-cli add "text dad tomorrow 6pm"            # headless CLI on any platform
+# Point the command-line tools at Xcode (once)
+sudo xcode-select -s /Applications/Xcode.app
+sudo xcodebuild -license accept
+
+# Get the source; pick a release tag, or stay on main for the latest changes
+git clone https://github.com/krishnasaurabh/perch.git
+cd perch
+git checkout v1.1.1
+
+# Build for this Mac only (faster) ...
+ARCHS="$(uname -m)" scripts/bundle.sh
+# ... or a universal Apple silicon + Intel build, as in releases
+scripts/bundle.sh
 ```
 
-The app requires macOS 14 or later and a Swift toolchain compatible with the APIs used by the app
-(the macOS workflow selects Xcode 26). PlannerCore tests and the CLI also run on Linux with
-Swift 5.10 or later; Linux CI uses Swift 6.1.
+The script compiles a release build, assembles and ad-hoc signs `dist/Perch.app`, and packs
+`dist/Perch-<version>.dmg`. Perch has no package dependencies, so the build needs no network access after cloning.
 
-To run a local build, copy `dist/Perch.app` to `/Applications`, or open the DMG and drag Perch
-to Applications. The first-launch steps under [Install](#install) apply to local builds too.
+Install it by quitting any running Perch, then:
+
+```sh
+rm -rf /Applications/Perch.app
+cp -R dist/Perch.app /Applications/
+open /Applications/Perch.app
+```
+
+An app you build yourself is not marked as downloaded, so macOS normally opens it without the
+"Not Opened" warning. If you copy it to another Mac, that Mac will show the warning; follow
+the steps above there.
+
+To sign with your own Apple Developer ID instead of ad-hoc signing:
+
+```sh
+SIGN_ID="Developer ID Application: Your Name (TEAMID)" scripts/bundle.sh
+```
+
+### Development commands
+
+```sh
+swift test                                   # domain, MCP and portable UI tests (macOS or Linux)
+swift run perch-cli add "text dad tomorrow 6pm"   # headless CLI on any platform
+PERCH_DATA=/tmp/perch-dev.json dist/Perch.app/Contents/MacOS/Perch --demo   # sample data, real planner untouched
+```
+
+PlannerCore tests and the CLI also run on Linux with Swift 5.10 or later; Linux CI uses Swift 6.1.
+See [CONTRIBUTING.md](CONTRIBUTING.md) before opening a pull request.
 
 ## Layout
 

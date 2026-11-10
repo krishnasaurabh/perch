@@ -139,6 +139,7 @@ final class PlannerStore: ObservableObject {
     /// Called by application launch/navigation, never by view appearance or arbitrary publications.
     func beginApplication() {
         if send(.lifecycle(.launch), origin: .background) != nil { lifecycleDay = today }
+        renewReminderHorizon()
     }
 
     func openDay(_ day: DayKey) {
@@ -156,6 +157,7 @@ final class PlannerStore: ObservableObject {
             }
         }
         if result != nil { lifecycleDay = today }
+        renewReminderHorizon()
     }
 
     func materializeRepeats(on days: [DayKey]) {
