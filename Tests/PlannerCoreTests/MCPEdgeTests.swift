@@ -167,7 +167,7 @@ final class MCPEdgeTests: XCTestCase {
         server.onChange = { notifications += 1 }
         let (text, error) = call("list_tasks", ["date": "tomorrow"])
         XCTAssertFalse(error, text)
-        XCTAssertTrue(text.contains("Repeat probe"))
+        XCTAssertTrue(text.contains("repeat probe"))
         XCTAssertNotEqual(try Data(contentsOf: url), before)
         XCTAssertEqual(try storedPlanner().tasks.count, 2)
         XCTAssertEqual(notifications, 1)

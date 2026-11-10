@@ -16,7 +16,7 @@ public struct CapturedTask: Equatable, Sendable {
 
 /// Natural-language task capture: "water plants tomorrow at 6pm !high #home every tuesday for 25 min".
 ///
-/// Everything recognized is removed from the title. Typing always wins over AI sorting.
+/// Only explicit metadata is removed; quoted text and title casing are preserved.
 public struct TaskCapture {
     public let now: Date
     public let calendar: Calendar
@@ -41,7 +41,7 @@ public struct TaskCapture {
     static let timeWords = re("(?:\\b(?:at|by|around)\\s+|@\\s*)?\\b(noon|midday|midnight)\\b")
     // Bare numbers followed by currency or quantity units are part of the title, not a clock time.
     static let timeBare = re("(?:\\b(?:at|by|around)\\s+|@\\s*)(\\d{1,2})(?::(\\d{2}))?\\b(?!:)(?!\\s*(?:%|percent|pages?|mins?|minutes?|hours?|hrs?|days?|dollars?|cents?|euros?|pounds?|rupees?|yen|usd|eur|gbp|inr|km|kg|lbs?|grams?|kilograms?|ounces?|oz|meters?|metres?|kilometers?|kilometres?|miles?|liters?|litres?|ml)\\b)")
-    static let time24 = re("(?:\\b(?:at|by|around)\\s+|@\\s*)?(?<!:)\\b(\\d{1,2}):(\\d{2})\\b(?!:)")
+    static let time24 = re("(?:\\b(?:at|by|around)\\s+|@\\s*)(\\d{1,2}):(\\d{2})\\b(?!:)")
     static let relative = re("\\bin\\s+(?:(half)\\s+an\\s+hour|(\\d{1,4}|an?|one|two|three|four|five|six|seven|eight|nine|ten|fifteen|twenty|thirty|forty-five|forty|fifty)\\s+(mins?|minutes?|hrs?|hours?))\\b")
     static let duration = re("(?:\\bfor\\s+|~\\s*|\\(\\s*)(\\d{1,3}(?:\\.\\d)?)\\s*(m|mins?|minutes?|h|hrs?|hours?)\\b\\)?")
     static let dayAfterTomorrow = re(dayLead + "\\b(?:the\\s+)?day\\s+after\\s+tomorrow\\b")
@@ -51,15 +51,14 @@ public struct TaskCapture {
     static let monthDay = re(dayLead + "\\b(" + months + ")\\.?\\s+(\\d{1,2})(?:st|nd|rd|th)?\\b(?:,?\\s+(\\d{4})\\b)?")
     static let dayMonth = re(dayLead + "\\b(?:the\\s+)?(\\d{1,2})(?:st|nd|rd|th)?\\s+(?:of\\s+)?(" + months + ")\\.?(?:,?\\s+(\\d{4})\\b)?")
     static let onThe = re("\\bon\\s+the\\s+(\\d{1,2})(?:st|nd|rd|th)\\b")
-    static let weekdayLong = re(dayLead + "\\b(?:(this|next)\\s+)?(sunday|monday|tuesday|wednesday|thursday|friday|saturday)s?\\b")
+    static let weekdayLong = re("\\b(on|this|next)\\s+(sunday|monday|tuesday|wednesday|thursday|friday|saturday)\\b")
+    static let weekdayLongDeadline = re("\\b(sunday|monday|tuesday|wednesday|thursday|friday|saturday)\\b")
     static let weekdayShort = re("\\b(?:(on|this|next)\\s+)(sun|mon|tues?|wed|thu(?:rs?)?|fri|sat)\\b\\.?")
-    // Bare abbreviations are dates only at the end; do not consume prose such as "we sat down".
-    static let weekdayShortEnd = re("(?<!\\S)(sun|mon|tues?|wed|thu(?:rs?)?|fri|sat)\\b\\.?\\s*$")
     static let weekdayShortDeadline = re("\\b(sun|mon|tues?|wed|thu(?:rs?)?|fri|sat)\\b\\.?")
     static let isoDate = re(dayLead + "\\b(\\d{4})-(\\d{2})-(\\d{2})\\b")
     static let deadlineLead = re("\\b(?:due(?:\\s+date)?|deadline)(?:\\s*:\\s*|\\s+)")
     static let project = re("(?:^|\\s)#([A-Za-z][\\w-]*)")
-    static let priority = re("(?:^|\\s)(!!!|!!|!high|!urgent|!medium|!med|!low|!|p[123])(?=\\s|$)")
+    static let priority = re("(?:^|\\s)(!!!|!!|!high|!urgent|!medium|!med|!low|!)(?=\\s|$)")
     static let inbox = re("(?:^|\\s)#inbox(?![\\w-])|\\bsomeday\\b")
     static let leadingConnector = re("^\\s*(?:(?:and|then|also|plus)\\s+)+")
     static let bullet = re("^\\s*(?:[-*•]|\\d{1,2}[.)])\\s+")
@@ -78,7 +77,7 @@ public struct TaskCapture {
         var out = CapturedTask(title: "")
 
         // Repeat ("every monday") before weekday parsing so "monday" isn't read as a day.
-        if let (rule, range) = TaskRepeat.find(in: text) {
+        if let (rule, range) = TaskRepeat.find(in: Self.unquoted(text)) {
             out.repeatRule = rule
             text = Self.remove(range, from: text)
         }
@@ -160,11 +159,13 @@ public struct TaskCapture {
             .filter { !$0.isEmpty }
     }
 
-    /// Strip list bullets and leading "and/then".
+    /// Strip explicit list bullets; leading connectors are list syntax only after a bullet.
     public static func cleanLine(_ s: String) -> String {
         var t = s
-        for r in [bullet, leadingConnector] {
-            t = r.stringByReplacingMatches(in: t, range: NSRange(location: 0, length: (t as NSString).length), withTemplate: "")
+        if first(bullet, in: t) != nil {
+            for r in [bullet, leadingConnector] {
+                t = r.stringByReplacingMatches(in: t, range: NSRange(location: 0, length: (t as NSString).length), withTemplate: "")
+            }
         }
         return t.trimmingCharacters(in: .whitespacesAndNewlines)
     }
@@ -220,11 +221,13 @@ public struct TaskCapture {
             (Self.onThe, { m in self.resolve(dayOfMonth: Int(Self.group(m, 1, text)!)!) }),
             (Self.weekdayLong, { m in self.resolve(weekday: Self.group(m, 2, text)!, modifier: Self.group(m, 1, text)) }),
             (Self.weekdayShort, { m in self.resolve(weekday: Self.group(m, 2, text)!, modifier: Self.group(m, 1, text)) }),
-            (anchor == nil ? Self.weekdayShortEnd : Self.weekdayShortDeadline, { m in self.resolve(weekday: Self.group(m, 1, text)!, modifier: nil) }),
-        ]
+        ] + (anchor == nil ? [] : [
+            (Self.weekdayLongDeadline, { m in self.resolve(weekday: Self.group(m, 1, text)!, modifier: nil) }),
+            (Self.weekdayShortDeadline, { m in self.resolve(weekday: Self.group(m, 1, text)!, modifier: nil) }),
+        ])
         for (regex, resolve) in resolvers {
             let ns = text as NSString
-            for m in regex.matches(in: text, range: NSRange(location: 0, length: ns.length)) {
+            for m in regex.matches(in: Self.unquoted(text), range: NSRange(location: 0, length: ns.length)) {
                 if let a = anchor {
                     guard a.contains(m.range.location) else { continue }
                 }
@@ -280,14 +283,14 @@ public struct TaskCapture {
 
     static func priority(token: String) -> TaskPriority {
         switch token.lowercased() {
-        case "!!!", "!high", "!urgent", "p1": return .high
-        case "!!", "!medium", "!med", "p2": return .medium
+        case "!!!", "!high", "!urgent": return .high
+        case "!!", "!medium", "!med": return .medium
         default: return .low
         }
     }
 
     static func first(_ r: NSRegularExpression, in text: String) -> NSTextCheckingResult? {
-        r.firstMatch(in: text, range: NSRange(location: 0, length: (text as NSString).length))
+        r.firstMatch(in: unquoted(text), range: NSRange(location: 0, length: (text as NSString).length))
     }
 
     static func group(_ m: NSTextCheckingResult, _ i: Int, _ text: String) -> String? {
@@ -296,22 +299,55 @@ public struct TaskCapture {
     }
 
     static func remove(_ r: NSRange, from text: String) -> String {
-        (text as NSString).replacingCharacters(in: r, with: " ")
+        let ns = text as NSString
+        var start = r.location, end = NSMaxRange(r)
+        let whitespace = CharacterSet.whitespacesAndNewlines
+        while start > 0, let scalar = UnicodeScalar(ns.character(at: start - 1)), whitespace.contains(scalar) { start -= 1 }
+        while end < ns.length, let scalar = UnicodeScalar(ns.character(at: end)), whitespace.contains(scalar) { end += 1 }
+        let separator = start > 0 && end < ns.length ? " " : ""
+        return ns.replacingCharacters(in: NSRange(location: start, length: end - start), with: separator)
     }
 
-    /// Collapse whitespace and drop dangling connector words left behind by removals.
+    /// Preserve title spelling, punctuation and interior whitespace.
     static func tidy(_ s: String) -> String {
-        var t = s.replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        let dangling = try! NSRegularExpression(pattern: "(?:\\s+|^)(?:at|on|by|for|due|until|around|and|,|-)\\s*$", options: .caseInsensitive)
-        var prev = ""
-        while prev != t {
-            prev = t
-            t = dangling.stringByReplacingMatches(in: t, range: NSRange(location: 0, length: (t as NSString).length), withTemplate: "")
-                .trimmingCharacters(in: .whitespacesAndNewlines)
+        s.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// Mask quoted spans without changing UTF-16 offsets used by Foundation regexes.
+    /// Quote marks remain title text. An unmatched opening quote protects the rest of the line.
+    static func unquoted(_ text: String) -> String {
+        guard text.contains(where: { $0 == "\"" || $0 == "“" || $0 == "'" || $0 == "‘" }) else { return text }
+        var masked = ""
+        var index = text.startIndex
+        while index < text.endIndex {
+            let character = text[index]
+            let previous = index == text.startIndex ? nil : text[text.index(before: index)]
+            let singleQuote = character == "'" || character == "‘"
+            let wordApostrophe = singleQuote && previous.map { $0.isLetter || $0.isNumber } == true
+            guard character == "\"" || character == "“" || (singleQuote && !wordApostrophe) else {
+                masked.append(character)
+                index = text.index(after: index)
+                continue
+            }
+            let closing: Character = character == "“" ? "”" : (character == "‘" ? "’" : character)
+            let start = index
+            index = text.index(after: index)
+            while index < text.endIndex {
+                let current = text[index]
+                index = text.index(after: index)
+                if current == "\\", index < text.endIndex {
+                    index = text.index(after: index)
+                } else if current == closing {
+                    // An apostrophe within a quoted word is not the closing delimiter.
+                    if (current == "'" || current == "’"), index < text.endIndex, text[index].isLetter {
+                        let beforeQuote = text.index(index, offsetBy: -2)
+                        if text[beforeQuote].isLetter { continue }
+                    }
+                    break
+                }
+            }
+            masked += String(repeating: "\u{FFFC}", count: text[start..<index].utf16.count)
         }
-        t = t.trimmingCharacters(in: CharacterSet(charactersIn: " ,;:-"))
-        guard let first = t.first else { return t }
-        return first.uppercased() + t.dropFirst()
+        return masked
     }
 }
