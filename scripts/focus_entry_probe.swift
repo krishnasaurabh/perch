@@ -88,7 +88,8 @@ MainActor.assumeIsolated {
     let output = URL(fileURLWithPath: ProcessInfo.processInfo.environment["FOCUS_ENTRY_OUTPUT"]!)
     DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
         Task { @MainActor in
-            let store = delegate.store
+            guard let store = delegate.store else { require(false, "planner initialized"); return }
+            setbuf(stdout, nil)
             var metrics: [[String: Any]] = []
             var keyboardVerified = false
             // Exercise the production controller first, not only component fixtures.

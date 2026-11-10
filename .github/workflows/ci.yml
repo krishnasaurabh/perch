@@ -42,6 +42,8 @@ jobs:
         run: |
           sudo xcode-select -s "$(ls -d /Applications/Xcode_26*.app 2>/dev/null | sort -V | tail -1 || ls -d /Applications/Xcode*.app | sort -V | tail -1)"
           swift --version
+      - name: Discoverable focus entry and real button lifecycle
+        run: bash scripts/check_focus_entry.sh "$RUNNER_TEMP/notch/focus-entry"
       - run: swift test
       - name: Build and bundle
         run: scripts/bundle.sh
@@ -124,8 +126,6 @@ jobs:
           bash scripts/check_theme.sh "$RUNNER_TEMP/notch/theme"
       - name: Empty states and capture focus
         run: bash scripts/check_empty_states.sh "$RUNNER_TEMP/empty-states"
-      - name: Discoverable focus entry and real button lifecycle
-        run: bash scripts/check_focus_entry.sh "$RUNNER_TEMP/notch/focus-entry"
       - name: Week with a busy today (overflow fade, +N more, pinned Add)
         run: bash scripts/week_shots.sh "$RUNNER_TEMP/notch/week"
       - name: Clips layout (empty/populated, dark/light, pixel bounds)
