@@ -26,7 +26,11 @@ final class WorkspaceLayoutTests: XCTestCase {
             XCTAssertEqual(NotchLayout.hoverFrame(idle: idle, workspace: frame, expanded: true, screen: screen), frame)
             XCTAssertTrue(NotchLayout.windowFrame(screen: screen, containing: [idle, frame]).contains(frame))
             if !NotchLayout.workspaceAttached(screen: screen) {
-                XCTAssertLessThanOrEqual(frame.maxY, screen.frame.maxY - max(screen.menuBarHeight, 24) - 8, name)
+                if screen.menuBarHeight == 0 {
+                    XCTAssertEqual(frame.maxY, screen.frame.maxY, name)
+                } else {
+                    XCTAssertEqual(frame.maxY, screen.visibleFrame.maxY - 8, name)
+                }
             }
         }
     }

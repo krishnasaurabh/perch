@@ -8,7 +8,8 @@ extension NotchLayout.Screen {
     init(_ s: NSScreen) {
         self.init(
             frame: s.frame, visibleFrame: s.visibleFrame, safeAreaTop: s.safeAreaInsets.top,
-            auxiliaryLeftWidth: s.auxiliaryTopLeftArea?.width, auxiliaryRightWidth: s.auxiliaryTopRightArea?.width)
+            auxiliaryLeftWidth: s.auxiliaryTopLeftArea?.width, auxiliaryRightWidth: s.auxiliaryTopRightArea?.width,
+            isBuiltIn: CGDisplayIsBuiltin(s.displayID) != 0)
     }
 }
 
@@ -41,7 +42,7 @@ struct NotchGeometry: Equatable {
     var notchRect: NSRect { NotchLayout.notch(screen: screen) }
     var notchSize: CGSize { notchRect.size }
     var workspace: NSRect { WorkspaceLayout.frame(screen: screen) }
-    /// The open workspace hangs from the top edge beside a housing, and floats below the menu bar on a flat screen.
+    /// Beside a housing or with an auto-hidden menu bar the workspace reaches the top; otherwise it clears the bar.
     var workspaceAttached: Bool { NotchLayout.workspaceAttached(screen: screen) }
 
     /// The closed shape's bounds. Nothing to show: exactly the housing (tucked inside it), so the notch looks untouched.

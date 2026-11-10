@@ -59,7 +59,7 @@ enum Screens {
     /// A larger flat built-in screen: a notchless 13-inch MacBook Air at 1440 x 900, 25 pt menu bar.
     static let flat1440 = NotchLayout.Screen(
         frame: CGRect(x: 0, y: 0, width: 1440, height: 900),
-        visibleFrame: CGRect(x: 0, y: 0, width: 1440, height: 875))
+        visibleFrame: CGRect(x: 0, y: 0, width: 1440, height: 875), isBuiltIn: true)
 
     static let all: [(String, NotchLayout.Screen)] = [
         ("mbp14", mbp14), ("mbp16", mbp16), ("mba15", mba15), ("mbp14Small", mbp14Small), ("hd1080", hd1080),
@@ -123,6 +123,18 @@ final class NotchLayoutTests: XCTestCase {
     func testDrawnNotchHeightIsBounded() {
         XCTAssertEqual(NotchLayout.drawnNotch(screen: Screens.hd1080, menuBarHeight: 90).height, 40)
         XCTAssertEqual(NotchLayout.drawnNotch(screen: Screens.hd1080, menuBarHeight: 10).height, 22)
+    }
+
+    func testBuiltInFlatScreenNeverDrawsFakeNotch() {
+        XCTAssertTrue(Screens.flat1440.isBuiltIn)
+        XCTAssertFalse(
+            NotchLayout.shouldDrawFakeNotch(
+                screen: Screens.flat1440, enabled: Preferences().notchOnMonitors),
+            "A new install draws nothing on a housing-less built-in screen")
+        XCTAssertFalse(
+            NotchLayout.shouldDrawFakeNotch(screen: Screens.flat1440, enabled: true),
+            "A saved external-display preference must not affect built-in screens")
+        XCTAssertTrue(NotchLayout.shouldDrawFakeNotch(screen: Screens.hd1080, enabled: true))
     }
 
     func testNotchPrefersTheRealHousing() {
@@ -250,21 +262,26 @@ final class NotchLayoutTests: XCTestCase {
             ]
         XCTAssertTrue(flats.contains { $0.0 == "ci1024" } && flats.contains { $0.0 == "flat1440" })
         for (name, s) in flats {
-            let bar = s.menuBarHeight > 0 ? s.menuBarHeight : NotchLayout.fallbackMenuBarHeight
-            let menuBar = CGRect(x: s.frame.minX, y: s.frame.maxY - bar, width: s.frame.width, height: bar)
             let w = NotchLayout.workspaceFrame(screen: s, size: workspaceSize)
-            XCTAssertFalse(w.intersects(menuBar), name)
-            XCTAssertEqual(menuBar.minY - w.maxY, NotchLayout.menuBarGap, name)
-            XCTAssertEqual(w.height, workspaceSize.height, "\(name): the 470 pt height policy is unchanged here")
-            // The clock: the right-most 160 pt of the menu bar (date + time + Control Center).
-            let clock = CGRect(x: menuBar.maxX - 160, y: menuBar.minY, width: 160, height: bar)
             let idle = NotchLayout.idleFrame(screen: s, leftWing: 85, rightWing: 85)
-            XCTAssertFalse(idle.intersects(clock), name)
             let bridge = NotchLayout.openBridge(idle: idle, workspace: w, screen: s)
-            XCTAssertNotNil(bridge, name)
-            XCTAssertFalse(bridge!.intersects(clock), name)
-            XCTAssertLessThanOrEqual(bridge!.width, idle.width, name)
-            // The host window still reaches the top edge (the closed notch lives there) and holds the floating shell.
+            XCTAssertEqual(w.height, workspaceSize.height, "\(name): the 470 pt height policy is unchanged here")
+            if s.menuBarHeight > 0 {
+                let bar = s.menuBarHeight
+                let menuBar = CGRect(x: s.frame.minX, y: s.frame.maxY - bar, width: s.frame.width, height: bar)
+                XCTAssertFalse(w.intersects(menuBar), name)
+                XCTAssertEqual(menuBar.minY - w.maxY, NotchLayout.menuBarGap, name)
+                // The clock: the right-most 160 pt of the menu bar (date + time + Control Center).
+                let clock = CGRect(x: menuBar.maxX - 160, y: menuBar.minY, width: 160, height: bar)
+                XCTAssertFalse(idle.intersects(clock), name)
+                XCTAssertNotNil(bridge, name)
+                XCTAssertFalse(bridge!.intersects(clock), name)
+                XCTAssertLessThanOrEqual(bridge!.width, idle.width, name)
+            } else {
+                XCTAssertEqual(w.maxY, s.frame.maxY, name)
+                XCTAssertNil(bridge, name)
+            }
+            // The host window still reaches the top edge and holds the shell.
             let win = NotchLayout.windowFrame(screen: s, containing: [idle, w])
             XCTAssertEqual(win.maxY, s.frame.maxY, name)
             XCTAssertTrue(win.contains(w), name)
@@ -281,10 +298,16 @@ final class NotchLayoutTests: XCTestCase {
             33)
     }
 
-    func testAutoHiddenMenuBarStillGetsClearance() {
-        // It slides in exactly where the pointer goes to open Perch, so leave room for it.
-        let w = NotchLayout.workspaceFrame(screen: Screens.uhd4kNative, size: workspaceSize)
-        XCTAssertEqual(w.maxY, 2160 - NotchLayout.fallbackMenuBarHeight - NotchLayout.menuBarGap)
+    func testAutoHiddenMenuBarAttachesWorkspaceToTopEdge() {
+        let screen = Screens.uhd4kNative
+        XCTAssertEqual(screen.menuBarHeight, 0)
+        XCTAssertEqual(NotchLayout.workspaceTopInset(screen: screen), 0)
+        let w = NotchLayout.workspaceFrame(screen: screen, size: workspaceSize)
+        XCTAssertEqual(w.maxY, screen.frame.maxY)
+        XCTAssertNil(
+            NotchLayout.openBridge(
+                idle: NotchLayout.idleFrame(screen: screen, leftWing: 32, rightWing: 32),
+                workspace: w, screen: screen))
     }
 
     func testBesideAHousingTheWorkspaceStillHangsFromTheTop() {
@@ -402,12 +425,11 @@ final class NotchLayoutTests: XCTestCase {
             XCTAssertTrue((w.minX <= n.minX && n.maxX <= w.maxX) || w.width < n.width, name)
             if NotchLayout.workspaceAttached(screen: s) {
                 XCTAssertTrue(w.contains(n) || w.width < n.width, name)
+            } else if s.menuBarHeight == 0 {
+                XCTAssertEqual(w.maxY, s.frame.maxY, name)
             } else {
-                // Never on the menu bar (nor where an auto-hidden one slides in).
-                XCTAssertLessThanOrEqual(
-                    w.maxY,
-                    min(s.visibleFrame.maxY, s.frame.maxY - NotchLayout.fallbackMenuBarHeight) - NotchLayout.menuBarGap,
-                    name)
+                // Never on a visible menu bar.
+                XCTAssertLessThanOrEqual(w.maxY, s.visibleFrame.maxY - NotchLayout.menuBarGap, name)
             }
         }
     }

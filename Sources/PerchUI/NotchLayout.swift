@@ -19,13 +19,17 @@ public enum NotchLayout {
         /// Widths are used rather than origins, because they mean the same thing whatever coordinate space the rects are in.
         public var auxiliaryLeftWidth: CGFloat?
         public var auxiliaryRightWidth: CGFloat?
+        /// Resolved from the screen's Core Graphics display ID, not its localized name.
+        public var isBuiltIn: Bool
 
         public init(
             frame: CGRect, visibleFrame: CGRect, safeAreaTop: CGFloat = 0,
-            auxiliaryLeftWidth: CGFloat? = nil, auxiliaryRightWidth: CGFloat? = nil
+            auxiliaryLeftWidth: CGFloat? = nil, auxiliaryRightWidth: CGFloat? = nil,
+            isBuiltIn: Bool = false
         ) {
             self.frame = frame; self.visibleFrame = visibleFrame; self.safeAreaTop = safeAreaTop
             self.auxiliaryLeftWidth = auxiliaryLeftWidth; self.auxiliaryRightWidth = auxiliaryRightWidth
+            self.isBuiltIn = isBuiltIn
         }
 
         /// 0 when the menu bar is set to hide automatically.
@@ -69,6 +73,12 @@ public enum NotchLayout {
             x: minX, y: screen.frame.maxY - screen.safeAreaTop, width: maxX - minX, height: screen.safeAreaTop)
     }
 
+    /// Whether a flat external screen should show the preference-controlled drawn notch.
+    /// Built-in displays never get a synthetic housing, including when an older preference saved `true`.
+    public static func shouldDrawFakeNotch(screen: Screen, enabled: Bool) -> Bool {
+        enabled && !screen.isBuiltIn && camera(screen: screen) == nil
+    }
+
     /// A notch to draw on a screen without one: centered, as tall as the menu bar.
     public static func drawnNotch(screen: Screen, menuBarHeight: CGFloat? = nil) -> CGRect {
         var h = menuBarHeight ?? screen.menuBarHeight
@@ -100,20 +110,19 @@ public enum NotchLayout {
         return clamp(CGRect(x: minX, y: screen.frame.maxY - h, width: maxX - minX, height: h), into: screen.frame)
     }
 
-    /// The workspace attaches to the top edge only beside a real camera housing.
-    /// On flat screens, including external monitors, it floats below the menu bar.
+    /// The workspace uses the housing-attached silhouette only beside a real camera housing.
+    /// Flat screens use the detached silhouette, below a visible menu bar or at the top when it auto-hides.
     public static func workspaceAttached(screen: Screen) -> Bool { camera(screen: screen) != nil }
 
-    /// Distance from the screen's top edge to the workspace's top edge: 0 beside a housing; otherwise the menu bar
-    /// (the fallback height when it hides automatically, since it slides in exactly where the pointer opens Perch) plus `menuBarGap`.
+    /// Distance from the screen's top edge to the workspace's top edge: 0 beside a housing or when the menu bar
+    /// auto-hides; otherwise the visible menu bar plus `menuBarGap`.
     public static func workspaceTopInset(screen: Screen) -> CGFloat {
-        if workspaceAttached(screen: screen) { return 0 }
-        let bar = screen.menuBarHeight > 0 ? screen.menuBarHeight : fallbackMenuBarHeight
-        return bar + menuBarGap
+        if workspaceAttached(screen: screen) || screen.menuBarHeight == 0 { return 0 }
+        return screen.menuBarHeight + menuBarGap
     }
 
-    /// The open workspace, centered under the notch, never wider or taller than the screen allows. Flush with the
-    /// top edge beside a housing; below the menu bar on a flat screen (`workspaceTopInset`).
+    /// The open workspace, centered under the notch, never wider or taller than the screen allows. Its top clearance
+    /// is `workspaceTopInset`: zero beside a housing or with an auto-hidden menu bar.
     public static func workspaceFrame(screen: Screen, size: CGSize) -> CGRect {
         let f = screen.frame, top = workspaceTopInset(screen: screen)
         let w = min(size.width, f.width - 2 * screenMargin), h = max(0, min(size.height, f.height - top - screenMargin))
