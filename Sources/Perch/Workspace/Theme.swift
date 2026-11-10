@@ -66,7 +66,7 @@ enum Theme {
     /// Chart: Completed is a solid fill (`#1A1E20`), Planned a translucent dark layer (`#727085` on lavender).
     static let chartCompleted = Color(hex: "#1A1E20")
     static let chartPlanned = Color.black.opacity(0.22)
-    /// Insights-only small ink: extra rasterization headroom for the 10 pt date digits.
+    /// Insights-only scale ink with rasterization headroom at the small meta size.
     /// Shared tertiary and Home's quiet progress track intentionally stay unchanged.
     static let insightsLabel = Color.dynamic(light: (0x000000, 0.82), dark: (0xFFFFFF, 0.76))
     /// Planned is the total silhouette behind Completed, not an additional stacked series.

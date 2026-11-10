@@ -186,8 +186,8 @@ struct WeekBars: View {
                         Text(d.day.date().formatted(.dateTime.weekday(.abbreviated)))
                             .font(.system(size: 10.5, weight: isToday ? .bold : .medium))
                         Text(d.day.date().formatted(.dateTime.day()))
-                            .font(.system(size: 10, weight: isToday ? .bold : .medium).monospacedDigit())
-                            .foregroundStyle(Theme.insightsLabel)
+                            .font(.system(size: 10, weight: isToday ? .bold : .semibold).monospacedDigit())
+                            .foregroundStyle(Theme.text)
                     }
                     .frame(maxWidth: .infinity)
                 }
