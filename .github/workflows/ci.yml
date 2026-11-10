@@ -6,6 +6,10 @@ on:
     paths-ignore: ['docs/**', '**/*.md']
   workflow_dispatch:
     inputs:
+      motion_isolation:
+        description: Run a sandbox-only close-layer A/B experiment
+        type: boolean
+        default: false
       macos:
         description: Run the macOS job
         type: boolean
@@ -204,3 +208,38 @@ jobs:
           name: perch-motion
           path: ${{ runner.temp }}/motion
           if-no-files-found: error
+
+  isolate-close:
+    if: github.event_name == 'workflow_dispatch' && inputs.motion_isolation
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Toolchain
+        run: |
+          sudo xcode-select -s "$(ls -d /Applications/Xcode_26*.app | sort -V | tail -1)"
+      - name: Baseline exact-source normal-policy recording
+        run: |
+          scripts/bundle.sh
+          python3 scripts/motion_build_manifest.py dist/Perch.app
+          PERCH_MOTION_POLICY=normal scripts/motion_capture.sh "$RUNNER_TEMP/isolation/baseline" dist/Perch.app
+      - name: Sandbox-only layer-order experiment (never approval evidence)
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('Sources/Perch/Notch/NotchRootView.swift')
+          s=p.read_text()
+          old='WorkspaceView(notchHeight: g.notchSize.height)'
+          assert s.count(old)==1
+          p.write_text(s.replace(old, old+'\n                            .zIndex(1)'))
+          PY
+          mkdir -p "$RUNNER_TEMP/isolation"
+          git diff > "$RUNNER_TEMP/isolation/EXPERIMENT.patch"
+          scripts/bundle.sh
+          # Invalidate the baseline manifest: the patched app is explicitly NOT exact-head evidence.
+          rm -f dist/motion-build.json
+          PERCH_MOTION_POLICY=normal scripts/motion_capture.sh "$RUNNER_TEMP/isolation/raised-layer" dist/Perch.app
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: close-isolation-NOT-approval
+          path: ${{ runner.temp }}/isolation
