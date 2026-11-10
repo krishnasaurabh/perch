@@ -19,7 +19,8 @@ struct NotchRootView: View {
     var body: some View {
         let g = screen.geometry
         let window = g.window
-        let shape = g.shape(expanded: expanded, timer: NotchModel.timerShowing(store), activity: activity != nil)
+        let timer = NotchModel.timerShowing(store)
+        let shape = g.shape(expanded: expanded, timer: timer, activity: activity != nil)
         // Beside a housing the open shell hangs from the top edge; on a flat screen it floats below the menu bar.
         // Same outline the controller hit-tests (`NotchGeometry.shapeContains`).
         let outline = g.outline(expanded: expanded)
@@ -36,7 +37,7 @@ struct NotchRootView: View {
                         WorkspaceView(notchHeight: g.notchSize.height)
                             .transition(motionPolicy.workspaceTransition)
                     } else {
-                        ClosedNotchView(notch: g.notchSize, activity: activity)
+                        ClosedNotchView(notch: g.notchSize, wings: g.wings(timer: activity == nil ? timer : nil), activity: activity)
                             .transition(.opacity)
                     }
                 }
@@ -52,6 +53,7 @@ struct NotchRootView: View {
             .offset(x: shape.minX - window.minX, y: window.maxY - shape.maxY)
         }
         .frame(width: window.width, height: window.height, alignment: .topLeading)
+        .ignoresSafeArea()
         .motion(expanded ? Motion.open : Motion.close, value: expanded)
         .motion(activity == nil ? Motion.activityDismiss : Motion.activity, value: activity)
         .preferredColorScheme(.dark)
@@ -96,10 +98,11 @@ struct NotchRootView: View {
     }
 }
 
-/// Closed state: owl on the left wing, running timer (or open-task count) on the right, nudges below.
-/// The middle gap is exactly the notch, so the wings sit beside the camera housing.
+/// Closed state. Nothing to show: nothing drawn beyond the housing. A running timer: a pill on its side.
+/// Nudges: a strip below. The middle gap is exactly the notch, so content sits beside the camera housing.
 struct ClosedNotchView: View {
     let notch: CGSize
+    let wings: (left: CGFloat, right: CGFloat)
     let activity: NotchActivity?
     @EnvironmentObject var store: PlannerStore
     @EnvironmentObject var model: NotchModel
@@ -107,43 +110,39 @@ struct ClosedNotchView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            HStack(spacing: 0) {
-                wing(left: true)
-                Spacer().frame(width: notch.width)
-                wing(left: false)
+            if wings.left > 0 || wings.right > 0 {
+                HStack(spacing: 0) {
+                    timerPill(trailing: false).frame(width: wings.left)
+                    Spacer().frame(width: notch.width)
+                    timerPill(trailing: true).frame(width: wings.right)
+                }
+                .frame(height: notch.height)
+                .transition(.opacity)
             }
-            .frame(height: notch.height)
-
-            // Mask reveal: the strip sits at its final size and the growing shape (clipped above) uncovers it.
             if let a = activity {
+                Spacer().frame(height: notch.height)
+                // Mask reveal: the strip sits at its final size and the growing shape (clipped above) uncovers it.
                 ActivityStrip(activity: a).padding(.horizontal, 10).padding(.bottom, 10)
                     .transition(.opacity)
             }
         }
     }
 
-    @ViewBuilder func wing(left: Bool) -> some View {
-        let placement = store.prefs.notchTimerPlacement
-        let focus = store.planner.focus.flatMap { $0.state == .finished ? nil : $0 }
-        let showTimer = focus != nil && placement != .hidden && (placement == .left) == left
-        HStack(spacing: 5) {
-            if showTimer, let f = focus {
+    @ViewBuilder func timerPill(trailing: Bool) -> some View {
+        if let f = store.planner.focus.flatMap({ $0.state == .finished ? nil : $0 }), (trailing ? wings.right : wings.left) > 0 {
+            HStack(spacing: 5) {
                 Circle().fill(f.state == .running ? Theme.accent : Theme.secondary).frame(width: 6, height: 6)
                 Text(TimerText.clock(f.remaining(at: model.now) ?? f.elapsed(at: model.now)))
                     .font(.system(size: 12.5, weight: .semibold, design: .rounded).monospacedDigit())
                     .foregroundStyle(f.state == .running ? Theme.text : Theme.secondary)
-            } else if left {
-                OwlMark(size: 16, awake: true)
-            } else {
-                let open = store.engine.tasks(on: .day(store.today)).filter { !$0.done }.count
-                if open > 0 {
-                    Text("\(open)").font(.system(size: 11.5, weight: .bold, design: .rounded)).foregroundStyle(Theme.secondary)
-                }
+                    .lineLimit(1).fixedSize()
             }
+            // Away from the camera, clear of the concave shoulder on the outer edge.
+            .frame(maxWidth: .infinity, alignment: trailing ? .trailing : .leading)
+            .padding(trailing ? .trailing : .leading, 6 + NotchGeometry.radii(expanded: false).top)
+        } else {
+            Color.clear
         }
-        .frame(maxWidth: .infinity, alignment: left ? .leading : .trailing)
-        // Clear the concave shoulder (topRadius) so content never touches the visible edge.
-        .padding(.horizontal, 8 + NotchGeometry.radii(expanded: false).top)
     }
 }
 

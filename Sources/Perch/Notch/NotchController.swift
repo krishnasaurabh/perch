@@ -70,10 +70,11 @@ final class NotchModel: ObservableObject {
         Motion.animate(Motion.activityDismiss, policy: motionPolicy) { activity = nil }
     }
 
-    /// Whether the closed notch shows the timer (and so uses the wide wings).
-    static func timerShowing(_ store: PlannerStore) -> Bool {
-        guard let f = store.planner.focus, f.state != .finished else { return false }
-        return store.prefs.notchTimerPlacement != .hidden
+    /// The side the closed notch shows a running timer on, or nil (no timer, or hidden): only then does it grow a pill.
+    static func timerShowing(_ store: PlannerStore) -> NotchTimerPlacement? {
+        guard let f = store.planner.focus, f.state != .finished else { return nil }
+        let side = store.prefs.notchTimerPlacement
+        return side == .hidden ? nil : side
     }
 }
 
@@ -269,6 +270,8 @@ final class NotchController {
         let host = NotchHostingView(rootView: root)
         host.frame = NSRect(origin: .zero, size: g.window.size)
         host.autoresizingMask = [.width, .height]
+        // The window covers the camera housing; never let SwiftUI inset or shift content for that "unsafe" area.
+        host.safeAreaRegions = []
         panel.contentView = host
         panel.onEscape = { [weak self] in self?.model.close() }
         panel.onUndo = { [weak self] redo in redo ? self?.store.redo() : self?.store.undo() }
@@ -309,7 +312,7 @@ final class NotchController {
 
     // MARK: Visibility
 
-    private func timerShowing() -> Bool { NotchModel.timerShowing(store) }
+    private func timerShowing() -> NotchTimerPlacement? { NotchModel.timerShowing(store) }
 
     /// The drawn notch is hidden on flat screens when "Draw a notch on external displays" is off, unless it is open there.
     private func drawn(_ slot: Slot) -> Bool {
