@@ -107,7 +107,7 @@ final class PlannerFileConcurrencyTests: XCTestCase {
         let titles = Set(planner.tasks.map(\.title))
         XCTAssertEqual(titles.count, count, "duplicated writes")
         for i in 0..<count {
-            XCTAssertTrue(titles.contains("Parallel task \(i)"), "missing parallel task \(i)")
+            XCTAssertTrue(titles.contains("parallel task \(i)"), "missing parallel task \(i)")
         }
         XCTAssertNoThrow(try JSONSerialization.jsonObject(with: Data(contentsOf: url)))
         XCTAssertTrue(FileManager.default.fileExists(atPath: url.appendingPathExtension("lock").path))

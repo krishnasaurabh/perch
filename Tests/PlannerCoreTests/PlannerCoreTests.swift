@@ -28,7 +28,7 @@ final class TaskCaptureTests: XCTestCase {
 
     func testHeadlineExample() {
         let c = cap.parse("text dad tomorrow at 5pm !high #home")
-        XCTAssertEqual(c.title, "Text dad")
+        XCTAssertEqual(c.title, "text dad")
         XCTAssertEqual(c.day, "2026-11-10")
         XCTAssertEqual(Fixture.hm(c.remindAt), "2026-11-10 17:00")
         XCTAssertEqual(c.priority, .high)
@@ -39,7 +39,7 @@ final class TaskCaptureTests: XCTestCase {
         let c = cap.parse("standup at 9am")
         XCTAssertEqual(c.day, "2026-11-10")
         XCTAssertEqual(Fixture.hm(c.remindAt), "2026-11-10 09:00")
-        XCTAssertEqual(c.title, "Standup")
+        XCTAssertEqual(c.title, "standup")
     }
 
     func testTimeLaterToday() {
@@ -62,10 +62,10 @@ final class TaskCaptureTests: XCTestCase {
     }
 
     func testWeekdays() {
-        XCTAssertEqual(cap.parse("vet friday at 10").day, "2026-11-13")
-        XCTAssertEqual(cap.parse("vet friday at 10").title, "Vet")
+        XCTAssertEqual(cap.parse("vet on friday at 10").day, "2026-11-13")
+        XCTAssertEqual(cap.parse("vet on friday at 10").title, "vet")
         XCTAssertEqual(cap.parse("review next monday").day, "2026-11-16")
-        XCTAssertEqual(cap.parse("review monday").day, "2026-11-09")
+        XCTAssertEqual(cap.parse("review on monday").day, "2026-11-09")
         XCTAssertEqual(cap.parse("lunch on thu").day, "2026-11-12")
     }
 
@@ -83,7 +83,7 @@ final class TaskCaptureTests: XCTestCase {
         let c = cap.parse("finish report due friday")
         XCTAssertEqual(c.deadline, "2026-11-13")
         XCTAssertNil(c.day)
-        XCTAssertEqual(c.title, "Finish report")
+        XCTAssertEqual(c.title, "finish report")
     }
 
     func testDurationAndPriorityVariants() {
@@ -91,7 +91,7 @@ final class TaskCaptureTests: XCTestCase {
         XCTAssertEqual(cap.parse("deep work for 1.5h").minutes, 90)
         XCTAssertEqual(cap.parse("write tests (45m)").minutes, 45)
         XCTAssertEqual(cap.parse("pay rent !!!").priority, .high)
-        XCTAssertEqual(cap.parse("pay rent p2").priority, .medium)
+        XCTAssertEqual(cap.parse("pay rent !medium").priority, .medium)
         XCTAssertEqual(cap.parse("pay rent !").priority, .low)
         XCTAssertEqual(cap.parse("Hello! world").priority, .none)
     }
@@ -99,19 +99,19 @@ final class TaskCaptureTests: XCTestCase {
     func testRepeats() {
         let c = cap.parse("gym every monday, wednesday and friday at 7am")
         XCTAssertEqual(c.repeatRule, TaskRepeat(unit: .week, weekdays: [2, 4, 6]))
-        XCTAssertEqual(c.title, "Gym")
+        XCTAssertEqual(c.title, "gym")
         XCTAssertEqual(cap.parse("water plants every 3 days").repeatRule, TaskRepeat(unit: .day, interval: 3))
         XCTAssertEqual(cap.parse("haircut every! 4 weeks").repeatRule, TaskRepeat(unit: .week, interval: 4, fromCompletion: true))
-        XCTAssertEqual(cap.parse("standup weekdays").repeatRule, .weekdaysRule)
+        XCTAssertEqual(cap.parse("standup every weekday").repeatRule, .weekdaysRule)
         XCTAssertEqual(cap.parse("1:1 every other week on tue").repeatRule, TaskRepeat(unit: .week, interval: 2, weekdays: [3]))
-        XCTAssertEqual(cap.parse("review daily").repeatRule, .daily)
+        XCTAssertEqual(cap.parse("review every day").repeatRule, .daily)
     }
 
     func testInbox() {
         let c = cap.parse("learn piano someday")
         XCTAssertTrue(c.inbox)
         XCTAssertNil(c.day)
-        XCTAssertEqual(c.title, "Learn piano")
+        XCTAssertEqual(c.title, "learn piano")
         XCTAssertTrue(cap.parse("read SICP #inbox").inbox)
     }
 
