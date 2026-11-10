@@ -164,9 +164,8 @@ MainActor.assumeIsolated {
                         ["Inspect the release checklist", "Inspect the release checklist", "Label the storage bins"],
                         on: .day(store.today))
                 }!
-                store.updateTask(added[1].id) {
-                    $0.done = true; $0.completedAt = Date()
-                }
+                let completion = store.send(.complete(added[1].id))
+                require(completion?.tasks.first?.done == true, "\(name): completion uses the validated gateway")
                 await settle()
                 require(control("Completed 1", in: root) != nil, "\(name): completed tab retained beside entry")
                 require(frame(capture) == initialCapture, "\(name): population leaves capture pinned")
