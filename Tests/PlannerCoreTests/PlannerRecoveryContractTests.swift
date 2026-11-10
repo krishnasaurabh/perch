@@ -114,7 +114,7 @@ final class PlannerRecoveryContractTests: XCTestCase {
         io.write = { _, _ in writes += 1 }
         let unreadable = PlannerFile(url: file.url, io: io)
         for operation in [{ _ = try unreadable.load() }, { try unreadable.save(Planner()) }] {
-            try XCTAssertThrowsError(try operation()) { error in
+            XCTAssertThrowsError(try operation()) { error in
                 guard case let PlannerDataError.unreadable(url, reason) = error else {
                     return XCTFail("Expected a typed unreadable-data error, got \(error)")
                 }
