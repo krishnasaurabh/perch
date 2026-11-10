@@ -114,6 +114,8 @@ struct NotchGeometry: Equatable {
 
     /// Exact hit test against the drawn shape (not its bounding box). Global coordinates, y up.
     func shapeContains(_ p: NSPoint, expanded: Bool, timer: NotchTimerPlacement?, activity: Bool) -> Bool {
+        // A built-in flat screen never has a synthetic closed notch to draw or hit, even when the external preference is on.
+        if !expanded, !activity, screen.isBuiltIn, camera == nil { return false }
         if !expanded, !activity, let side = timer {
             return NotchLayout.contains(pill(side: side), pointer: p) || NotchLayout.contains(tuckedNotch, pointer: p)
         }
