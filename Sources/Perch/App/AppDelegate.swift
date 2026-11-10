@@ -27,6 +27,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         setupMenuBar()
         setupURLScheme()
         setupActivityDump()
+        MotionScript.startIfRequested(store: store, model: model)  // CI motion capture only (--motion-script)
 
         let args = CommandLine.arguments
         if args.contains("--demo") { seedDemo() }
