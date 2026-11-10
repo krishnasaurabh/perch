@@ -84,7 +84,8 @@ final class ClipAndShortcutTests: XCTestCase {
     }
 
     func testVaultCopiesWithUniqueNamesAndInjectedTimestamp() throws {
-        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let root = FileManager.default.temporaryDirectory.resolvingSymlinksInPath().appendingPathComponent(
+            UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: root) }
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         let source = root.appendingPathComponent("sample.txt")

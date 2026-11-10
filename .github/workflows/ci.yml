@@ -97,7 +97,7 @@ jobs:
                       macos = True  # Rewritten/unavailable base: fail open to all tests.
                   else:
                       paths = [p for p in paths if p]
-                      core_only = lambda p: p.startswith(('Sources/PlannerCore/', 'Tests/')) or re.fullmatch(r'scripts/test_[^/]*\.py', p)
+                      core_only = lambda p: p.startswith(('Sources/PlannerCore/', 'Sources/PerchMCP/', 'Tests/PlannerCoreTests/', 'Tests/PerchMCPTests/', 'Tests/PerchUITests/', 'Tests/PlannerTestSupport/')) or re.fullmatch(r'scripts/test_[^/]*\.py', p)
                       macos = not paths or not all(core_only(p) for p in paths)
           with open(os.environ['GITHUB_OUTPUT'], 'a') as out:
               out.write(f'macos={str(macos).lower()}\n')

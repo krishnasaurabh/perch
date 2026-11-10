@@ -41,6 +41,17 @@ class TargetBoundaryTests(unittest.TestCase):
         self.assertEqual(entry.strip(), "import PerchApp\n\nPerchApplication.run()")
         self.assertNotIn("MCPServer", (ROOT / "Sources/PlannerCore/Models.swift").read_text())
 
+    def test_app_tests_require_native_ci(self):
+        import ast
+        import re
+        workflow = (ROOT / ".github/workflows/ci.yml").read_text()
+        match = re.search(r"core_only = lambda p: p.startswith\((\(.*?\))\)", workflow)
+        assert match is not None, "Missing CI path-selection rule"
+        portable = ast.literal_eval(match.group(1))
+        self.assertFalse("Tests/PerchAppTests/PlannerStoreTests.swift".startswith(portable))
+        self.assertFalse("Sources/PerchApp/App/PlannerStore.swift".startswith(portable))
+        self.assertTrue("Tests/PlannerCoreTests/PlannerUndoTests.swift".startswith(portable))
+
     def test_mac_app_layer_is_testable_library(self):
         self.assertTrue(list((ROOT / "Tests/PerchAppTests").glob("*.swift")))
         if sys.platform == "darwin":
