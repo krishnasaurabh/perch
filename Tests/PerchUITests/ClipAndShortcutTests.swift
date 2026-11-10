@@ -100,7 +100,13 @@ final class ClipAndShortcutTests: XCTestCase {
         XCTAssertTrue(ClipVault.owns(one, vault: vault))
         XCTAssertFalse(ClipVault.owns(source, vault: vault))
         XCTAssertFalse(ClipVault.owns(vault, vault: vault))
-        XCTAssertEqual(ClipVault.sweep(vault, olderThan: now.addingTimeInterval(1), keeping: [one.path]), [two])
+        // Directory enumeration may canonicalize /var on macOS; compare the actual listed URL,
+        // not a lexical alias returned by copyItem. Both still identify the same retained copy.
+        let listedCopy = try XCTUnwrap(
+            FileManager.default.contentsOfDirectory(at: vault, includingPropertiesForKeys: nil)
+                .first { $0.lastPathComponent == two.lastPathComponent })
+        XCTAssertEqual(ClipVault.sweep(vault, olderThan: now.addingTimeInterval(1), keeping: [one.path]), [listedCopy])
+        XCTAssertFalse(FileManager.default.fileExists(atPath: two.path))
         XCTAssertTrue(FileManager.default.fileExists(atPath: source.path))
         XCTAssertTrue(FileManager.default.fileExists(atPath: one.path))
     }
