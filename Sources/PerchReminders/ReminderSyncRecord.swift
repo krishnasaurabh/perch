@@ -66,7 +66,7 @@ public struct ReminderOwner: Codable, Hashable, Sendable {
     }
 }
 
-public struct ReminderRecord: Equatable, Sendable {
+public struct ReminderSyncRecord: Equatable, Sendable {
     public let id: String
     public let calendarID: String
     public let owner: ReminderOwner?
@@ -96,8 +96,8 @@ public enum ReminderSyncError: Error, LocalizedError {
 public protocol ReminderRepository: AnyObject {
     var hasAccess: Bool { get }
     func createCalendar() throws -> String
-    func fetch(calendarID: String) async throws -> [ReminderRecord]
-    func save(fields: ReminderFields, owner: ReminderOwner, calendarID: String, replacing: ReminderRecord?) throws
-        -> ReminderRecord
-    func remove(_ expected: ReminderRecord) throws
+    func fetch(calendarID: String) async throws -> [ReminderSyncRecord]
+    func save(fields: ReminderFields, owner: ReminderOwner, calendarID: String, replacing: ReminderSyncRecord?) throws
+        -> ReminderSyncRecord
+    func remove(_ expected: ReminderSyncRecord) throws
 }

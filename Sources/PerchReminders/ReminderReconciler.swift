@@ -62,7 +62,7 @@ public final class ReminderReconciler {
         guard Set(records.map(\.id)).count == records.count else {
             throw ReminderSyncError.stopped("Reminders returned duplicate identifiers. Sync is stopped.")
         }
-        var byOwner: [ReminderOwner: ReminderRecord] = [:]
+        var byOwner: [ReminderOwner: ReminderSyncRecord] = [:]
         for record in records {
             guard record.calendarID == calendarID else {
                 throw ReminderSyncError.stopped("The Reminders list changed while syncing. Retry sync.")
@@ -98,7 +98,7 @@ public final class ReminderReconciler {
             var desired = ReminderFields(task: task, ringOnPhone: planner.preferences.ringOnPhone)
             var link =
                 ledger.links[task.id]
-                ?? ReminderLink(owner: ReminderOwner(installation: ledger.installation, task: task.id))
+                ?? ReminderSyncLink(owner: ReminderOwner(installation: ledger.installation, task: task.id))
             let record = try ownedRecord(link, byOwner: byOwner, byID: byID)
             if let record {
                 guard !record.unsupported else {
@@ -164,8 +164,8 @@ public final class ReminderReconciler {
     }
 
     private func ownedRecord(
-        _ link: ReminderLink, byOwner: [ReminderOwner: ReminderRecord], byID: [String: ReminderRecord]
-    ) throws -> ReminderRecord? {
+        _ link: ReminderSyncLink, byOwner: [ReminderOwner: ReminderSyncRecord], byID: [String: ReminderSyncRecord]
+    ) throws -> ReminderSyncRecord? {
         if let id = link.remoteID, let record = byID[id], record.owner != link.owner {
             throw ReminderSyncError.stopped("A reminder's ownership marker changed. It was preserved; sync is stopped.")
         }

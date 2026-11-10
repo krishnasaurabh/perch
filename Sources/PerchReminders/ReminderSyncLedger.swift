@@ -5,7 +5,7 @@ import Foundation
     import Darwin
 #endif
 
-public struct ReminderLink: Codable, Equatable, Sendable {
+public struct ReminderSyncLink: Codable, Equatable, Sendable {
     public let owner: ReminderOwner
     public var remoteID: String?
     public var local: ReminderFields?
@@ -16,12 +16,12 @@ public struct ReminderLink: Codable, Equatable, Sendable {
 }
 
 /// Sync metadata is deliberately outside the planner document and its undo history.
-public struct ReminderLedger: Codable, Equatable, Sendable {
+public struct ReminderSyncLedger: Codable, Equatable, Sendable {
     public var version = 1
     public var installation = UUID()
     public var enabled = false
     public var calendarID: String?
-    public var links: [UUID: ReminderLink] = [:]
+    public var links: [UUID: ReminderSyncLink] = [:]
     public init() {}
 }
 
@@ -29,8 +29,8 @@ public struct ReminderLedger: Codable, Equatable, Sendable {
 public protocol ReminderLedgerStorage: AnyObject {
     func lock() throws
     func unlock()
-    func load() throws -> ReminderLedger
-    func save(_ ledger: ReminderLedger) throws
+    func load() throws -> ReminderSyncLedger
+    func save(_ ledger: ReminderSyncLedger) throws
 }
 
 /// A nonblocking process lock covers the whole reconciliation, including suspended fetches.
@@ -53,9 +53,9 @@ public final class ReminderLedgerFile: ReminderLedgerStorage {
     public func unlock() {
         if descriptor >= 0 { flock(descriptor, LOCK_UN); close(descriptor); descriptor = -1 }
     }
-    public func load() throws -> ReminderLedger {
-        guard FileManager.default.fileExists(atPath: url.path) else { return ReminderLedger() }
-        let ledger = try JSONDecoder().decode(ReminderLedger.self, from: Data(contentsOf: url))
+    public func load() throws -> ReminderSyncLedger {
+        guard FileManager.default.fileExists(atPath: url.path) else { return ReminderSyncLedger() }
+        let ledger = try JSONDecoder().decode(ReminderSyncLedger.self, from: Data(contentsOf: url))
         guard ledger.version == 1,
             ledger.links.allSatisfy({
                 $0.key == $0.value.owner.task && $0.value.owner.installation == ledger.installation
@@ -66,7 +66,7 @@ public final class ReminderLedgerFile: ReminderLedgerStorage {
         }
         return ledger
     }
-    public func save(_ ledger: ReminderLedger) throws {
+    public func save(_ ledger: ReminderSyncLedger) throws {
         guard descriptor >= 0 else { throw ReminderSyncError.stopped("Reminders metadata is not locked.") }
         let encoder = JSONEncoder(); encoder.outputFormatting = [.sortedKeys]
         try encoder.encode(ledger).write(to: url, options: [.atomic])

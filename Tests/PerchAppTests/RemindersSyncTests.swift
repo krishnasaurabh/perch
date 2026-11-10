@@ -9,44 +9,44 @@ import XCTest
 @MainActor
 final class FakeReminders: RemindersAccess {
     var hasAccess = true
-    var records: [ReminderRecord] = []
+    var records: [ReminderSyncRecord] = []
     var saves = 0
     var removals = 0
     var fetches = 0
     var onFetch: (() async -> Void)?
     func requestAccess() async throws {}
     func createCalendar() throws -> String { "synthetic-calendar" }
-    func fetch(calendarID: String) async throws -> [ReminderRecord] {
+    func fetch(calendarID: String) async throws -> [ReminderSyncRecord] {
         fetches += 1
         await onFetch?()
         return records
     }
-    func save(fields: ReminderFields, owner: ReminderOwner, calendarID: String, replacing: ReminderRecord?) throws
-        -> ReminderRecord
+    func save(fields: ReminderFields, owner: ReminderOwner, calendarID: String, replacing: ReminderSyncRecord?) throws
+        -> ReminderSyncRecord
     {
         if let replacing, !records.contains(replacing) { throw ReminderSyncError.stopped("conflict") }
         saves += 1
-        let record = ReminderRecord(
+        let record = ReminderSyncRecord(
             id: replacing?.id ?? "synthetic-\(saves)", calendarID: calendarID, owner: owner, fields: fields,
             revision: "revision-\(saves)")
         records.removeAll { $0.id == record.id }; records.append(record)
         return record
     }
-    func remove(_ expected: ReminderRecord) throws { removals += 1; records.removeAll { $0.id == expected.id } }
+    func remove(_ expected: ReminderSyncRecord) throws { removals += 1; records.removeAll { $0.id == expected.id } }
     func completeFirst() {
         let old = records[0]; var fields = old.fields; fields.completed = true
-        records[0] = ReminderRecord(
+        records[0] = ReminderSyncRecord(
             id: old.id, calendarID: old.calendarID, owner: old.owner, fields: fields, revision: "remote-completion")
     }
 }
 
 @MainActor
 final class TestReminderLedger: ReminderLedgerStorage {
-    var ledger = ReminderLedger()
+    var ledger = ReminderSyncLedger()
     func lock() throws {}
     func unlock() {}
-    func load() throws -> ReminderLedger { ledger }
-    func save(_ ledger: ReminderLedger) throws { self.ledger = ledger }
+    func load() throws -> ReminderSyncLedger { ledger }
+    func save(_ ledger: ReminderSyncLedger) throws { self.ledger = ledger }
 }
 
 private final class ReminderScheduledAction: AppScheduledAction {

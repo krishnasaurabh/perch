@@ -5,7 +5,7 @@ import XCTest
 
 @MainActor
 private final class MemoryLedger: ReminderLedgerStorage {
-    var value = ReminderLedger()
+    var value = ReminderSyncLedger()
     var writes = 0
     var failWriteAt: Int?
     var locked = false
@@ -14,8 +14,8 @@ private final class MemoryLedger: ReminderLedgerStorage {
         locked = true
     }
     func unlock() { locked = false }
-    func load() throws -> ReminderLedger { value }
-    func save(_ ledger: ReminderLedger) throws {
+    func load() throws -> ReminderSyncLedger { value }
+    func save(_ ledger: ReminderSyncLedger) throws {
         writes += 1
         if failWriteAt == writes { throw ReminderSyncError.stopped("disk full") }
         value = ledger
@@ -25,7 +25,7 @@ private final class MemoryLedger: ReminderLedgerStorage {
 @MainActor
 private final class FakeRepository: ReminderRepository {
     var hasAccess = true
-    var records: [ReminderRecord] = []
+    var records: [ReminderSyncRecord] = []
     var saves = 0
     var removes = 0
     var lists = 0
@@ -35,34 +35,34 @@ private final class FakeRepository: ReminderRepository {
     var onFetch: (() async throws -> Void)?
     var beforeWrite: (() -> Void)?
     func createCalendar() throws -> String { lists += 1; return "owned-list" }
-    func fetch(calendarID: String) async throws -> [ReminderRecord] {
+    func fetch(calendarID: String) async throws -> [ReminderSyncRecord] {
         fetches += 1
         try await onFetch?()
         return records
     }
-    func save(fields: ReminderFields, owner: ReminderOwner, calendarID: String, replacing: ReminderRecord?) throws
-        -> ReminderRecord
+    func save(fields: ReminderFields, owner: ReminderOwner, calendarID: String, replacing: ReminderSyncRecord?) throws
+        -> ReminderSyncRecord
     {
         beforeWrite?()
         guard hasAccess else { throw ReminderSyncError.stopped("denied") }
         if let replacing, !records.contains(replacing) { throw ReminderSyncError.stopped("revision conflict") }
         saves += 1
         if failSaveAt == saves { throw ReminderSyncError.stopped("save failed") }
-        let saved = ReminderRecord(
+        let saved = ReminderSyncRecord(
             id: replacing?.id ?? "r-\(saves)", calendarID: calendarID, owner: owner, fields: fields,
             revision: "rev-\(saves)")
         records.removeAll { $0.id == saved.id }; records.append(saved)
         if throwAfterSave { throw ReminderSyncError.stopped("uncertain commit") }
         return saved
     }
-    func remove(_ expected: ReminderRecord) throws {
+    func remove(_ expected: ReminderSyncRecord) throws {
         beforeWrite?()
         guard hasAccess, records.contains(expected) else { throw ReminderSyncError.stopped("revision conflict") }
         removes += 1; records.removeAll { $0.id == expected.id }
     }
     func change(_ transform: (inout ReminderFields) -> Void) {
         let old = records[0]; var fields = old.fields; transform(&fields)
-        records[0] = ReminderRecord(
+        records[0] = ReminderSyncRecord(
             id: old.id, calendarID: old.calendarID, owner: old.owner, fields: fields, revision: "external")
     }
 }
@@ -115,7 +115,7 @@ final class ReminderReconcilerTests: XCTestCase {
     @MainActor func testDeleteAndUnscheduleRemoveOnlyOwnedRecords() async throws {
         for delete in [true, false] {
             let f = Fixture(); try await f.run()
-            let other = ReminderRecord(
+            let other = ReminderSyncRecord(
                 id: "user", calendarID: "owned-list", owner: nil, fields: f.repository.records[0].fields,
                 revision: "user")
             f.repository.records.append(other)
@@ -229,7 +229,7 @@ final class ReminderReconcilerTests: XCTestCase {
             let f = Fixture(); try await f.run()
             let r = f.repository.records[0]
             if removeMarker {
-                f.repository.records[0] = ReminderRecord(
+                f.repository.records[0] = ReminderSyncRecord(
                     id: r.id, calendarID: r.calendarID, owner: nil, fields: r.fields, revision: "changed")
             } else {
                 f.repository.change { $0.notes = "Remote note" }
@@ -243,7 +243,7 @@ final class ReminderReconcilerTests: XCTestCase {
     @MainActor func testDuplicateOwnershipFailsClosed() async throws {
         let f = Fixture(); try await f.run(); let r = f.repository.records[0]
         f.repository.records.append(
-            ReminderRecord(
+            ReminderSyncRecord(
                 id: "duplicate", calendarID: r.calendarID, owner: r.owner, fields: r.fields, revision: "duplicate"))
         do { try await f.run(); XCTFail("duplicate ownership") } catch {}
         XCTAssertEqual(f.repository.saves, 1)
@@ -314,7 +314,7 @@ final class ReminderReconcilerTests: XCTestCase {
         let first = ReminderLedgerFile(url: url), second = ReminderLedgerFile(url: url)
         try first.lock(); var value = try first.load(); value.enabled = true
         let task = UUID();
-        value.links[task] = ReminderLink(owner: ReminderOwner(installation: value.installation, task: task))
+        value.links[task] = ReminderSyncLink(owner: ReminderOwner(installation: value.installation, task: task))
         try first.save(value)
         XCTAssertThrowsError(try second.lock())
         first.unlock(); try second.lock()

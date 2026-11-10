@@ -31,7 +31,7 @@ final class SystemRemindersAccess: RemindersAccess {
         return calendar.calendarIdentifier
     }
 
-    func fetch(calendarID: String) async throws -> [ReminderRecord] {
+    func fetch(calendarID: String) async throws -> [ReminderSyncRecord] {
         try requireAccess()
         guard let calendar = ek.calendar(withIdentifier: calendarID) else {
             throw ReminderSyncError.stopped(
@@ -53,8 +53,8 @@ final class SystemRemindersAccess: RemindersAccess {
         return reminders.map(snapshot)
     }
 
-    func save(fields: ReminderFields, owner: ReminderOwner, calendarID: String, replacing expected: ReminderRecord?)
-        throws -> ReminderRecord
+    func save(fields: ReminderFields, owner: ReminderOwner, calendarID: String, replacing expected: ReminderSyncRecord?)
+        throws -> ReminderSyncRecord
     {
         try requireAccess()
         let reminder: EKReminder
@@ -79,14 +79,14 @@ final class SystemRemindersAccess: RemindersAccess {
         return snapshot(reminder)
     }
 
-    func remove(_ expected: ReminderRecord) throws {
+    func remove(_ expected: ReminderSyncRecord) throws {
         try requireAccess()
         let reminder = try current(expected)
         guard expected.owner != nil else { throw conflict() }
         do { try ek.remove(reminder, commit: true) } catch { ek.reset(); throw error }
     }
 
-    private func current(_ expected: ReminderRecord) throws -> EKReminder {
+    private func current(_ expected: ReminderSyncRecord) throws -> EKReminder {
         guard let reminder = ek.calendarItem(withIdentifier: expected.id) as? EKReminder,
             snapshot(reminder) == expected
         else { throw conflict() }
@@ -102,14 +102,14 @@ final class SystemRemindersAccess: RemindersAccess {
     private func conflict() -> ReminderSyncError {
         .stopped("A reminder changed during sync. Nothing else was overwritten; retry to review the latest version.")
     }
-    private func snapshot(_ reminder: EKReminder) -> ReminderRecord {
+    private func snapshot(_ reminder: EKReminder) -> ReminderSyncRecord {
         let alarms = reminder.alarms ?? []
         let unsupported =
             !(reminder.recurrenceRules ?? []).isEmpty || alarms.count > 1
             || alarms.contains { $0.absoluteDate == nil || $0.structuredLocation != nil }
             || !(reminder.location ?? "").isEmpty || reminder.startDateComponents != nil
             || (reminder.dueDateComponents?.second ?? 0) != 0
-        return ReminderRecord(
+        return ReminderSyncRecord(
             id: reminder.calendarItemIdentifier, calendarID: reminder.calendar.calendarIdentifier,
             owner: ReminderOwner(url: reminder.url),
             fields: ReminderFields(
