@@ -34,29 +34,69 @@ jobs:
           pip install --quiet mcp
           PERCH_DATA=$RUNNER_TEMP/p.json TZ=America/Los_Angeles python scripts/mcp_smoke.py "$PWD/.build/release/perch-cli"
 
+  changes:
+    name: macOS path filter
+    runs-on: ubuntu-24.04
+    outputs:
+      macos: ${{ steps.filter.outputs.macos }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Select macOS jobs
+        id: filter
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          FORCE_MACOS: ${{ inputs.macos }}
+          PUSH_BASE: ${{ github.event.before }}
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+        run: |
+          python3 - <<'PY'
+          import os, re, subprocess
+          if os.environ['EVENT_NAME'] == 'workflow_dispatch':
+              macos = os.environ['FORCE_MACOS'] == 'true'
+          else:
+              base = os.environ['PR_BASE'] or os.environ['PUSH_BASE']
+              if not base or set(base) == {'0'}:
+                  macos = True  # New branch: no trustworthy base, so run all gates.
+              else:
+                  paths = subprocess.check_output(['git', 'diff', '--no-renames', '--name-only', '-z', base, 'HEAD']).decode().split('\0')
+                  paths = [p for p in paths if p]
+                  core_only = lambda p: p.startswith(('Sources/PlannerCore/', 'Tests/')) or re.fullmatch(r'scripts/test_[^/]*\.py', p)
+                  macos = not paths or not all(core_only(p) for p in paths)
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as out:
+              out.write(f'macos={str(macos).lower()}\n')
+          print(f'Run macOS jobs: {macos}')
+          PY
+
   app-macos:
     name: Perch.app (macOS)
     runs-on: macos-15
-    if: github.event_name != 'workflow_dispatch' || inputs.macos
+    needs: changes
+    if: needs.changes.outputs.macos == 'true'
     steps:
       - uses: actions/checkout@v4
       - name: Toolchain
         run: |
           sudo xcode-select -s "$(ls -d /Applications/Xcode_26*.app 2>/dev/null | sort -V | tail -1 || ls -d /Applications/Xcode*.app | sort -V | tail -1)"
           swift --version
-      - name: Discoverable focus entry and real button lifecycle
-        run: bash scripts/check_focus_entry.sh "$RUNNER_TEMP/notch/focus-entry"
       - run: swift test
       - name: Build and bundle
         run: |
           scripts/bundle.sh
           python3 scripts/motion_build_manifest.py dist/Perch.app
+      - name: Archive app bundle
+        run: tar -czf "$RUNNER_TEMP/perch-app.tar.gz" -C dist Perch.app
+      - name: Upload app bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: perch-app-bundle
+          path: ${{ runner.temp }}/perch-app.tar.gz
+          if-no-files-found: error
       - name: App binary speaks MCP
         run: |
           pip3 install --quiet --break-system-packages mcp || pip3 install --quiet mcp
           PERCH_DATA=$RUNNER_TEMP/p.json python3 scripts/mcp_smoke.py "$PWD/dist/Perch.app/Contents/MacOS/Perch"
-      - name: Integrated store, repeats, clips and settings
-        run: bash scripts/check_integration.sh "$RUNNER_TEMP/integration"
       - name: Focus survives an app crash without crediting offline time
         run: python3 scripts/focus_crash_check.py "$PWD/dist/Perch.app/Contents/MacOS/Perch" "$RUNNER_TEMP/focus-crash"
       - name: App launches and survives 5 s
@@ -64,6 +104,35 @@ jobs:
           PERCH_DATA=$RUNNER_TEMP/launch.json dist/Perch.app/Contents/MacOS/Perch --preview-open &
           PID=$!; sleep 5
           kill -0 $PID && echo "still running" && kill $PID
+      - name: Upload app package and crash evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Perch-package
+          path: |
+            dist/*.dmg
+            ${{ runner.temp }}/focus-crash/
+          if-no-files-found: error
+
+  probes-layout-macos:
+    name: Perch layout probes (macOS)
+    runs-on: macos-15
+    needs: app-macos
+    steps:
+      - uses: actions/checkout@v4
+      - name: Toolchain
+        run: |
+          sudo xcode-select -s "$(ls -d /Applications/Xcode_26*.app 2>/dev/null | sort -V | tail -1 || ls -d /Applications/Xcode*.app | sort -V | tail -1)"
+          swift --version
+      - name: Download app bundle
+        uses: actions/download-artifact@v4
+        with:
+          name: perch-app-bundle
+          path: ${{ runner.temp }}/perch-bundle
+      - name: Restore app bundle
+        run: |
+          mkdir -p dist
+          tar -xzf "$RUNNER_TEMP/perch-bundle/perch-app.tar.gz" -C dist
       - name: Screenshots (grey wallpaper so the notch outline shows)
         run: |
           python3 -c "import zlib,struct;w,h=64,64;raw=b''.join(b'\\x00'+bytes([120,124,135])*w for _ in range(h));c=lambda t,d:struct.pack('>I',len(d))+t+d+struct.pack('>I',zlib.crc32(t+d));open('/tmp/grey.png','wb').write(b'\\x89PNG\\r\\n\\x1a\\n'+c(b'IHDR',struct.pack('>IIBBBBB',w,h,8,2,0,0,0))+c(b'IDAT',zlib.compress(raw))+c(b'IEND',b''))"
@@ -129,21 +198,12 @@ jobs:
                   assert s["window"]["y"] + s["window"]["h"] == s["frame"]["y"] + s["frame"]["h"], "window not flush with screen top"
           sys.exit(1 if bad else 0)
           EOF
-      - name: Reduced motion policy and nested transaction regression
-        run: bash scripts/check_motion.sh "$RUNNER_TEMP/motion-policy"
       - name: Theme contrast and Home Week Settings in both appearances
         run: |
           pip3 install --quiet --break-system-packages Pillow
           bash scripts/check_theme.sh "$RUNNER_TEMP/notch/theme"
-      - name: Empty states and capture focus
-        run: bash scripts/check_empty_states.sh "$RUNNER_TEMP/empty-states"
       - name: Week with a busy today (overflow fade, +N more, pinned Add)
         run: bash scripts/week_shots.sh "$RUNNER_TEMP/notch/week"
-      - name: Clips layout (empty/populated, dark/light, pixel bounds)
-        run: |
-          pip3 install --quiet --break-system-packages Pillow || pip3 install --quiet Pillow
-          python3 -m unittest discover -s scripts -p test_measure_clips_bounds.py
-          bash scripts/check_clips_layout.sh "$RUNNER_TEMP/notch/clips"
       - name: Compact Home bounds and stress snapshots
         run: |
           bash scripts/check_compact_home.sh "$RUNNER_TEMP/notch/compact-home"
@@ -179,15 +239,74 @@ jobs:
         with:
           name: Perch
           path: |
-            dist/*.dmg
             ${{ runner.temp }}/perch-*.png
+            ${{ runner.temp }}/notch/**
+            ${{ runner.temp }}/capture-contrast/
+          if-no-files-found: error
+
+  probes-behavior-macos:
+    name: Perch behavior probes (macOS)
+    runs-on: macos-15
+    needs: app-macos
+    steps:
+      - uses: actions/checkout@v4
+      - name: Toolchain
+        run: |
+          sudo xcode-select -s "$(ls -d /Applications/Xcode_26*.app 2>/dev/null | sort -V | tail -1 || ls -d /Applications/Xcode*.app | sort -V | tail -1)"
+          swift --version
+      - name: Download app bundle
+        uses: actions/download-artifact@v4
+        with:
+          name: perch-app-bundle
+          path: ${{ runner.temp }}/perch-bundle
+      - name: Restore app bundle
+        run: |
+          mkdir -p dist
+          tar -xzf "$RUNNER_TEMP/perch-bundle/perch-app.tar.gz" -C dist
+      - name: Discoverable focus entry and real button lifecycle
+        run: bash scripts/check_focus_entry.sh "$RUNNER_TEMP/notch/focus-entry"
+      - name: Integrated store, repeats, clips and settings
+        run: bash scripts/check_integration.sh "$RUNNER_TEMP/integration"
+      - name: Reduced motion policy and nested transaction regression
+        run: bash scripts/check_motion.sh "$RUNNER_TEMP/motion-policy"
+      - name: Empty states and capture focus
+        run: bash scripts/check_empty_states.sh "$RUNNER_TEMP/empty-states"
+      - name: Clips layout (empty/populated, dark/light, pixel bounds)
+        run: |
+          pip3 install --quiet --break-system-packages Pillow || pip3 install --quiet Pillow
+          python3 -m unittest discover -s scripts -p test_measure_clips_bounds.py
+          bash scripts/check_clips_layout.sh "$RUNNER_TEMP/notch/clips"
+      - name: Upload behavior evidence
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: Perch-behavior
+          path: |
             ${{ runner.temp }}/notch/**
             ${{ runner.temp }}/empty-states/
             ${{ runner.temp }}/motion-policy/
-            ${{ runner.temp }}/capture-contrast/
             ${{ runner.temp }}/integration/
-            ${{ runner.temp }}/focus-crash/
-      # Record interface transitions as CI artifacts.
+          if-no-files-found: error
+
+  motion-macos:
+    name: Perch motion evidence (macOS)
+    runs-on: macos-15
+    needs: app-macos
+    steps:
+      - uses: actions/checkout@v4
+      - name: Toolchain
+        run: |
+          sudo xcode-select -s "$(ls -d /Applications/Xcode_26*.app 2>/dev/null | sort -V | tail -1 || ls -d /Applications/Xcode*.app | sort -V | tail -1)"
+          swift --version
+      - name: Download app bundle
+        uses: actions/download-artifact@v4
+        with:
+          name: perch-app-bundle
+          path: ${{ runner.temp }}/perch-bundle
+      - name: Restore app bundle
+        run: |
+          mkdir -p dist
+          tar -xzf "$RUNNER_TEMP/perch-bundle/perch-app.tar.gz" -C dist
       - name: Motion capture (open, close, page, tick, timer)
         # Evidence only: never blocks a branch. Errors land in summary.md / capture.log inside the artifact.
         continue-on-error: true
