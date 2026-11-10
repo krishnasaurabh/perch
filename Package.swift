@@ -12,6 +12,8 @@ var targets: [Target] = [
     .target(name: "PlannerCore"),
     .target(name: "PerchMCP", dependencies: ["PlannerCore"]),
     .target(name: "PerchUI", dependencies: ["PlannerCore"]),
+    .target(name: "PerchReminders", dependencies: ["PlannerCore"]),
+    .testTarget(name: "PerchRemindersTests", dependencies: ["PerchReminders", "PlannerCore"]),
     .executableTarget(name: "PerchCLI", dependencies: ["PlannerCore", "PerchMCP"]),
     .target(name: "PlannerTestSupport", dependencies: ["PlannerCore"], path: "Tests/PlannerTestSupport"),
     .testTarget(name: "PlannerCoreTests", dependencies: ["PlannerCore", "PlannerTestSupport"]),
@@ -25,7 +27,7 @@ var targets: [Target] = [
     targets.append(
         .target(
             name: "PerchApp",
-            dependencies: ["PlannerCore", "PerchMCP", "PerchUI"],
+            dependencies: ["PlannerCore", "PerchMCP", "PerchUI", "PerchReminders"],
             linkerSettings: [
                 .linkedFramework("AppKit"), .linkedFramework("SwiftUI"), .linkedFramework("EventKit"),
                 .linkedFramework("Speech"), .linkedFramework("AVFoundation"), .linkedFramework("Carbon"),
