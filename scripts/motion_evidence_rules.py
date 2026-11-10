@@ -39,7 +39,7 @@ def qualify(marker, sha):
     if marker.get('interaction_ok') is False:
         reasons.append('failed-interaction')
     session = marker.get('session', {})
-    if session.get('screen_locked') is not False:
+    if session.get('screen_locked') is not False or session.get('session_available') is not True or session.get('on_console') is not True:
         reasons.append('locked-or-unknown-session')
     if len(sha or '') != 40 or any(c not in '0123456789abcdef' for c in sha or ''):
         reasons.append('missing-exact-sha')

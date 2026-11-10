@@ -144,6 +144,7 @@ enum MotionScript {
                 ]) { _, rhs in rhs }
                 let state: [String: Any] = ["screen_locked": Self.screenLocked,
                     "lock_key_present": session["CGSSessionScreenIsLocked"] != nil,
+                    "session_available": !session.isEmpty,
                     "on_console": session[kCGSessionOnConsoleKey as String] ?? "unknown", "app_active": NSApp.isActive,
                     "key_window": NSApp.keyWindow != nil, "expanded": model.expanded,
                     "page": model.page.rawValue, "timer_present": store.planner.focus != nil,

@@ -7,7 +7,7 @@ class EvidenceRulesTests(unittest.TestCase):
         return {'name': 'timer', 'via': 'ax-press:Start focus', 'interaction_ok': True,
                 'policy': dict(nsworkspace_reduce_motion=False, swiftui_reduce_motion=False,
                                resolved_reduce_motion=False, explicit_reduce_motion=False, mode='production'),
-                'session': {'screen_locked': False}, 'settled_state': {'timer_present': True}}
+                'session': {'screen_locked': False, 'session_available': True, 'on_console': True}, 'settled_state': {'timer_present': True}}
 
     def test_wrong_diagnostic_and_production_policy_fail(self):
         m = self.marker(); m['policy']['mode'] = 'diagnostic-reduced'
