@@ -183,13 +183,17 @@ MainActor.assumeIsolated {
                             e.planner.tasks = []
                             _ = try e.addTasks((1...24).map {
                                 "Inspect release group \($0)\nVerify the checklist notes and handoff details for this group"
-                            }, on: .day(e.today))
+                            }, on: .day(e.today), literal: true)
                         }
+                        require(delegate.store.planner.tasks.count == 24 && delegate.store.planner.tasks.allSatisfy { $0.title.contains("\n") },
+                                "\(name): fixture retains 24 actual multiline titles")
                         await settle(); await wakeAX(); await settle()
                         let list = taskList(), document = taskList().documentView!
                         require(document.frame.height > list.contentSize.height, "\(name): multiline dense rows overflow")
                         require(controlFrame("Add a task", in: root) == capture, "\(name): dense capture unchanged")
-                        require(controlFrame("Start focus", in: root) == entry, "\(name): dense Start focus unchanged")
+                        let denseEntry = controlFrame("Start focus", in: root)
+                        require(running ? denseEntry == nil : denseEntry != nil, "\(name): dense Start focus visibility unchanged")
+                        require(document.frame.height / 24 > 40, "\(name): rendered rows occupy multiple lines")
                         if !geometryOnly {
                             guard let cue = fade() else { require(false, "\(name): continuation cue installed"); return }
                             require(!cue.isHidden, "\(name): fade visible during overflow")
@@ -204,10 +208,10 @@ MainActor.assumeIsolated {
                                 "\(name): actual scroll end reached")
                         if !geometryOnly { require(fade()!.isHidden, "\(name): fade absent at scroll end") }
                         require(controlFrame("Add a task", in: root) == capture, "\(name): scroll capture unchanged")
-                        require(controlFrame("Start focus", in: root) == entry, "\(name): scroll Start focus unchanged")
+                        require(controlFrame("Start focus", in: root) == denseEntry, "\(name): scroll Start focus unchanged")
                         snapshot(root, name + "-end", into: output)
                         metrics.append(["scenario": name, "capture": NSStringFromRect(capture),
-                                        "startFocus": entry.map(NSStringFromRect) ?? "absent",
+                                        "startFocus": denseEntry.map(NSStringFromRect) ?? "absent",
                                         "taskViewport": NSStringFromRect(list.convert(list.bounds, to: nil))])
                         // Shrinking content must also clear the cue without any user scroll.
                         delegate.store.apply { $0.planner.tasks = [] }
