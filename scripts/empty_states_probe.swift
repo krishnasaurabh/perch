@@ -74,10 +74,11 @@ func probeWeekBars(_ focusOnly: Insights, output: URL) async {
         let x = Int((10 + 6 * (col + 14) + col / 2) * scale)
         var planned: Int?, completed: Int?
         // Match the actual Planned token composited over this fixture's white background.
-        let plannedInk = NSColor(Theme.insightsPlanned).usingColorSpace(.sRGB)!
-        let plannedValue = (plannedInk.redComponent + plannedInk.greenComponent + plannedInk.blueComponent) / 3
-            * plannedInk.alphaComponent + (1 - plannedInk.alphaComponent)
+        let plannedInk = Theme.insightsPlanned.resolve(in: EnvironmentValues())
+        let plannedValue = CGFloat(1 - plannedInk.opacity) // Black over white, in bitmap component space.
         var plannedRows = 0
+        var plannedSamples = [Int](repeating: 0, count: rep.samplesPerPixel)
+        let componentMaximum = CGFloat((1 << rep.bitsPerSample) - 1)
         // Scan only the plot: the day labels below the baseline are dark text too.
         for y in 0..<Int((size.height - 48) * scale) {
             guard let c = rep.colorAt(x: x, y: y)?.usingColorSpace(.deviceRGB) else {
@@ -86,9 +87,9 @@ func probeWeekBars(_ focusOnly: Insights, output: URL) async {
             }
             let v = (c.redComponent + c.greenComponent + c.blueComponent) / 3
             if completed == nil, v < 0.3 { completed = y }
-            // Convert the sampled pixel too: device RGB has a different transfer curve.
-            guard let plannedPixel = c.usingColorSpace(.sRGB) else { plannedRows = 0; continue }
-            let plannedBrightness = (plannedPixel.redComponent + plannedPixel.greenComponent + plannedPixel.blueComponent) / 3
+            // Read the same encoded components that are written to the PNG, without NSColor conversion.
+            rep.getPixel(&plannedSamples, atX: x, y: y)
+            let plannedBrightness = CGFloat(plannedSamples[0] + plannedSamples[1] + plannedSamples[2]) / (3 * componentMaximum)
             if abs(plannedBrightness - plannedValue) <= 0.05 {
                 plannedRows += 1
                 // Reject isolated antialias pixels from Completed's rounded edge.
@@ -97,6 +98,7 @@ func probeWeekBars(_ focusOnly: Insights, output: URL) async {
                 plannedRows = 0
             }
         }
+        print("Planned detector \(name): opacity \(plannedInk.opacity), target \(plannedValue), top \(planned as Any)")
         return (planned.map { CGFloat($0) / scale }, completed.map { CGFloat($0) / scale })
     }
     // Today is column 6: 780 ms of stagger before it starts, so ~100 ms in it must still be on the baseline.
