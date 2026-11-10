@@ -30,7 +30,7 @@ def hex_rgb(rgb):
 
 
 def source_rows():
-    source = (ROOT / 'Sources/Perch/Workspace/Theme.swift').read_text()
+    source = (ROOT / 'Sources/PerchApp/Workspace/Theme.swift').read_text()
     def token(name, mode, background=None):
         match = re.search(rf'static let {name} = Color.dynamic\(light: \(0x([A-Fa-f0-9]+), ([.0-9]+)\), dark: \(0x([A-Fa-f0-9]+), ([.0-9]+)\)\)', source)
         if match:
@@ -54,8 +54,8 @@ def source_rows():
     pills = source.split('struct SegmentPills', 1)[1].split('struct GlassButton', 1)[0]
     assert 'Theme.fill)' not in pills, 'Nested segment track fill returned'
     # Cover the production wiring, not just a disconnected palette.
-    tasks = (ROOT / 'Sources/Perch/Workspace/TasksCard.swift').read_text()
-    week = (ROOT / 'Sources/Perch/Workspace/WeekAndClips.swift').read_text()
+    tasks = (ROOT / 'Sources/PerchApp/Workspace/TasksCard.swift').read_text()
+    week = (ROOT / 'Sources/PerchApp/Workspace/WeekAndClips.swift').read_text()
     assert '.strokeBorder(Theme.inputStroke, lineWidth: focused ? 2 : 1)' in tasks
     assert '.strokeBorder(Theme.cardStroke, lineWidth: 1)' in source
     assert '.strokeBorder(Theme.cardStroke)' in week

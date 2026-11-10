@@ -2,6 +2,11 @@
 import AppKit
 import ApplicationServices
 import PlannerCore
+#if canImport(PerchApp)
+    @testable import PerchApp
+    import PerchUI
+    import PerchMCP
+#endif
 import SwiftUI
 
 @MainActor

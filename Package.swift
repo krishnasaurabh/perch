@@ -3,21 +3,29 @@ import PackageDescription
 
 var products: [Product] = [
     .library(name: "PlannerCore", targets: ["PlannerCore"]),
+    .library(name: "PerchMCP", targets: ["PerchMCP"]),
+    .library(name: "PerchUI", targets: ["PerchUI"]),
     .executable(name: "perch-cli", targets: ["PerchCLI"]),
 ]
 var targets: [Target] = [
-    .target(name: "PlannerCore", path: "Sources/PlannerCore"),
-    .executableTarget(name: "PerchCLI", dependencies: ["PlannerCore"], path: "Sources/PerchCLI"),
-    .testTarget(name: "PlannerCoreTests", dependencies: ["PlannerCore"], path: "Tests/PlannerCoreTests"),
+    // Dependencies flow inward: neither storage nor domain rules know about transport or presentation.
+    .target(name: "PlannerCore"),
+    .target(name: "PerchMCP", dependencies: ["PlannerCore"]),
+    .target(name: "PerchUI", dependencies: ["PlannerCore"]),
+    .executableTarget(name: "PerchCLI", dependencies: ["PlannerCore", "PerchMCP"]),
+    .target(name: "PlannerTestSupport", dependencies: ["PlannerCore"], path: "Tests/PlannerTestSupport"),
+    .testTarget(name: "PlannerCoreTests", dependencies: ["PlannerCore", "PlannerTestSupport"]),
+    .testTarget(name: "PerchMCPTests", dependencies: ["PlannerCore", "PerchMCP", "PlannerTestSupport"]),
+    .testTarget(name: "PerchUITests", dependencies: ["PlannerCore", "PerchUI", "PlannerTestSupport"]),
 ]
 
 #if os(macOS)
+    products.append(.library(name: "PerchApp", targets: ["PerchApp"]))
     products.append(.executable(name: "Perch", targets: ["Perch"]))
     targets.append(
-        .executableTarget(
-            name: "Perch",
-            dependencies: ["PlannerCore"],
-            path: "Sources/Perch",
+        .target(
+            name: "PerchApp",
+            dependencies: ["PlannerCore", "PerchMCP", "PerchUI"],
             linkerSettings: [
                 .linkedFramework("AppKit"), .linkedFramework("SwiftUI"), .linkedFramework("EventKit"),
                 .linkedFramework("Speech"), .linkedFramework("AVFoundation"), .linkedFramework("Carbon"),
@@ -26,6 +34,9 @@ var targets: [Target] = [
             ]
         )
     )
+    targets.append(.executableTarget(name: "Perch", dependencies: ["PerchApp"]))
+    targets.append(
+        .testTarget(name: "PerchAppTests", dependencies: ["PerchApp", "PerchUI", "PlannerCore"]))
 #endif
 
 let package = Package(

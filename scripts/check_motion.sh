@@ -13,14 +13,14 @@ python3 - "$ROOT" <<'PY'
 from pathlib import Path
 import sys
 root = Path(sys.argv[1])
-theme = (root / 'Sources/Perch/Workspace/Theme.swift').read_text()
+theme = (root / 'Sources/PerchApp/Workspace/Theme.swift').read_text()
 owl = theme.split('struct OwlMark: View {', 1)[1].split('struct Triangle:', 1)[0]
 for forbidden in ['@State', '.task', 'withAnimation', 'Task.sleep', 'Timer', 'repeatForever']:
     assert forbidden not in owl, f'Owl regained autonomous motion: {forbidden}'
-notch = (root / 'Sources/Perch/Notch/NotchRootView.swift').read_text()
+notch = (root / 'Sources/PerchApp/Notch/NotchRootView.swift').read_text()
 assert '.transition(motionPolicy.workspaceTransition)' in notch
 assert '.motionBoundary()' in notch
-chart = (root / 'Sources/Perch/Workspace/InsightsPage.swift').read_text()
+chart = (root / 'Sources/PerchApp/Workspace/InsightsPage.swift').read_text()
 assert '.animation(Self.growth(series, index: i, policy: policy)' in chart
 assert 'return policy.animation(Motion.bar.delay' in chart
 print('PASS: root policy wiring, no owl scheduler, chart reduced animation remains nil')
@@ -28,8 +28,8 @@ PY
 cp "$ROOT/Package.swift" "$PROBE/"
 cp -R "$ROOT/Sources" "$PROBE/"
 cp -R "$ROOT/Tests" "$PROBE/"
-cp "$ROOT/scripts/motion_probe.swift" "$PROBE/Sources/Perch/App/main.swift"
-swift build --package-path "$PROBE" -c release --product Perch
+cp "$ROOT/scripts/motion_probe.swift" "$PROBE/Sources/Perch/main.swift"
+swift build -Xswiftc -enable-testing --package-path "$PROBE" -c release --product Perch
 python3 - "$PROBE/.build/release/Perch" "$OUT" <<'PY'
 import json, os, pathlib, subprocess, sys
 binary, output = sys.argv[1:]

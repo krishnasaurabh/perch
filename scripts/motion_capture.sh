@@ -3,7 +3,7 @@
 #
 # Records real on-screen Perch motion for five transitions (open, close, page, tick, timer) on macOS:
 #   1. `screencapture -V` records the whole screen while `Perch --motion-script` drives the transitions
-#      through the app's own entry points (Sources/Perch/App/MotionScript.swift).
+#      through the app's own entry points (Sources/PerchApp/App/MotionScript.swift).
 #   2. If the screen can't be recorded, it tries ffmpeg avfoundation, and always runs a second, separately
 #      labelled pass of in-process own-window renders every 16 ms (`--motion-snapshots`), never mixed with (1).
 #   3. Per clip: clip.mp4, frames/*.png, sheet.png (contact sheet), frames.json (timestamps + frame diffs).

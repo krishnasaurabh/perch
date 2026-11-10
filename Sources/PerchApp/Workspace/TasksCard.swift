@@ -1,0 +1,597 @@
+import PlannerCore
+import PerchUI
+import SwiftUI
+
+/// Today's tasks with a quick-add composer (typing or voice), swipe to delete, drag to reorder. Sage card.
+struct TasksCard: View {
+    @EnvironmentObject var store: PlannerStore
+    @EnvironmentObject var model: NotchModel
+    @State private var tab: Tab = .active
+    typealias Tab = TodayTab
+
+    var body: some View {
+        let all = store.engine.tasks(on: .day(store.today))
+        let open = all.filter { !$0.done }, finished = all.filter(\.done)
+        let selection = Binding(
+            get: { TodayTabs.resolved(tab, completedCount: finished.count) },
+            set: { tab = $0 })
+        let shown = selection.wrappedValue == .active ? open : finished
+        let pills = TodayTabs.visible(completedCount: finished.count).map {
+            ($0, $0 == .active ? "To do \(open.count)" : "Completed \(finished.count)")
+        }
+        VStack(alignment: .leading, spacing: 10) {
+            // Keep the first-use action visible without squeezing titles or tabs at narrow widths.
+            ViewThatFits(in: .horizontal) {
+                CardHeading(
+                    "Today's tasks",
+                    trailing: AnyView(
+                        HStack(spacing: 8) {
+                            startFocus
+                            SegmentPills(items: pills, selection: selection)
+                        }.fixedSize())
+                )
+                .fixedSize(horizontal: true, vertical: false)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                VStack(alignment: .leading, spacing: 4) {
+                    CardHeading("Today's tasks", trailing: AnyView(startFocus))
+                    SegmentPills(items: pills, selection: selection)
+                }
+            }
+            GeometryReader { viewport in
+                ScrollView {
+                    // A plain VStack lets a ticked row fade out. The viewport, not the
+                    // task count, owns the height; capture remains outside this scroller.
+                    VStack(spacing: 0) {
+                        ForEach(shown) { t in
+                            TaskRow(task: t)
+                                .onDrag { NSItemProvider(object: t.id.uuidString as NSString) }
+                                .onDrop(of: [.plainText], isTargeted: nil) { items in
+                                    reorder(items, before: t.id); return true
+                                }
+                                .transition(.opacity)
+                            if t.id != shown.last?.id { RowDivider() }
+                        }
+                        if shown.isEmpty { empty(all: all, selected: selection.wrappedValue) }
+                    }
+                    .frame(maxWidth: .infinity)
+                    .frame(minHeight: shown.isEmpty ? viewport.size.height : 0, alignment: .bottom)
+                    .motion(Motion.row, value: shown.map(\.id))
+                    .background(TasksContinuationObserver())
+                }
+                .scrollIndicators(.never)
+            }
+            .frame(minHeight: 0)
+            TaskComposer(day: .day(store.today), placeholder: "What would you like to do?")
+                .fixedSize(horizontal: false, vertical: true)
+                .layoutPriority(1)
+        }
+        .card(.tasks)
+        .onChange(of: finished.count, initial: true) { _, count in
+            tab = TodayTabs.resolved(tab, completedCount: count)
+        }
+        .showsDays([store.today])
+    }
+
+    @ViewBuilder private var startFocus: some View {
+        if store.planner.focus.map({ $0.state == .running || $0.state == .paused }) != true {
+            Button {
+                // Recheck at activation so a stale accessibility press cannot replace a live session.
+                guard store.planner.focus.map({ $0.state == .running || $0.state == .paused }) != true else { return }
+                store.apply { try $0.startTimer(task: nil, minutes: nil) }
+            } label: {
+                Label("Start focus", systemImage: "play.fill")
+                    .font(.system(size: 11, weight: .semibold))
+                    .fixedSize()
+            }
+            .buttonStyle(PillStyle())
+            .accessibilityLabel("Start focus")
+            .accessibilityHint("Starts a focus session using your default duration")
+            .accessibilityIdentifier("today-start-focus")
+        }
+    }
+
+    /// Task rows are separated by a dotted rule.
+    private struct RowDivider: View {
+        var body: some View {
+            Line().stroke(Theme.tertiary.opacity(0.45), style: StrokeStyle(lineWidth: 1, dash: [1.5, 3]))
+                .frame(height: 1).padding(.horizontal, 7)
+        }
+        private struct Line: Shape {
+            func path(in r: CGRect) -> Path {
+                Path { p in
+                    p.move(to: CGPoint(x: r.minX, y: r.midY)); p.addLine(to: CGPoint(x: r.maxX, y: r.midY))
+                }
+            }
+        }
+    }
+
+    @ViewBuilder func empty(all: [PlanTask], selected: Tab) -> some View {
+        if selected == .active {
+            EmptyStateView(
+                all.isEmpty ? "Start with one task." : "All clear for today.",
+                symbol: all.isEmpty ? "square.and.pencil" : "checkmark.circle")
+        } else {
+            EmptyStateView("Your finished tasks will land here.", symbol: "checkmark.circle")
+        }
+    }
+
+    func reorder(_ items: [NSItemProvider], before target: UUID) {
+        items.first?.loadObject(ofClass: NSString.self) { s, _ in
+            guard let s = s as? String, let id = UUID(uuidString: s), id != target else { return }
+            Task { @MainActor in store.apply { $0.reorder(id, before: target) } }
+        }
+    }
+}
+
+/// Observe the native viewport without changing the SwiftUI list's size or scroll insets.
+/// The existing AppKit fade draws over hosted rows and never intercepts their clicks.
+private struct TasksContinuationObserver: NSViewRepresentable {
+    func makeNSView(context: Context) -> Marker { Marker() }
+    func updateNSView(_ view: Marker, context: Context) { view.attach() }
+
+    final class Marker: NSView {
+        private weak var scroll: NSScrollView?
+        private let fade = OverflowFadeView(frame: .zero)
+
+        override init(frame: NSRect) {
+            super.init(frame: frame)
+            fade.identifier = NSUserInterfaceItemIdentifier("today-continuation-fade")
+            fade.color = NSColor(CardTone.tasks.fill)
+            fade.isHidden = true
+        }
+        required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+        override func hitTest(_ point: NSPoint) -> NSView? { nil }
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            DispatchQueue.main.async { [weak self] in self?.attach() }
+        }
+        override func layout() { super.layout(); attach() }
+        deinit { NotificationCenter.default.removeObserver(self) }
+
+        func attach() {
+            guard let enclosing = enclosingScrollView else { return }
+            if scroll !== enclosing {
+                NotificationCenter.default.removeObserver(self)
+                fade.removeFromSuperview()
+                scroll = enclosing
+                enclosing.addSubview(fade, positioned: .above, relativeTo: nil)
+                let clip = enclosing.contentView
+                clip.postsBoundsChangedNotifications = true
+                clip.postsFrameChangedNotifications = true
+                enclosing.documentView?.postsFrameChangedNotifications = true
+                for (name, view) in [
+                    (NSView.boundsDidChangeNotification, clip),
+                    (NSView.frameDidChangeNotification, clip),
+                    (NSView.frameDidChangeNotification, enclosing.documentView),
+                ] {
+                    if let view {
+                        NotificationCenter.default.addObserver(
+                            self, selector: #selector(refresh), name: name, object: view)
+                    }
+                }
+            }
+            refresh()
+        }
+
+        @objc private func refresh() {
+            guard let scroll, let document = scroll.documentView else { return }
+            let clip = scroll.contentView
+            let viewport = scroll.convert(clip.bounds, from: clip)
+            let height = min(CGFloat(20), viewport.height)
+            fade.frame = NSRect(
+                x: viewport.minX, y: scroll.isFlipped ? viewport.maxY - height : viewport.minY,
+                width: viewport.width, height: height)
+            let visible = document.convert(clip.bounds, from: clip)
+            let offset = document.isFlipped ? visible.minY - document.bounds.minY : document.bounds.maxY - visible.maxY
+            fade.isHidden = !EdgeFade.showsBottomFade(
+                contentHeight: Double(document.bounds.height),
+                visibleOffset: Double(offset), visibleHeight: Double(visible.height))
+        }
+    }
+}
+
+struct TaskRow: View {
+    let task: PlanTask
+    var compact = false
+    @EnvironmentObject var store: PlannerStore
+    @EnvironmentObject var model: NotchModel
+    @State private var hover = false
+    @State private var editing = false
+    @State private var draft = ""
+    @State private var offset: CGFloat = 0
+    /// Set the instant the circle is clicked, so the tick shows before the row leaves.
+    @State private var ticked = false
+
+    var body: some View {
+        ZStack(alignment: .trailing) {
+            // Swipe left to delete.
+            if offset < -4 {
+                Image(systemName: "trash.fill").foregroundStyle(.white).padding(.trailing, 12)
+                    .frame(maxHeight: .infinity).frame(width: -offset).background(Theme.danger).clipShape(
+                        RoundedRectangle(cornerRadius: 9))
+            }
+            row
+                .offset(x: offset)
+                .gesture(
+                    DragGesture(minimumDistance: 18).onChanged { v in
+                        if abs(v.translation.width) > abs(v.translation.height) { offset = min(0, v.translation.width) }
+                    }.onEnded { v in
+                        if v.translation.width < -110 { delete() }
+                        Motion.animate(Motion.row) { offset = 0 }
+                    })
+        }
+    }
+
+    private var row: some View {
+        HStack(spacing: 9) {
+            Button {
+                toggle()
+            } label: {
+                let on = task.done || ticked
+                ZStack {
+                    Circle().strokeBorder(
+                        on ? Theme.text : (task.priority == .high ? Theme.priority(.high) : Theme.secondary),
+                        lineWidth: 1.5)
+                    Circle().fill(Theme.text).padding(2.5).scaleEffect(on ? 1 : 0.2).opacity(on ? 1 : 0)
+                    Image(systemName: "checkmark").font(.system(size: 8, weight: .heavy)).foregroundStyle(Theme.sage)
+                        .opacity(on ? 1 : 0)
+                }
+                .frame(width: 17, height: 17)
+                .motion(Motion.tick, value: on)
+                .contentShape(Circle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(task.done ? "Uncheck task" : "Check off task")
+
+            VStack(alignment: .leading, spacing: 2) {
+                if editing {
+                    TextField("Title", text: $draft, onCommit: commitRename)
+                        .textFieldStyle(.plain).font(.system(size: 12.5))
+                        .onExitCommand { editing = false }
+                } else {
+                    Text(task.title).font(Theme.title)
+                        .foregroundStyle(task.done ? Theme.tertiary : Theme.text)
+                        .lineLimit(compact ? 1 : 2)
+                        .onTapGesture(count: 2) {
+                            draft = task.title; editing = true
+                        }
+                }
+                if !compact { meta }
+            }
+            Spacer(minLength: 4)
+            if hover && !task.done && task.day == store.today {
+                GlassButton(symbol: "play.fill", help: "Focus on this", tint: Theme.accent, size: 22) {
+                    store.apply { try $0.startTimer(task: task.id.uuidString, minutes: nil) }
+                }
+            }
+            if hover {
+                GlassButton(symbol: "ellipsis", help: "Details", size: 22) { model.detailsTaskID = task.id }
+            }
+        }
+        .padding(.horizontal, 7).padding(.vertical, 8)
+        .background(RoundedRectangle(cornerRadius: Theme.controlRadius).fill(hover ? Theme.fill : .clear))
+        .contentShape(Rectangle())
+        .onHover { hover = $0 }
+        .contextMenu { menu }
+    }
+
+    @ViewBuilder private var meta: some View {
+        let bits = metaBits
+        if !bits.isEmpty {
+            HStack(spacing: 10) {
+                ForEach(bits.indices, id: \.self) { i in
+                    bit(bits[i])
+                }
+            }
+        }
+    }
+
+    @ViewBuilder private func bit(_ b: Bit) -> some View {
+        let label = HStack(spacing: 3) {
+            if let s = b.symbol { Image(systemName: s).font(.system(size: 9, weight: .semibold)) }
+            Text(b.text).font(
+                .system(size: b.chip ? 9.5 : 10.5, weight: b.strong ? .bold : b.chip ? .semibold : .medium)
+            ).lineLimit(1)
+        }
+        .foregroundStyle(b.color)
+        .padding(.horizontal, b.chip ? 5 : 0)
+        .padding(.vertical, b.chip ? 1.5 : 0)
+        .background(Capsule().fill(b.chip ? Theme.fill : .clear))
+        .overlay(Capsule().strokeBorder(Theme.secondary.opacity(b.chip ? 0.25 : 0), lineWidth: 1))
+        if let tip = b.tip { label.help(tip) } else { label }
+    }
+
+    private struct Bit {
+        let symbol: String?; let text: String; let color: Color; var strong = false; var chip = false;
+        var tip: String? = nil
+    }
+
+    private var metaBits: [Bit] {
+        var out: [Bit] = []
+        if task.priority == .high {
+            out.append(Bit(symbol: "flag.fill", text: "High", color: Theme.secondary, strong: true))
+        }
+        if let r = task.remindAt {
+            let overdue = r < Date() && !task.done
+            out.append(
+                Bit(
+                    symbol: "bell", text: r.formatted(date: .omitted, time: .shortened),
+                    color: overdue ? Theme.danger : Theme.secondary))
+        }
+        if let p = store.engine.project(id: task.projectID) {
+            out.append(Bit(symbol: "number", text: p.name, color: Theme.secondary))
+        }
+        if let d = task.deadline {
+            let late = d < store.today
+            out.append(Bit(symbol: "flag", text: "due " + shortDay(d), color: late ? Theme.danger : Theme.secondary))
+        }
+        if let rule = task.repeatRule {
+            out.append(
+                Bit(
+                    symbol: "repeat", text: rule.description.replacingOccurrences(of: "every ", with: ""),
+                    color: Theme.secondary))
+        }
+        if let m = task.minutes { out.append(Bit(symbol: "timer", text: "\(m)m", color: Theme.secondary)) }
+        if !task.steps.isEmpty {
+            out.append(
+                Bit(
+                    symbol: "list.bullet", text: "\(task.steps.filter(\.done).count)/\(task.steps.count)",
+                    color: Theme.secondary))
+        }
+        if let c = task.carriedFrom {
+            out.append(Bit(symbol: "arrow.uturn.right", text: "from " + shortDay(c), color: Theme.tertiary))
+        }
+        if let agent = task.agentID, let name = AgentName.short(agent) {
+            out.append(
+                Bit(
+                    symbol: "sparkles", text: "via " + name, color: Theme.secondary, chip: true,
+                    tip: "Added through MCP by \(agent)"))
+        }
+        return out
+    }
+
+    func shortDay(_ d: DayKey) -> String { d.date().formatted(.dateTime.month(.abbreviated).day()) }
+
+    @ViewBuilder private var menu: some View {
+        if !task.done {
+            Button("Start focusing") { store.apply { try $0.startTimer(task: task.id.uuidString, minutes: nil) } }
+            Button("Set Time Limit…") { model.detailsTaskID = task.id }
+            Divider()
+            Button("Move to Tomorrow") { move(.day(store.today.adding(days: 1))) }
+            Button("Move to Inbox") { move(.inbox) }
+            if task.day != store.today { Button("Move to Today") { move(.day(store.today)) } }
+            Divider()
+            Menu("Priority") {
+                ForEach(TaskPriority.allCases.reversed(), id: \.self) { p in
+                    Button(p == .none ? "None" : p.rawValue.capitalized) {
+                        store.updateTask(task.id) { $0.priority = p }
+                    }
+                }
+            }
+        }
+        Button("Rename") {
+            draft = task.title; editing = true
+        }
+        Button("Details…") { model.detailsTaskID = task.id }
+        if task.repeatRule != nil {
+            Button("Stop Repeating") { store.apply { try $0.endRepeat(of: task.id) } }
+        }
+        Divider()
+        Button("Delete", role: .destructive) { delete() }
+    }
+
+    /// Tick: the circle fills at once, then the row fades in place while the rows below slide up (`Motion.row`).
+    func toggle() {
+        if task.done { Motion.animate(Motion.row) { _ = store.apply { try $0.reopen(task.id.uuidString) } }; return }
+        ticked = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + (Motion.reduceMotion ? 0 : 0.14)) {
+            Motion.animate(Motion.row) {
+                if task.day == store.today {
+                    store.apply { try $0.complete(task.id.uuidString) }
+                } else {
+                    store.updateTask(task.id) {
+                        $0.done = true; $0.completedAt = Date()
+                    }
+                }
+            }
+            ticked = false
+        }
+    }
+
+    func move(_ to: DayRef) {
+        store.apply { try $0.move(task.id.uuidString, from: task.day.map { .day($0) } ?? .inbox, to: to) }
+    }
+
+    func delete() { store.apply { try $0.delete(task.id.uuidString, on: task.day.map { .day($0) } ?? .inbox) } }
+
+    func commitRename() {
+        editing = false
+        guard draft != task.title else { return }
+        store.apply { try $0.rename(task.id.uuidString, on: task.day.map { .day($0) } ?? .inbox, to: draft) }
+    }
+}
+
+/// Turns an MCP `clientInfo.name` (what `PlanTask.agentID` stores) into a short
+/// label for the provenance chip. Unknown clients fall back to their first word.
+enum AgentName {
+    static func short(_ raw: String) -> String? {
+        let name = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty else { return nil }
+        let lower = name.lowercased()
+        // Ordered: "claude-code" must read as Claude, not Code.
+        let known: [(needle: String, label: String)] = [
+            ("claude", "Claude"), ("cursor", "Cursor"), ("codex", "Codex"),
+            ("opencode", "OpenCode"), ("windsurf", "Windsurf"),
+            ("copilot", "Copilot"), ("chatgpt", "ChatGPT"),
+        ]
+        if let hit = known.first(where: { lower.contains($0.needle) }) { return hit.label }
+        let parts = name.split(whereSeparator: { $0 == "-" || $0 == "_" || $0 == " " || $0 == "." })
+        // Short needles only match a whole token ("zed-agent", not "personalized").
+        if parts.contains(where: { $0.lowercased() == "zed" }) { return "Zed" }
+        let word = parts.first.map(String.init) ?? name
+        return word.count > 14 ? String(word.prefix(13)) + "…" : word.prefix(1).uppercased() + word.dropFirst()
+    }
+}
+
+/// Text field + mic. Enter adds; multi-line paste adds one task per line.
+struct TaskComposer: View {
+    let day: DayRef
+    var placeholder = "Add a task"
+    @EnvironmentObject var store: PlannerStore
+    @EnvironmentObject var services: Services
+    @EnvironmentObject var model: NotchModel
+    @State private var text = ""
+    @FocusState private var focused: Bool
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "plus").font(.system(size: 11, weight: .bold)).foregroundStyle(Theme.secondary)
+            // Prompt drawn by Perch. AppKit draws a TextField's own placeholder in the system placeholder
+            // colour (≈ 2.4:1 resting, 1.6:1 focused on the input fill) and ignores `prompt:` foreground styles on
+            // macOS. `Theme.text` is the only ink token that clears 4.5:1 on both the 8 % and 12 % fill.
+            TextField("", text: $text, axis: .vertical)
+                .textFieldStyle(.plain).font(Theme.body)
+                .lineLimit(1...4)
+                .truncationMode(.tail)
+                .background(alignment: .leading) {
+                    if text.isEmpty {
+                        Text(placeholder).font(Theme.body).foregroundStyle(Theme.text).lineLimit(1)
+                            .allowsHitTesting(false).accessibilityHidden(true)
+                    }
+                }
+                .focused($focused)
+                .accessibilityLabel("Add a task")
+                .accessibilityHint(placeholder)
+                .accessibilityIdentifier("task-capture")
+                .onSubmit(add)
+            if !text.isEmpty, let preview = preview {
+                Text(preview).font(.system(size: 10, weight: .medium)).foregroundStyle(Theme.accent).lineLimit(1)
+            }
+            VoiceButton { spoken in
+                store.apply { try $0.addTasks([spoken], on: day) }
+            }
+        }
+        .padding(.horizontal, 10).padding(.vertical, 8)
+        .background(
+            RoundedRectangle(cornerRadius: 10, style: .continuous).fill(
+                focused ? Theme.inputFillFocused : Theme.inputFill)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .strokeBorder(Theme.inputStroke, lineWidth: focused ? 2 : 1)
+        )
+        .task(id: model.captureFocusRequest) {
+            // Explicit openings focus capture; hover and drag previews must not steal typing.
+            focused = false
+            await Task.yield()
+            guard !Task.isCancelled else { return }
+            focused = model.captureFocusRequest != nil && model.expanded && model.page == .home
+        }
+    }
+
+    /// Live hint of what the parser read: "Tomorrow 5:00 PM · High".
+    var preview: String? {
+        let c = store.capture.parse(text)
+        var bits: [String] = []
+        if c.inbox { bits.append("Inbox") }
+        if let d = c.day, d != store.today {
+            bits.append(d.date().formatted(.dateTime.weekday(.abbreviated).month(.abbreviated).day()))
+        }
+        if let r = c.remindAt { bits.append(r.formatted(date: .omitted, time: .shortened)) }
+        if c.priority != .none { bits.append(c.priority.rawValue.capitalized) }
+        if let p = c.projectName { bits.append("#" + p) }
+        if let r = c.repeatRule { bits.append(r.description) }
+        if let m = c.minutes { bits.append("\(m)m") }
+        return bits.isEmpty ? nil : bits.joined(separator: " · ")
+    }
+
+    func add() {
+        let t = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !t.isEmpty else { return }
+        // Insert is opacity only into reserved space; other rows stay put.
+        if let added = Motion.animate(Motion.row, { store.apply({ try $0.addTasks([t], on: day) }) }) {
+            text = ""
+            AISorter.sort(added.map(\.id), store: store)
+        }
+        focused = true
+    }
+}
+
+struct VoiceButton: View {
+    let onText: (String) -> Void
+    @EnvironmentObject var services: Services
+    var body: some View { VoiceButtonBody(voice: services.voice, onText: onText) }
+}
+
+private struct VoiceButtonBody: View {
+    @ObservedObject var voice: VoiceCapture
+    let onText: (String) -> Void
+
+    var body: some View {
+        let listening = voice.state == .listening
+        Button {
+            voice.toggle(onFinish: onText)
+        } label: {
+            ZStack {
+                // A static listening state: no perpetual pulse.
+                if listening { Circle().fill(Theme.fillStrong).frame(width: 24, height: 24) }
+                Image(systemName: listening ? "waveform" : "mic.fill")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(listening ? Theme.accent : Theme.secondary)
+            }
+            .frame(width: 22, height: 22)
+        }
+        .buttonStyle(.plain)
+        .help("Say a task. Speech is recognized on this Mac.")
+        .popover(
+            isPresented: Binding(
+                get: {
+                    if case .error = voice.state { return true }; return false
+                },
+                set: { if !$0 { voice.state = .idle } })
+        ) {
+            if case .error(let m) = voice.state { Text(m).font(.system(size: 12)).padding(12).frame(width: 260) }
+        }
+    }
+}
+
+// MARK: Lazy repeats
+
+extension View {
+    /// Marks these days as on screen, so their copies of repeating tasks exist (lazy repeats).
+    func showsDays(_ days: [DayKey]) -> some View { modifier(ShowsDays(days: days)) }
+}
+
+private struct ShowsDays: ViewModifier {
+    let days: [DayKey]
+    @EnvironmentObject var store: PlannerStore
+
+    func body(content: Content) -> some View {
+        content
+            .onAppear { store.materializeRepeats(on: days) }
+            .onChange(of: days) { _, new in store.materializeRepeats(on: new) }
+        // Materialize at view/day boundaries, never as feedback to Undo or Redo.
+    }
+}
+
+extension PlannerStore {
+    /// Creates the scheduled copies of repeating tasks for days being shown. Past days stay a record.
+    /// Not an undo step and leaves `lastError` alone: this is the view catching up, not a user edit,
+    /// so ⌘Z still undoes the user's last change and an earlier error banner stays up.
+    func materializeRepeats(on days: [DayKey]) {
+        let open = days.filter { $0 >= today }
+        // Dry run on a copy first, so ordinary redraws never take the file lock or write.
+        var probe = engine
+        guard open.contains(where: { !probe.applyRepeats(on: $0).isEmpty }) else { return }
+        do {
+            try file.mutate { p in
+                var e = PlannerEngine(planner: p)
+                for d in open { e.applyRepeats(on: d) }
+                p = e.planner
+            }
+            reloadFromDisk(external: false)
+        } catch {
+            lastError = (error as? PlannerError)?.message ?? error.localizedDescription
+        }
+    }
+}

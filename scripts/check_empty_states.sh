@@ -12,8 +12,8 @@ trap 'rm -rf "$PROBE"' EXIT
 cp "$ROOT/Package.swift" "$PROBE/"
 cp -R "$ROOT/Sources" "$PROBE/"
 cp -R "$ROOT/Tests" "$PROBE/"
-cp "$ROOT/scripts/empty_states_probe.swift" "$PROBE/Sources/Perch/App/main.swift"
-swift build --package-path "$PROBE" -c release --product Perch
+cp "$ROOT/scripts/empty_states_probe.swift" "$PROBE/Sources/Perch/main.swift"
+swift build -Xswiftc -enable-testing --package-path "$PROBE" -c release --product Perch
 # The small watchdog makes a missing run loop / focus callback a failure rather than a stuck CI job.
 python3 - "$PROBE/.build/release/Perch" "$OUT" <<'PY'
 import json, os, pathlib, subprocess, sys

@@ -134,7 +134,8 @@ public final class PlannerFile: @unchecked Sendable {
         return e
     }
 
-    static var decoder: JSONDecoder {
+    /// The shared persisted-date decoder, also used by external adapters.
+    public static var decoder: JSONDecoder {
         let d = JSONDecoder()
         d.dateDecodingStrategy = .custom { decoder in
             let c = try decoder.singleValueContainer()

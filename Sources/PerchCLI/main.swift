@@ -1,5 +1,6 @@
 import Foundation
 import PlannerCore
+import PerchMCP
 
 // perch-cli: the MCP server and a scriptable CLI, built from the same PlannerCore as the app.
 //   perch-cli --mcp                       stdio MCP server

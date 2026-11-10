@@ -1,28 +1,6 @@
+import PlannerTestSupport
 import XCTest
 @testable import PlannerCore
-
-/// Fixed clock: Monday 2026-11-09 15:00 in Los Angeles.
-enum Fixture {
-    static var calendar: Calendar = {
-        var c = Calendar(identifier: .gregorian)
-        c.timeZone = TimeZone(identifier: "America/Los_Angeles")!
-        return c
-    }()
-    static func date(_ s: String) -> Date {
-        let f = DateFormatter()
-        f.calendar = calendar; f.timeZone = calendar.timeZone; f.locale = Locale(identifier: "en_US_POSIX")
-        f.dateFormat = "yyyy-MM-dd HH:mm"
-        return f.date(from: s)!
-    }
-    static let now = date("2026-11-09 15:00")
-    static var capture: TaskCapture { TaskCapture(now: now, calendar: calendar) }
-    static func hm(_ d: Date?) -> String? {
-        guard let d else { return nil }
-        let f = DateFormatter(); f.calendar = calendar; f.timeZone = calendar.timeZone;
-        f.dateFormat = "yyyy-MM-dd HH:mm"
-        return f.string(from: d)
-    }
-}
 
 final class TaskCaptureTests: XCTestCase {
     let cap = Fixture.capture

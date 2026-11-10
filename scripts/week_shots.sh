@@ -44,7 +44,7 @@ PROBE=$(mktemp -d "$OUT/build.XXXXXX")
 trap 'rm -rf "$PROBE"' EXIT
 cp "$ROOT/Package.swift" "$PROBE/"
 cp -R "$ROOT/Sources" "$ROOT/Tests" "$PROBE/"
-python3 - "$PROBE/Sources/Perch/Workspace/WeekAndClips.swift" <<'PY'
+python3 - "$PROBE/Sources/PerchApp/Workspace/WeekAndClips.swift" <<'PY'
 from pathlib import Path
 import sys
 p = Path(sys.argv[1]); week, clips = p.read_text().split('/// Clips:', 1)
@@ -63,10 +63,15 @@ assert 'title(size: WeekColumnLayout.titleSize)' in week
 assert '.lineLimit(2).truncationMode(.tail)' in week
 assert 'minimumScaleFactor' not in week and 'titleFit(' not in week
 PY
-cat > "$PROBE/Sources/Perch/App/main.swift" <<'SWIFT'
+cat > "$PROBE/Sources/Perch/main.swift" <<'SWIFT'
 import AppKit
 import SwiftUI
 import PlannerCore
+#if canImport(PerchApp)
+@testable import PerchApp
+import PerchUI
+import PerchMCP
+#endif
 import Vision
 
 func require(_ condition: Bool, _ message: String = "Week assertion failed") {
@@ -216,5 +221,5 @@ MainActor.assumeIsolated {
     withExtendedLifetime((window, store, model)) { app.run() }
 }
 SWIFT
-swift build --package-path "$PROBE" -c release --product Perch
+swift build -Xswiftc -enable-testing --package-path "$PROBE" -c release --product Perch
 PERCH_DATA="$DATA" WEEK_OUTPUT="$OUT" "$PROBE/.build/release/Perch"

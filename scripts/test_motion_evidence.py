@@ -19,7 +19,7 @@ class EvidenceRulesTests(unittest.TestCase):
 
     def test_workspace_removal_keeps_explicit_layer(self):
         from pathlib import Path
-        source = (Path(__file__).resolve().parents[1] / 'Sources/Perch/Notch/NotchRootView.swift').read_text()
+        source = (Path(__file__).resolve().parents[1] / 'Sources/PerchApp/Notch/NotchRootView.swift').read_text()
         workspace = source.split('WorkspaceView(notchHeight: g.notchSize.height)', 1)[1].split('.transition(motionPolicy.workspaceTransition)', 1)[0]
         self.assertIn('.zIndex(1)', workspace)
 
