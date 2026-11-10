@@ -55,6 +55,127 @@ final class MCPEdgeTests: XCTestCase {
 
     private func storedPlanner() throws -> Planner { try PlannerFile(url: url).load() }
 
+    // MARK: Numeric safety and read-only storage
+
+    func testIntegerDecodingRejectsNonFiniteFractionalAndOverflowValues() {
+        let invalid: [Double] = [.nan, .infinity, -.infinity, 1e19, -1e19,
+                                 Double(Int.max), Double(Int.min).nextDown, 0.5]
+        for value in invalid { XCTAssertNil(JSON.number(value).int, "\(value)") }
+        XCTAssertEqual(JSON.number(Double(Int.min)).int, Int.min)
+        XCTAssertEqual(JSON.number(Double(Int.max).nextDown).int, Int(exactly: Double(Int.max).nextDown))
+        XCTAssertEqual(JSON.number(720).int, 720)
+        XCTAssertEqual(JSON.string("720").int, 720)
+        XCTAssertNil(JSON.string("999999999999999999999999").int)
+        XCTAssertNil(JSON.bool(true).int)
+    }
+
+    func testInvalidMinutesAreToolErrorsAndDoNotMutate() throws {
+        _ = call("add_tasks", ["titles": ["numeric probe"]])
+        let before = try Data(contentsOf: url)
+        let modified = try FileManager.default.attributesOfItem(atPath: url.path)[.modificationDate] as? Date
+        var notifications = 0
+        server.onChange = { notifications += 1 }
+        let invalid: [JSON] = [.number(.nan), .number(.infinity), .number(-.infinity),
+                               .number(1e19), .number(-1e19), .number(Double(Int.max)),
+                               .number(Double(Int.min)), .number(1.5), -1,
+                               "NaN", "Infinity", "1e19", "1.5", .null, true, [], [:]]
+        for name in ["start_timer", "snooze_reminder", "update_task"] {
+            let maximum = name == "snooze_reminder" ? 1440 : 720
+            for value in invalid + [.number(Double(maximum + 1))] {
+                let reply = response(callMessage(name, arguments: ["task": "numeric probe", "minutes": value, "notes": "must not persist"]))
+                XCTAssertNil(reply?["error"], name)
+                XCTAssertEqual(reply?["result"]?["isError"]?.bool, true, "\(name): \(value)")
+                XCTAssertEqual(reply?["result"]?["content"]?.array?.first?["type"]?.string, "text")
+                XCTAssertTrue(reply?["result"]?["content"]?.array?.first?["text"]?.string?.contains("Invalid argument 'minutes'") ?? false)
+                XCTAssertEqual(try Data(contentsOf: url), before, name)
+                XCTAssertEqual(try FileManager.default.attributesOfItem(atPath: url.path)[.modificationDate] as? Date, modified)
+                XCTAssertEqual(response(["id": 2, "method": "ping"])?["result"], [:])
+            }
+        }
+        XCTAssertEqual(notifications, 0)
+    }
+
+    func testNumericTaskReferencesRejectOverflowWithoutTrapping() {
+        for name in ["get_task", "complete_task", "reopen_task", "rename_task", "delete_task", "move_task", "update_task", "snooze_reminder"] {
+            let reply = response(callMessage(name, arguments: ["task": .number(1e19), "title": "replacement", "to": "inbox", "minutes": 5]))
+            XCTAssertNil(reply?["error"], name)
+            XCTAssertEqual(reply?["result"]?["isError"]?.bool, true, name)
+            XCTAssertTrue(reply?["result"]?["content"]?.array?.first?["text"]?.string?.contains("Identify the task") ?? false, name)
+        }
+    }
+
+    func testInvalidMinutesInBatchPreserveFollowingValidRequest() throws {
+        let batch = #"[{"id":1,"method":"tools/call","params":{"name":"start_timer","arguments":{"minutes":1e19}}},{"id":2,"method":"tools/call","params":{"name":"start_timer","arguments":{"minutes":5}}},{"method":"notifications/initialized"},{"id":3,"method":"ping"}]"#
+        let out = runLines([batch, #"{"id":4,"method":"ping"}"#])
+        XCTAssertEqual(out.count, 2)
+        let replies = try XCTUnwrap(JSON.parse(Data(out[0].utf8)).array)
+        XCTAssertEqual(replies.map { $0["id"]?.int }, [1, 2, 3])
+        XCTAssertEqual(replies[0]["result"]?["isError"]?.bool, true)
+        XCTAssertEqual(replies[1]["result"]?["isError"]?.bool, false)
+        XCTAssertEqual(replies[2]["result"], [:])
+        XCTAssertEqual(try JSON.parse(Data(out[1].utf8))["id"]?.int, 4)
+        XCTAssertEqual(try storedPlanner().focus?.limit, 300)
+    }
+
+    func testDeclaredReadOnlyToolsLeaveDirectoryUnchanged() throws {
+        let names = Set(AgentTools.definitions.filter { $0["annotations"]?["readOnlyHint"]?.bool == true }.compactMap { $0["name"]?.string })
+        XCTAssertEqual(names, ["get_task", "read_notepad", "get_insights", "list_projects"])
+        func snapshot() throws -> [String: Data] {
+            var result: [String: Data] = [:]
+            func walk(_ base: URL, _ prefix: String) throws {
+                let entries = try FileManager.default.contentsOfDirectory(
+                    at: base, includingPropertiesForKeys: [.isDirectoryKey])
+                for file in entries {
+                    let key = prefix + file.lastPathComponent
+                    if try file.resourceValues(forKeys: [.isDirectoryKey]).isDirectory == true {
+                        result[key] = Data("<directory>".utf8)
+                        try walk(file, key + "/")
+                        continue
+                    }
+                    result[key] = try Data(contentsOf: file)
+                    let modified = try FileManager.default.attributesOfItem(atPath: file.path)[.modificationDate] as! Date
+                    result[key + ".mtime"] = Data(String(modified.timeIntervalSince1970).utf8)
+                }
+            }
+            try walk(dir, "")
+            return result
+        }
+        // Missing storage, valid repeat data, and corrupt storage all remain untouched.
+        for state in ["missing", "valid", "corrupt"] {
+            if state == "valid" {
+                _ = call("add_tasks", ["titles": ["readonly probe every day"]])
+                _ = call("write_notepad", ["text": "synthetic note"])
+                try FileManager.default.removeItem(at: url.appendingPathExtension("lock"))
+            } else if state == "corrupt" {
+                try Data("{invalid".utf8).write(to: url)
+            }
+            let before = try snapshot()
+            for name in names {
+                let (text, error) = call(name, ["task": "readonly probe"])
+                XCTAssertEqual(error, state == "corrupt" || (state == "missing" && name == "get_task"), "\(name): \(text)")
+                XCTAssertEqual(try snapshot(), before, "\(name) changed \(state) storage")
+            }
+        }
+    }
+
+    func testListTasksAnnotationMatchesRepeatMaterialization() throws {
+        let definition = AgentTools.definitions.first { $0["name"]?.string == "list_tasks" }
+        XCTAssertEqual(definition?["annotations"]?["readOnlyHint"]?.bool, false)
+        _ = call("add_tasks", ["titles": ["repeat probe every day"]])
+        let before = try Data(contentsOf: url)
+        var notifications = 0
+        server.onChange = { notifications += 1 }
+        let (text, error) = call("list_tasks", ["date": "tomorrow"])
+        XCTAssertFalse(error, text)
+        XCTAssertTrue(text.contains("Repeat probe"))
+        XCTAssertNotEqual(try Data(contentsOf: url), before)
+        XCTAssertEqual(try storedPlanner().tasks.count, 2)
+        XCTAssertEqual(notifications, 1)
+        let materialized = try Data(contentsOf: url)
+        _ = call("list_tasks", ["date": "tomorrow"])
+        XCTAssertEqual(try Data(contentsOf: url), materialized, "repeat ids remain stable")
+    }
+
     // MARK: Protocol
 
     func testInitializeNegotiatesEverySupportedVersion() {
@@ -137,7 +258,6 @@ final class MCPEdgeTests: XCTestCase {
         _ = call("add_tasks", ["titles": ["probe task"]])
         XCTAssertEqual(changes, 1)
 
-        _ = call("list_tasks")
         _ = call("get_task", ["task": "probe task"])
         _ = call("read_notepad")
         _ = call("get_insights")
@@ -149,6 +269,8 @@ final class MCPEdgeTests: XCTestCase {
 
         _ = call("complete_task", ["task": "probe task"])
         XCTAssertEqual(changes, 2)
+        _ = call("list_tasks")
+        XCTAssertEqual(changes, 3, "listing may persist repeat occurrences")
     }
 
     // MARK: Framing and batches
