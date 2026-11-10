@@ -116,7 +116,7 @@ private struct HomeBody: View {
         }
     }
 
-    private func content(at now: Date) -> some View {
+    @ViewBuilder private func content(at now: Date) -> some View {
         let timer = store.planner.focus.map { $0.state != .finished } ?? false
         let events = calendar.hasAccess && calendar.events.contains { $0.end > now }
         let side = HomeLayout.sideCards(store.prefs, timerActive: timer, hasEvents: events)
