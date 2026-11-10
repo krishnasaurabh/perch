@@ -390,6 +390,7 @@ final class PlannerStore: ObservableObject {
                     planner.focus?.state == .running && fresh.focus?.state == .finished
                     && planner.focus?.startedAt == fresh.focus?.startedAt
                     && planner.focus?.taskID == fresh.focus?.taskID
+                    && fresh.focus?.limit != nil && fresh.focus?.isOver(at: now()) == true
                 epoch += 1
                 planner = fresh
                 if completedFocus { focusFinished?() }

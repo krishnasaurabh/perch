@@ -277,6 +277,39 @@ final class RuntimeObservationTests: XCTestCase {
         withExtendedLifetime((store, idle)) {}
     }
 
+    func testExternalManualStopDoesNotRingCountdownCompletion() async throws {
+        let root = try root()
+        defer { try? FileManager.default.removeItem(at: root) }
+        try await MainActor.run {
+            let time = Date(timeIntervalSince1970: 1_800_000_000)
+            let file = PlannerFile(
+                url: root.appendingPathComponent("planner.json"), preferences: MemoryPlannerPreferences())
+            var planner = Planner()
+            let started = FocusSession(taskID: nil, limit: 60, now: time)
+            planner.focus = started
+            try file.save(planner)
+            let store = PlannerStore(file: file, now: { time.addingTimeInterval(60) }, watching: false)
+            var completions = 0
+            store.focusFinished = { completions += 1 }
+            var stopped = started
+            _ = stopped.finish(at: time.addingTimeInterval(15))
+            planner.focus = stopped
+            try file.save(planner)
+            store.reloadFromDisk(external: true)
+            XCTAssertEqual(completions, 0)
+            planner.focus = started
+            try file.save(planner)
+            store.reloadFromDisk(external: true)
+            var completed = started
+            _ = completed.finish(at: time.addingTimeInterval(60))
+            planner.focus = completed
+            try file.save(planner)
+            store.reloadFromDisk(external: true)
+            store.reloadFromDisk(external: true)
+            XCTAssertEqual(completions, 1)
+        }
+    }
+
     func testStoreObservesSameTimestampAtomicReplacement() async throws {
         let root = try root()
         defer { try? FileManager.default.removeItem(at: root) }
