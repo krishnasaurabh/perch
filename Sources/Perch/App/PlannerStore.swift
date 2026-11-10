@@ -9,47 +9,72 @@ enum AppInfo {
     static var isInApplications: Bool { Bundle.main.bundlePath.hasPrefix("/Applications/") }
 }
 
-/// The planner as the UI sees it. Every change goes through `PlannerEngine` and a locked write,
-/// coordinating file writes between the app and MCP server process.
+/// The planner as the UI sees it. Every mutation reads the latest document under its file lock.
 @MainActor
 final class PlannerStore: ObservableObject {
     @Published private(set) var planner: Planner { didSet { refreshToday() } }
     @Published var lastError: String?
-    /// The planner's logical day. It follows `Preferences.resetHour`, so 1 AM with "Day ends at 4 AM"
-    /// is still yesterday. Published so views redraw when the day rolls over or the hour setting changes.
     @Published private(set) var today: DayKey
     let file: PlannerFile
-
-    private var undoStack: [Planner] = []
-    private var redoStack: [Planner] = []
-    private var watcher: DispatchSourceFileSystemObject?
+    private let now: () -> Date
+    private var history = PlannerUndoHistory()
     private var lastSeenModification: Date?
     private var pollTimer: Timer?
+    private var saveWork: DispatchWorkItem?
 
-    init(file: PlannerFile = PlannerFile()) {
+    enum TextTarget: Hashable {
+        case title(UUID), notes(UUID), notepad(DayKey)
+
+        func value(in planner: Planner) -> String? {
+            switch self {
+            case .title(let id): return planner.tasks.first { $0.id == id }?.title
+            case .notes(let id): return planner.tasks.first { $0.id == id }?.notes
+            case .notepad(let day): return planner.notes.first { $0.day == day }?.text ?? ""
+            }
+        }
+
+        func set(_ text: String, in planner: inout Planner) {
+            switch self {
+            case .title(let id):
+                if let i = planner.tasks.firstIndex(where: { $0.id == id }) { planner.tasks[i].title = text }
+            case .notes(let id):
+                if let i = planner.tasks.firstIndex(where: { $0.id == id }) { planner.tasks[i].notes = text }
+            case .notepad(let day):
+                if let i = planner.notes.firstIndex(where: { $0.day == day }) { planner.notes[i].text = text }
+                else { planner.notes.append(QuickNote(day: day, text: text)) }
+            }
+        }
+    }
+    private struct PendingText {
+        let base: String
+        var text: String
+    }
+    @Published private var pendingText: [TextTarget: PendingText] = [:]
+
+    init(file: PlannerFile = PlannerFile(), now: @escaping () -> Date = Date.init, watching: Bool = true) {
         self.file = file
+        self.now = now
         var loaded = Planner()
         var loadError: String?
         do { loaded = try file.load() } catch {
             loadError = (error as? PlannerError)?.message ?? error.localizedDescription
         }
         planner = loaded
-        today = PlannerEngine(planner: loaded).today
+        today = PlannerEngine(planner: loaded, now: now).today
         lastError = loadError
         lastSeenModification = file.modificationDate
-        startWatching()
-        DistributedNotificationCenter.default().addObserver(
-            forName: .init("app.perch.mac.plannerChanged"), object: nil, queue: .main
-        ) { [weak self] _ in Task { @MainActor in self?.reloadFromDisk(external: true) } }
+        if watching {
+            startWatching()
+            DistributedNotificationCenter.default().addObserver(
+                forName: .init("app.perch.mac.plannerChanged"), object: nil, queue: .main
+            ) { [weak self] _ in Task { @MainActor in self?.reloadFromDisk(external: true) } }
+        }
     }
 
-    var engine: PlannerEngine { PlannerEngine(planner: planner) }
+    var engine: PlannerEngine { PlannerEngine(planner: planner, now: now) }
     var prefs: Preferences { planner.preferences }
-
-    /// The planner day a moment belongs to (honours the reset hour). Use instead of `DayKey(date)`.
     func dayKey(_ date: Date) -> DayKey { engine.dayKey(date) }
-    /// Natural-language capture that agrees with `today`. Use instead of `TaskCapture()`.
-    var capture: TaskCapture { TaskCapture(now: Date(), resetHour: prefs.resetHour) }
+    var capture: TaskCapture { TaskCapture(now: now(), resetHour: prefs.resetHour) }
 
     private func refreshToday() {
         let t = engine.today
@@ -58,26 +83,28 @@ final class PlannerStore: ObservableObject {
 
     // MARK: Mutations
 
-    /// Applies a change through the engine. Errors land in `lastError` and are returned.
     @discardableResult
     func apply<T>(_ body: (inout PlannerEngine) throws -> T) -> T? {
+        guard flushPendingText() else { return nil }
+        return performMutation(tracked: true, body)
+    }
+
+    /// Shared by user edits and background bookkeeping; publish only after the atomic write succeeds.
+    @discardableResult
+    func performMutation<T>(tracked: Bool, _ body: (inout PlannerEngine) throws -> T) -> T? {
         do {
-            let before = planner
-            let result: T = try file.mutate { p in
-                var e = PlannerEngine(planner: p)
-                let r = try body(&e)
+            let (result, before, after): (T, Planner, Planner) = try file.mutate { p in
+                let before = p
+                var e = PlannerEngine(planner: p, now: now)
+                let result = try body(&e)
                 p = e.planner
-                return r
+                return (result, before, p)
             }
-            let after = try file.load()
-            if after != before { pushUndo(before) }
-            planner = after
-            lastSeenModification = file.modificationDate
-            lastError = nil
+            if tracked { history.record(before: before, after: after) }
+            publish(after)
             return result
         } catch {
-            lastError = (error as? PlannerError)?.message ?? error.localizedDescription
-            NSSound.beep()
+            report(error)
             return nil
         }
     }
@@ -86,7 +113,6 @@ final class PlannerStore: ObservableObject {
         apply { e in body(&e.planner.preferences) }
     }
 
-    /// Direct edit of a task by id (details editor, drag and drop).
     func updateTask(_ id: UUID, _ body: (inout PlanTask) -> Void) {
         apply { e in
             guard let i = e.planner.tasks.firstIndex(where: { $0.id == id }) else { return }
@@ -94,41 +120,88 @@ final class PlannerStore: ObservableObject {
         }
     }
 
+    private func publish(_ saved: Planner) {
+        planner = saved
+        // A writer may run immediately after our lock is released. Recheck on the next poll
+        // rather than associating its modification date with our earlier snapshot.
+        lastSeenModification = nil
+        lastError = nil
+    }
+
+    private func report(_ error: Error) {
+        lastError = (error as? PlannerError)?.message ?? error.localizedDescription
+    }
+
+    // MARK: Coalesced text
+
+    func text(for target: TextTarget) -> String {
+        pendingText[target]?.text ?? target.value(in: planner) ?? ""
+    }
+
+    /// Keep the draft in the store, not the lifetime of a view. A typing burst is one durable edit.
+    func setText(_ text: String, for target: TextTarget) {
+        guard let base = pendingText[target]?.base ?? target.value(in: planner) else { return }
+        if text == base { pendingText[target] = nil }
+        else { pendingText[target] = PendingText(base: base, text: text) }
+        saveWork?.cancel()
+        let work = DispatchWorkItem { [weak self] in self?.flushPendingText() }
+        saveWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5, execute: work)
+    }
+
+    /// Also called on blur, view removal and termination. Failures retain every draft for retry.
+    @discardableResult
+    func flushPendingText() -> Bool {
+        saveWork?.cancel()
+        saveWork = nil
+        guard !pendingText.isEmpty else { return true }
+        let drafts = pendingText
+        do {
+            let (before, after) = try file.mutate { p in
+                let before = p
+                for (target, draft) in drafts {
+                    guard let current = target.value(in: p), current == draft.base || current == draft.text else {
+                        throw PlannerError("This text changed elsewhere. Your draft is retained; restore the shared text before retrying.")
+                    }
+                    target.set(draft.text, in: &p)
+                }
+                return (before, p)
+            }
+            history.record(before: before, after: after)
+            pendingText.removeAll()
+            publish(after)
+            return true
+        } catch {
+            report(error)
+            return false
+        }
+    }
+
     // MARK: Undo
 
-    private func pushUndo(_ p: Planner) {
-        undoStack.append(p)
-        if undoStack.count > 100 { undoStack.removeFirst() }
-        redoStack.removeAll()
-    }
+    var canUndo: Bool { history.canUndo || !pendingText.isEmpty }
+    var canRedo: Bool { history.canRedo }
 
-    var canUndo: Bool { !undoStack.isEmpty }
+    func undo() { traverseHistory(redo: false) }
+    func redo() { traverseHistory(redo: true) }
 
-    func undo() {
-        guard let prev = undoStack.popLast() else { NSSound.beep(); return }
-        redoStack.append(planner)
-        write(prev)
-    }
-
-    func redo() {
-        guard let next = redoStack.popLast() else { NSSound.beep(); return }
-        undoStack.append(planner)
-        write(next)
-    }
-
-    private func write(_ p: Planner) {
+    private func traverseHistory(redo: Bool) {
+        guard flushPendingText() else { return }
+        guard redo ? history.canRedo : history.canUndo else { NSSound.beep(); return }
         do {
-            try file.mutate { $0 = p }
-            planner = p
-            lastSeenModification = file.modificationDate
-        } catch { lastError = error.localizedDescription }
+            var saved: Planner?
+            let transaction: ((inout Planner) -> Void) throws -> Void = { change in
+                saved = try self.file.mutate { p in change(&p); return p }
+            }
+            if redo { try history.redo(transaction: transaction) }
+            else { try history.undo(transaction: transaction) }
+            if let saved { publish(saved) }
+        } catch { report(error) }
     }
 
-    // MARK: Watching (agents write the same file)
+    // MARK: External refresh
 
     private func startWatching() {
-        // Poll the modification date: survives atomic replace (which breaks a single vnode watch).
-        // The same tick notices the clock crossing the reset hour.
         pollTimer = Timer.scheduledTimer(withTimeInterval: 0.75, repeats: true) { [weak self] _ in
             Task { @MainActor in self?.reloadFromDisk(external: true); self?.refreshToday() }
         }
@@ -137,12 +210,14 @@ final class PlannerStore: ObservableObject {
     func reloadFromDisk(external: Bool) {
         let mod = file.modificationDate
         guard mod != lastSeenModification else { return }
-        lastSeenModification = mod
-        guard let fresh = try? file.load(), fresh != planner else { return }
-        // An agent's change is undoable with ⌘Z.
-        if external { pushUndo(planner) }
-        planner = fresh
-        NotificationCenter.default.post(name: .plannerChangedExternally, object: nil)
+        do {
+            let fresh = try file.load()
+            lastSeenModification = mod
+            guard fresh != planner else { return }
+            // External edits and link updates never become local undo steps or clear redo.
+            planner = fresh
+            if external { NotificationCenter.default.post(name: .plannerChangedExternally, object: nil) }
+        } catch { report(error) }
     }
 }
 

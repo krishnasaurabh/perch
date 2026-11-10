@@ -175,21 +175,13 @@ extension PlannerStore {
     /// credit the offline gap; a checkpoint every 30 s would bury the user's own edits and clear redo.
     @discardableResult
     func applyUntracked<T>(_ body: (inout PlannerEngine) throws -> T) -> T? {
-        // Pick up a pending agent edit first so it still lands on the undo stack.
-        reloadFromDisk(external: true)
-        do {
-            let result: T = try file.mutate { p in
-                var e = PlannerEngine(planner: p)
-                let r = try body(&e)
-                p = e.planner
-                return r
-            }
-            reloadFromDisk(external: false)
-            return result
-        } catch {
-            lastError = (error as? PlannerError)?.message ?? error.localizedDescription
-            return nil
-        }
+        performMutation(tracked: false, body)
+    }
+}
+
+extension AppDelegate {
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        store?.flushPendingText() == false ? .terminateCancel : .terminateNow
     }
 }
 
