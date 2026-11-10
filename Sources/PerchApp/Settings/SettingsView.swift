@@ -23,10 +23,13 @@ struct SettingsView: View {
             "System"
         var id: String { rawValue }
         var symbol: String {
-            [
-                "General": "gearshape", "Workspace": "rectangle.3.group", "Focus timer": "timer",
-                "AI agents": "sparkles", "System": "lock.shield",
-            ][rawValue]!
+            switch self {
+            case .general: "gearshape"
+            case .workspace: "rectangle.3.group"
+            case .focus: "timer"
+            case .agents: "sparkles"
+            case .system: "lock.shield"
+            }
         }
     }
 
@@ -67,7 +70,7 @@ struct SettingsView: View {
                     get: { SMAppService.mainApp.status == .enabled },
                     set: { on in
                         do { on ? try SMAppService.mainApp.register() : try SMAppService.mainApp.unregister() } catch {
-                            store.lastError = "Perch couldn't update the login item: \(error.localizedDescription)"
+                            store.lastError = .loginItem(error.localizedDescription)
                         }
                     }))
         }
@@ -212,8 +215,7 @@ struct SettingsView: View {
                         Task {
                             if on {
                                 guard await services.remindersSync.requestAccess() else {
-                                    store.lastError =
-                                        "Perch has no Reminders permission. Grant it under System Settings › Privacy & Security › Reminders.";
+                                    store.lastError = .remindersPermission
                                     return
                                 }
                             }
@@ -283,7 +285,7 @@ struct SettingsView: View {
         panel.nameFieldStringValue = "Perch-\(store.today).json"
         panel.allowedContentTypes = [.json]
         if panel.runModal() == .OK, let url = panel.url {
-            do { try store.file.export(to: url) } catch { store.lastError = error.localizedDescription }
+            do { try store.file.export(to: url) } catch { store.lastError = .planner(error.perchPresentationDetail) }
         }
     }
 }

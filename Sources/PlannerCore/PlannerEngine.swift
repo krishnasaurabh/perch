@@ -322,10 +322,14 @@ public struct PlannerEngine {
         }
         if let n = e.notes { t.notes = n }
         if let r = e.repeatRule {
-            guard let parsed = TaskRepeat.parseRule(r) else {
+            let parsed: TaskRepeat?
+            switch TaskRepeat.parseRule(r) {
+            case .invalid:
                 throw PlannerError(
                     "Repeat rule not recognized: \(r). Use daily, weekdays, weekly, monthly, every 2 weeks, every tue, thu, every! 4 days, or none."
                 )
+            case .clear: parsed = nil
+            case .rule(let rule): parsed = rule
             }
             if parsed != nil && t.day == nil {
                 throw PlannerError("Schedule \(t.title) on a date before adding reminders or repeats.")

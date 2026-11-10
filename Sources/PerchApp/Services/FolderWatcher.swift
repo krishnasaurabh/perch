@@ -24,7 +24,10 @@ final class FolderWatcher {
     func start() -> Bool {
         guard source == nil else { return true }
         let fd = open(url.path, O_EVTONLY)
-        guard fd >= 0 else { return false }
+        guard fd >= 0 else {
+            PlatformLog.folders.error("start failed errno=\(errno, privacy: .public)")
+            return false
+        }
         let s = DispatchSource.makeFileSystemObjectSource(
             fileDescriptor: fd, eventMask: [.write, .rename, .delete, .link], queue: queue)
         let handler = handler
@@ -35,10 +38,14 @@ final class FolderWatcher {
         s.setCancelHandler { close(fd) }
         source = s
         s.resume()
+        PlatformLog.folders.debug("watch started")
         return true
     }
 
-    func stop() { source?.cancel(); source = nil }
+    func stop() {
+        if source != nil { PlatformLog.folders.debug("watch stopped") }
+        source?.cancel(); source = nil
+    }
 
     static func hasScreenCaptureFlag(_ url: URL) -> Bool {
         let path = url.path
@@ -51,16 +58,19 @@ final class FolderWatcher {
     /// The folder's direct children, hidden ones included (screencapture writes a dot-file, then renames it).
     static func entries(in dir: URL) -> [FolderScan.Entry] {
         let keys: Set<URLResourceKey> = [.creationDateKey, .isHiddenKey, .isRegularFileKey]
-        guard
-            let items = try? FileManager.default.contentsOfDirectory(
+        do {
+            let items = try FileManager.default.contentsOfDirectory(
                 at: dir, includingPropertiesForKeys: Array(keys))
-        else { return [] }
-        return items.compactMap { u in
-            let v = try? u.resourceValues(forKeys: keys)
-            guard v?.isRegularFile == true else { return nil }
-            return FolderScan.Entry(
-                name: u.lastPathComponent, created: v?.creationDate ?? .distantPast,
-                hidden: v?.isHidden ?? false, captureFlag: hasScreenCaptureFlag(u))
+            return items.compactMap { u in
+                let v = try? u.resourceValues(forKeys: keys)
+                guard v?.isRegularFile == true else { return nil }
+                return FolderScan.Entry(
+                    name: u.lastPathComponent, created: v?.creationDate ?? .distantPast,
+                    hidden: v?.isHidden ?? false, captureFlag: hasScreenCaptureFlag(u))
+            }
+        } catch {
+            PlatformLog.folders.error("entries failed code=\(PlatformLog.errorCode(error), privacy: .public)")
+            return []
         }
     }
 }

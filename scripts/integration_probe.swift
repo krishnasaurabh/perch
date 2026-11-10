@@ -159,7 +159,7 @@ func runProbe() async throws {
     _ = store.apply { try $0.addTasks(["Integration undo first"], on: .day($0.today)) }
     _ = store.apply { try $0.addTasks(["Integration undo second"], on: .day($0.today)) }
     store.undo()
-    _ = store.applyUntracked { try $0.tick() }
+    _ = store.performMutation(origin: .background) { try $0.tick() }
     store.redo()
     require(store.planner.tasks.contains { $0.title == "Integration undo second" }, "untracked tick preserves Redo")
 

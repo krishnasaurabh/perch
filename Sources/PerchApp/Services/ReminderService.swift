@@ -11,7 +11,7 @@ import UserNotifications
 final class ReminderService: NSObject, UNUserNotificationCenterDelegate {
     let store: PlannerStore
     @Published var notificationsAllowed = false
-    @Published private(set) var lastError: String?
+    @Published private(set) var lastError: ReminderServiceError?
     private(set) var records: [String: ReminderRecord] = [:]
 
     private let source: any NotificationAccess
@@ -81,7 +81,7 @@ final class ReminderService: NSObject, UNUserNotificationCenterDelegate {
 
     func requestAuthorization() async {
         do { try await source.requestAuthorization() } catch {
-            lastError = "Notification permission failed: \(error.localizedDescription)"
+            lastError = .authorization(error.localizedDescription)
         }
         await reconcile()
     }
@@ -143,12 +143,13 @@ final class ReminderService: NSObject, UNUserNotificationCenterDelegate {
             try ledger.save(history)
             records = history
             observedDeliveries.subtract(delivered)
-            if store.lastError == lastError { store.lastError = nil }
+            if case .scheduling(let detail)? = lastError, store.lastError == .reminderScheduling(detail) {
+                store.lastError = nil
+            }
             lastError = nil
         } catch {
-            let message = "Reminder scheduling failed: \(error.localizedDescription)"
-            lastError = message
-            store.lastError = message
+            lastError = .scheduling(error.localizedDescription)
+            store.lastError = .reminderScheduling(error.localizedDescription)
         }
     }
 

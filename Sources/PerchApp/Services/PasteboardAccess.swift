@@ -22,10 +22,18 @@ extension NSPasteboard: PasteboardAccess {
     var plainText: String? { string(forType: .string) }
     func replace(with value: PasteboardValue) {
         clearContents()
+        let succeeded: Bool
+        let kind: String
         switch value {
-        case .file(let url): writeObjects([url as NSURL])
-        case .text(let text): setString(text, forType: .string)
-        case .image(let data): setData(data, forType: .png)
+        case .file(let url):
+            succeeded = writeObjects([url as NSURL]); kind = "file"
+        case .text(let text):
+            succeeded = setString(text, forType: .string); kind = "text"
+        case .image(let data):
+            succeeded = setData(data, forType: .png); kind = "image"
         }
+        PlatformLog.pasteboard.debug(
+            "replace kind=\(kind, privacy: .public) succeeded=\(succeeded, privacy: .public) changeCount=\(changeCount, privacy: .public)"
+        )
     }
 }

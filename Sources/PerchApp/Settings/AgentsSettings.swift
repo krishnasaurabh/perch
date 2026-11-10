@@ -70,12 +70,16 @@ struct AgentsSettings: View {
             ).font(.caption).foregroundStyle(.secondary)
         }
         .onAppear(perform: refresh)
+        .task(id: copied) {
+            guard copied != nil else { return }
+            do { try await Task.sleep(nanoseconds: 1_500_000_000) } catch { return }
+            if !Task.isCancelled { copied = nil }
+        }
     }
 
     func refresh() { for a in AgentConnector.App.allCases { statuses[a] = AgentConnector.status(a) } }
     func copy(_ s: String, _ tag: String) {
         NSPasteboard.general.clearContents(); NSPasteboard.general.setString(s, forType: .string)
         copied = tag
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { if copied == tag { copied = nil } }
     }
 }

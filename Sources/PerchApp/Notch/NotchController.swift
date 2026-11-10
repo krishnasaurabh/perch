@@ -8,9 +8,21 @@ import SwiftUI
 enum NotchPage: String, CaseIterable, Identifiable {
     case home, week, clips, insights
     var id: String { rawValue }
-    var title: String { ["home": "Today", "week": "Week", "clips": "Clips", "insights": "Insights"][rawValue]! }
+    var title: String {
+        switch self {
+        case .home: "Today"
+        case .week: "Week"
+        case .clips: "Clips"
+        case .insights: "Insights"
+        }
+    }
     var symbol: String {
-        ["home": "sun.max", "week": "calendar", "clips": "paperclip", "insights": "chart.bar"][rawValue]!
+        switch self {
+        case .home: "sun.max"
+        case .week: "calendar"
+        case .clips: "paperclip"
+        case .insights: "chart.bar"
+        }
     }
 }
 
@@ -33,8 +45,15 @@ final class NotchModel: ObservableObject {
 
     /// Nil in production (live system preference); deterministic override for in-process probes.
     let motionPolicyOverride: MotionPolicy?
+    private let scheduler: any AppScheduling
+    private var activityWork: (any AppScheduledAction)?
     var motionPolicy: MotionPolicy { motionPolicyOverride ?? .system }
-    init(motionPolicy: MotionPolicy? = nil) { self.motionPolicyOverride = motionPolicy }
+    init(motionPolicy: MotionPolicy? = nil, scheduler: any AppScheduling = MainQueueScheduler()) {
+        self.motionPolicyOverride = motionPolicy
+        self.scheduler = scheduler
+    }
+
+    deinit { activityWork?.cancel() }
 
     func open(page: NotchPage? = nil, pinned: Bool = false) {
         if let page { self.page = page }
@@ -50,16 +69,22 @@ final class NotchModel: ObservableObject {
     }
 
     func show(_ a: PresentedNotchActivity, for seconds: Double? = nil) {
+        activityWork?.cancel()
+        activityWork = nil
         Motion.animate(Motion.activity, policy: motionPolicy) { activity = a }
         if let s = seconds {
             let id = a.id
-            DispatchQueue.main.asyncAfter(deadline: .now() + s) { [weak self] in
-                if self?.activity?.id == id { self?.dismissActivity() }
+            activityWork = scheduler.schedule(after: s) { [weak self] in
+                guard let self, self.activity?.id == id else { return }
+                self.activityWork = nil
+                self.dismissActivity()
             }
         }
     }
 
     func dismissActivity() {
+        activityWork?.cancel()
+        activityWork = nil
         Motion.animate(Motion.activityDismiss, policy: motionPolicy) { activity = nil }
     }
 
@@ -91,8 +116,11 @@ final class NotchController {
     private struct Slot { let panel: NotchPanel; let state: NotchScreenState }
     private var slots: [CGDirectDisplayID: Slot] = [:]
     private var monitors: [Any] = []
-    private var closeWork: DispatchWorkItem?
-    private var openWork: DispatchWorkItem?
+    private let scheduler: any AppScheduling
+    private var closeWork: (any AppScheduledAction)?
+    private var openWork: (any AppScheduledAction)?
+    private var fullscreenWork: [any AppScheduledAction] = []
+    private var startupWork: [any AppScheduledAction] = []
     private lazy var dragObservation = DragPointerObservation { [weak self] in self?.trackPointer() }
     private var fullscreenObservation: FullscreenObservation?
     private var cancellables = Set<AnyCancellable>()
@@ -101,8 +129,11 @@ final class NotchController {
     private var dragBaseline = NSPasteboard(name: .drag).changeCount
     private var openedForDrop = false
 
-    init(store: PlannerStore, model: NotchModel, services: Services) {
-        self.store = store; self.model = model; self.services = services
+    init(
+        store: PlannerStore, model: NotchModel, services: Services,
+        scheduler: any AppScheduling = MainQueueScheduler()
+    ) {
+        self.store = store; self.model = model; self.services = services; self.scheduler = scheduler
     }
 
     func start() {
@@ -177,18 +208,19 @@ final class NotchController {
         let args = CommandLine.arguments
         if let i = args.firstIndex(of: "--dump-layout"), i + 1 < args.count {
             let path = args[i + 1]
-            DispatchQueue.main.asyncAfter(deadline: .now() + 2) { [weak self] in
-                guard let self,
-                    let data = try? JSONSerialization.data(
-                        withJSONObject: self.layoutDump(), options: [.prettyPrinted, .sortedKeys])
-                else { return }
-                try? data.write(to: URL(fileURLWithPath: path))
-            }
+            startupWork.append(
+                scheduler.schedule(after: 2) { [weak self] in
+                    guard let self,
+                        let data = try? JSONSerialization.data(
+                            withJSONObject: self.layoutDump(), options: [.prettyPrinted, .sortedKeys])
+                    else { return }
+                    try? data.write(to: URL(fileURLWithPath: path))
+                })
         }
         // `--snapshot <dir>`: render each notch window's own content to PNG (no Screen Recording permission needed).
         if let i = args.firstIndex(of: "--snapshot"), i + 1 < args.count {
             let dir = URL(fileURLWithPath: args[i + 1])
-            DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) { [weak self] in self?.snapshot(into: dir) }
+            startupWork.append(scheduler.schedule(after: 2.5) { [weak self] in self?.snapshot(into: dir) })
         }
     }
 
@@ -341,9 +373,11 @@ final class NotchController {
 
     func checkFullScreenSoon() {
         applyFullScreen()
+        fullscreenWork.forEach { $0.cancel() }
+        fullscreenWork = []
         // Spaces animate; the window list settles a moment later.
         for delay in [0.4, 1.2] {
-            DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in self?.applyFullScreen() }
+            fullscreenWork.append(scheduler.schedule(after: delay) { [weak self] in self?.applyFullScreen() })
         }
     }
 
@@ -441,7 +475,7 @@ final class NotchController {
                 NotchLayout.contains(hoverRect(slot), pointer: p)
             else { openWork?.cancel(); openWork = nil; return }
             guard openWork == nil else { return }
-            let w = DispatchWorkItem { [weak self] in
+            openWork = scheduler.schedule(after: 0.12) { [weak self] in
                 guard let self else { return }
                 self.openWork = nil
                 guard let slot = self.slots[id],
@@ -449,8 +483,6 @@ final class NotchController {
                 else { return }
                 self.open(on: id)
             }
-            openWork = w
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.12, execute: w)
             return
         }
 
@@ -459,7 +491,7 @@ final class NotchController {
         if pointerInWorkspace(p) || model.pinned || anySheetOrPopoverOpen() || e.type == .leftMouseDragged {
             closeWork?.cancel(); closeWork = nil
         } else if closeWork == nil {
-            let w = DispatchWorkItem { [weak self] in
+            closeWork = scheduler.schedule(after: 0.45) { [weak self] in
                 guard let self else { return }
                 self.closeWork = nil
                 if !self.pointerInWorkspace(NSEvent.mouseLocation) && !self.model.pinned
@@ -468,8 +500,6 @@ final class NotchController {
                     self.model.close()
                 }
             }
-            closeWork = w
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.45, execute: w)
         }
     }
 
@@ -494,6 +524,7 @@ final class NotchController {
     deinit {
         for monitor in monitors { NSEvent.removeMonitor(monitor) }
         closeWork?.cancel(); openWork?.cancel()
+        fullscreenWork.forEach { $0.cancel() }; startupWork.forEach { $0.cancel() }
     }
 
     /// Frames for the closed and open shapes on every screen, for `--dump-layout`.

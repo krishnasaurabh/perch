@@ -14,7 +14,6 @@ final class NotchTimelineDriver {
 
     private let store: PlannerStore
     private let calendar: CalendarService
-    private let reminders: ReminderService
     private weak var model: NotchModel?
     private var wake: Timer?
     private var cancellables = Set<AnyCancellable>()
@@ -32,8 +31,8 @@ final class NotchTimelineDriver {
     /// Called after every pass with the visible timeline activity ID and the next wake (`--dump-activity`).
     var onPass: ((String?, Date?) -> Void)?
 
-    init(store: PlannerStore, calendar: CalendarService, reminders: ReminderService) {
-        self.store = store; self.calendar = calendar; self.reminders = reminders
+    init(store: PlannerStore, calendar: CalendarService) {
+        self.store = store; self.calendar = calendar
     }
 
     func start(model: NotchModel) {

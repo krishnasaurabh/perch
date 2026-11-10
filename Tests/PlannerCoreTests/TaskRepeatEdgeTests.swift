@@ -177,14 +177,14 @@ final class TaskRepeatEdgeTests: XCTestCase {
     }
 
     func testStandaloneRuleParsingIsStrict() {
-        XCTAssertEqual(TaskRepeat.parseRule("none")!, nil)
-        XCTAssertEqual(TaskRepeat.parseRule("never")!, nil)
-        XCTAssertEqual(TaskRepeat.parseRule("")!, nil)
-        XCTAssertNil(TaskRepeat.parseRule("sometimes"))
-        XCTAssertNil(TaskRepeat.parseRule("every day please"))
-        XCTAssertEqual(TaskRepeat.parseRule("  every day  ")!!, .daily)
-        XCTAssertEqual(TaskRepeat.parseRule("every mon, wed")!!, TaskRepeat(unit: .week, weekdays: [2, 4]))
-        XCTAssertEqual(TaskRepeat.parseRule("monthly")!!, .monthly)
+        XCTAssertEqual(TaskRepeat.parseRule("none"), .clear)
+        XCTAssertEqual(TaskRepeat.parseRule("never"), .clear)
+        XCTAssertEqual(TaskRepeat.parseRule(""), .clear)
+        XCTAssertEqual(TaskRepeat.parseRule("sometimes"), .invalid)
+        XCTAssertEqual(TaskRepeat.parseRule("every day please"), .invalid)
+        XCTAssertEqual(TaskRepeat.parseRule("  every day  "), .rule(.daily))
+        XCTAssertEqual(TaskRepeat.parseRule("every mon, wed"), .rule(TaskRepeat(unit: .week, weekdays: [2, 4])))
+        XCTAssertEqual(TaskRepeat.parseRule("monthly"), .rule(.monthly))
     }
 
     func testDescriptionRoundTripsThroughTheParser() {
@@ -198,7 +198,7 @@ final class TaskRepeatEdgeTests: XCTestCase {
             TaskRepeat(unit: .month, interval: 3),
         ]
         for rule in rules {
-            XCTAssertEqual(TaskRepeat.parseRule(rule.description)!!, rule, rule.description)
+            XCTAssertEqual(TaskRepeat.parseRule(rule.description), .rule(rule), rule.description)
         }
     }
 

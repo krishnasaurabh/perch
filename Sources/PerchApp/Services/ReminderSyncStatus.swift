@@ -5,7 +5,7 @@ struct ReminderSyncStatus: View {
     @ObservedObject var sync: RemindersSync
     var body: some View {
         if let error = sync.lastError {
-            Text(error)
+            Text(error.message)
                 .font(.caption)
                 .foregroundStyle(.red)
                 .textSelection(.enabled)

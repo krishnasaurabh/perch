@@ -199,7 +199,11 @@ private struct ClipCard: View {
         .onTapGesture {
             clips.copy(clip)
             copied = true
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) { copied = false }
+        }
+        .task(id: copied) {
+            guard copied else { return }
+            do { try await Task.sleep(nanoseconds: 1_200_000_000) } catch { return }
+            if !Task.isCancelled { copied = false }
         }
         .onDrag {
             switch clip.content {

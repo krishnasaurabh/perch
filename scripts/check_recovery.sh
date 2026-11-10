@@ -103,8 +103,8 @@ func checkRecovery() async throws {
     let store = PlannerStore(file: file, now: { fixedNow }, watching: false)
     require(store.planner == healthy, "startup displays every valid record")
     require(store.planner.tasks.map(\.title) == ["Recovery fixture", "Repeat fixture"], "valid records are visible in order")
-    require(store.lastError == typed.localizedDescription, "startup surfaces the exact typed recovery text")
-    let text = store.lastError ?? ""
+    require(store.lastError?.message == typed.localizedDescription, "startup surfaces the exact typed recovery text")
+    let text = store.lastError?.message ?? ""
     require(text.contains("Kept 2 valid record(s) in a read-only draft"), "warning reports the exact kept count")
     require(text.contains("Quarantined 2 invalid record(s) and 0 invalid field(s)"), "warning reports the exact quarantined counts")
     require(text.contains("read-only") && text.contains("original planner is unchanged"), "warning states the records are read-only and preserved")
@@ -142,14 +142,14 @@ func checkRecovery() async throws {
         let unchanged = try contents(url) == raw
         require(refused == nil && !ran, label + ": refused before the edit runs")
         require(store.planner == healthy, label + ": valid records stay unchanged")
-        require(store.lastError == typed.localizedDescription, label + ": exact recovery text stays surfaced")
+        require(store.lastError?.message == typed.localizedDescription, label + ": exact recovery text stays surfaced")
         require(unchanged, label + ": original stays byte-identical")
     }
 
     func untouched(_ label: String) throws {
         let unchanged = try contents(url) == raw
         require(store.planner == healthy, label + ": valid records stay unchanged")
-        require(store.lastError == typed.localizedDescription, label + ": exact recovery text stays surfaced")
+        require(store.lastError?.message == typed.localizedDescription, label + ": exact recovery text stays surfaced")
         require(unchanged, label + ": original stays byte-identical")
     }
 
@@ -164,11 +164,11 @@ func checkRecovery() async throws {
     require(!syncRan && store.planner.tasks[0].reminderLink == nil, "synthetic sync-link update is refused")
     try untouched("synthetic sync-link update")
 
-    let ticked: Bool? = store.applyUntracked { try $0.tick() }
+    let ticked: Bool? = store.performMutation(origin: .background) { try $0.tick() }
     require(ticked == nil, "timer tick checkpoint write is refused")
     try untouched("timer tick checkpoint")
 
-    let resumed: Bool? = store.applyUntracked { try $0.recoverFocus() }
+    let resumed: Bool? = store.performMutation(origin: .background) { try $0.recoverFocus() }
     require(resumed == nil, "launch timer recovery write is refused")
     try untouched("launch timer recovery")
 
@@ -176,7 +176,7 @@ func checkRecovery() async throws {
     store.materializeRepeats(on: [tomorrow])
     let repeatBytes = try contents(url)
     require(store.planner == healthy && repeatBytes == raw, "repeat materialization cannot save a reduced list")
-    require(store.lastError == typed.localizedDescription, "repeat materialization keeps the exact recovery text")
+    require(store.lastError?.message == typed.localizedDescription, "repeat materialization keeps the exact recovery text")
 
     store.setText("Recovered draft edit", for: .title(id))
     try await Task.sleep(nanoseconds: 700_000_000)
@@ -207,7 +207,7 @@ func checkRecovery() async throws {
     for step in 0..<3 {
         try touch(url, fixedNow.addingTimeInterval(Double(step + 1)))
         store.reloadFromDisk(external: true)
-        require(store.planner == healthy && store.lastError == typed.localizedDescription,
+        require(store.planner == healthy && store.lastError?.message == typed.localizedDescription,
                 "reload \(step + 1) keeps the recovered view and the exact text")
         let unchanged = try contents(url) == raw
         require(unchanged, "reload \(step + 1) leaves the original byte-identical")
@@ -262,13 +262,13 @@ func checkRecovery() async throws {
             window.sendEvent(event)
         }
         try await Task.sleep(nanoseconds: 150_000_000)
-        require(store.lastError == text && view.fittingSize.height == fullHeight,
+        require(store.lastError?.message == text && view.fittingSize.height == fullHeight,
                 "\(Int(width))pt: clicking the former dismiss location cannot hide recovery")
 
-        store.lastError = "Unable to complete the action."
+        store.lastError = .planner("Unable to complete the action.")
         try await Task.sleep(nanoseconds: 150_000_000)
         let shortHeight = view.fittingSize.height
-        let expectedShortHeight = textHeight(store.lastError!, width: referenceWidth) + 32 + 14
+        let expectedShortHeight = textHeight(store.lastError!.message, width: referenceWidth) + 32 + 14
         require(abs(shortHeight - expectedShortHeight) <= 2,
                 "\(Int(width))pt: a short error keeps the compact single-line height")
         window.setContentSize(NSSize(width: width, height: shortHeight))
@@ -306,7 +306,7 @@ func checkRecovery() async throws {
     store.reloadFromDisk(external: true)
     require(store.planner == externallyChanged && store.lastError != nil, "reload displays newly recovered records instead of stale state")
     let reloaded = try recovery(of: file)
-    require(store.lastError == reloaded.localizedDescription, "reload surfaces the exact typed text for the new damage")
+    require(store.lastError?.message == reloaded.localizedDescription, "reload surfaces the exact typed text for the new damage")
     require(store.canUndo, "recovery reload preserves local undo history")
     let beforeUndo = try contents(url)
     store.undo()

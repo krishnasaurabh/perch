@@ -1,5 +1,12 @@
 import Foundation
 
+/// The three outcomes of editing a standalone repeat field. This keeps an explicit clear distinct from invalid text.
+public enum TaskRepeatParseResult: Equatable, Sendable {
+    case invalid
+    case clear
+    case rule(TaskRepeat)
+}
+
 /// How a task repeats. When a repeating task is completed, the next copy is planned.
 public struct TaskRepeat: Codable, Equatable, Sendable, CustomStringConvertible {
     public enum Unit: String, Codable, Sendable { case day, week, month }
@@ -106,22 +113,22 @@ public struct TaskRepeat: Codable, Equatable, Sendable, CustomStringConvertible 
             + ")",
         options: [.caseInsensitive])
 
-    /// Parses a standalone rule like `daily`, `every mon, wed`, `none` (returns `.some(nil)` for none).
-    public static func parseRule(_ text: String) -> TaskRepeat?? {
+    /// Parses a standalone rule like `daily`, `every mon, wed`, or an explicit clear such as `none`.
+    public static func parseRule(_ text: String) -> TaskRepeatParseResult {
         let t = text.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        if t == "none" || t == "never" || t.isEmpty { return .some(nil) }
+        if t == "none" || t == "never" || t.isEmpty { return .clear }
         // Aliases are unambiguous in a dedicated repeat field, not in a task title.
         switch t {
-        case "daily": return .some(.daily)
-        case "weekly": return .some(.weekly)
-        case "monthly": return .some(.monthly)
-        case "weekdays": return .some(.weekdaysRule)
+        case "daily": return .rule(.daily)
+        case "weekly": return .rule(.weekly)
+        case "monthly": return .rule(.monthly)
+        case "weekdays": return .rule(.weekdaysRule)
         default: break
         }
         guard let (rule, range) = find(in: t), range.location == 0, range.length == (t as NSString).length else {
-            return nil
+            return .invalid
         }
-        return .some(rule)
+        return .rule(rule)
     }
 
     /// Finds the first repeat phrase in `text`, returning the rule and the matched range.

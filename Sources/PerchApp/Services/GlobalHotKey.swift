@@ -122,8 +122,12 @@ final class GlobalHotKey {
         let hkID = EventHotKeyID(signature: OSType(0x5052_4348) /* PRCH */, id: id)
         let status = RegisterEventHotKey(
             key.keyCode, key.modifiers.carbon, hkID, GetApplicationEventTarget(), 0, &newRef)
-        guard status == noErr, let newRef else { return false }
+        guard status == noErr, let newRef else {
+            PlatformLog.hotKey.error("register failed id=\(id, privacy: .public) status=\(status, privacy: .public)")
+            return false
+        }
         ref = newRef
+        PlatformLog.hotKey.debug("register succeeded id=\(id, privacy: .public)")
         return true
     }
 
@@ -136,7 +140,7 @@ final class GlobalHotKey {
         guard !installed else { return }
         installed = true
         var spec = EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyPressed))
-        InstallEventHandler(
+        let status = InstallEventHandler(
             GetApplicationEventTarget(),
             { _, event, _ in
                 var hk = EventHotKeyID()
@@ -146,5 +150,8 @@ final class GlobalHotKey {
                 DispatchQueue.main.async { GlobalHotKey.handlers[hk.id]?() }
                 return noErr
             }, 1, &spec, nil, nil)
+        if status != noErr {
+            PlatformLog.hotKey.error("install handler failed status=\(status, privacy: .public)")
+        }
     }
 }

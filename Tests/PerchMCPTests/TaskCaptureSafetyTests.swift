@@ -30,10 +30,10 @@ final class TaskCaptureSafetyTests: XCTestCase {
         }
         XCTAssertNil(TaskRepeat.find(in: "weekly report"))
         // Standalone repeat fields remain compatible with their existing aliases.
-        XCTAssertEqual(TaskRepeat.parseRule("weekly")!!, .weekly)
-        XCTAssertEqual(TaskRepeat.parseRule("daily")!!, .daily)
-        XCTAssertEqual(TaskRepeat.parseRule("monthly")!!, .monthly)
-        XCTAssertEqual(TaskRepeat.parseRule("weekdays")!!, .weekdaysRule)
+        XCTAssertEqual(TaskRepeat.parseRule("weekly"), .rule(.weekly))
+        XCTAssertEqual(TaskRepeat.parseRule("daily"), .rule(.daily))
+        XCTAssertEqual(TaskRepeat.parseRule("monthly"), .rule(.monthly))
+        XCTAssertEqual(TaskRepeat.parseRule("weekdays"), .rule(.weekdaysRule))
     }
 
     func testExplicitMetadataStillWorksWithoutChangingTitleCase() {

@@ -223,7 +223,7 @@ final class RemindersSyncTests: XCTestCase {
         await sync.reconcileNow()
         let before = try Data(contentsOf: store.file.url)
         var errors: [String] = []
-        let subscription = sync.$lastError.compactMap { $0 }.sink { errors.append($0) }
+        let subscription = sync.$lastError.compactMap { $0 }.sink { errors.append($0.message) }
         source.hasAccess = false
         await sync.reconcileNow()
         XCTAssertTrue(errors.contains { $0.contains("permission") })
