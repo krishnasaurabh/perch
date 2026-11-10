@@ -176,43 +176,30 @@ final class PlannerEngineTests: XCTestCase {
 
     func testCompleteRepeatingPlansNextCopy() throws {
         _ = try engine.addTasks(["standup at 9:30pm every weekday"])
-        _ = try engine.complete("Standup")
+        _ = try engine.complete(try Fixture.taskID("Standup", in: engine.planner))
         let next = engine.planner.tasks.first { !$0.done }!
         XCTAssertEqual(next.day, "2026-11-10")
         XCTAssertEqual(Fixture.hm(next.remindAt), "2026-11-10 21:30")
-        XCTAssertThrowsError(try engine.complete("Standup"))  // today's copy is already done
+        XCTAssertThrowsError(try engine.complete(try Fixture.taskID("Standup", in: engine.planner)))  // today's copy is already done
     }
 
     func testOnlyTodayCanBeCompleted() throws {
         _ = try engine.addTasks(["later thing tomorrow"])
-        XCTAssertThrowsError(try engine.complete("Later thing"))
-    }
-
-    func testAmbiguousTitle() throws {
-        _ = try engine.addTasks(["email alice", "email bob"])
-        XCTAssertThrowsError(try engine.complete("email")) { e in
-            XCTAssertTrue("\(e)".contains("Multiple tasks match"))
-        }
-        XCTAssertNoThrow(try engine.complete("email bob"))
-    }
-
-    func testShortIdLookup() throws {
-        let t = try engine.addTasks(["a"]).first!
-        let short = String(t.id.uuidString.prefix(8)).lowercased()
-        XCTAssertEqual(try engine.complete(short).id, t.id)
+        XCTAssertThrowsError(try engine.complete(try Fixture.taskID("Later thing", in: engine.planner)))
     }
 
     func testMoveToInboxDropsReminderAndRepeat() throws {
         _ = try engine.addTasks(["gym at 6pm every day"])
-        let t = try engine.move("Gym", from: .day("2026-11-09"), to: .inbox)
+        let t = try engine.move(try Fixture.taskID("Gym", in: engine.planner), from: .day("2026-11-09"), to: .inbox)
         XCTAssertNil(t.day); XCTAssertNil(t.remindAt); XCTAssertNil(t.repeatRule)
-        let back = try engine.move("Gym", from: .inbox, to: .day("2026-11-12"))
+        let back = try engine.move(try Fixture.taskID("Gym", in: engine.planner), from: .inbox, to: .day("2026-11-12"))
         XCTAssertEqual(back.day, "2026-11-12")
     }
 
     func testPastDaysReadOnly() throws {
         engine.planner.tasks.append(PlanTask(title: "old", day: "2026-11-01"))
-        XCTAssertThrowsError(try engine.rename("old", on: .day("2026-11-01"), to: "new"))
+        XCTAssertThrowsError(
+            try engine.rename(try Fixture.taskID("old", in: engine.planner), on: .day("2026-11-01"), to: "new"))
         XCTAssertThrowsError(try engine.writeNotepad(on: "2026-11-01", text: "x"))
     }
 
@@ -221,7 +208,7 @@ final class PlannerEngineTests: XCTestCase {
         var e = TaskEdit()
         e.remindAt = "5:30 pm"; e.priority = "high"; e.project = "Work"; e.repeatRule = "every mon, wed"
         e.minutes = 50; e.steps = ["outline", "draft", "edit"]; e.doneSteps = ["outline"]; e.deadline = "2026-11-20"
-        let t = try engine.update("report", on: .day("2026-11-09"), e)
+        let t = try engine.update(try Fixture.taskID("report", in: engine.planner), on: .day("2026-11-09"), e)
         XCTAssertEqual(Fixture.hm(t.remindAt), "2026-11-09 17:30")
         XCTAssertEqual(t.priority, .high)
         XCTAssertEqual(t.repeatRule, TaskRepeat(unit: .week, weekdays: [2, 4]))
@@ -230,14 +217,17 @@ final class PlannerEngineTests: XCTestCase {
         XCTAssertEqual(t.deadline, "2026-11-20")
 
         var keep = TaskEdit(); keep.steps = ["outline", "draft", "edit", "publish"]
-        let t2 = try engine.update("report", on: .day("2026-11-09"), keep)
+        let t2 = try engine.update(try Fixture.taskID("report", in: engine.planner), on: .day("2026-11-09"), keep)
         XCTAssertEqual(t2.steps.filter(\.done).map(\.title), ["outline"], "existing step progress is kept")
 
         var past = TaskEdit(); past.remindAt = "9:00 am"
-        XCTAssertThrowsError(try engine.update("report", on: .day("2026-11-09"), past))
-        XCTAssertThrowsError(try engine.update("report", on: .day("2026-11-09"), TaskEdit()))
+        XCTAssertThrowsError(
+            try engine.update(try Fixture.taskID("report", in: engine.planner), on: .day("2026-11-09"), past))
+        XCTAssertThrowsError(
+            try engine.update(try Fixture.taskID("report", in: engine.planner), on: .day("2026-11-09"), TaskEdit()))
         var bad = TaskEdit(); bad.repeatRule = "sometimes"
-        XCTAssertThrowsError(try engine.update("report", on: .day("2026-11-09"), bad))
+        XCTAssertThrowsError(
+            try engine.update(try Fixture.taskID("report", in: engine.planner), on: .day("2026-11-09"), bad))
     }
 
     func testReminderFormats() throws {
@@ -251,7 +241,7 @@ final class PlannerEngineTests: XCTestCase {
 
     func testTimerCountdownPauseResumeAndInsights() throws {
         _ = try engine.addTasks(["deep work"])
-        try engine.startTimer(task: "deep work", minutes: 25)
+        try engine.startTimer(task: try Fixture.taskID("deep work", in: engine.planner), minutes: 25)
         clock += 10 * 60
         try engine.pauseTimer()
         clock += 60 * 60  // paused time doesn't count
@@ -266,9 +256,9 @@ final class PlannerEngineTests: XCTestCase {
 
     func testCompletingStopsTimer() throws {
         _ = try engine.addTasks(["a"])
-        try engine.startTimer(task: "a", minutes: nil)
+        try engine.startTimer(task: try Fixture.taskID("a", in: engine.planner), minutes: nil)
         clock += 300
-        _ = try engine.complete("a")
+        _ = try engine.complete(try Fixture.taskID("a", in: engine.planner))
         XCTAssertNil(engine.planner.focus)
         XCTAssertEqual(engine.planner.tasks[0].focusedSeconds, 300, accuracy: 0.5)
     }

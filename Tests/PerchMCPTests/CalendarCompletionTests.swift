@@ -22,7 +22,7 @@ final class CalendarCompletionTests: XCTestCase {
         var time = Fixture.now
         var engine = PlannerEngine(planner: Planner(), now: { time }, calendar: Fixture.calendar)
         let task = try XCTUnwrap(engine.addTasks(["Keep this task"], on: .day(engine.today)).first)
-        try engine.startTimer(task: task.id.uuidString, minutes: 25)
+        try engine.startTimer(task: task.id, minutes: 25)
         let tasks = engine.planner.tasks
         let focus = engine.planner.focus
 
@@ -91,7 +91,7 @@ final class CalendarCompletionTests: XCTestCase {
         time = Fixture.date("2026-11-09 04:30")
         try engine.setCalendarEventCompleted("today", completed: true)
         let task = try XCTUnwrap(engine.addTasks(["Task"], on: .day(engine.today)).first)
-        _ = try engine.complete(task.id.uuidString)
+        _ = try engine.complete(task.id)
         let insights = engine.insights()
         XCTAssertEqual(insights.today.completedCalendarEvents, 1)
         XCTAssertEqual(insights.lastSeven.first { $0.day == "2026-11-08" }?.completedCalendarEvents, 1)

@@ -20,7 +20,8 @@ final class PlannerStore: ObservableObject {
     let file: PlannerFile
     private let now: () -> Date
     private let scheduler: any AppScheduling
-    private var history = PlannerUndoHistory()
+    private let pipeline: PlannerCommandPipeline
+    private var lifecycleDay: DayKey?
     private var lastSeenModification: Date?
     private var loadFailureMessage: String?
     private var loadNeedsRetry = false
@@ -38,21 +39,20 @@ final class PlannerStore: ObservableObject {
             }
         }
 
-        func set(_ text: String, in planner: inout Planner) {
+        func apply(_ text: String, using commands: PlannerCommands) throws {
             switch self {
             case .title(let id):
-                if let i = planner.tasks.firstIndex(where: { $0.id == id }) { planner.tasks[i].title = text }
+                var edit = TaskChanges(); edit.title = .set(text)
+                try commands.execute(.editTask(id, edit))
             case .notes(let id):
-                if let i = planner.tasks.firstIndex(where: { $0.id == id }) { planner.tasks[i].notes = text }
+                var edit = TaskChanges(); edit.notes = .set(text)
+                try commands.execute(.editTask(id, edit))
             case .notepad(let day):
-                if let i = planner.notes.firstIndex(where: { $0.day == day }) {
-                    planner.notes[i].text = text
-                } else {
-                    planner.notes.append(QuickNote(day: day, text: text))
-                }
+                try commands.writeNotepad(on: day, text: text, mode: "replace")
             }
         }
     }
+
     private struct PendingText {
         let base: String
         var text: String
@@ -64,6 +64,7 @@ final class PlannerStore: ObservableObject {
         scheduler: any AppScheduling = MainQueueScheduler()
     ) {
         self.file = file
+        self.pipeline = PlannerCommandPipeline(file: file, clock: ClosurePlannerClock(now))
         self.now = now
         self.scheduler = scheduler
         var loaded = Planner()
@@ -103,25 +104,23 @@ final class PlannerStore: ObservableObject {
     // MARK: Mutations
 
     @discardableResult
-    func apply<T>(_ body: (inout PlannerEngine) throws -> T) -> T? {
+    func apply<T>(_ body: (PlannerCommands) throws -> T) -> T? {
         guard flushPendingText() else { return nil }
-        return performMutation(tracked: true, body)
+        return performMutation(origin: .user, body)
     }
 
-    /// Shared by user edits and background bookkeeping; publish only after the atomic write succeeds.
     @discardableResult
-    func performMutation<T>(tracked: Bool, _ body: (inout PlannerEngine) throws -> T) -> T? {
+    func send(_ action: PlannerAction, origin: PlannerCommandOrigin = .user) -> PlannerActionResult? {
+        if origin == .user && !flushPendingText() { return nil }
+        return performMutation(origin: origin) { try $0.execute(action) }
+    }
+
+    @discardableResult
+    func performMutation<T>(origin: PlannerCommandOrigin, _ body: (PlannerCommands) throws -> T) -> T? {
         do {
-            let (result, before, after): (T, Planner, Planner) = try file.mutate { p in
-                let before = p
-                var e = PlannerEngine(planner: p, now: now)
-                let result = try body(&e)
-                p = e.planner
-                return (result, before, p)
-            }
-            if tracked { history.record(before: before, after: after) }
-            publish(after)
-            return result
+            let result = try pipeline.perform(origin: origin, body)
+            publish(result.state)
+            return result.value
         } catch {
             report(error)
             return nil
@@ -129,14 +128,34 @@ final class PlannerStore: ObservableObject {
     }
 
     func updatePrefs(_ body: (inout Preferences) -> Void) {
-        apply { e in body(&e.planner.preferences) }
+        apply { try $0.updatePrefs(body) }
     }
 
     func updateTask(_ id: UUID, _ body: (inout PlanTask) -> Void) {
-        apply { e in
-            guard let i = e.planner.tasks.firstIndex(where: { $0.id == id }) else { return }
-            body(&e.planner.tasks[i])
+        apply { try $0.updateTask(id, body) }
+    }
+
+    /// Called by application launch/navigation, never by view appearance or arbitrary publications.
+    func beginApplication() {
+        if send(.lifecycle(.launch), origin: .background) != nil { lifecycleDay = today }
+    }
+
+    func openDay(_ day: DayKey) {
+        send(.lifecycle(.openDay(day)), origin: .background)
+    }
+
+    func advanceLifecycle() {
+        refreshToday()
+        guard lifecycleDay != today else { return }
+        if send(.lifecycle(.dayChanged), origin: .background) != nil { lifecycleDay = today }
+    }
+
+    func materializeRepeats(on days: [DayKey]) {
+        let priorError = lastError
+        let result = performMutation(origin: .background) { commands in
+            for day in days { try commands.execute(.lifecycle(.openDay(day))) }
         }
+        if result != nil { lastError = priorError }
     }
 
     private func publish(_ saved: Planner) {
@@ -173,21 +192,20 @@ final class PlannerStore: ObservableObject {
         guard !pendingText.isEmpty else { return true }
         let drafts = pendingText
         do {
-            let (before, after) = try file.mutate { p in
-                let before = p
+            let result = try pipeline.perform(origin: .user) { commands in
                 for (target, draft) in drafts {
-                    guard let current = target.value(in: p), current == draft.base || current == draft.text else {
+                    guard let current = target.value(in: commands.planner),
+                        current == draft.base || current == draft.text
+                    else {
                         throw PlannerError(
                             "This text changed elsewhere. Your draft is retained; restore the shared text before retrying."
                         )
                     }
-                    target.set(draft.text, in: &p)
+                    try target.apply(draft.text, using: commands)
                 }
-                return (before, p)
             }
-            history.record(before: before, after: after)
             pendingText.removeAll()
-            publish(after)
+            publish(result.state)
             return true
         } catch {
             report(error)
@@ -197,23 +215,17 @@ final class PlannerStore: ObservableObject {
 
     // MARK: Undo
 
-    var canUndo: Bool { history.canUndo || !pendingText.isEmpty }
-    var canRedo: Bool { history.canRedo }
+    var canUndo: Bool { pipeline.canUndo || !pendingText.isEmpty }
+    var canRedo: Bool { pipeline.canRedo }
 
     func undo() { traverseHistory(redo: false) }
     func redo() { traverseHistory(redo: true) }
 
     private func traverseHistory(redo: Bool) {
         guard flushPendingText() else { return }
-        guard redo ? history.canRedo : history.canUndo else { NSSound.beep(); return }
+        guard redo ? pipeline.canRedo : pipeline.canUndo else { NSSound.beep(); return }
         do {
-            var saved: Planner?
-            let transaction: ((inout Planner) -> Void) throws -> Void = { change in
-                saved = try self.file.mutate { p in
-                    change(&p); return p
-                }
-            }
-            if redo { try history.redo(transaction: transaction) } else { try history.undo(transaction: transaction) }
+            let saved = try redo ? pipeline.redo() : pipeline.undo()
             if let saved { publish(saved) }
         } catch { report(error) }
     }
@@ -223,7 +235,7 @@ final class PlannerStore: ObservableObject {
     private func startWatching() {
         pollTimer = Timer.scheduledTimer(withTimeInterval: 0.75, repeats: true) { [weak self] _ in
             Task { @MainActor in
-                self?.reloadFromDisk(external: true); self?.refreshToday()
+                self?.reloadFromDisk(external: true); self?.advanceLifecycle()
             }
         }
     }

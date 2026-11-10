@@ -6,9 +6,11 @@ public struct AgentTools {
     public let file: PlannerFile
     public let now: () -> Date
     public let calendar: Calendar
+    private let pipeline: PlannerCommandPipeline
 
     public init(file: PlannerFile, now: @escaping () -> Date = Date.init, calendar: Calendar = .current) {
         self.file = file; self.now = now; self.calendar = calendar
+        self.pipeline = PlannerCommandPipeline(file: file, clock: ClosurePlannerClock(now), calendar: calendar)
     }
 
     public static let instructions = """
@@ -174,35 +176,24 @@ public struct AgentTools {
             }
         }
         if Self.isReadOnly(name) {
-            // Atomic writer replacement makes a single read a consistent snapshot. Do
-            // not create a lock or a recovery copy while serving an advertised read.
-            var p = Planner()
-            if FileManager.default.fileExists(atPath: file.url.path) {
-                let data = try Data(contentsOf: file.url)
-                do { p = try PlannerFile.decoder.decode(Planner.self, from: data) } catch {
-                    throw PlannerError("Unable to load planner data.")
-                }
-            }
-            return try dispatch(name, args, planner: &p, agentID: agentID)
+            return try pipeline.inspect { try dispatch(name, args, commands: $0, agentID: agentID) }
         }
-        return try file.mutate { p in
-            try dispatch(name, args, planner: &p, agentID: agentID)
-        }
+        return try pipeline.perform(origin: .user) {
+            try dispatch(name, args, commands: $0, agentID: agentID)
+        }.value
     }
 
-    private func dispatch(_ name: String, _ args: JSON, planner: inout Planner, agentID: String?) throws -> String {
-        var engine = PlannerEngine(planner: planner, now: now, calendar: calendar)
-        defer { planner = engine.planner }
-        let resetHour = planner.preferences.resetHour
+    private func dispatch(_ name: String, _ args: JSON, commands: PlannerCommands, agentID: String?) throws -> String {
+        let resetHour = commands.planner.preferences.resetHour
         let a = args
         func day(_ key: String, inbox: Bool = true) throws -> DayRef {
             try DayRef.parse(a[key]?.string, now: now(), resetHour: resetHour, calendar: calendar, allowInbox: inbox)
         }
-        func task() throws -> String {
+        func task(_ dateKey: String = "date") throws -> UUID {
             guard let t = a["task"]?.string ?? a["task"]?.int.map(String.init), !t.isEmpty else {
                 throw PlannerError("Identify the task by id from list_tasks or by title.")
             }
-            return t
+            return try TaskReferenceResolver.resolve(t, in: commands.planner, on: day(dateKey))
         }
         func minutes(in range: ClosedRange<Int>) throws -> Int? {
             guard let value = a["minutes"] else { return nil }
@@ -215,8 +206,8 @@ public struct AgentTools {
             }
             return number
         }
-        func edit<T>(_ body: (inout PlannerEngine) throws -> T) throws -> T { try body(&engine) }
-        func read() throws -> PlannerEngine { engine }
+        func edit<T>(_ body: (PlannerCommands) throws -> T) throws -> T { try body(commands) }
+        func read() throws -> PlannerEngine { commands.read }
 
         switch name {
         case "add_tasks":
@@ -233,7 +224,7 @@ public struct AgentTools {
 
         case "list_tasks":
             let d = try day("date")
-            if let key = d.key { engine.applyRepeats(on: key) }
+            if let key = d.key { try commands.execute(.lifecycle(.openDay(key))) }
             let e = try read()
             let ts = e.tasks(on: d)
             var out: [String] = []
@@ -275,7 +266,7 @@ public struct AgentTools {
 
         case "get_task":
             let e = try read()
-            return detail(try e.task(task(), on: day("date")), e)
+            return detail(try e.task(task()), e)
 
         case "complete_task":
             let t = try edit { try $0.complete(try task()) }
@@ -289,10 +280,10 @@ public struct AgentTools {
             return "Renamed it to \(t.title)."
         case "delete_task":
             let t = try edit { try $0.delete(try task(), on: try day("date")) }
-            return "Deleted: \(t.title). Undo is available in Perch."
+            return "Deleted: \(t.title)."
         case "move_task":
             guard a["to"]?.string != nil else { throw PlannerError("Set a destination date or use inbox.") }
-            let t = try edit { try $0.move(try task(), from: try day("from"), to: try day("to")) }
+            let t = try edit { try $0.move(try task("from"), from: try day("from"), to: try day("to")) }
             return t.day.map { "Moved \(t.title) to \($0)." } ?? "Unscheduled into inbox: \(t.title)."
         case "update_task":
             var ed = TaskEdit()
@@ -306,7 +297,9 @@ public struct AgentTools {
             let t = try edit { try $0.snooze(try task(), minutes: minutes(in: 1...1440) ?? 5) }
             return "Snoozed \(t.title) until \(hm(t.remindAt!))."
         case "start_timer":
-            let s = try edit { try $0.startTimer(task: a["task"]?.string, minutes: minutes(in: 1...720)) }
+            let s = try edit {
+                try $0.startTimer(task: a["task"] == nil ? nil : try task(), minutes: minutes(in: 1...720))
+            }
             let e = try read()
             let t = s.taskID.flatMap { id in e.planner.tasks.first { $0.id == id }?.title }
             return "Started the timer\(t.map { " on \($0)" } ?? "")"
@@ -316,7 +309,7 @@ public struct AgentTools {
         case "stop_timer":
             let had = try read().planner.focus.map { $0.state != .finished } ?? false
             guard had else { throw PlannerError("Start a focus session first.") }
-            try edit { _ = $0.stopTimer() }
+            try edit { try $0.stopTimer() }
             return "Focus ended; the task was not completed."
         case "read_notepad":
             let d = try day("date", inbox: false).key!

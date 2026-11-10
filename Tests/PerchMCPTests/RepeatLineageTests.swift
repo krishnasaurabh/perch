@@ -19,7 +19,7 @@ final class RepeatLineageTests: XCTestCase {
         let p = try PlannerFile.decoder.decode(Planner.self, from: PlannerFile.encoder.encode(engine.planner))
         var reloaded = PlannerEngine(planner: p, now: { Fixture.now }, calendar: Fixture.calendar)
         XCTAssertTrue(reloaded.applyRepeats(on: "2026-11-12").isEmpty)
-        _ = try reloaded.delete(copies[0].id.uuidString, on: .day("2026-11-12"))
+        _ = try reloaded.delete(copies[0].id, on: .day("2026-11-12"))
         XCTAssertTrue(reloaded.applyRepeats(on: "2026-11-12").isEmpty, "deleting an occurrence must not resurrect it")
         XCTAssertTrue(reloaded.applyRepeats(on: "2026-11-08").isEmpty)
     }
@@ -28,11 +28,11 @@ final class RepeatLineageTests: XCTestCase {
         let roots = try engine.addTasks(["work every day", "work every day"])
         let copies = engine.applyRepeats(on: "2026-11-10")
         XCTAssertEqual(Set(copies.compactMap(\.repeatedFrom)), Set(roots.map(\.id)))
-        _ = try engine.rename(copies[0].id.uuidString, on: .day("2026-11-10"), to: "different title")
-        for root in roots { _ = try engine.complete(root.id.uuidString) }
+        _ = try engine.rename(copies[0].id, on: .day("2026-11-10"), to: "different title")
+        for root in roots { _ = try engine.complete(root.id) }
         XCTAssertEqual(engine.tasks(on: .day("2026-11-10")).count, 2)
-        _ = try engine.reopen(roots[0].id.uuidString)
-        _ = try engine.complete(roots[0].id.uuidString)
+        _ = try engine.reopen(roots[0].id)
+        _ = try engine.complete(roots[0].id)
         XCTAssertEqual(engine.tasks(on: .day("2026-11-10")).count, 2)
     }
 
@@ -41,7 +41,7 @@ final class RepeatLineageTests: XCTestCase {
         engine.planner.tasks[0].steps = [Subtask(title: "step", done: true)]
         engine.planner.tasks[0].focusedSeconds = 30
         engine.planner.tasks[0].reminderLink = "external"
-        _ = try engine.complete(root.id.uuidString)
+        _ = try engine.complete(root.id)
         XCTAssertTrue(engine.applyRepeats(on: "2026-11-10").isEmpty)
         let copy = engine.tasks(on: .day("2026-11-10"))[0]
         XCTAssertEqual(copy.repeatedFrom, root.id)
@@ -75,7 +75,7 @@ final class RepeatLineageTests: XCTestCase {
     func testCompletionRelativeRepeatWaitsForCompletion() throws {
         let root = try engine.addTasks(["water every! 3 days"]).first!
         XCTAssertTrue(engine.applyRepeats(on: "2026-11-12").isEmpty)
-        _ = try engine.complete(root.id.uuidString)
+        _ = try engine.complete(root.id)
         XCTAssertEqual(engine.tasks(on: .day("2026-11-12")).count, 1)
         XCTAssertTrue(engine.applyRepeats(on: "2026-11-15").isEmpty)
     }
@@ -86,7 +86,7 @@ final class RepeatLineageTests: XCTestCase {
         try engine.endRepeat(of: copy.id)
         XCTAssertTrue(engine.planner.tasks.allSatisfy { $0.repeatRule == nil })
         XCTAssertTrue(engine.applyRepeats(on: "2026-11-11").isEmpty)
-        _ = try engine.complete(root.id.uuidString)
+        _ = try engine.complete(root.id)
         XCTAssertEqual(engine.planner.tasks.count, 2)
         XCTAssertNoThrow(try engine.endRepeat(of: root.id))
         XCTAssertThrowsError(try engine.endRepeat(of: UUID()))
@@ -96,7 +96,7 @@ final class RepeatLineageTests: XCTestCase {
         let root = try engine.addTasks(["work every day"]).first!
         _ = engine.applyRepeats(on: "2026-11-10")
         var edit = TaskEdit(); edit.repeatRule = "none"
-        _ = try engine.update(root.id.uuidString, on: .day(engine.today), edit)
+        _ = try engine.update(root.id, on: .day(engine.today), edit)
         XCTAssertTrue(engine.applyRepeats(on: "2026-11-11").isEmpty)
         XCTAssertTrue(engine.planner.tasks.allSatisfy { $0.repeatRule == nil })
     }
@@ -129,10 +129,10 @@ final class RepeatLineageTests: XCTestCase {
     func testMonthlyCompletionAndLazyViewShareOriginalAnchor() throws {
         clock = Fixture.date("2026-01-31 15:00")
         let root = try engine.addTasks(["review every month"]).first!
-        _ = try engine.complete(root.id.uuidString)
+        _ = try engine.complete(root.id)
         let feb = engine.tasks(on: .day("2026-02-28"))[0]
         clock = Fixture.date("2026-02-28 15:00")
-        _ = try engine.complete(feb.id.uuidString)
+        _ = try engine.complete(feb.id)
         XCTAssertTrue(engine.tasks(on: .day("2026-03-28")).isEmpty)
         XCTAssertEqual(engine.tasks(on: .day("2026-03-31")).count, 1)
         XCTAssertTrue(engine.applyRepeats(on: "2026-03-31").isEmpty)
@@ -142,7 +142,7 @@ final class RepeatLineageTests: XCTestCase {
         _ = try engine.addTasks(["work every day"])
         let copy = engine.applyRepeats(on: "2026-11-10")[0]
         var edit = TaskEdit(); edit.repeatRule = "weekly"
-        _ = try engine.update(copy.id.uuidString, on: .day("2026-11-10"), edit)
+        _ = try engine.update(copy.id, on: .day("2026-11-10"), edit)
         XCTAssertTrue(engine.applyRepeats(on: "2026-11-11").isEmpty)
         XCTAssertEqual(engine.applyRepeats(on: "2026-11-17").count, 1)
     }

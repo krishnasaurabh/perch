@@ -44,16 +44,11 @@ enum AISorter {
                 Task {
                     for t in tasks {
                         guard let s = try? await suggest(title: t.title, projects: projects) else { continue }
-                        store.updateTask(t.id) { cur in
-                            if cur.priority == .none { cur.priority = s.priority.taskPriority }
-                            if cur.projectID == nil, !s.project.isEmpty,
-                                let p = store.planner.projects.first(where: {
-                                    $0.name.caseInsensitiveCompare(s.project) == .orderedSame
-                                })
-                            {
-                                cur.projectID = p.id
-                            }
-                        }
+                        let project = store.planner.projects.first {
+                            $0.name.caseInsensitiveCompare(s.project) == .orderedSame
+                        }?.id
+                        store.send(
+                            .suggest(t.id, priority: s.priority.taskPriority, projectID: project), origin: .background)
                     }
                 }
             }

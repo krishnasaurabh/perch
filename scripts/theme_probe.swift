@@ -104,7 +104,7 @@ MainActor.assumeIsolated {
             seeded.count == 4, seeded.contains(where: { $0.priority == .high })
         else { fatalError("Priority fixture missing") }
         // Keep the real segmented filter visible after empty-Completed suppression.
-        _ = store.apply { try $0.complete(seeded.last!.id.uuidString) }
+        _ = store.apply { try $0.complete(seeded.last!.id) }
         let geometry = NotchGeometry(
             screen: .init(
                 frame: CGRect(x: 0, y: 0, width: 1024, height: 768),

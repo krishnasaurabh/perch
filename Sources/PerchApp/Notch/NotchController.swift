@@ -108,6 +108,11 @@ final class NotchController {
 
     func start() {
         updateScreens()
+        model.$page.removeDuplicates().sink { [weak store] page in
+            guard let store else { return }
+            let count = page == .week ? 7 : 1
+            store.materializeRepeats(on: (0..<count).map { store.today.adding(days: $0) })
+        }.store(in: &cancellables)
 
         let mask: NSEvent.EventTypeMask = [.mouseMoved, .leftMouseDragged, .leftMouseDown]
         monitors.append(
@@ -495,7 +500,7 @@ final class NotchController {
         // A running timer is written through on every tick; the engine banks a checkpoint every
         // 30 s of running time, so a crash or kill -9 loses at most that much.
         if store.engine.planner.focus?.state == .running {
-            if store.applyUntracked({ $0.tick() }) == true { services.focusFinished() }
+            if store.applyUntracked({ try $0.tick() }) == true { services.focusFinished() }
         }
         ticks += 1
         if ticks % 2 == 0 { applyFullScreen() }

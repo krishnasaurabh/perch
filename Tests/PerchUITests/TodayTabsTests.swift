@@ -1,4 +1,5 @@
 import XCTest
+import PlannerTestSupport
 @testable import PlannerCore
 @testable import PerchUI
 
@@ -26,10 +27,10 @@ final class TodayTabsTests: XCTestCase {
         func doneToday() -> Int { e.tasks(on: .day(e.today)).filter(\.done).count }
 
         XCTAssertEqual(TodayTabs.visible(completedCount: doneToday()), [.active])
-        _ = try e.complete("Rinse the paint tray")
+        _ = try e.complete(try Fixture.taskID("Rinse the paint tray", in: e.planner))
         XCTAssertEqual(TodayTabs.visible(completedCount: doneToday()), [.active, .completed])
         XCTAssertEqual(TodayTabs.resolved(.completed, completedCount: doneToday()), .completed)
-        _ = try e.reopen("Rinse the paint tray")
+        _ = try e.reopen(try Fixture.taskID("Rinse the paint tray", in: e.planner))
         XCTAssertEqual(TodayTabs.visible(completedCount: doneToday()), [.active])
         XCTAssertEqual(TodayTabs.resolved(.completed, completedCount: doneToday()), .active)
     }

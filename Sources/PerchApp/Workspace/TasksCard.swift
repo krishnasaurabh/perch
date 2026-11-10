@@ -69,7 +69,7 @@ struct TasksCard: View {
         .onChange(of: finished.count, initial: true) { _, count in
             tab = TodayTabs.resolved(tab, completedCount: count)
         }
-        .showsDays([store.today])
+
     }
 
     @ViewBuilder private var startFocus: some View {
@@ -118,7 +118,7 @@ struct TasksCard: View {
     func reorder(_ items: [NSItemProvider], before target: UUID) {
         items.first?.loadObject(ofClass: NSString.self) { s, _ in
             guard let s = s as? String, let id = UUID(uuidString: s), id != target else { return }
-            Task { @MainActor in store.apply { $0.reorder(id, before: target) } }
+            Task { @MainActor in store.apply { try $0.reorder(id, before: target) } }
         }
     }
 }
@@ -261,7 +261,7 @@ struct TaskRow: View {
             Spacer(minLength: 4)
             if hover && !task.done && task.day == store.today {
                 GlassButton(symbol: "play.fill", help: "Focus on this", tint: Theme.accent, size: 22) {
-                    store.apply { try $0.startTimer(task: task.id.uuidString, minutes: nil) }
+                    store.apply { try $0.startTimer(task: task.id, minutes: nil) }
                 }
             }
             if hover {
@@ -354,7 +354,7 @@ struct TaskRow: View {
 
     @ViewBuilder private var menu: some View {
         if !task.done {
-            Button("Start focusing") { store.apply { try $0.startTimer(task: task.id.uuidString, minutes: nil) } }
+            Button("Start focusing") { store.apply { try $0.startTimer(task: task.id, minutes: nil) } }
             Button("Set Time Limit…") { model.detailsTaskID = task.id }
             Divider()
             Button("Move to Tomorrow") { move(.day(store.today.adding(days: 1))) }
@@ -382,16 +382,16 @@ struct TaskRow: View {
 
     /// Tick: the circle fills at once, then the row fades in place while the rows below slide up (`Motion.row`).
     func toggle() {
-        if task.done { Motion.animate(Motion.row) { _ = store.apply { try $0.reopen(task.id.uuidString) } }; return }
+        if task.done { Motion.animate(Motion.row) { _ = store.apply { try $0.reopen(task.id) } }; return }
         ticked = true
         DispatchQueue.main.asyncAfter(deadline: .now() + (Motion.reduceMotion ? 0 : 0.14)) {
             Motion.animate(Motion.row) {
                 if task.day == store.today {
-                    store.apply { try $0.complete(task.id.uuidString) }
+                    store.apply { try $0.complete(task.id) }
+                } else if let day = task.day, day < store.today {
+                    store.send(.completeOverdue([task.id]))
                 } else {
-                    store.updateTask(task.id) {
-                        $0.done = true; $0.completedAt = Date()
-                    }
+                    store.send(.complete(task.id))
                 }
             }
             ticked = false
@@ -399,15 +399,15 @@ struct TaskRow: View {
     }
 
     func move(_ to: DayRef) {
-        store.apply { try $0.move(task.id.uuidString, from: task.day.map { .day($0) } ?? .inbox, to: to) }
+        store.apply { try $0.move(task.id, from: task.day.map { .day($0) } ?? .inbox, to: to) }
     }
 
-    func delete() { store.apply { try $0.delete(task.id.uuidString, on: task.day.map { .day($0) } ?? .inbox) } }
+    func delete() { store.apply { try $0.delete(task.id, on: task.day.map { .day($0) } ?? .inbox) } }
 
     func commitRename() {
         editing = false
         guard draft != task.title else { return }
-        store.apply { try $0.rename(task.id.uuidString, on: task.day.map { .day($0) } ?? .inbox, to: draft) }
+        store.apply { try $0.rename(task.id, on: task.day.map { .day($0) } ?? .inbox, to: draft) }
     }
 }
 
@@ -551,47 +551,6 @@ private struct VoiceButtonBody: View {
                 set: { if !$0 { voice.state = .idle } })
         ) {
             if case .error(let m) = voice.state { Text(m).font(.system(size: 12)).padding(12).frame(width: 260) }
-        }
-    }
-}
-
-// MARK: Lazy repeats
-
-extension View {
-    /// Marks these days as on screen, so their copies of repeating tasks exist (lazy repeats).
-    func showsDays(_ days: [DayKey]) -> some View { modifier(ShowsDays(days: days)) }
-}
-
-private struct ShowsDays: ViewModifier {
-    let days: [DayKey]
-    @EnvironmentObject var store: PlannerStore
-
-    func body(content: Content) -> some View {
-        content
-            .onAppear { store.materializeRepeats(on: days) }
-            .onChange(of: days) { _, new in store.materializeRepeats(on: new) }
-        // Materialize at view/day boundaries, never as feedback to Undo or Redo.
-    }
-}
-
-extension PlannerStore {
-    /// Creates the scheduled copies of repeating tasks for days being shown. Past days stay a record.
-    /// Not an undo step and leaves `lastError` alone: this is the view catching up, not a user edit,
-    /// so ⌘Z still undoes the user's last change and an earlier error banner stays up.
-    func materializeRepeats(on days: [DayKey]) {
-        let open = days.filter { $0 >= today }
-        // Dry run on a copy first, so ordinary redraws never take the file lock or write.
-        var probe = engine
-        guard open.contains(where: { !probe.applyRepeats(on: $0).isEmpty }) else { return }
-        do {
-            try file.mutate { p in
-                var e = PlannerEngine(planner: p)
-                for d in open { e.applyRepeats(on: d) }
-                p = e.planner
-            }
-            reloadFromDisk(external: false)
-        } catch {
-            lastError = (error as? PlannerError)?.message ?? error.localizedDescription
         }
     }
 }

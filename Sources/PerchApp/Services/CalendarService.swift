@@ -19,14 +19,15 @@ final class CalendarService: ObservableObject {
     }
 
     @Published private(set) var events: [Event] = []
-    @Published private(set) var access: EKAuthorizationStatus = EKEventStore.authorizationStatus(for: .event)
+    @Published private(set) var access: EKAuthorizationStatus = .notDetermined
     @Published private(set) var calendars: [EKCalendar] = []
-    private let ek = EKEventStore()
+    private let source: any CalendarAccess
     private let store: PlannerStore
 
-    init(store: PlannerStore) {
+    init(store: PlannerStore, source: (any CalendarAccess)? = nil) {
         self.store = store
-        NotificationCenter.default.addObserver(forName: .EKEventStoreChanged, object: ek, queue: .main) {
+        self.source = source ?? SystemCalendarAccess()
+        NotificationCenter.default.addObserver(forName: .EKEventStoreChanged, object: nil, queue: .main) {
             [weak self] _ in
             Task { @MainActor in self?.refresh() }
         }
@@ -36,28 +37,19 @@ final class CalendarService: ObservableObject {
     var hasAccess: Bool { access == .fullAccess }
 
     func requestAccess() async {
-        _ = try? await ek.requestFullAccessToEvents()
-        access = EKEventStore.authorizationStatus(for: .event)
+        _ = try? await source.requestAccess()
+        access = source.authorization
         refresh()
     }
 
     func refresh(day: Date = Date()) {
-        access = EKEventStore.authorizationStatus(for: .event)
+        access = source.authorization
         guard hasAccess else { events = []; return }
-        calendars = ek.calendars(for: .event)
+        calendars = source.calendars()
         let hidden = Set(store.prefs.hiddenCalendarIDs)
         let cals = calendars.filter { !hidden.contains($0.calendarIdentifier) }
         guard !cals.isEmpty else { events = []; return }
-        let start = Calendar.current.startOfDay(for: day)
-        let end = Calendar.current.date(byAdding: .day, value: 1, to: start)!
-        let pred = ek.predicateForEvents(withStart: start, end: end, calendars: cals)
-        events = ek.events(matching: pred).sorted { $0.startDate < $1.startDate }.map {
-            Event(
-                id: $0.calendarItemIdentifier + "\($0.startDate.timeIntervalSince1970)", title: $0.title ?? "Event",
-                start: $0.startDate, end: $0.endDate, allDay: $0.isAllDay,
-                colorHex: $0.calendar.cgColor.flatMap { NSColor(cgColor: $0) }.map(SwiftUIColorBridge.hex) ?? "#8E8CF5",
-                location: $0.location, calendarTitle: $0.calendar.title)
-        }
+        events = source.events(on: day, calendars: cals)
     }
 }
 

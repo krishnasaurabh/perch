@@ -1,5 +1,5 @@
 import AppKit
-import PlannerCore
+@testable import PlannerCore
 #if canImport(PerchApp)
     @testable import PerchApp
     import PerchUI
@@ -24,7 +24,7 @@ func checkStore() throws -> PlannerStore {
     let clock = ProbeClock()
     let store = PlannerStore(now: { clock.now }, watching: false)
     let task = store.apply { try $0.addTasks(["Undo fixture"], on: .day($0.today)) }![0]
-    store.apply { try $0.startTimer(task: task.id.uuidString, minutes: 5) }
+    store.apply { try $0.startTimer(task: task.id, minutes: 5) }
     store.updateTask(task.id) { $0.title = "Edited fixture" }
     clock.advance(30.25)
     store.apply { try $0.pauseTimer() }
@@ -39,15 +39,15 @@ func checkStore() throws -> PlannerStore {
     require(store.planner.tasks.first?.title == "Edited fixture", "Redo restores only the user edit")
     store.apply { try $0.resumeTimer() }
     clock.advance(4.75)
-    store.apply { _ = $0.stopTimer() }
+    store.apply { _ = try $0.stopTimer() }
     store.undo(); store.redo()
     require(
         store.planner.focus == nil && store.planner.tasks[0].focusedSeconds == 35,
         "stop remains stopped with no paused-time credit")
 
-    store.apply { try $0.startTimer(task: task.id.uuidString, minutes: 1) }
+    store.apply { try $0.startTimer(task: task.id, minutes: 1) }
     clock.advance(5)
-    store.apply { _ = try $0.complete(task.id.uuidString) }
+    store.apply { _ = try $0.complete(task.id) }
     store.undo()
     require(
         !store.planner.tasks[0].done && store.planner.focus?.state != .running,
@@ -76,7 +76,7 @@ func checkStore() throws -> PlannerStore {
     require(
         store.planner.tasks[0].notes == "Local note" && store.planner.tasks[0].reminderLink == "synthetic-link-2",
         "external link reload preserves redo")
-    store.apply { $0.planner.tasks[0].reminderLink = "synthetic-link-3" }
+    store.send(.reminderLinks([task.id: "synthetic-link-3"]), origin: .background)
     store.undo()
     require(
         store.planner.tasks[0].notes == "" && store.planner.tasks[0].reminderLink == "synthetic-link-3",
@@ -160,7 +160,7 @@ func checkDeletionRedo() throws {
     let clock = ProbeClock()
     let store = PlannerStore(now: { clock.now }, watching: false)
     let zero = store.apply { try $0.addTasks(["Unfocused deletion fixture"], on: .day($0.today)) }![0]
-    store.apply { try $0.delete(zero.id.uuidString, on: .day($0.today)) }
+    store.apply { try $0.delete(zero.id, on: .day($0.today)) }
     require(!store.planner.tasks.contains { $0.id == zero.id }, "zero-credit deletion removes task")
     store.undo()
     let zeroRestored = store.planner
@@ -171,13 +171,13 @@ func checkDeletionRedo() throws {
     require(store.planner == zeroRestored, "zero-credit second undo restores exact content")
 
     let task = store.apply { try $0.addTasks(["Focused deletion fixture"], on: .day($0.today)) }![0]
-    store.apply { try $0.startTimer(task: task.id.uuidString, minutes: 1) }
+    store.apply { try $0.startTimer(task: task.id, minutes: 1) }
     clock.advance(30.25)
     store.apply { try $0.pauseTimer() }
     clock.advance(600)
     store.apply { try $0.resumeTimer() }
     clock.advance(29.75)
-    store.apply { _ = $0.tick() }
+    store.apply { _ = try $0.tick() }
     let ledger = store.planner.focusSegments
     require(
         store.planner.tasks.first { $0.id == task.id }?.focusedSeconds == 60,
@@ -189,7 +189,7 @@ func checkDeletionRedo() throws {
         planner.tasks[i].reminderLink = "retired-synthetic-link"
         planner.tasks[i].agentID = "retired-synthetic-caller"
     }
-    store.apply { try $0.delete(task.id.uuidString, on: .day($0.today)) }
+    store.apply { try $0.delete(task.id, on: .day($0.today)) }
     require(
         store.lastError == nil && !store.planner.tasks.contains { $0.id == task.id },
         "focused deletion removes task from latest disk state")
@@ -233,9 +233,9 @@ func checkDeletionRedo() throws {
     require(!store.canRedo, "conflicting deletion redo is consumed without a new inverse")
 
     for paused in [false, true] {
-        store.apply { try $0.delete(task.id.uuidString, on: .day($0.today)) }
+        store.apply { try $0.delete(task.id, on: .day($0.today)) }
         store.undo()
-        store.apply { try $0.startTimer(task: task.id.uuidString, minutes: 1) }
+        store.apply { try $0.startTimer(task: task.id, minutes: 1) }
         if paused { store.apply { try $0.pauseTimer() } }
         let active = try store.file.load()
         require(
@@ -245,12 +245,12 @@ func checkDeletionRedo() throws {
         let afterActive = try store.file.load()
         require(store.planner == active && afterActive == active, "deletion redo protects running and paused timers")
     }
-    store.apply { _ = $0.stopTimer() }
-    store.apply { try $0.delete(task.id.uuidString, on: .day($0.today)) }
+    store.apply { _ = try $0.stopTimer() }
+    store.apply { try $0.delete(task.id, on: .day($0.today)) }
     store.undo()
-    store.apply { try $0.startTimer(task: task.id.uuidString, minutes: 1) }
+    store.apply { try $0.startTimer(task: task.id, minutes: 1) }
     clock.advance(8.5)
-    store.apply { _ = $0.stopTimer() }
+    store.apply { _ = try $0.stopTimer() }
     let accrued = try store.file.load()
     require(
         accrued.tasks.first { $0.id == task.id }?.focusedSeconds == 68.5 && store.canRedo,

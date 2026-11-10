@@ -31,6 +31,7 @@ extension PlannerEngine {
     /// Ends the series without deleting explicitly planned occurrences or its history.
     public mutating func endRepeat(of id: UUID) throws {
         guard let task = planner.tasks.first(where: { $0.id == id }) else { throw PlannerError("Task id not found.") }
+        try requireEditable(task)
         guard task.repeatRule != nil else { return }
         let seriesID = task.repeatSeriesID
         for i in planner.tasks.indices where planner.tasks[i].repeatSeriesID == seriesID {

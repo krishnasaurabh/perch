@@ -1,5 +1,5 @@
 import AppKit
-import PlannerCore
+@testable import PlannerCore
 #if canImport(PerchApp)
     @testable import PerchApp
     import PerchUI
@@ -96,12 +96,12 @@ func checkClosedNotch(store: PlannerStore, model: NotchModel, services: Services
     model.geometry = g
     store.updatePrefs { $0.notchOnMonitors = true }
     for name in ["idle", "left", "right", "hidden", "long", "running", "activity"] {
-        _ = store.apply { e in
+        _ = store.seedFixture { e in
             e.planner.tasks = []
             e.planner.focus = nil
             if name != "idle" && name != "activity" {
                 let task = try e.addTasks(["Release timer check"], on: .day(e.today))[0]
-                _ = try e.startTimer(task: task.id.uuidString, minutes: name == "long" ? 120 : 5)
+                _ = try e.startTimer(task: task.id, minutes: name == "long" ? 120 : 5)
                 if name != "running" { try e.pauseTimer() }
                 e.planner.focus?.banked = 16
             }
@@ -122,7 +122,7 @@ func checkClosedNotch(store: PlannerStore, model: NotchModel, services: Services
             name: "notch-hug-\(name)", size: g.window.size, output: output)
     }
     model.activity = nil
-    _ = store.apply { e in
+    _ = store.seedFixture { e in
         e.planner.tasks = []; e.planner.focus = nil
     }
 }
@@ -159,7 +159,7 @@ func runProbe() async throws {
     _ = store.apply { try $0.addTasks(["Integration undo first"], on: .day($0.today)) }
     _ = store.apply { try $0.addTasks(["Integration undo second"], on: .day($0.today)) }
     store.undo()
-    _ = store.applyUntracked { $0.tick() }
+    _ = store.applyUntracked { try $0.tick() }
     store.redo()
     require(store.planner.tasks.contains { $0.title == "Integration undo second" }, "untracked tick preserves Redo")
 
@@ -192,7 +192,7 @@ func runProbe() async throws {
             SettingsView().environmentObject(store).environmentObject(services).environment(\.colorScheme, scheme),
             name: "settings-\(dark ? "dark" : "light")", size: NSSize(width: 720, height: 600), output: output)
     }
-    _ = store.apply { e in
+    _ = store.seedFixture { e in
         e.planner.tasks.append(
             PlanTask(
                 title: "Integration agent history", day: e.today.adding(days: -1), done: true, agentID: "claude-code"))
@@ -218,3 +218,18 @@ Task { @MainActor in
     do { try await runProbe(); exit(0) } catch { fputs("FAIL: \(error)\n", stderr); exit(1) }
 }
 app.run()
+
+// Deliberately authored fixture setup, not a production mutation entry point.
+@MainActor
+private extension PlannerStore {
+    func seedFixture(_ body: (inout PlannerEngine) throws -> Void) {
+        do {
+            try file.mutate { planner in
+                var engine = PlannerEngine(planner: planner)
+                try body(&engine)
+                planner = engine.planner
+            }
+            reloadFromDisk(external: false)
+        } catch { lastError = error.localizedDescription }
+    }
+}

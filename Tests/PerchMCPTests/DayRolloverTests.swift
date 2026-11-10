@@ -35,8 +35,8 @@ final class DayRolloverTests: XCTestCase {
         XCTAssertEqual(t.day, "2026-11-09")
         XCTAssertTrue(e.overdue().isEmpty)
         XCTAssertNoThrow(try e.writeNotepad(on: "2026-11-09", text: "still today"))
-        XCTAssertNoThrow(try e.startTimer(task: t.id.uuidString, minutes: 5))
-        XCTAssertNoThrow(try e.complete(t.id.uuidString))
+        XCTAssertNoThrow(try e.startTimer(task: t.id, minutes: 5))
+        XCTAssertNoThrow(try e.complete(t.id))
         XCTAssertEqual(e.insights().today.completed, 1)
         XCTAssertThrowsError(try e.addTasks(["old"], on: .day("2026-11-08")))
     }
@@ -50,8 +50,8 @@ final class DayRolloverTests: XCTestCase {
         XCTAssertEqual(Fixture.hm(t.remindAt), "2026-11-10 01:50")
         XCTAssertEqual(Fixture.hm(try e.parseReminder("3am", on: e.today)), "2026-11-10 03:00")
         var edit = TaskEdit(); edit.remindAt = "3am"
-        XCTAssertEqual(try e.update(t.id.uuidString, on: .day(e.today), edit).day, "2026-11-09")
-        XCTAssertEqual(try e.snooze(t.id.uuidString, minutes: 5).day, "2026-11-09")
+        XCTAssertEqual(try e.update(t.id, on: .day(e.today), edit).day, "2026-11-09")
+        XCTAssertEqual(try e.snooze(t.id, minutes: 5).day, "2026-11-09")
         let capture = TaskCapture(now: now, resetHour: 4, calendar: cal)
         XCTAssertEqual(Fixture.hm(capture.parse("check today at 3am").remindAt), "2026-11-10 03:00")
         XCTAssertEqual(capture.parse("check at 3am").day, "2026-11-09")
