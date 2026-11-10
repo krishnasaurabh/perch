@@ -125,6 +125,92 @@ func checkStore() throws -> PlannerStore {
 }
 
 @MainActor
+func checkDeletionRedo() throws {
+    let clock = ProbeClock()
+    let store = PlannerStore(now: { clock.now }, watching: false)
+    let zero = store.apply { try $0.addTasks(["Unfocused deletion fixture"], on: .day($0.today)) }![0]
+    store.apply { try $0.delete(zero.id.uuidString, on: .day($0.today)) }
+    require(!store.planner.tasks.contains { $0.id == zero.id }, "zero-credit deletion removes task")
+    store.undo()
+    let zeroRestored = store.planner
+    require(store.planner.tasks.first { $0.id == zero.id }?.focusedSeconds == 0, "zero-credit undo restores task")
+    store.redo()
+    require(!store.planner.tasks.contains { $0.id == zero.id }, "zero-credit redo removes task")
+    store.undo()
+    require(store.planner == zeroRestored, "zero-credit second undo restores exact content")
+
+    let task = store.apply { try $0.addTasks(["Focused deletion fixture"], on: .day($0.today)) }![0]
+    store.apply { try $0.startTimer(task: task.id.uuidString, minutes: 1) }
+    clock.advance(30.25)
+    store.apply { try $0.pauseTimer() }
+    clock.advance(600)
+    store.apply { try $0.resumeTimer() }
+    clock.advance(29.75)
+    store.apply { _ = $0.tick() }
+    let ledger = store.planner.focusSegments
+    require(store.planner.tasks.first { $0.id == task.id }?.focusedSeconds == 60, "focused deletion fixture has exact sixty-second credit")
+    let segments = ledger.filter { $0.taskID == task.id }
+    require(segments.count == 2 && segments[0].end < segments[1].start, "focused deletion fixture excludes paused gap")
+    try store.file.mutate { planner in
+        let i = planner.tasks.firstIndex { $0.id == task.id }!
+        planner.tasks[i].reminderLink = "retired-synthetic-link"
+        planner.tasks[i].agentID = "retired-synthetic-caller"
+    }
+    store.apply { try $0.delete(task.id.uuidString, on: .day($0.today)) }
+    require(store.lastError == nil && !store.planner.tasks.contains { $0.id == task.id }, "focused deletion removes task from latest disk state")
+    require(store.planner.focus == nil && store.planner.focusSegments == ledger, "deletion clears timer but retains exact ledger")
+    store.undo()
+    let restored = store.planner
+    let restoredTask = restored.tasks.first { $0.id == task.id }
+    require(restoredTask?.focusedSeconds == 60, "focused deletion undo reconstructs exact credit")
+    require(restoredTask != nil && restoredTask?.reminderLink == nil && restoredTask?.agentID == nil, "focused deletion undo excludes stale service identity")
+    require(restored.focus == nil && restored.focusSegments == ledger, "focused deletion undo cannot resurrect timer")
+    for _ in 0..<2 {
+        store.redo()
+        let deleted = try store.file.load()
+        require(!deleted.tasks.contains { $0.id == task.id } && store.planner == deleted, "focused deletion redo removes persisted and visible task")
+        require(deleted.focus == nil && deleted.focusSegments == ledger, "focused deletion redo preserves exact ledger and stopped timer")
+        store.undo()
+        let reloaded = try store.file.load()
+        require(reloaded == restored && store.planner == restored, "repeated undo restores exact task without runtime rewind")
+    }
+
+    try store.file.mutate { planner in
+        let i = planner.tasks.firstIndex { $0.id == task.id }!
+        planner.tasks[i].notes = "External edit after undo"
+    }
+    let external = try store.file.load()
+    store.redo()
+    let afterConflict = try store.file.load()
+    require(store.planner == external && afterConflict == external, "redo preserves external content without an explicit reload")
+    require(!store.canRedo, "conflicting deletion redo is consumed without a new inverse")
+
+    for paused in [false, true] {
+        store.apply { try $0.delete(task.id.uuidString, on: .day($0.today)) }
+        store.undo()
+        store.apply { try $0.startTimer(task: task.id.uuidString, minutes: 1) }
+        if paused { store.apply { try $0.pauseTimer() } }
+        let active = try store.file.load()
+        require(active.tasks.first { $0.id == task.id }?.focusedSeconds == 60 && store.canRedo, "new timer keeps deletion redo available without adding credit")
+        store.redo()
+        let afterActive = try store.file.load()
+        require(store.planner == active && afterActive == active, "deletion redo protects running and paused timers")
+    }
+    store.apply { _ = $0.stopTimer() }
+    store.apply { try $0.delete(task.id.uuidString, on: .day($0.today)) }
+    store.undo()
+    store.apply { try $0.startTimer(task: task.id.uuidString, minutes: 1) }
+    clock.advance(8.5)
+    store.apply { _ = $0.stopTimer() }
+    let accrued = try store.file.load()
+    require(accrued.tasks.first { $0.id == task.id }?.focusedSeconds == 68.5 && store.canRedo, "new focus after undo accrues separately")
+    store.redo()
+    let afterAccrual = try store.file.load()
+    require(store.planner == accrued && afterAccrual == accrued, "deletion redo protects new focus credit and ledger")
+    require(store.lastError == nil, "deletion regression transactions finish without storage errors")
+}
+
+@MainActor
 func checkNotepadView(_ store: PlannerStore) async throws {
     let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 320, height: 220), styleMask: [.titled], backing: .buffered, defer: false)
     window.isReleasedWhenClosed = false
@@ -159,6 +245,7 @@ Task { @MainActor in
     do {
         let store = try checkStore()
         try await checkNotepadView(store)
+        try checkDeletionRedo()
         print("Undo app probe passed")
         exit(0)
     } catch { fputs("FAIL: \(error)\n", stderr); exit(1) }
