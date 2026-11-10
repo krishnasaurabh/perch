@@ -24,7 +24,6 @@ final class NotchModel: ObservableObject {
     @Published var screenID: CGDirectDisplayID = 0
     /// Geometry of the active screen.
     @Published var geometry: NotchGeometry?
-    @Published var now = Date()
     /// Opened with the keyboard: stay open until Esc or a click outside.
     @Published var pinned = false
     @Published var editingTaskID: UUID?
@@ -94,8 +93,9 @@ final class NotchController {
     private var monitors: [Any] = []
     private var closeWork: DispatchWorkItem?
     private var openWork: DispatchWorkItem?
-    private var tick: Timer?
-    private var pointerTimer: Timer?
+    private var dragTimer: Timer?
+    private var dragDeadline: Date?
+    private var fullscreenObservation: FullscreenObservation?
     private var cancellables = Set<AnyCancellable>()
     private var hotKey: GlobalHotKey?
     /// Drag pasteboard change count while no button is held; a different count with the button down means a drag.
@@ -114,7 +114,7 @@ final class NotchController {
             store.materializeRepeats(on: (0..<count).map { store.today.adding(days: $0) })
         }.store(in: &cancellables)
 
-        let mask: NSEvent.EventTypeMask = [.mouseMoved, .leftMouseDragged, .leftMouseDown]
+        let mask: NSEvent.EventTypeMask = [.mouseMoved, .leftMouseDragged, .leftMouseDown, .leftMouseUp]
         monitors.append(
             NSEvent.addGlobalMonitorForEvents(matching: mask) { [weak self] e in
                 Task { @MainActor in self?.handle(e) }
@@ -124,10 +124,8 @@ final class NotchController {
                 Task { @MainActor in self?.handle(e) }
                 return e
             } as Any)
-        // Event monitors miss moves inside other apps' drag sessions; a light poll keeps routing and drop detection exact.
-        pointerTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / 15, repeats: true) { [weak self] _ in
-            Task { @MainActor in self?.trackPointer() }
-        }
+        // Ordinary pointer movement is event-driven. Only a live drag needs a short-lived
+        // fallback because other applications can consume their drag-session events.
 
         hotKey = GlobalHotKey(keyCode: 45 /* N */, modifiers: .option) { [weak self] in
             guard let self else { return }
@@ -160,12 +158,7 @@ final class NotchController {
         ) { [weak self] _ in
             Task { @MainActor in self?.updateScreens() }
         }
-        for name in [NSWorkspace.activeSpaceDidChangeNotification, NSWorkspace.didActivateApplicationNotification] {
-            NSWorkspace.shared.notificationCenter.addObserver(forName: name, object: nil, queue: .main) {
-                [weak self] _ in
-                Task { @MainActor in self?.checkFullScreenSoon() }
-            }
-        }
+        fullscreenObservation = FullscreenObservation { [weak self] in self?.checkFullScreenSoon() }
         NotificationCenter.default.addObserver(forName: .perchOpenWorkspace, object: nil, queue: .main) {
             [weak self] n in
             Task { @MainActor in
@@ -176,9 +169,7 @@ final class NotchController {
             }
         }
 
-        tick = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
-            Task { @MainActor in self?.onTick() }
-        }
+        store.focusFinished = { [weak services] in services?.focusFinished() }
 
         // `--dump-layout <path>`: write every screen's live frames as JSON (CI artifact, real-Mac checks).
         let args = CommandLine.arguments
@@ -416,6 +407,12 @@ final class NotchController {
     }
 
     private func handle(_ e: NSEvent) {
+        if e.type == .leftMouseUp {
+            dragTimer?.invalidate(); dragTimer = nil; dragDeadline = nil
+            trackPointer()
+            return
+        }
+        if e.type == .leftMouseDown || e.type == .leftMouseDragged { startDragFallback() }
         let p = NSEvent.mouseLocation
         updateMouseRouting(at: p)
         let prefs = store.prefs
@@ -492,18 +489,31 @@ final class NotchController {
         }
     }
 
-    // MARK: Tick
-
-    private var ticks = 0
-    private func onTick() {
-        model.now = Date()
-        // A running timer is written through on every tick; the engine banks a checkpoint every
-        // 30 s of running time, so a crash or kill -9 loses at most that much.
-        if store.engine.planner.focus?.state == .running {
-            if store.applyUntracked({ try $0.tick() }) == true { services.focusFinished() }
+    /// A missing mouse-up cannot leave a high-frequency poll running indefinitely.
+    /// Fresh drag events renew the bound; an inactive pointer never starts a timer.
+    private func startDragFallback() {
+        dragDeadline = Date().addingTimeInterval(120)
+        guard dragTimer == nil else { return }
+        dragTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / 15, repeats: true) { [weak self] _ in
+            Task { @MainActor in
+                guard let self else { return }
+                guard NSEvent.pressedMouseButtons & 1 != 0,
+                    self.dragDeadline.map({ Date() < $0 }) == true
+                else {
+                    self.dragTimer?.invalidate(); self.dragTimer = nil
+                    self.dragDeadline = nil
+                    return
+                }
+                self.trackPointer()
+            }
         }
-        ticks += 1
-        if ticks % 2 == 0 { applyFullScreen() }
+        dragTimer?.tolerance = 0.02
+    }
+
+    deinit {
+        dragTimer?.invalidate()
+        for monitor in monitors { NSEvent.removeMonitor(monitor) }
+        closeWork?.cancel(); openWork?.cancel()
     }
 
     /// Frames for the closed and open shapes on every screen, for `--dump-layout`.

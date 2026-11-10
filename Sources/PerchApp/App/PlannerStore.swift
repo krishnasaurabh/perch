@@ -22,12 +22,25 @@ final class PlannerStore: ObservableObject {
     private let scheduler: any AppScheduling
     private let pipeline: PlannerCommandPipeline
     private var lifecycleDay: DayKey?
+    private var needsLaunch = false
     private var visibleDayOffsets = [0]
-    private var lastSeenModification: Date?
     private var loadFailureMessage: String?
     private var loadNeedsRetry = false
-    private var pollTimer: Timer?
+    private var recoveryTimer: Timer?
     private var saveWork: (any AppScheduledAction)?
+    private var reloadWork: (any AppScheduledAction)?
+    private var focusWork: (any AppScheduledAction)?
+    private var dayWork: (any AppScheduledAction)?
+    private var observer: PlannerDirectoryObserver?
+    private let runtimeIO = PlannerRuntimeIO()
+    private var observationTokens: [(NotificationCenter, NSObjectProtocol)] = []
+    private var revision: PlannerFileRevision?
+    private var epoch = 0
+    private var reloadInFlight = false
+    private var reloadAgain = false
+    private var tickInFlight = false
+    private var runtimeEnabled = false
+    var focusFinished: (() -> Void)?
 
     enum TextTarget: Hashable {
         case title(UUID), notes(UUID), notepad(DayKey)
@@ -65,12 +78,12 @@ final class PlannerStore: ObservableObject {
         scheduler: any AppScheduling = MainQueueScheduler()
     ) {
         self.file = file
-        self.pipeline = PlannerCommandPipeline(file: file, clock: ClosurePlannerClock(now))
+        self.pipeline = PlannerCommandPipeline(file: file.avoidingLockWaits(), clock: ClosurePlannerClock(now))
         self.now = now
         self.scheduler = scheduler
         var loaded = Planner()
         var loadError: String?
-        do { loaded = try file.load() } catch let recovery as PlannerRecoveryError {
+        do { loaded = try file.avoidingLockWaits().load() } catch let recovery as PlannerRecoveryError {
             // The file remains authoritative and rejects every mutation until repaired.
             // Display the validated draft without publishing or saving it as a new revision.
             loaded = recovery.recoveredPlanner
@@ -83,13 +96,8 @@ final class PlannerStore: ObservableObject {
         planner = loaded
         today = PlannerEngine(planner: loaded, now: now).today
         lastError = loadError
-        lastSeenModification = file.modificationDate
-        if watching {
-            startWatching()
-            DistributedNotificationCenter.default().addObserver(
-                forName: .init("app.perch.mac.plannerChanged"), object: nil, queue: .main
-            ) { [weak self] _ in Task { @MainActor in self?.reloadFromDisk(external: true) } }
-        }
+        revision = PlannerFileRevision(url: file.url)
+        if watching { startWatching() }
     }
 
     var engine: PlannerEngine { PlannerEngine(planner: planner, now: now) }
@@ -138,7 +146,11 @@ final class PlannerStore: ObservableObject {
 
     /// Called by application launch/navigation, never by view appearance or arbitrary publications.
     func beginApplication() {
-        if send(.lifecycle(.launch), origin: .background) != nil { lifecycleDay = today }
+        needsLaunch = true
+        if send(.lifecycle(.launch), origin: .background) != nil {
+            lifecycleDay = today
+            needsLaunch = false
+        }
     }
 
     func openDay(_ day: DayKey) {
@@ -146,6 +158,7 @@ final class PlannerStore: ObservableObject {
     }
 
     func advanceLifecycle() {
+        if needsLaunch { beginApplication(); return }
         refreshToday()
         guard lifecycleDay != today else { return }
         let result = performMutation(origin: .background) { commands in
@@ -172,11 +185,13 @@ final class PlannerStore: ObservableObject {
     }
 
     private func publish(_ saved: Planner) {
-        planner = saved
-        // A writer may run immediately after our lock is released. Recheck on the next poll
-        // rather than associating its modification date with our earlier snapshot.
-        lastSeenModification = nil
+        epoch += 1
+        if planner != saved { planner = saved }
+        // Do not associate a post-lock revision with a snapshot from before the lock was released.
+        revision = nil
         lastError = nil
+        scheduleBoundaries()
+        if runtimeEnabled { requestReload() }
     }
 
     private func report(_ error: Error) {
@@ -246,41 +261,161 @@ final class PlannerStore: ObservableObject {
     // MARK: External refresh
 
     private func startWatching() {
-        pollTimer = Timer.scheduledTimer(withTimeInterval: 0.75, repeats: true) { [weak self] _ in
+        runtimeEnabled = true
+        observer = PlannerDirectoryObserver(url: file.url) { [weak self] in self?.requestReload() }
+        observe(DistributedNotificationCenter.default(), .init("app.perch.mac.plannerChanged")) {
+            $0.requestReload()
+        }
+        for name in [Notification.Name.NSSystemClockDidChange, .NSSystemTimeZoneDidChange, .NSCalendarDayChanged] {
+            observe(.default, name) { $0.clockChanged() }
+        }
+        observe(NSWorkspace.shared.notificationCenter, NSWorkspace.didWakeNotification) { $0.clockChanged() }
+        // Filesystems can revoke watches; permissions can recover without a content change.
+        // This metadata-only safety net also reinstalls watches after a missing directory returns.
+        recoveryTimer = Timer.scheduledTimer(withTimeInterval: 30, repeats: true) { [weak self] _ in
             Task { @MainActor in
-                self?.reloadFromDisk(external: true); self?.advanceLifecycle()
+                self?.observer?.repair()
+                self?.requestReload()
+            }
+        }
+        recoveryTimer?.tolerance = 5
+        scheduleBoundaries()
+        requestReload()
+    }
+
+    private func observe(
+        _ center: NotificationCenter, _ name: Notification.Name,
+        action: @escaping (PlannerStore) -> Void
+    ) {
+        let token = center.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+            Task { @MainActor in if let self { action(self) } }
+        }
+        observationTokens.append((center, token))
+    }
+
+    deinit {
+        recoveryTimer?.invalidate()
+        for (center, token) in observationTokens { center.removeObserver(token) }
+        reloadWork?.cancel(); focusWork?.cancel(); dayWork?.cancel(); saveWork?.cancel()
+    }
+
+    private func clockChanged() {
+        observer?.repair()
+        requestReload()
+        advanceLifecycle()
+        scheduleBoundaries()
+    }
+
+    private func scheduleBoundaries() {
+        guard runtimeEnabled else { return }
+        focusWork?.cancel(); dayWork?.cancel()
+        let time = now()
+        if let next = FocusUpdateSchedule.nextUpdate(for: planner.focus, now: time) {
+            focusWork = scheduler.schedule(after: max(0.05, next.timeIntervalSince(time))) { [weak self] in
+                self?.persistFocusBoundary()
+            }
+        }
+        let nextDay = FocusUpdateSchedule.nextDay(for: planner, now: time)
+        dayWork = scheduler.schedule(after: max(0.05, nextDay.timeIntervalSince(time))) { [weak self] in
+            self?.advanceLifecycle()
+            self?.scheduleBoundaries()
+        }
+    }
+
+    private func persistFocusBoundary() {
+        guard !tickInFlight else { return }
+        tickInFlight = true
+        let generation = epoch
+        runtimeIO.tick(file, at: now()) { [weak self] result in
+            guard let self else { return }
+            self.tickInFlight = false
+            if generation == self.epoch {
+                switch result {
+                case .success(let change):
+                    self.publish(change.state)
+                    if change.value.flag { self.focusFinished?() }
+                case .failure(let error):
+                    self.report(error)
+                    // Retry a failed write without a tight loop and without dropping its checkpoint.
+                    self.focusWork = self.scheduler.schedule(after: 1) { [weak self] in
+                        self?.persistFocusBoundary()
+                    }
+                }
+            } else {
+                self.requestReload()
+                self.scheduleBoundaries()
             }
         }
     }
 
-    func reloadFromDisk(external: Bool) {
-        let mod = file.modificationDate
-        guard mod != lastSeenModification || loadNeedsRetry else { return }
-        do {
-            let fresh = try file.load()
-            lastSeenModification = mod
+    /// Notification and vnode bursts share one bounded reload, never one main-thread decode per event.
+    func requestReload() {
+        guard reloadWork == nil else { return }
+        reloadWork = scheduler.schedule(after: 0.1) { [weak self] in
+            guard let self else { return }
+            self.reloadWork = nil
+            if self.reloadInFlight { self.reloadAgain = true; return }
+            self.reloadInFlight = true
+            let generation = self.epoch
+            self.runtimeIO.load(self.file, after: self.revision, force: self.loadNeedsRetry) {
+                [weak self] revision, result in
+                guard let self else { return }
+                self.reloadInFlight = false
+                if generation == self.epoch {
+                    self.revision = revision
+                    if let result { self.acceptReload(result, external: true) }
+                } else {
+                    self.reloadAgain = true
+                }
+                if self.reloadAgain {
+                    self.reloadAgain = false
+                    self.requestReload()
+                }
+            }
+        }
+    }
+
+    private func acceptReload(_ result: Result<Planner, Error>, external: Bool) {
+        switch result {
+        case .success(let fresh):
             loadNeedsRetry = false
             if let failure = loadFailureMessage, lastError == failure { lastError = nil }
             loadFailureMessage = nil
-            guard fresh != planner else { return }
-            // External edits and link updates never become local undo steps or clear redo.
-            planner = fresh
-            if external { NotificationCenter.default.post(name: .plannerChangedExternally, object: nil) }
-        } catch let recovery as PlannerRecoveryError {
-            lastSeenModification = mod
+            if fresh != planner {
+                let completedFocus =
+                    planner.focus?.state == .running && fresh.focus?.state == .finished
+                    && planner.focus?.startedAt == fresh.focus?.startedAt
+                    && planner.focus?.taskID == fresh.focus?.taskID
+                epoch += 1
+                planner = fresh
+                if completedFocus { focusFinished?() }
+                if external { NotificationCenter.default.post(name: .plannerChangedExternally, object: nil) }
+            }
+        case .failure(let recovery as PlannerRecoveryError):
             loadNeedsRetry = false
             loadFailureMessage = recovery.localizedDescription
             lastError = loadFailureMessage
-            guard recovery.recoveredPlanner != planner else { return }
-            planner = recovery.recoveredPlanner
-            if external { NotificationCenter.default.post(name: .plannerChangedExternally, object: nil) }
-        } catch {
-            // Access may be repaired without changing the file's modification date.
-            // Retain the last visible document and retry, never publish an empty replacement.
+            if recovery.recoveredPlanner != planner {
+                epoch += 1
+                planner = recovery.recoveredPlanner
+                if external { NotificationCenter.default.post(name: .plannerChangedExternally, object: nil) }
+            }
+        case .failure(let error):
             loadNeedsRetry = true
             report(error)
             loadFailureMessage = lastError
         }
+        advanceLifecycle()
+        scheduleBoundaries()
+    }
+
+    /// Explicit refresh for import/diagnostic callers. Automatic observation uses background I/O.
+    func reloadFromDisk(external: Bool) {
+        let current = PlannerFileRevision(url: file.url)
+        guard current != revision || loadNeedsRetry else { return }
+        revision = current
+        epoch += 1
+        acceptReload(Result { try file.avoidingLockWaits().load() }, external: external)
     }
 }
 

@@ -41,7 +41,7 @@ final class NotchTimelineDriver {
     func start(model: NotchModel) {
         self.model = model
         model.$activity.sink { [weak self] new in self?.activityChanged(to: new) }.store(in: &cancellables)
-        // The running focus timer rewrites the planner every second; only reminder changes matter here.
+        // Only reminder changes matter here; focus checkpoints do not rebuild the timeline.
         // `@Published` emits before storing, so hop the run loop and let the pass read the stored values.
         let alarms = store.$planner.map { NotchActivityTimeline.triggers(planner: $0) }.removeDuplicates().map { _ in ()
         }
