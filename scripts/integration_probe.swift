@@ -33,15 +33,36 @@ func checkClosedNotch(store: PlannerStore, model: NotchModel, services: Services
         require(camera.contains(idle) && idle.width < camera.width && idle.height < camera.height,
                 "idle housing contains entire painted frame at \(scale)x")
         for side in [NotchTimerPlacement.left, .right] {
-            let pill = g.idle(timer: side, activity: false)
-            require(side == .left ? pill.maxX == camera.maxX : pill.minX == camera.minX,
-                    "\(side): opposite edge stays at housing at \(scale)x")
-            require(pill.width == camera.width + NotchGeometry.timerWing,
-                    "\(side): only one timer wing grows at \(scale)x")
-            require(abs((pill.minY - camera.minY) * scale - (scale == 1 ? 1.5 : 1)) < 0.001,
-                    "\(side): bottom is at least one pixel above housing at \(scale)x")
-            require(abs(pill.minY * scale - (pill.minY * scale).rounded()) < 0.001,
-                    "\(side): bottom lands on a device pixel at \(scale)x")
+            let pill = g.pill(side: side)
+            let bounds = g.idle(timer: side, activity: false)
+            require(side == .left ? bounds.maxX == idle.maxX : bounds.minX == idle.minX,
+                    "\(side): opposite edge stays tucked inside housing at \(scale)x")
+            require(pill.width == 76 && NotchGeometry.pillWidth == 76,
+                    "\(side): detached timer capsule is 76pt wide at \(scale)x")
+            let gap = side == .left ? camera.minX - pill.maxX : pill.minX - camera.maxX
+            require(gap == 6 && NotchGeometry.pillGap == 6 && bounds == idle.union(pill),
+                    "\(side): only chosen side grows with a 6pt housing gap at \(scale)x")
+            require(abs(pill.height - camera.height * 0.72) <= 0.5 / scale,
+                    "\(side): capsule is 72 percent of housing height, pixel-snapped at \(scale)x")
+            require(pill.minY - camera.minY >= 1 / scale && pill.maxY < camera.maxY,
+                    "\(side): capsule stays at least one pixel above housing bottom at \(scale)x")
+            require(abs(pill.midY - idle.midY) < 1 / scale,
+                    "\(side): capsule is vertically centred within one device pixel at \(scale)x")
+            for edge in [pill.minY, pill.maxY] {
+                require(abs(edge * scale - (edge * scale).rounded()) < 0.001,
+                        "\(side): capsule edge lands on a device pixel at \(scale)x")
+            }
+            let gapPoint = NSPoint(x: side == .left ? camera.minX - gap / 2 : camera.maxX + gap / 2,
+                                   y: pill.midY)
+            require(!g.shapeContains(gapPoint, expanded: false, timer: side, activity: false),
+                    "\(side): detached gap is click-through at \(scale)x")
+            for rect in [idle, pill] {
+                require(g.shapeContains(NSPoint(x: rect.midX, y: rect.midY), expanded: false, timer: side, activity: false),
+                        "\(side): notch and capsule both accept hits at \(scale)x")
+                require(g.window.contains(rect), "\(side): window contains notch and capsule at \(scale)x")
+            }
+            require(g.shape(expanded: true, timer: side, activity: false) == g.workspace,
+                    "\(side): expanded workspace geometry is unchanged at \(scale)x")
         }
         require(g.idle(timer: nil, activity: true).minY < camera.minY,
                 "activity still extends below housing at \(scale)x")
@@ -51,14 +72,14 @@ func checkClosedNotch(store: PlannerStore, model: NotchModel, services: Services
     model.screenID = state.id
     model.geometry = g
     store.updatePrefs { $0.notchOnMonitors = true }
-    for name in ["idle", "left", "right", "hidden", "long", "activity"] {
+    for name in ["idle", "left", "right", "hidden", "long", "running", "activity"] {
         _ = store.apply { e in
             e.planner.tasks = []
             e.planner.focus = nil
             if name != "idle" && name != "activity" {
                 let task = try e.addTasks(["Release timer check"], on: .day(e.today))[0]
                 _ = try e.startTimer(task: task.id.uuidString, minutes: name == "long" ? 120 : 5)
-                try e.pauseTimer()
+                if name != "running" { try e.pauseTimer() }
                 e.planner.focus?.banked = 16
             }
             e.planner.preferences.notchTimerPlacement = name == "left" ? .left : name == "hidden" ? .hidden : .right
