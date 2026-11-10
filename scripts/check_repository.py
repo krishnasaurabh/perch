@@ -23,6 +23,8 @@ OUTPUT_SUFFIXES = {
     ".log", ".pyc", ".pyo", ".dmg", ".app", ".xcresult", ".profraw",
     ".profdata", ".trace", ".har", ".mp4", ".mov", ".zip", ".tgz",
 }
+# README pictures: flat files directly under docs/images/, still subject to the size limit.
+DOC_IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg", ".webp"}
 CONTENT_RULES = (
     ("private key", re.compile(rb"-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----")),
     ("access token", re.compile(rb"(?:gh[pousr]_[A-Za-z0-9]{30,}|github_pat_[A-Za-z0-9_]{40,}|sk-[A-Za-z0-9_-]{32,})")),
@@ -47,7 +49,8 @@ def path_problem(path):
     if p.suffix.lower() in OUTPUT_SUFFIXES or p.name.startswith((".env", ".coverage")):
         return "generated output or local configuration"
     if parts[0] == "docs" and p.suffix.lower() not in {".md", ".rst"}:
-        return "only user-facing text belongs in docs"
+        if not (len(parts) == 3 and parts[1] == "images" and p.suffix.lower() in DOC_IMAGE_SUFFIXES):
+            return "only user-facing text and docs/images/ pictures belong in docs"
     return None
 
 
