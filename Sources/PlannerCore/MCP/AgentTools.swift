@@ -100,6 +100,14 @@ public struct AgentTools {
     }
 
     public func call(_ name: String, _ args: JSON, agentID: String? = nil) throws -> String {
+        // Only omission selects a standalone timer. Validate supplied references before
+        // acquiring the storage lock or loading data, which can create recovery files.
+        if name == "start_timer", let value = args["task"] {
+            guard let reference = value.string,
+                  !reference.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                throw PlannerError("Invalid argument 'task': enter a non-empty task id or title, or omit it for a standalone session.")
+            }
+        }
         if Self.isReadOnly(name) {
             // Atomic writer replacement makes a single read a consistent snapshot. Do
             // not create a lock or a recovery copy while serving an advertised read.

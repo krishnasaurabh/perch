@@ -95,6 +95,117 @@ final class MCPEdgeTests: XCTestCase {
         XCTAssertEqual(notifications, 0)
     }
 
+    private var invalidTimerTasks: [JSON] {
+        [0, 42, -1, .number(1.5), .number(1e19), .number(-1e19),
+         .number(1e308), .number(-1e308), true, false, .null, [], ["task"],
+         [:], ["id": "task"], "", " \t\r\n", "\u{00a0}"]
+    }
+
+    private struct StorageEntry: Equatable {
+        let data: Data?
+        let modified: Date
+    }
+
+    private func storageSnapshot() throws -> [String: StorageEntry] {
+        var result: [String: StorageEntry] = [:]
+        func walk(_ entry: URL, _ key: String) throws {
+            let attributes = try FileManager.default.attributesOfItem(atPath: entry.path)
+            let isDirectory = attributes[.type] as? FileAttributeType == .typeDirectory
+            result[key] = StorageEntry(
+                data: isDirectory ? nil : try Data(contentsOf: entry),
+                modified: try XCTUnwrap(attributes[.modificationDate] as? Date))
+            if isDirectory {
+                for child in try FileManager.default.contentsOfDirectory(at: entry, includingPropertiesForKeys: nil) {
+                    try walk(child, key + "/" + child.lastPathComponent)
+                }
+            }
+        }
+        try walk(dir, "")
+        return result
+    }
+
+    func testInvalidTimerTaskReferencesLeaveActiveSessionAndStorageUnchanged() throws {
+        XCTAssertFalse(call("add_tasks", ["titles": ["active focus task"]]).isError)
+        XCTAssertFalse(call("start_timer", ["task": "active focus task", "minutes": 25]).isError)
+        let active = try XCTUnwrap(storedPlanner().focus)
+        let before = try storageSnapshot()
+        XCTAssertTrue(before.keys.contains { $0.contains(".backups/") })
+        var notifications = 0
+        server.onChange = { notifications += 1 }
+        for value in invalidTimerTasks {
+            let reply = response(callMessage("start_timer", arguments: ["task": value, "minutes": 5]))
+            XCTAssertNil(reply?["error"], "\(value)")
+            XCTAssertEqual(reply?["result"]?["isError"]?.bool, true, "\(value)")
+            XCTAssertEqual(reply?["result"]?["content"]?.array?.first?["type"]?.string, "text")
+            XCTAssertTrue(reply?["result"]?["content"]?.array?.first?["text"]?.string?.contains("Invalid argument 'task'") ?? false)
+            XCTAssertEqual(try storageSnapshot(), before, "\(value)")
+            XCTAssertEqual(try storedPlanner().focus, active)
+            XCTAssertEqual(notifications, 0)
+            XCTAssertEqual(response(["id": 2, "method": "ping"])?["result"], [:])
+        }
+        XCTAssertFalse(call("pause_timer").isError)
+        XCTAssertEqual(notifications, 1, "a valid request still works after the errors")
+    }
+
+    func testInvalidTimerTaskReferencesDoNotCreateStorageOrRecoveryArtifacts() throws {
+        var notifications = 0
+        server.onChange = { notifications += 1 }
+        for corrupt in [false, true] {
+            if corrupt { try Data("{invalid".utf8).write(to: url) }
+            let before = try storageSnapshot()
+            for value in invalidTimerTasks {
+                let result = call("start_timer", ["task": value, "minutes": 5])
+                XCTAssertTrue(result.isError)
+                XCTAssertTrue(result.text.contains("Invalid argument 'task'"), result.text)
+                XCTAssertEqual(try storageSnapshot(), before, "validation must precede storage access")
+            }
+        }
+        XCTAssertEqual(notifications, 0)
+    }
+
+    func testTimerTaskOmissionAndStringReferencesRemainSupported() throws {
+        XCTAssertFalse(call("add_tasks", ["titles": ["valid focus task"]]).isError)
+        let task = try XCTUnwrap(storedPlanner().tasks.first)
+        for reference in [task.id.uuidString, String(task.id.uuidString.prefix(8)).lowercased(), task.title, "valid focus"] {
+            XCTAssertFalse(call("start_timer", ["task": .string(reference), "minutes": 5]).isError, reference)
+            XCTAssertEqual(try storedPlanner().focus?.taskID, task.id)
+            XCTAssertEqual(try storedPlanner().focus?.limit, 300)
+        }
+        XCTAssertFalse(call("start_timer", ["minutes": 10]).isError)
+        XCTAssertNil(try storedPlanner().focus?.taskID)
+        XCTAssertEqual(try storedPlanner().focus?.limit, 600)
+        XCTAssertFalse(call("start_timer", ["task": .string(task.id.uuidString)]).isError)
+        XCTAssertEqual(try storedPlanner().focus?.taskID, task.id)
+    }
+
+    func testInvalidTimerTasksInBatchAllowFollowingValidRequests() throws {
+        XCTAssertFalse(call("add_tasks", ["titles": ["batch focus task"]]).isError)
+        XCTAssertFalse(call("start_timer", ["task": "batch focus task", "minutes": 25]).isError)
+        let before = try storageSnapshot()
+        var notifications = 0
+        server.onChange = { notifications += 1 }
+        let batch = JSON.array(invalidTimerTasks.map {
+            callMessage("start_timer", arguments: ["task": $0, "minutes": 5])
+        } + [["id": 2, "method": "ping"]])
+        let out = runLines([String(decoding: batch.data(), as: UTF8.self), #"{"id":3,"method":"ping"}"#])
+        XCTAssertEqual(out.count, 2)
+        let replies = try XCTUnwrap(JSON.parse(Data(out[0].utf8)).array)
+        XCTAssertEqual(replies.count, invalidTimerTasks.count + 1)
+        for reply in replies.dropLast() {
+            XCTAssertNil(reply["error"])
+            XCTAssertEqual(reply["result"]?["isError"]?.bool, true)
+        }
+        XCTAssertEqual(replies.last?["result"], [:])
+        XCTAssertEqual(try JSON.parse(Data(out[1].utf8))["id"]?.int, 3)
+        XCTAssertEqual(try storageSnapshot(), before)
+        XCTAssertEqual(notifications, 0)
+        let valid = runLines([#"{"id":4,"method":"tools/call","params":{"name":"start_timer","arguments":{"task":"batch focus task","minutes":5}}}"#])
+        XCTAssertEqual(try JSON.parse(Data(valid[0].utf8))["result"]?["isError"]?.bool, false)
+        XCTAssertEqual(try storedPlanner().focus?.taskID, try storedPlanner().tasks.first?.id)
+        XCTAssertEqual(try storedPlanner().focus?.limit, 300)
+        XCTAssertEqual(notifications, 1)
+    }
+
     func testNumericTaskReferencesRejectOverflowWithoutTrapping() {
         for name in ["get_task", "complete_task", "reopen_task", "rename_task", "delete_task", "move_task", "update_task", "snooze_reminder"] {
             let reply = response(callMessage(name, arguments: ["task": .number(1e19), "title": "replacement", "to": "inbox", "minutes": 5]))
