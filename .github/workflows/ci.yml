@@ -40,9 +40,16 @@ jobs:
 
   core-linux:
     name: PlannerCore tests (Linux)
+    needs: swift-format
+    # The required Linux check must fail, not skip, if formatting fails.
+    if: always()
     # GitHub-hosted runner. Never use a self-hosted runner on a public repo (fork PRs run code on it).
     runs-on: ubuntu-24.04
     steps:
+      - name: Require successful Swift formatting
+        env:
+          FORMAT_RESULT: ${{ needs.swift-format.result }}
+        run: test "$FORMAT_RESULT" = success
       - uses: actions/checkout@v4
       - uses: swift-actions/setup-swift@v2
         with: { swift-version: "6.1" }
