@@ -13,8 +13,10 @@ final class CarryModeTests: XCTestCase {
 
     func testCarryModeDefaultsAndTolerantDecoding() throws {
         XCTAssertEqual(Preferences().carryMode, .ask)
-        for json in ["{}", #"{"carryMode":null}"#, #"{"carryMode":"future-value"}"#, #"{"carryMode":42}"#] {
-            XCTAssertEqual(try PlannerFile.decoder.decode(Preferences.self, from: Data(json.utf8)).carryMode, .ask)
+        XCTAssertEqual(try PlannerFile.decoder.decode(Preferences.self, from: Data("{}".utf8)).carryMode, .ask)
+        for json in [#"{"carryMode":null}"#, #"{"carryMode":"future-value"}"#, #"{"carryMode":42}"#] {
+            XCTAssertThrowsError(try PlannerFile.decoder.decode(Preferences.self, from: Data(json.utf8)),
+                                 "Only an absent preference gets the migration default")
         }
         for mode in CarryMode.allCases {
             var p = Preferences(); p.carryMode = mode; p.resetHour = 4

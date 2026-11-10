@@ -19,6 +19,8 @@ final class PlannerStore: ObservableObject {
     private let now: () -> Date
     private var history = PlannerUndoHistory()
     private var lastSeenModification: Date?
+    private var loadFailureMessage: String?
+    private var loadNeedsRetry = false
     private var pollTimer: Timer?
     private var saveWork: DispatchWorkItem?
 
@@ -56,9 +58,17 @@ final class PlannerStore: ObservableObject {
         self.now = now
         var loaded = Planner()
         var loadError: String?
-        do { loaded = try file.load() } catch {
+        do { loaded = try file.load() }
+        catch let recovery as PlannerRecoveryError {
+            // The file remains authoritative and rejects every mutation until repaired.
+            // Display the validated draft without publishing or saving it as a new revision.
+            loaded = recovery.recoveredPlanner
+            loadError = recovery.localizedDescription
+        } catch {
             loadError = (error as? PlannerError)?.message ?? error.localizedDescription
+            loadNeedsRetry = true
         }
+        loadFailureMessage = loadError
         planner = loaded
         today = PlannerEngine(planner: loaded, now: now).today
         lastError = loadError
@@ -209,15 +219,32 @@ final class PlannerStore: ObservableObject {
 
     func reloadFromDisk(external: Bool) {
         let mod = file.modificationDate
-        guard mod != lastSeenModification else { return }
+        guard mod != lastSeenModification || loadNeedsRetry else { return }
         do {
             let fresh = try file.load()
             lastSeenModification = mod
+            loadNeedsRetry = false
+            if let failure = loadFailureMessage, lastError == failure { lastError = nil }
+            loadFailureMessage = nil
             guard fresh != planner else { return }
             // External edits and link updates never become local undo steps or clear redo.
             planner = fresh
             if external { NotificationCenter.default.post(name: .plannerChangedExternally, object: nil) }
-        } catch { report(error) }
+        } catch let recovery as PlannerRecoveryError {
+            lastSeenModification = mod
+            loadNeedsRetry = false
+            loadFailureMessage = recovery.localizedDescription
+            lastError = loadFailureMessage
+            guard recovery.recoveredPlanner != planner else { return }
+            planner = recovery.recoveredPlanner
+            if external { NotificationCenter.default.post(name: .plannerChangedExternally, object: nil) }
+        } catch {
+            // Access may be repaired without changing the file's modification date.
+            // Retain the last visible document and retry, never publish an empty replacement.
+            loadNeedsRetry = true
+            report(error)
+            loadFailureMessage = lastError
+        }
     }
 }
 

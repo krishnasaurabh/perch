@@ -28,6 +28,24 @@ final class StorageCalendarTests: XCTestCase {
         }
     }
 
+    func testGregorianCaptureAndMonthlyRecurrenceUnderOtherUserCalendars() throws {
+        let now = Fixture.date("2026-11-09 15:00")
+        let day: DayKey = "2026-11-09"
+        let expectedCapture = TaskCapture(now: now, calendar: Fixture.calendar).parse("Plan on november 20")
+        let expectedNext = TaskRepeat.monthly.next(after: day, completed: day, calendar: Fixture.calendar)
+        for identifier: Calendar.Identifier in [.buddhist, .hebrew, .islamic, .japanese, .persian] {
+            var calendar = Calendar(identifier: identifier)
+            calendar.timeZone = Fixture.calendar.timeZone
+            calendar.locale = Locale(identifier: "th_TH")
+            XCTAssertEqual(TaskCapture(now: now, calendar: calendar).parse("Plan on november 20"), expectedCapture, "\(identifier)")
+            XCTAssertEqual(TaskRepeat.monthly.next(after: day, completed: day, calendar: calendar), expectedNext, "\(identifier)")
+            var planner = Planner()
+            planner.tasks = [PlanTask(title: "Monthly", day: day, createdAt: now, repeatRule: .monthly)]
+            let engine = PlannerEngine(planner: planner, now: { now }, calendar: calendar)
+            XCTAssertEqual(engine.calendar.identifier, .gregorian)
+        }
+    }
+
     func testResetHourUsesLocalWallTimeAcrossDSTInAnyCalendar() throws {
         let clock = ISO8601DateFormatter()
         for identifier: Calendar.Identifier in [.gregorian, .buddhist, .hebrew, .islamic] {
