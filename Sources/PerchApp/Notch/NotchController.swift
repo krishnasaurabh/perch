@@ -332,10 +332,12 @@ final class NotchController {
 
     private func timerShowing() -> NotchTimerPlacement? { NotchModel.timerShowing(store) }
 
-    /// The drawn notch is hidden on flat screens when "Draw a notch on external displays" is off, unless it is open there.
+    /// The drawn notch is hidden on screens without a housing when the external-display preference is off, unless it is open there.
     private func drawn(_ slot: Slot) -> Bool {
         if slot.state.fullScreen && !(model.expanded && model.screenID == slot.state.id) { return false }
-        if slot.state.geometry.hasHardwareNotch || store.prefs.notchOnMonitors { return true }
+        if NotchLayout.closedNotchVisible(screen: slot.state.geometry.screen, enabled: store.prefs.notchOnMonitors) {
+            return true
+        }
         return model.screenID == slot.state.id && (model.expanded || model.activity != nil)
     }
 

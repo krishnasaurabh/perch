@@ -76,9 +76,10 @@ struct NotchRootView: View {
         .motionBoundary()
     }
 
-    /// Flat screen with "Draw a notch on external displays" off: nothing drawn until it opens or shows something there.
+    /// No housing and no enabled drawn notch: nothing until it opens or shows something there.
     private var hidden: Bool {
-        !screen.geometry.hasHardwareNotch && !store.prefs.notchOnMonitors && !expanded && activity == nil
+        !NotchLayout.closedNotchVisible(screen: screen.geometry.screen, enabled: store.prefs.notchOnMonitors)
+            && !expanded && activity == nil
     }
 
     /// Files and images become file/image clips; links and text become text clips. Then Clips opens on this screen.

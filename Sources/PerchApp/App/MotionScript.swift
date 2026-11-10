@@ -91,7 +91,10 @@ enum MotionScript {
                     _ = try e.addTasks(["Draft launch notes", "Reply to Sam", "Water the plants every 3 days"])
                 }
                 _ = try e.stopTimer()
-                try e.updatePrefs { $0.welcomeCompleted = true }
+                try e.updatePrefs {
+                    $0.welcomeCompleted = true
+                    $0.notchOnMonitors = true
+                }
             }
         }
 

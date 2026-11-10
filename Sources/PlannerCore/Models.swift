@@ -257,7 +257,7 @@ public struct Preferences: Codable, Equatable, Sendable {
     /// Digital reads at a glance; the dot-matrix face is opt-in.
     public var workspaceTimerStyle: WorkspaceTimerStyle = .digital
     public var notchOpenTrigger: NotchOpenTrigger = .hover
-    public var notchOnMonitors: Bool = true
+    public var notchOnMonitors: Bool = false
     /// nil = automatic (screen under the pointer); otherwise a display name.
     public var showOnDisplay: String? = nil
     public var remindersSync: Bool = false

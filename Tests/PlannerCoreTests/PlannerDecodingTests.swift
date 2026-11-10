@@ -272,6 +272,15 @@ final class PlannerDecodingTests: XCTestCase {
         }
     }
 
+    func testNotchOnMonitorsDefaultsOffAndPreservesExplicitTrue() throws {
+        XCTAssertFalse(Preferences().notchOnMonitors)
+        XCTAssertFalse(
+            try PlannerFile.decoder.decode(Preferences.self, from: Data("{}".utf8)).notchOnMonitors)
+        XCTAssertTrue(
+            try PlannerFile.decoder.decode(Preferences.self, from: Data(#"{"notchOnMonitors":true}"#.utf8))
+                .notchOnMonitors)
+    }
+
     func testPresentMalformedPreferencesAreNotMigrationDefaults() throws {
         for json in [
             #"{"carryMode":"future"}"#, #"{"carryMode":null}"#, #"{"hiddenCalendarIDs":null}"#,
