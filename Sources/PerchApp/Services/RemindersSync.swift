@@ -11,6 +11,7 @@ final class RemindersSync: ObservableObject {
     private let scheduler: any AppScheduling
     @Published private(set) var lastError: String?
     private var cancellable: AnyCancellable?
+    private var dayCancellable: AnyCancellable?
     private var observer: NSObjectProtocol?
     private var scheduled: (any AppScheduledAction)?
     private var running = false
@@ -67,6 +68,11 @@ final class RemindersSync: ObservableObject {
             }
             // Observe before debounce so Undo cancels queued work immediately, not 1.5 seconds later.
             cancellable = store.$planner.sink { [weak self] planner in self?.changed(planner) }
+            dayCancellable = store.$today.dropFirst().sink { [weak self] _ in
+                guard let self else { return }
+                self.generation &+= 1
+                self.schedule()
+            }
             schedule()
         }
     }
@@ -116,7 +122,8 @@ final class RemindersSync: ObservableObject {
     }
 
     private func schedule(after delay: TimeInterval = 1.5) {
-        guard store.prefs.remindersSync, !pausedForHistory else { return }
+        // Published values arrive in willSet, before store.prefs reflects the new toggle.
+        guard input.enabled, !pausedForHistory else { return }
         if running { pending = true; return }
         scheduled?.cancel()
         scheduled = scheduler.schedule(after: delay) { [weak self] in
@@ -132,6 +139,7 @@ final class RemindersSync: ObservableObject {
         if running { pending = true; return }
         scheduled?.cancel(); scheduled = nil; running = true; pending = false
         let revision = generation
+        let day = store.today
         do {
             // The shared file is authoritative, not a possibly stale published snapshot.
             var baseline = try store.file.load()
@@ -141,9 +149,9 @@ final class RemindersSync: ObservableObject {
                     "Planner changed elsewhere. Retry Reminders sync with the latest version.")
             }
             try await reconciler.reconcile(
-                baseline, today: store.today,
+                baseline, today: day,
                 validate: {
-                    guard !self.pausedForHistory, self.generation == revision,
+                    guard !self.pausedForHistory, self.generation == revision, self.store.today == day,
                         Input(try self.store.file.load()) == Input(baseline)
                     else {
                         throw ReminderSyncError.stopped(

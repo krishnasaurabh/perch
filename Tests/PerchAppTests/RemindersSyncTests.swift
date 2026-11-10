@@ -152,6 +152,43 @@ final class RemindersSyncTests: XCTestCase {
         XCTAssertEqual(source.saves, 1)
     }
 
+    @MainActor func testDayRolloverReconcilesEvenWhenTaskContentDidNotChange() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        var now = Date(timeIntervalSince1970: 1_800_000_000)
+        let store = PlannerStore(
+            file: PlannerFile(url: root.appendingPathComponent("planner.json")), now: { now }, watching: false)
+        store.beginApplication()
+        store.updatePrefs { $0.remindersSync = true }
+        _ = store.send(.addTasks(["Synthetic"], day: nil, literal: true, agentID: nil))
+        let source = FakeReminders(), ledger = TestReminderLedger(), scheduler = ReminderTestScheduler()
+        ledger.ledger.enabled = true
+        let sync = RemindersSync(store: store, source: source, storage: ledger, scheduler: scheduler)
+        await sync.reconcileNow()
+        let tasks = store.planner.tasks
+        now += 86_400
+        store.advanceLifecycle()
+        XCTAssertEqual(store.planner.tasks, tasks)
+        XCTAssertEqual(scheduler.pending, 1)
+        await sync.reconcileNow()
+        XCTAssertEqual(source.removals, 1); XCTAssertTrue(source.records.isEmpty)
+    }
+
+    @MainActor func testEnablingSyncSchedulesFromPublishedNewPreference() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = PlannerStore(file: PlannerFile(url: root.appendingPathComponent("planner.json")), watching: false)
+        _ = store.send(.addTasks(["Synthetic"], day: nil, literal: true, agentID: nil))
+        let source = FakeReminders(), ledger = TestReminderLedger(), scheduler = ReminderTestScheduler()
+        let sync = RemindersSync(store: store, source: source, storage: ledger, scheduler: scheduler)
+        XCTAssertEqual(scheduler.pending, 0)
+        let granted = await sync.requestAccess(); XCTAssertTrue(granted)
+        store.updatePrefs { $0.remindersSync = true }
+        XCTAssertEqual(scheduler.pending, 1)
+        await sync.reconcileNow()
+        XCTAssertEqual(source.saves, 1)
+    }
+
     @MainActor func testDeleteUndoPreservesRemoteIdentityWithoutWrites() async throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: root) }
