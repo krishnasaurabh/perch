@@ -8,7 +8,8 @@ public enum LocalizedStringCatalog {
     ) -> String {
         let bundle = bundle ?? .module
         #if os(macOS)
-            return String(localized: String.LocalizationValue(key), locale: locale, bundle: bundle)
+            return String(
+                localized: String.LocalizationValue(key), bundle: bundle, locale: locale ?? .current)
         #else
             return portableText(key, locale: locale, bundle: bundle, numericArgument: numericArgument)
         #endif

@@ -14,8 +14,9 @@ final class LocalizationTests: XCTestCase {
         var planner = Planner()
         planner.preferences.notchTaskCount = true
         planner.tasks = [PlanTask(title: "Private fixture title", day: "2026-11-09")]
-        let glance = try XCTUnwrap(NotchGlancePresentation(
-            planner: planner, today: "2026-11-09", locale: pseudo))
+        let glance = try XCTUnwrap(
+            NotchGlancePresentation(
+                planner: planner, today: "2026-11-09", locale: pseudo))
         XCTAssertEqual(glance.text, "⟦1 tàsk ·~⟧")
         XCTAssertTrue(glance.accessibilityLabel.hasPrefix("⟦1 ünfïnïshëd tàsk"))
         XCTAssertFalse(glance.accessibilityLabel.contains("Private fixture"))
@@ -47,8 +48,9 @@ final class LocalizationTests: XCTestCase {
         XCTAssertEqual(draft.summary(locale: Locale(identifier: "en")), "Every 2 days")
         XCTAssertEqual(draft.summary(locale: pseudo), "⟦Ëvëry 2 dàys ·~⟧")
         let preview = draft.preview(count: 2)
-        XCTAssertEqual(RepeatPickerDraft.previewText(preview, anchor: day, locale: Locale(identifier: "en")),
-                       "Next: Wed, Nov 11 · Fri, Nov 13")
+        XCTAssertEqual(
+            RepeatPickerDraft.previewText(preview, anchor: day, locale: Locale(identifier: "en")),
+            "Next: Wed, Nov 11 · Fri, Nov 13")
         let arabic = RepeatPickerDraft.previewText(preview, anchor: day, locale: Locale(identifier: "ar"))
         XCTAssertNotNil(arabic)
         XCTAssertNotEqual(arabic, "Next: Wed, Nov 11 · Fri, Nov 13")
@@ -59,9 +61,11 @@ final class LocalizationTests: XCTestCase {
     func testValidationAndErrorsUseCatalogEntries() {
         let required = PerchL10n.text("Choose a date.", locale: pseudo)
         XCTAssertEqual(required, "⟦Chöösë à dàtë. ·~⟧")
-        XCTAssertEqual(PerchL10n.format("Not a date: %@", locale: pseudo, "tomorrow-ish"),
-                       "⟦Nöt à dàtë: tomorrow-ish ·~⟧")
-        XCTAssertEqual(PerchL10n.format("Reminder for %@.", locale: pseudo, "Water plants"),
-                       "⟦Rëmïndër för Water plants. ·~⟧")
+        XCTAssertEqual(
+            PerchL10n.format("Not a date: %@", locale: pseudo, "tomorrow-ish"),
+            "⟦Nöt à dàtë: tomorrow-ish ·~⟧")
+        XCTAssertEqual(
+            PerchL10n.format("Reminder for %@.", locale: pseudo, "Water plants"),
+            "⟦Rëmïndër för Water plants. ·~⟧")
     }
 }

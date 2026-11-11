@@ -31,7 +31,8 @@ final class TaskParserLanguageTests: XCTestCase {
         let capture = TaskCapture(now: Fixture.now, calendar: calendar)
         let parsed = capture.parse("Plan on november 20", language: .english)
         XCTAssertEqual(parsed.day, "2026-11-20")
-        XCTAssertEqual(parsed.day?.date(calendar: calendar).timeIntervalSince1970,
-                       DayKey("2026-11-20").date(calendar: calendar).timeIntervalSince1970)
+        XCTAssertEqual(
+            parsed.day?.date(calendar: calendar).timeIntervalSince1970,
+            DayKey("2026-11-20").date(calendar: calendar).timeIntervalSince1970)
     }
 }

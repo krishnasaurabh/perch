@@ -6,8 +6,9 @@ import XCTest
 final class LocalizationTests: XCTestCase {
     func testAppErrorsMapThroughCatalogAndKeepDynamicDetails() {
         let pseudo = Locale(identifier: "zz")
-        XCTAssertEqual(AppL10n.format("AI sorting failed: %@", locale: pseudo, "Unavailable"),
-                       "⟦ÅÎ sörtïng fàïlëd: Unavailable ·~⟧")
+        XCTAssertEqual(
+            AppL10n.format("AI sorting failed: %@", locale: pseudo, "Unavailable"),
+            "⟦ÅÎ sörtïng fàïlëd: Unavailable ·~⟧")
         XCTAssertEqual(AppL10n.text("Could not delete this task.", locale: pseudo), "⟦Cöüld nöt dëlëtë thïs tàsk. ·~⟧")
         let error = PerchAppError.unsupportedParserLanguage("fr")
         XCTAssertTrue(error.message.contains("nothing was added"))
