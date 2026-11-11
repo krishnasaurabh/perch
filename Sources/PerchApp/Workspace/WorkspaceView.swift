@@ -11,6 +11,7 @@ struct WorkspaceView: View {
     @EnvironmentObject var services: Services
     @Environment(\.isEnabled) private var enabled
     @FocusState private var focusedPage: NotchPage?
+    @State private var pageGroupHasFocus = false
     @State private var moreAnchor = WorkspaceMenuAnchorView()
 
     var body: some View {
@@ -96,19 +97,50 @@ struct WorkspaceView: View {
         .background(Capsule().fill(Theme.fill))
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("workspace-pages")
+        .onChange(of: focusedPage) { oldPage, page in
+            pageFocusChanged(from: oldPage, to: page)
+        }
+        .onChange(of: model.page) { _, page in restorePageFocus(page) }
+        .onKeyPress(.tab) { leavePageGroup() }
+        .onReceive(NotificationCenter.default.publisher(for: NSWindow.didResignKeyNotification)) { notification in
+            guard let window = notification.object as? NSWindow, window === moreAnchor.window else { return }
+            pageGroupHasFocus = false
+            focusedPage = nil
+        }
     }
 
     private func selectPage(_ page: NotchPage) {
         Motion.animate(Motion.page) { model.page = page }
-        // A click within an already-focused group keeps its roving stop in sync.
-        // Passive activation must never acquire focus from another window.
-        if focusedPage != nil { focusedPage = page }
+    }
+
+    private func pageFocusChanged(from oldPage: NotchPage?, to page: NotchPage?) {
+        if page != nil {
+            pageGroupHasFocus = true
+        } else if oldPage == model.page {
+            // A nil focus during selection replacement is temporary, not a group exit.
+            pageGroupHasFocus = false
+        }
+    }
+
+    private func restorePageFocus(_ page: NotchPage) {
+        guard pageGroupHasFocus else { return }
+        // The selection render must register the newly focusable pill before the
+        // FocusState request. Writing it in the key handler can discard the request.
+        DispatchQueue.main.async { [self] in
+            guard pageGroupHasFocus, enabled, model.page == page, moreAnchor.window?.isKeyWindow == true else { return }
+            focusedPage = page
+        }
+    }
+
+    private func leavePageGroup() -> KeyPress.Result {
+        pageGroupHasFocus = false
+        // Let AppKit move to the next/previous control; never consume Tab.
+        return .ignored
     }
 
     private func focusPage(_ page: NotchPage) -> KeyPress.Result {
         guard enabled else { return .ignored }
         selectPage(page)
-        focusedPage = page
         return .handled
     }
 

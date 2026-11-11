@@ -57,6 +57,158 @@ print("Workspace assertion positive and negative controls passed")
             result = subprocess.run([str(binary)], check=True, capture_output=True, text=True)
             self.assertIn("positive and negative controls passed", result.stdout)
 
+    def test_roving_focus_lifecycle_with_delayed_native_registration(self):
+        source = (ROOT / "Sources/PerchApp/Workspace/WorkspaceView.swift").read_text()
+        methods = source.split("    private func selectPage(", 1)[1].split("    private struct WorkspacePageStyle", 1)[0]
+        # Compile production state transitions unchanged. The fake native focus
+        # rejects requests until a target is registered, but is not SwiftUI/AppKit.
+        program = """
+import Foundation
+private enum NotchPage: CaseIterable { case home, week, clips, insights }
+private enum KeyPress { enum Result { case ignored, handled } }
+@MainActor private enum Motion {
+    static let page = 1
+    static func animate(_ value: Int, _ action: () -> Void) { action() }
+}
+@MainActor private final class Model { var page = NotchPage.home }
+@MainActor private final class Window { var isKeyWindow = true }
+@MainActor private final class Anchor { var window: Window? = Window() }
+@MainActor private final class FocusLifecycle {
+    let model = Model()
+    let moreAnchor = Anchor()
+    var enabled = true
+    var pageGroupHasFocus = false
+    var registeredPage = NotchPage.home
+    var rejectedFocusRequests = 0
+    var nativeFocus: NotchPage?
+    var focusedPage: NotchPage? {
+        get { nativeFocus }
+        set {
+            if let newValue, newValue != registeredPage {
+                rejectedFocusRequests += 1
+                nativeFocus = nil
+            } else {
+                nativeFocus = newValue
+            }
+        }
+    }
+    private func selectPage(""" + methods + """
+    func enter() {
+        registeredPage = model.page
+        let old = focusedPage
+        focusedPage = model.page
+        pageFocusChanged(from: old, to: focusedPage)
+        precondition(pageGroupHasFocus)
+    }
+    func renderSelection() {
+        let old = focusedPage
+        registeredPage = model.page
+        if old != registeredPage {
+            nativeFocus = nil
+            pageFocusChanged(from: old, to: nil)
+        }
+        restorePageFocus(model.page)
+    }
+    func settle() async throws { try await Task.sleep(nanoseconds: 10_000_000) }
+    func run() async throws {
+        // Passive selection never asks native focus to move.
+        selectPage(.week)
+        renderSelection()
+        try await settle()
+        precondition(nativeFocus == nil && !pageGroupHasFocus)
+        selectPage(.home)
+        renderSelection()
+        enter()
+
+        // Keys change selection only; render-time handoff retains group ownership
+        // across the temporary nil and waits for native registration.
+        for (step, expected) in [(1, NotchPage.week), (1, .clips), (-1, .week)] {
+            let old = model.page
+            precondition(movePage(from: old, by: step) == .handled)
+            precondition(model.page == expected && nativeFocus == old)
+            renderSelection()
+            precondition(nativeFocus == nil && pageGroupHasFocus)
+            try await settle()
+            precondition(nativeFocus == expected && rejectedFocusRequests == 0)
+        }
+        for page in [NotchPage.insights, .home] {
+            precondition(focusPage(page) == .handled)
+            renderSelection()
+            try await settle()
+            precondition(nativeFocus == page)
+        }
+        precondition(movePage(from: .home, by: -1) == .handled)
+        precondition(nativeFocus == .home)
+        _ = focusPage(.insights)
+        renderSelection()
+        try await settle()
+        precondition(movePage(from: .insights, by: 1) == .handled)
+        precondition(nativeFocus == .insights)
+
+        // Both Tab directions use the same unconsumed handler. A queued request
+        // cannot pull focus back from More or a preceding text field.
+        for _ in 0..<2 {
+            enter()
+            _ = focusPage(.home)
+            renderSelection()
+            precondition(leavePageGroup() == .ignored)
+            nativeFocus = nil
+            try await settle()
+            precondition(nativeFocus == nil && !pageGroupHasFocus)
+            _ = focusPage(.insights)
+            renderSelection()
+            try await settle()
+            precondition(nativeFocus == nil)
+        }
+
+        // Multiple selections before dispatch reject the stale destination.
+        enter()
+        _ = focusPage(.week)
+        renderSelection()
+        _ = focusPage(.clips)
+        renderSelection()
+        try await settle()
+        precondition(nativeFocus == .clips && rejectedFocusRequests == 0)
+
+        // Leaving without a page change clears ownership. A non-key window and
+        // a disabled picker also reject pending requests.
+        pageFocusChanged(from: .clips, to: nil)
+        nativeFocus = nil
+        precondition(!pageGroupHasFocus)
+        for disabled in [false, true] {
+            enter()
+            _ = focusPage(model.page == .home ? .week : .home)
+            renderSelection()
+            if disabled { enabled = false } else { moreAnchor.window?.isKeyWindow = false }
+            try await settle()
+            precondition(nativeFocus == nil)
+            enabled = true
+            moreAnchor.window?.isKeyWindow = true
+        }
+        enabled = false
+        let previous = model.page
+        precondition(focusPage(.week) == .ignored && model.page == previous)
+        precondition(rejectedFocusRequests == 0)
+        print("Roving focus lifecycle adapter checks passed")
+    }
+}
+try await FocusLifecycle().run()
+"""
+        with tempfile.TemporaryDirectory() as directory:
+            main = pathlib.Path(directory) / "main.swift"
+            main.write_text(program)
+            swift = shutil.which("swiftc")
+            if swift is None:
+                self.fail("Swift is required to verify focus lifecycle transitions")
+            binary = pathlib.Path(directory) / "focus-lifecycle"
+            compiled = subprocess.run(
+                [swift, "-swift-version", "6", str(main), "-o", str(binary)], capture_output=True, text=True,
+            )
+            self.assertEqual(compiled.returncode, 0, compiled.stderr)
+            result = subprocess.run([str(binary)], capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertIn("Roving focus lifecycle adapter checks passed", result.stdout)
+
     def test_more_menu_routes_actions_and_clears_retained_callbacks(self):
         source = (ROOT / "Sources/PerchApp/Workspace/WorkspaceView.swift").read_text()
         anchor = source.split("@MainActor\nprivate final class WorkspaceMenuAnchorView", 1)[1].split("struct IDBox:", 1)[0]

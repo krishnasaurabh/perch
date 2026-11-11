@@ -19,6 +19,24 @@ class WorkspacePickerContractTests(unittest.TestCase):
         self.assertIn('accessibilityIdentifier("workspace-more")', source)
         self.assertIn('accessibilityIdentifier("workspace-pages")', source)
 
+    def test_roving_focus_is_restored_only_after_the_selection_render(self):
+        source = (ROOT / "Sources/PerchApp/Workspace/WorkspaceView.swift").read_text()
+        selection = source.split("private func selectPage(", 1)[1].split("private func", 1)[0]
+        keyboard = source.split("private func focusPage(", 1)[1].split("private func", 1)[0]
+        self.assertNotIn("focusedPage =", selection)
+        self.assertNotIn("focusedPage =", keyboard)
+        self.assertIn(".onChange(of: model.page)", source)
+        self.assertIn(".onChange(of: focusedPage)", source)
+        self.assertIn(".onKeyPress(.tab)", source)
+        self.assertIn("@State private var pageGroupHasFocus = false", source)
+        self.assertIn("NSWindow.didResignKeyNotification", source)
+        restore = source.split("private func restorePageFocus(", 1)[1].split("private func", 1)[0]
+        self.assertIn("DispatchQueue.main.async", restore)
+        self.assertIn("guard pageGroupHasFocus", restore)
+        self.assertIn("model.page == page", restore)
+        self.assertIn("isKeyWindow == true", restore)
+        self.assertIn("focusedPage = page", restore)
+
     def test_more_launcher_uses_the_shared_button_and_native_menu(self):
         source = (ROOT / "Sources/PerchApp/Workspace/WorkspaceView.swift").read_text()
         launcher = source.split("private var moreMenu: some View {", 1)[1].split("private struct WorkspaceMenuAnchor", 1)[0]
