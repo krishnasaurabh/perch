@@ -146,6 +146,31 @@ class TodayInteractionTests(unittest.TestCase):
         self.assertIn("final['focus']['state'] != 'running'", wrapper)
         self.assertIn("final['tasks'][0]['id'] == saved['tasks'][0]['id']", wrapper)
 
+    def test_context_menu_probe_delivers_the_native_pointer_event(self):
+        source = (ROOT / "scripts/focus_entry_probe.swift").read_text()
+        self.assertNotIn(".menu(for:", source)
+        self.assertIn("rowWindow.sendEvent(contextEvent)", source)
+        self.assertIn("rowWindow.convertPoint(fromScreen:", source)
+        self.assertIn("NSMenu.didBeginTrackingNotification", source)
+        self.assertIn("forMode: .eventTracking", source)
+        self.assertIn("menu.cancelTracking()", source)
+        self.assertIn('output.appendingPathComponent("context-menu-trace.json")', source)
+
+    def test_context_menu_probe_keeps_real_action_and_exact_task_assertions(self):
+        source = (ROOT / "scripts/focus_entry_probe.swift").read_text()
+        self.assertIn('require(taskMenu != nil, "existing task context menu exposes Start focusing")', source)
+        self.assertIn('require(menu.items[index].isEnabled, "existing task menu item enabled")', source)
+        self.assertEqual(source.count("menu.performActionForItem(at: index)"), 1)
+        self.assertLess(source.index("menu.performActionForItem(at: index)"), source.index("menu.cancelTracking()"))
+        self.assertIn("guard matchedMenu == nil else { return }", source)
+        self.assertIn("store.planner.focus?.state == .running", source)
+        self.assertIn("store.planner.focus?.taskID == linked.id && store.planner.focus?.limit == 720", source)
+        self.assertIn("store.planner.tasks[0].id == linked.id", source)
+        self.assertIn("store.planner.tasks[0].minutes == 12", source)
+        self.assertIn('"taskActivation": "window-right-click-tracked-NSMenu-item-action"', source)
+        wrapper = (ROOT / "scripts/check_focus_entry.sh").read_text()
+        self.assertIn("result['taskActivation'] == 'window-right-click-tracked-NSMenu-item-action'", wrapper)
+
     def test_overdue_policy_is_not_a_persistent_home_banner(self):
         source = "\n".join(p.read_text() for p in WORKSPACE.glob("*.swift"))
         self.assertNotIn("OverdueBanner()", source)

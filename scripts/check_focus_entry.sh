@@ -26,6 +26,10 @@ subprocess.run([binary, '-AppleKeyboardUIMode', '3'], env=env, check=True, timeo
 root = pathlib.Path(output)
 result = json.loads((root / 'results.json').read_text())
 assert result['activation'] == 'real-own-process-AX-press-no-model-fallback'
+assert result['taskActivation'] == 'window-right-click-tracked-NSMenu-item-action'
+menu = json.loads((root / 'context-menu-trace.json').read_text())
+assert menu['mechanism'] == result['taskActivation'] and not menu['timedOut']
+assert any('Start focusing' in titles for titles in menu['menus'])
 assert {row['defaultMinutes'] for row in result['metrics']} == {25, 40}
 # Read the real persisted snapshot before deletion, not a reconstruction from view state.
 saved = json.loads((root / 'linked-focus.json').read_text())

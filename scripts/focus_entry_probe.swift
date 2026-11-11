@@ -82,6 +82,59 @@ func frame(_ node: NSObject) -> CGRect {
 }
 @MainActor
 func views(_ root: NSView) -> [NSView] { [root] + root.subviews.flatMap(views) }
+// Observe only menus opened by real event dispatch. Menu tracking runs a nested
+// event loop, so a selector timer in that mode must close it before sendEvent returns.
+@MainActor
+final class ContextMenuObservation: NSObject {
+    private var menus: [NSMenu] = []
+    private var timer: Timer?
+    private let deadline = ProcessInfo.processInfo.systemUptime + 5
+    private(set) var matchedMenu: NSMenu?
+    private(set) var timedOut = false
+    private(set) var observedTitles: [[String]] = []
+
+    func start() {
+        NotificationCenter.default.addObserver(
+            self, selector: #selector(menuBeganTracking(_:)), name: NSMenu.didBeginTrackingNotification, object: nil)
+        let timer = Timer(
+            timeInterval: 0.05, target: self, selector: #selector(inspectMenus), userInfo: nil, repeats: true)
+        self.timer = timer
+        RunLoop.main.add(timer, forMode: .default)
+        RunLoop.main.add(timer, forMode: .eventTracking)
+    }
+
+    func stop() {
+        timer?.invalidate()
+        timer = nil
+        NotificationCenter.default.removeObserver(self)
+    }
+
+    @objc private func menuBeganTracking(_ notification: Notification) {
+        guard let menu = notification.object as? NSMenu else { return }
+        menus.append(menu)
+    }
+
+    @objc private func inspectMenus() {
+        guard matchedMenu == nil else { return }
+        for menu in menus {
+            let titles = menu.items.map(\.title)
+            if !observedTitles.contains(titles) { observedTitles.append(titles) }
+            if let index = menu.items.firstIndex(where: { $0.title == "Start focusing" }) {
+                matchedMenu = menu
+                require(menu.items[index].isEnabled, "existing task menu item enabled")
+                // Invoke while tracking still retains SwiftUI's action target; cancellation
+                // may tear it down. This is the actual menu action, not a model fallback.
+                menu.performActionForItem(at: index)
+                menu.cancelTracking()
+                return
+            }
+        }
+        if ProcessInfo.processInfo.systemUptime >= deadline {
+            timedOut = true
+            for menu in menus { menu.cancelTracking() }
+        }
+    }
+}
 @MainActor
 func snapshot(_ root: NSView, _ name: String, into output: URL) {
     root.layoutSubtreeIfNeeded()
@@ -383,7 +436,7 @@ MainActor.assumeIsolated {
                 window.orderOut(nil)
             }
             print("Keyboard activation before task route: \(keyboardVerified)")
-            // Existing task focus: ask the real hosted row for its context menu, then activate its actual item.
+            // Dispatch a right-click to the rendered title and observe the menu AppKit actually opens.
             store.seedFixture { e in
                 e.planner.tasks = []; e.planner.focus = nil
             }
@@ -398,25 +451,46 @@ MainActor.assumeIsolated {
                     delegate.model))
             rowWindow.contentView = rowRoot; rowWindow.makeKeyAndOrderFront(nil)
             await settle(); await wakeAX(); await settle()
+            guard let title = control(linked.title, in: rowRoot) else {
+                require(false, "context-click target is the rendered task title"); return
+            }
+            let titleFrame = frame(title)
+            require(titleFrame.width > 0 && titleFrame.height > 0, "context-click title has a visible frame")
+            let location = rowWindow.convertPoint(fromScreen: NSPoint(x: titleFrame.midX, y: titleFrame.midY))
+            let rootLocation = rowRoot.convert(location, from: nil)
+            require(rowRoot.hitTest(rootLocation) != nil, "context-click lands inside the hosted task row")
+            let observation = ContextMenuObservation()
+            observation.start()
             let contextEvent = NSEvent.mouseEvent(
-                with: .rightMouseDown, location: NSPoint(x: 120, y: 40), modifierFlags: [],
+                with: .rightMouseDown, location: location, modifierFlags: [],
                 timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: rowWindow.windowNumber,
                 context: nil, eventNumber: 1, clickCount: 1, pressure: 1)!
-            var taskMenu: NSMenu?
-            for view in views(rowRoot) {
-                if let menu = view.menu(for: contextEvent), menu.items.contains(where: { $0.title == "Start focusing" })
-                {
-                    taskMenu = menu; break
-                }
+            rowWindow.sendEvent(contextEvent)
+            // SwiftUI may begin tracking during dispatch or on the next run-loop pass.
+            while observation.matchedMenu == nil && !observation.timedOut {
+                try? await Task.sleep(nanoseconds: 50_000_000)
             }
+            observation.stop()
+            let contextUp = NSEvent.mouseEvent(
+                with: .rightMouseUp, location: location, modifierFlags: [],
+                timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: rowWindow.windowNumber,
+                context: nil, eventNumber: 2, clickCount: 1, pressure: 0)!
+            rowWindow.sendEvent(contextUp)
+            let contextTrace: [String: Any] = [
+                "mechanism": "window-right-click-tracked-NSMenu-item-action",
+                "titleFrame": NSStringFromRect(titleFrame), "windowPoint": NSStringFromPoint(location),
+                "keyWindow": rowWindow.isKeyWindow, "menus": observation.observedTitles,
+                "timedOut": observation.timedOut,
+            ]
+            try! JSONSerialization.data(withJSONObject: contextTrace, options: [.prettyPrinted, .sortedKeys]).write(
+                to: output.appendingPathComponent("context-menu-trace.json"))
+            let taskMenu = observation.matchedMenu
             require(taskMenu != nil, "existing task context menu exposes Start focusing")
-            let index = taskMenu!.items.firstIndex { $0.title == "Start focusing" }!
-            require(taskMenu!.items[index].isEnabled, "existing task menu item enabled")
-            taskMenu!.performActionForItem(at: index)
             await settle()
             require(
-                store.planner.focus?.taskID == linked.id && store.planner.focus?.limit == 720,
-                "task hover action retains exact ID and 12-minute estimate")
+                store.planner.focus?.state == .running
+                    && store.planner.focus?.taskID == linked.id && store.planner.focus?.limit == 720,
+                "task context-menu action starts the exact task with a 12-minute limit")
             require(
                 store.planner.tasks.count == 1 && store.planner.tasks[0].id == linked.id
                     && store.planner.tasks[0].minutes == 12,
@@ -466,7 +540,7 @@ MainActor.assumeIsolated {
                 "metrics": metrics,
                 "keyboardActivation": keyboardVerified ? "verified-in-process-Tab-Space" : "unverified-on-this-runner",
                 "activation": "real-own-process-AX-press-no-model-fallback",
-                "taskActivation": "real-NSMenu-item-action-from-hosted-row",
+                "taskActivation": "window-right-click-tracked-NSMenu-item-action",
                 "screenshots": "own-window-cacheDisplay-not-compositor", "physicalNotch": "unverified",
                 "voiceOverSpeech": "unverified",
             ]
