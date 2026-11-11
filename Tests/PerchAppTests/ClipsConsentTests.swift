@@ -1,7 +1,7 @@
 import Foundation
-import PerchUI
 import PlannerCore
 import XCTest
+@testable import PerchUI
 @testable import PerchApp
 
 private final class ConsentPasteboardFake: PasteboardAccess {
