@@ -11,6 +11,7 @@ struct WorkspaceView: View {
     @EnvironmentObject var services: Services
     @Environment(\.isEnabled) private var enabled
     @FocusState private var focusedPage: NotchPage?
+    @FocusState private var moreFocused = false
     @State private var pageGroupHasFocus = false
     @State private var moreAnchor = WorkspaceMenuAnchorView()
 
@@ -179,20 +180,30 @@ struct WorkspaceView: View {
         // AppKit launcher. Use a real shared-style button and anchor a native menu
         // to it so its target, keyboard focus and accessibility identity agree.
         Button {
-            moreAnchor.show(
-                canUndo: store.canUndo,
-                undo: { store.undo() },
-                dashboard: { DashboardWindow.show(store: store, model: model, services: services) },
-                settings: { SettingsWindow.show(store: store, services: services) })
+            showMoreMenu()
         } label: {
             Image(systemName: "ellipsis")
         }
-        .buttonStyle(PillStyle())
+        .buttonStyle(PillStyle(focus: $moreFocused))
+        .onKeyPress(.space, phases: .down) {
+            guard moreFocused, enabled else { return .ignored }
+            showMoreMenu()
+            return .handled
+        }
         .fixedSize()
         .background(WorkspaceMenuAnchor(view: moreAnchor).allowsHitTesting(false))
         .help("More")
         .accessibilityLabel("More")
         .accessibilityIdentifier("workspace-more")
+    }
+
+    private func showMoreMenu() {
+        guard enabled else { return }
+        moreAnchor.show(
+            canUndo: store.canUndo,
+            undo: { store.undo() },
+            dashboard: { DashboardWindow.show(store: store, model: model, services: services) },
+            settings: { SettingsWindow.show(store: store, services: services) })
     }
 }
 
