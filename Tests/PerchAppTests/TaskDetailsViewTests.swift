@@ -1,5 +1,4 @@
 import AppKit
-import ApplicationServices
 import SwiftUI
 import XCTest
 @testable import PerchApp
@@ -43,9 +42,8 @@ final class TaskDetailsViewTests: XCTestCase {
                     ($0.documentView?.bounds.height ?? 0) < ($1.documentView?.bounds.height ?? 0)
                 })
             XCTAssertGreaterThan(scroll.documentView?.bounds.height ?? 0, scroll.contentSize.height)
-            let viewport = window.convertToScreen(scroll.contentView.convert(scroll.contentView.bounds, to: nil))
-            XCTAssertFalse(
-                viewport.insetBy(dx: 1, dy: 1).intersects(saveFrame), "The scrolling form reserves the footer")
+            Self.assertFooterOutsideViewport(scroll, controls: [saveFrame, cancelFrame], in: window)
+            let originalOffset = scroll.contentView.bounds.origin
             let bottom = max(0, (scroll.documentView?.bounds.height ?? 0) - scroll.contentSize.height)
             scroll.documentView?.scroll(NSPoint(x: 0, y: bottom))
             scroll.reflectScrolledClipView(scroll.contentView)
@@ -54,8 +52,29 @@ final class TaskDetailsViewTests: XCTestCase {
             let liveCancel = try await Self.control("details-cancel", in: window)
             XCTAssertEqual(Self.frame(liveSave), saveFrame)
             XCTAssertEqual(Self.frame(liveCancel), cancelFrame)
+            XCTAssertNotEqual(scroll.contentView.bounds.origin, originalOffset, "The form actually scrolled")
+            Self.assertFooterOutsideViewport(
+                scroll, controls: [Self.frame(liveSave), Self.frame(liveCancel)], in: window)
             XCTAssertEqual(try fixture.file.load().tasks[0], fixture.task)
         }
+    }
+
+    @MainActor
+    func testDirectHostPublishesControlIdentifiers() async throws {
+        let fixture = try DetailsFixture()
+        defer { fixture.close() }
+        let window = Self.makeWindow(size: NSSize(width: 460, height: 600))
+        window.contentView = NSHostingView(
+            rootView: TaskDetailsSheet(taskID: fixture.task.id).environmentObject(fixture.store)
+                .environment(\.accessibilityEnabled, true))
+        window.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+        defer { window.close() }
+        _ = try await Self.identifierControl("details-title", role: "AXTextField", in: window)
+        _ = try await Self.identifierControl("details-save", in: window)
+        _ = try await Self.identifierControl("details-cancel", in: window)
+        XCTAssertNotNil(fixture.store.send(.delete(fixture.task.id)))
+        _ = try await Self.identifierControl("details-close", in: window)
     }
 
     @MainActor
@@ -126,11 +145,8 @@ final class TaskDetailsViewTests: XCTestCase {
 
     @MainActor
     private static func editTitle(_ title: String, in window: NSWindow) async throws {
-        _ = try await control("details-title", role: "AXTextField", in: window)
-        let field = try XCTUnwrap(
-            window.contentView.flatMap { root in
-                views(root).compactMap { $0 as? NSTextField }.first { $0.placeholderString == "Task title" }
-            })
+        let node = try await control("details-title", role: "AXTextField", in: window)
+        let field = try XCTUnwrap(node as? NSTextField)
         window.makeKeyAndOrderFront(nil)
         XCTAssertTrue(window.makeFirstResponder(field))
         let editor = try XCTUnwrap(field.currentEditor() as? NSTextView)
@@ -146,7 +162,7 @@ final class TaskDetailsViewTests: XCTestCase {
     fileprivate static func makeWindow(size: NSSize) -> NSWindow {
         _ = NSApplication.shared
         NSApp.setActivationPolicy(.accessory)
-        // A borderless, non-key host need not appear in AXWindows. Match an ordinary editor window.
+        // Native editing requires an ordinary key-capable editor window.
         let window = NSWindow(
             contentRect: NSRect(origin: NSPoint(x: 100, y: 100), size: size),
             styleMask: [.titled, .closable, .resizable], backing: .buffered, defer: false)
@@ -161,48 +177,113 @@ final class TaskDetailsViewTests: XCTestCase {
     fileprivate static func control(_ identifier: String, role: String = "AXButton", in window: NSWindow) async throws
         -> NSObject
     {
-        // Waking the AX client is asynchronous; one immediate lookup can precede SwiftUI's tree publication.
-        var wakeResult = "not queried"
+        try await lookup(identifier, role: role, in: window, requireIdentifier: false)
+    }
+
+    @MainActor
+    private static func identifierControl(_ identifier: String, role: String = "AXButton", in window: NSWindow)
+        async throws
+        -> NSObject
+    {
+        try await lookup(identifier, role: role, in: window, requireIdentifier: true)
+    }
+
+    @MainActor
+    private static func lookup(_ identifier: String, role: String, in window: NSWindow, requireIdentifier: Bool)
+        async throws
+        -> NSObject
+    {
+        let names = [
+            "details-title": "Task title", "details-save": "Save", "details-cancel": "Cancel", "details-close": "Close",
+        ]
         for _ in 0..<20 {
             window.contentView?.layoutSubtreeIfNeeded()
-            wakeResult = await wakeAccessibility()
             await settle()
-            if let node = nodes(window).first(where: {
+            let candidates = nodes(window)
+            if !requireIdentifier, let name = names[identifier] {
+                // Native controls in a presented sheet may not inherit SwiftUI identifiers.
+                // Use their real semantic properties, never positions or an arbitrary first field.
+                if role == "AXTextField",
+                    let field = candidates.compactMap({ $0 as? NSTextField }).first(where: {
+                        $0.isEditable && $0.placeholderString == name
+                    })
+                {
+                    return field
+                }
+                if role == "AXButton",
+                    let button = candidates.compactMap({ $0 as? NSButton }).first(where: {
+                        $0.title == name
+                    })
+                {
+                    return button
+                }
+            }
+            if let node = candidates.first(where: {
                 attribute($0, "accessibilityIdentifier") as? String == identifier
                     && attribute($0, "accessibilityRole") as? String == role
             }) {
                 return node
             }
+            if !requireIdentifier, let name = names[identifier],
+                let node = candidates.first(where: {
+                    attribute($0, "accessibilityRole") as? String == role
+                        && (attribute($0, "accessibilityLabel") as? String == name
+                            || attribute($0, "accessibilityTitle") as? String == name)
+                })
+            {
+                return node
+            }
         }
-        let observed = nodes(window).map {
-            "\(attribute($0, "accessibilityRole") ?? "?")/\(attribute($0, "accessibilityIdentifier") ?? "?")/\(attribute($0, "accessibilityLabel") ?? "?")"
+        let observed = nodes(window).map { node in
+            let native: String
+            if let button = node as? NSButton {
+                native = "title=\(button.title)"
+            } else if let field = node as? NSTextField {
+                native = "placeholder=\(field.placeholderString ?? "nil")"
+            } else {
+                native = ""
+            }
+            return "\(type(of: node)) role=\(attribute(node, "accessibilityRole") ?? "?") "
+                + "id=\(attribute(node, "accessibilityIdentifier") ?? "?") "
+                + "label=\(attribute(node, "accessibilityLabel") ?? "?") \(native) "
+                + "accessibilityAttributeNames=\(attribute(node, "accessibilityAttributeNames") ?? "unavailable")"
         }.joined(separator: "\n")
-        XCTFail("Missing \(identifier) (\(role)) in native window; AX query: \(wakeResult); observed:\n\(observed)")
+        XCTFail("Missing \(identifier) (\(role), identifier required: \(requireIdentifier)); observed:\n\(observed)")
         throw DetailsTestError.missingControl
     }
 
-    private static func wakeAccessibility() async -> String {
-        await Task.detached {
-            let app = AXUIElementCreateApplication(getpid())
-            var value: CFTypeRef?
-            let result = AXUIElementCopyAttributeValue(app, kAXWindowsAttribute as CFString, &value)
-            let windows = (value as? [AXUIElement]) ?? []
-            var results = ["windows=\(result.rawValue):\(windows.count)"]
-            for window in windows {
-                var children: CFTypeRef?
-                let childResult = AXUIElementCopyAttributeValue(window, kAXChildrenAttribute as CFString, &children)
-                results.append("children=\(childResult.rawValue):\((children as? [AXUIElement])?.count ?? 0)")
-            }
-            return results.joined(separator: " ")
-        }.value
-    }
-
     @MainActor private static func press(_ node: NSObject) throws {
+        if let button = node as? NSButton {
+            XCTAssertTrue(button.isEnabled, "The native button must be enabled")
+            button.performClick(nil)
+            return
+        }
         let selector = NSSelectorFromString("accessibilityPerformPress")
         let implementation = try XCTUnwrap(node.responds(to: selector) ? node.method(for: selector) : nil)
         typealias Press = @convention(c) (AnyObject, Selector) -> Bool
         XCTAssertTrue(
             unsafeBitCast(implementation, to: Press.self)(node, selector), "The native control accepts its AX press")
+    }
+
+    @MainActor
+    private static func assertFooterOutsideViewport(_ scroll: NSScrollView, controls: [NSRect], in window: NSWindow) {
+        let clip = window.convertToScreen(scroll.contentView.convert(scroll.contentView.visibleRect, to: nil))
+        let outer = window.convertToScreen(scroll.convert(scroll.bounds, to: nil))
+        let insets = scroll.contentInsets
+        // Insets are measured from the scroll view, not subtracted a second time
+        // from an already-inset clip view. Screen coordinates increase upwards.
+        let insetOuter = NSRect(
+            x: outer.minX + insets.left, y: outer.minY + insets.bottom,
+            width: max(0, outer.width - insets.left - insets.right),
+            height: max(0, outer.height - insets.top - insets.bottom))
+        let viewport = clip.intersection(insetOuter)
+        XCTAssertGreaterThan(viewport.width, 0, "The form has a real visible viewport")
+        XCTAssertGreaterThan(viewport.height, 0, "The form must not be collapsed to hide overlap")
+        for control in controls {
+            XCTAssertFalse(
+                viewport.insetBy(dx: 1, dy: 1).intersects(control),
+                "The scrolling form reserves the footer: clip=\(clip), insets=\(insets), control=\(control)")
+        }
     }
 
     @MainActor private static func attribute(_ node: NSObject, _ name: String) -> Any? {
@@ -214,7 +295,10 @@ final class TaskDetailsViewTests: XCTestCase {
         var seen = Set<ObjectIdentifier>()
         @MainActor func walk(_ node: NSObject, _ depth: Int) -> [NSObject] {
             guard depth < 60, seen.insert(ObjectIdentifier(node)).inserted else { return [] }
-            var children = (attribute(node, "accessibilityChildren") as? [NSObject]) ?? []
+            // Scroll areas expose their hosted content through AXContents; walking
+            // only AXChildren misses the SwiftUI elements within the native scroller.
+            var children = ["accessibilityChildren", "accessibilityContents", "accessibilityChildrenInNavigationOrder"]
+                .flatMap { (attribute(node, $0) as? [NSObject]) ?? [] }
             // Ignored hosting containers may omit native descendants from their AX children.
             if let view = node as? NSView { children += view.subviews }
             if let window = node as? NSWindow, let content = window.contentView { children.append(content) }

@@ -45,6 +45,18 @@ private struct TaskDetailsEditor: View {
     private var calendar: Calendar { store.engine.calendar }
 
     var body: some View {
+        // Reserve the footer in layout, not just in the scroll view's safe area.
+        // Native scrolling content must never draw underneath these controls.
+        VStack(spacing: 0) {
+            form
+            footer
+        }
+        .font(Theme.body).foregroundStyle(Theme.text)
+        .frame(minWidth: 280, idealWidth: 460, maxWidth: 600, minHeight: 220, idealHeight: 600, maxHeight: 760)
+        .onAppear { if !readOnly { focusedField = .title } }
+    }
+
+    private var form: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: Theme.cardPadding) {
                 if readOnly {
@@ -134,26 +146,27 @@ private struct TaskDetailsEditor: View {
             }
             .padding(Theme.cardPadding)
         }
-        .safeAreaInset(edge: .bottom, spacing: 0) {
-            HStack(spacing: Theme.gutter) {
-                Text(readOnly ? "History" : (draft.hasChanges ? "Unsaved changes" : "Task details"))
-                    .font(Theme.meta).foregroundStyle(Theme.secondary).lineLimit(1)
-                Spacer(minLength: Theme.gutter)
-                Button("Cancel") { dismiss() }
-                    .keyboardShortcut(.cancelAction).buttonStyle(PillStyle())
-                    .accessibilityIdentifier("details-cancel")
-                Button("Save") { save() }
-                    .keyboardShortcut(.defaultAction).buttonStyle(PillStyle(prominent: true))
-                    .disabled(readOnly || !errors.isEmpty)
-                    .accessibilityIdentifier("details-save")
-            }
-            .padding(Theme.cardPadding)
-            .background(.regularMaterial)
-            .overlay(alignment: .top) { Rectangle().fill(Theme.cardStroke).frame(height: 1) }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .clipped()
+    }
+
+    private var footer: some View {
+        HStack(spacing: Theme.gutter) {
+            Text(readOnly ? "History" : (draft.hasChanges ? "Unsaved changes" : "Task details"))
+                .font(Theme.meta).foregroundStyle(Theme.secondary).lineLimit(1)
+            Spacer(minLength: Theme.gutter)
+            Button("Cancel") { dismiss() }
+                .keyboardShortcut(.cancelAction).buttonStyle(PillStyle())
+                .accessibilityIdentifier("details-cancel")
+            Button("Save") { save() }
+                .keyboardShortcut(.defaultAction).buttonStyle(PillStyle(prominent: true))
+                .disabled(readOnly || !errors.isEmpty)
+                .accessibilityIdentifier("details-save")
         }
-        .font(Theme.body).foregroundStyle(Theme.text)
-        .frame(minWidth: 280, idealWidth: 460, maxWidth: 600, minHeight: 220, idealHeight: 600, maxHeight: 760)
-        .onAppear { if !readOnly { focusedField = .title } }
+        .padding(Theme.cardPadding)
+        .background(.regularMaterial)
+        .overlay(alignment: .top) { Rectangle().fill(Theme.cardStroke).frame(height: 1) }
+        .fixedSize(horizontal: false, vertical: true)
     }
 
     private var schedule: some View {
