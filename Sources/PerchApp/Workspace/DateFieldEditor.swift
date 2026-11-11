@@ -158,26 +158,32 @@ struct DateFieldEditor: View {
         }
     }
 
-    private func button(
+    @ViewBuilder private func button(
         _ control: DateFieldControl, title: String, prominent: Bool = false, action: @escaping () -> Void
     ) -> some View {
-        Button(action: action) {
-            Text(title)
-                .background {
-                    NativeDateButtonIdentity(
-                        identifier: control.identifier(field: key),
-                        label: control.accessibilityLabel(field: field)
-                    )
-                    .allowsHitTesting(false)
-                }
+        if control == .add || control == .clear {
+            NativeDateButtonIdentity(
+                identifier: control.identifier(field: key), label: control.accessibilityLabel(field: field)
+            ) {
+                styledButton(control, title: title, prominent: prominent, action: action)
+            }
+            .fixedSize()
+        } else {
+            styledButton(control, title: title, prominent: prominent, action: action)
         }
-        .buttonStyle(
-            PillStyle(prominent: prominent, disabledReason: draft.visibleIssue?.message ?? "Fix the date first.")
-        )
-        .fixedSize()
-        .focused($focus, equals: control)
-        .accessibilityLabel(control.accessibilityLabel(field: field))
-        .accessibilityIdentifier(control.identifier(field: key))
+    }
+
+    private func styledButton(
+        _ control: DateFieldControl, title: String, prominent: Bool, action: @escaping () -> Void
+    ) -> some View {
+        Button(title, action: action)
+            .buttonStyle(
+                PillStyle(prominent: prominent, disabledReason: draft.visibleIssue?.message ?? "Fix the date first.")
+            )
+            .fixedSize()
+            .focused($focus, equals: control)
+            .accessibilityLabel(control.accessibilityLabel(field: field))
+            .accessibilityIdentifier(control.identifier(field: key))
     }
 
     private func commit() {

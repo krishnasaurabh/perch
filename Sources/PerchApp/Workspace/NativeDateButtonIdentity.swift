@@ -1,39 +1,41 @@
 import AppKit
 import SwiftUI
 
-/// Publishes the label on the existing native button without replacing its style,
-/// target/action, focus handling or layout. The anchor belongs inside the label so
-/// it can identify its owner by ancestry, never by a sibling's position or title.
-struct NativeDateButtonIdentity: NSViewRepresentable {
+/// Bounds native accessibility annotation to one unchanged SwiftUI button.
+/// The separate host keeps the button's identity available inside a scroll host;
+/// its content still owns drawing, keyboard focus, enabled state and activation.
+struct NativeDateButtonIdentity<Content: View>: NSViewRepresentable {
     let identifier: String
     let label: String
+    @ViewBuilder var content: () -> Content
+    @Environment(\.self) private var environment
 
-    func makeNSView(context: Context) -> Anchor {
-        let view = Anchor()
-        view.setAccessibilityElement(false)
-        view.identifierValue = identifier
-        view.labelValue = label
+    func makeNSView(context: Context) -> Host {
+        let view = Host(rootView: root)
+        view.sizingOptions = [.intrinsicContentSize]
+        updateNSView(view, context: context)
         return view
     }
 
-    func updateNSView(_ nsView: Anchor, context: Context) {
+    func updateNSView(_ nsView: Host, context: Context) {
         nsView.identifierValue = identifier
         nsView.labelValue = label
-        nsView.publish()
-        // SwiftUI can update the native button after updating its label.
+        nsView.rootView = root
+        nsView.invalidateIntrinsicContentSize()
+        nsView.needsLayout = true
+        // SwiftUI installs or updates the native child after assigning rootView.
         DispatchQueue.main.async { [weak nsView] in nsView?.publish() }
     }
 
-    final class Anchor: NSView {
+    func sizeThatFits(_ proposal: ProposedViewSize, nsView: Host, context: Context) -> CGSize? {
+        nsView.fittingSize
+    }
+
+    private var root: AnyView { AnyView(content().environment(\.self, environment)) }
+
+    final class Host: NSHostingView<AnyView> {
         var identifierValue = ""
         var labelValue = ""
-
-        override func hitTest(_ point: NSPoint) -> NSView? { nil }
-
-        override func viewDidMoveToSuperview() {
-            super.viewDidMoveToSuperview()
-            publish()
-        }
 
         override func viewDidMoveToWindow() {
             super.viewDidMoveToWindow()
@@ -46,17 +48,17 @@ struct NativeDateButtonIdentity: NSViewRepresentable {
         }
 
         func publish() {
-            var ancestor = superview
-            while let view = ancestor {
-                if let button = view as? NSButton {
-                    button.setAccessibilityElement(true)
-                    button.setAccessibilityRole(.button)
-                    button.setAccessibilityIdentifier(identifierValue)
-                    button.setAccessibilityLabel(labelValue)
-                    return
-                }
-                ancestor = view.superview
+            @MainActor func buttons(in view: NSView) -> [NSButton] {
+                if let button = view as? NSButton { return [button] }
+                return view.subviews.flatMap { buttons(in: $0) }
             }
+            // Never annotate an arbitrary sibling if the content contract changes.
+            let candidates = buttons(in: self)
+            guard candidates.count == 1, let button = candidates.first else { return }
+            button.setAccessibilityElement(true)
+            button.setAccessibilityRole(.button)
+            button.setAccessibilityIdentifier(identifierValue)
+            button.setAccessibilityLabel(labelValue)
         }
     }
 }

@@ -82,12 +82,43 @@ final class TaskDetailsViewTests: XCTestCase {
         let add = try await Self.control("deadline-date-add", in: window)
         XCTAssertEqual(Self.attribute(clear, "accessibilityRole") as? String, "AXButton")
         XCTAssertEqual(Self.attribute(add, "accessibilityRole") as? String, "AXButton")
+        XCTAssertEqual(Self.attribute(clear, "accessibilityLabel") as? String, "Clear schedule")
+        XCTAssertEqual(Self.attribute(add, "accessibilityLabel") as? String, "Add deadline")
         XCTAssertTrue(try Self.isEnabled(clear))
         XCTAssertTrue(try Self.isEnabled(add))
         let date = try await Self.control("schedule-date-text", role: "AXTextField", in: window)
         XCTAssertEqual((date as? NSTextField)?.placeholderString, "YYYY-MM-DD")
         XCTAssertNotNil(fixture.store.send(.delete(fixture.task.id)))
         _ = try await Self.identifierControl("details-close", in: window)
+    }
+
+    @MainActor
+    func testNativeDateButtonIdentityPreservesSizeAndEnabledState() async throws {
+        let window = Self.makeWindow(size: NSSize(width: 320, height: 180))
+        defer { window.close() }
+        for title in ["Clear", "Add date"] {
+            for enabled in [true, false] {
+                let content = Button(title) {}.buttonStyle(PillStyle()).fixedSize()
+                let reference = NSHostingView(rootView: content.disabled(!enabled))
+                let host = NSHostingView(
+                    rootView: NativeDateButtonIdentity(identifier: "date-button", label: "Date action") { content }
+                        .disabled(!enabled).fixedSize())
+                window.contentView = host
+                window.makeKeyAndOrderFront(nil)
+                await Self.settle()
+                host.layoutSubtreeIfNeeded()
+                XCTAssertEqual(host.fittingSize.width, reference.fittingSize.width, accuracy: 1)
+                XCTAssertEqual(host.fittingSize.height, reference.fittingSize.height, accuracy: 1)
+                let buttons = Self.nodes(host).compactMap { $0 as? NSButton }.filter {
+                    $0.accessibilityLabel() == "Date action"
+                }
+                XCTAssertEqual(buttons.count, 1, "Exactly one native owner receives the identity")
+                let button = try XCTUnwrap(buttons.first)
+                XCTAssertEqual(button.accessibilityRole(), .button)
+                XCTAssertEqual(button.accessibilityIdentifier(), "date-button")
+                XCTAssertEqual(button.isEnabled, enabled, "The enclosing form's disabled state is preserved")
+            }
+        }
     }
 
     @MainActor
