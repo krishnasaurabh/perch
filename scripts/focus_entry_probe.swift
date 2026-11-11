@@ -97,6 +97,7 @@ func recordAccessibility(_ root: NSView, _ name: String, into output: URL) {
             "identifier": attr(node, "accessibilityIdentifier") as? String ?? "",
             "frame": NSStringFromRect(frame(node)),
             "hint": attr(node, "accessibilityHelp") as? String ?? "",
+            "focused": isFocused(node) ? "true" : "false",
             "actions": customActions(node).map(\.name).joined(separator: ", "),
         ]
     }
@@ -242,15 +243,27 @@ func performCustomAction(_ name: String, taskID: UUID, in root: NSView) {
 }
 
 @MainActor
-func focusByTab(_ identifier: String, in window: NSWindow, root: NSView) async -> Bool {
+func focusByTab(_ identifier: String, in window: NSWindow, root: NSView, output: URL) async -> Bool {
     window.makeFirstResponder(nil)
-    for _ in 0..<60 {
+    var trace: [[String: Any]] = []
+    for step in 0..<60 {
         key("\t", code: 48, in: window)
         try? await Task.sleep(nanoseconds: 50_000_000)
+        trace.append([
+            "step": step, "target": identifier, "keyWindow": window.isKeyWindow,
+            "firstResponder": String(describing: window.firstResponder),
+            "focusedIdentifiers": nodes(root).filter(isFocused).map {
+                attr($0, "accessibilityIdentifier") as? String
+                    ?? attr($0, "accessibilityLabel") as? String ?? "unnamed"
+            },
+        ])
+        try! JSONSerialization.data(withJSONObject: trace, options: [.prettyPrinted]).write(
+            to: output.appendingPathComponent("tab-trace-\(identifier).json"))
         if let node = control(identifier, attribute: "accessibilityIdentifier", in: root), isFocused(node) {
             return true
         }
     }
+    snapshot(root, "tab-failed-\(identifier)", into: output)
     return false
 }
 
@@ -279,7 +292,24 @@ func verifyLastRowKeyboardUndo(store: PlannerStore, model: NotchModel, services:
         await settle(); await wakeAX(); await settle()
         require(panel.isKeyWindow, "last-row keyboard test owns the key NotchPanel")
         if completed { press("Completed 1", in: root); await settle() }
-        let reachedDelete = await focusByTab("task-delete-\(only.id)", in: panel, root: root)
+        let reachedCompletion = await focusByTab("task-complete-\(only.id)", in: panel, root: root, output: output)
+        require(reachedCompletion, "Tab reaches the last row completion control")
+        let actionOrder = completed ? ["details", "delete"] : ["focus", "details", "delete"]
+        for action in actionOrder {
+            key("\t", code: 48, in: panel); await settle()
+            recordAccessibility(root, "last-row-\(completed)-tab-\(action)", into: output)
+            let node = control("task-\(action)-\(only.id)", attribute: "accessibilityIdentifier", in: root)
+            require(node.map(isFocused) == true, "Tab reaches row \(action) in visible order")
+            if action == "details" {
+                key(" ", code: 49, in: panel); await settle()
+                require(model.detailsTaskID == only.id, "row Details keyboard action targets the exact task")
+                require(store.planner.tasks == beforeDeletion, "row Details keyboard action does not mutate tasks")
+                model.detailsTaskID = nil
+            }
+        }
+        let reachedDelete =
+            control("task-delete-\(only.id)", attribute: "accessibilityIdentifier", in: root)
+            .map(isFocused) == true
         recordAccessibility(root, "last-row-\(completed)-before-delete", into: output)
         require(reachedDelete, "Tab reaches the last row Delete control")
         key(" ", code: 49, in: panel); await settle()
@@ -296,7 +326,19 @@ func verifyLastRowKeyboardUndo(store: PlannerStore, model: NotchModel, services:
         require(sameTaskContent(store.planner.tasks, beforeDeletion), "keyboard Undo restores exact last-row state")
         require(
             sameTaskContent(try! store.file.load().tasks, beforeDeletion), "last-row keyboard Undo persists exact task")
+        let deleteAgain = await focusByTab("task-delete-\(only.id)", in: panel, root: root, output: output)
+        require(deleteAgain, "Tab reaches Delete again after Command-Z")
+        key(" ", code: 49, in: panel); await settle()
+        require(store.planner.tasks.isEmpty, "second keyboard deletion removes the same task")
+        let undoAgain = control("today-undo", attribute: "accessibilityIdentifier", in: root)
+        require(undoAgain.map(isFocused) == true, "second last-row removal focuses Undo")
+        sendKey(.keyDown, " ", code: 49, in: panel); await settle()
+        require(sameTaskContent(store.planner.tasks, beforeDeletion), "Space activates visible Undo")
+        require(sameTaskContent(try! store.file.load().tasks, beforeDeletion), "Space Undo persists exact task")
         let afterUndo = store.planner.tasks
+        sendKey(.keyDown, " ", code: 49, in: panel, isARepeat: true)
+        sendKey(.keyUp, " ", code: 49, in: panel); await settle()
+        require(store.planner.tasks == afterUndo, "held Space does not consume another Undo")
 
         // Text editing still owns Command-Z when the user intentionally returns to capture.
         panel.makeFirstResponder(nil)
@@ -317,6 +359,22 @@ func verifyLastRowKeyboardUndo(store: PlannerStore, model: NotchModel, services:
         await settle()
         require(undoCount == 1 && store.planner.tasks == afterUndo, "capture Command-Z preserves planner history")
         require(editor.string == oldText, "capture Command-Z undoes only draft text")
+        if !completed {
+            let reachedFocus = await focusByTab("task-focus-\(only.id)", in: panel, root: root, output: output)
+            require(reachedFocus, "Tab reaches the row Focus control")
+            sendKey(.keyDown, " ", code: 49, in: panel); await settle()
+            let session = store.planner.focus
+            require(
+                session?.state == .running && session?.taskID == only.id
+                    && session?.limit == TimeInterval(store.planner.preferences.defaultFocusMinutes * 60),
+                "Space starts one focus session for the exact task")
+            require(try! store.file.load().focus == session, "row keyboard focus session persists")
+            sendKey(.keyDown, " ", code: 49, in: panel, isARepeat: true)
+            sendKey(.keyUp, " ", code: 49, in: panel); await settle()
+            require(
+                store.planner.focus?.startedAt == session?.startedAt, "held Space does not start another focus session")
+            require(store.planner.tasks == afterUndo, "keyboard focus leaves task content unchanged")
+        }
         snapshot(root, "last-row-\(completed)-restored", into: output)
         panel.orderOut(nil)
     }

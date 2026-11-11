@@ -117,6 +117,51 @@ class TodayInteractionTests(unittest.TestCase):
         self.assertIn("return .handled", completion)
         self.assertIn("return .ignored", completion)
 
+    def test_row_actions_own_focus_and_space_activation(self):
+        source = (WORKSPACE / "TaskRow.swift").read_text()
+        action = source.split("private func action(", 1)[1].split("private var metadata:", 1)[0]
+        self.assertIn(".buttonStyle(PillStyle())", action)
+        self.assertIn(".focusable(true)", action)
+        self.assertLess(action.index(".focusable(true)"), action.index(".focused(focusBinding"))
+        self.assertIn(".onKeyPress(.space, phases: [.down, .repeat, .up])", action)
+        self.assertIn("focusBinding.wrappedValue == .task(task.id, kind)", action)
+        self.assertIn("press.modifiers.isEmpty", action)
+        self.assertIn("if press.phase == .down { perform() }", action)
+        self.assertIn("ControlFocusRing(", action)
+
+    def test_undo_owns_focus_and_space_activation(self):
+        source = (WORKSPACE / "TasksCard.swift").read_text()
+        undo = source.split("private var footer: some View {", 1)[1].split("Spacer(minLength:", 1)[0]
+        self.assertIn(".focusable(store.canUndo)", undo)
+        self.assertLess(undo.index(".focusable(store.canUndo)"), undo.index(".focused($focus"))
+        self.assertIn(".onKeyPress(.space, phases: [.down, .repeat, .up])", undo)
+        self.assertIn("focus == .undo, store.canUndo, press.modifiers.isEmpty", undo)
+        self.assertIn("if press.phase == .down { store.undo() }", undo)
+
+    def test_explicit_capture_request_restarts_native_focus(self):
+        source = (WORKSPACE / "TasksCard.swift").read_text()
+        request = source.split(".task(id: model.captureFocusRequest)", 1)[1].split(".overlay(ControlFocusRing", 1)[0]
+        self.assertIn("focusBinding.wrappedValue = nil", request)
+        self.assertLess(request.index("focusBinding.wrappedValue = nil"), request.index("await Task.yield()"))
+        self.assertLess(request.index("await Task.yield()"), request.index("focusBinding.wrappedValue = .capture"))
+        self.assertIn("guard !Task.isCancelled", request)
+
+    def test_capture_destination_is_not_overridden_by_row_recovery(self):
+        source = (WORKSPACE / "TasksCard.swift").read_text()
+        recovery = source.split(".onChange(of: ids)", 1)[1].split(".onKeyPress", 1)[0]
+        self.assertIn("guard focus != .capture && focus != .undo", recovery)
+        request = source.split(".task(id: model.captureFocusRequest)", 1)[1].split(".overlay(ControlFocusRing", 1)[0]
+        self.assertIn("if focused { focusBinding.wrappedValue = nil }", request)
+
+    def test_failed_keyboard_and_reopen_checks_preserve_diagnostics(self):
+        source = (ROOT / "scripts/focus_entry_probe.swift").read_text()
+        tab = source.split("func focusByTab(", 1)[1].split("func verifyLastRowKeyboardUndo", 1)[0]
+        for expected in ('"firstResponder"', '"focusedIdentifiers"', '"step"', '"target"',
+                         '"tab-trace-\\(identifier).json"'):
+            self.assertIn(expected, tab)
+        compact = (ROOT / "scripts/compact_home_probe.swift").read_text()
+        self.assertLess(compact.index('recordFocus(delegate:'), compact.index('"\\(scenario): capture editor is focused"'))
+
     def test_native_space_checks_exact_set_and_persisted_state(self):
         source = (ROOT / "scripts/focus_entry_probe.swift").read_text()
         self.assertIn("let completedBeforeSpace =", source)
@@ -209,9 +254,22 @@ class TodayInteractionTests(unittest.TestCase):
         panel = (ROOT / "Sources/PerchApp/Notch/NotchGeometry.swift").read_text()
         self.assertIn("!(firstResponder is NSTextView)", panel)
 
+    def test_row_semantics_are_on_an_accessible_leaf_inside_the_group(self):
+        source = (WORKSPACE / "TaskRow.swift").read_text()
+        self.assertIn("private var accessibleTitle: some View {", source)
+        title = source.split("private var accessibleTitle: some View {", 1)[1].split("private var completion:", 1)[0]
+        self.assertIn("Text(task.title)", title)
+        self.assertIn('accessibilityIdentifier("task-row-\\(task.id)")', title)
+        self.assertIn(".accessibilityValue(accessibilitySummary)", title)
+        self.assertIn(".accessibilityHint(", title)
+        self.assertIn(".accessibilityActions {", title)
+        self.assertIn(".accessibilityElement(children: .contain)", source)
+        self.assertNotIn(".accessibilityElement(children: .ignore)", source)
+        self.assertNotIn(".accessibilityElement(children: .combine)", source)
+
     def test_rows_expose_named_accessibility_actions_and_state(self):
         source = (WORKSPACE / "TaskRow.swift").read_text()
-        row = source.split(".accessibilityElement(children: .contain)", 1)[1].split(".onChange", 1)[0]
+        row = source.split("private var accessibleTitle: some View {", 1)[1].split("private var completion:", 1)[0]
         for expected in ('accessibilityIdentifier("task-row-\\(task.id)")',
                          '.accessibilityLabel(task.title)', '.accessibilityValue(accessibilitySummary)',
                          '.accessibilityHint(', '.accessibilityActions {',
@@ -238,6 +296,21 @@ class TodayInteractionTests(unittest.TestCase):
                          '"capture Command-Z undoes only draft text"',
                          'await verifyLastRowKeyboardUndo('):
             self.assertIn(expected, source)
+
+    def test_native_row_order_and_space_undo_remain_mandatory(self):
+        source = (ROOT / "scripts/focus_entry_probe.swift").read_text()
+        for expected in ('let actionOrder = completed ? ["details", "delete"] : ["focus", "details", "delete"]',
+                         '"Tab reaches row \\(action) in visible order"',
+                         '"row Details keyboard action targets the exact task"',
+                         '"Space activates visible Undo"',
+                         '"Space Undo persists exact task"',
+                         '"held Space does not consume another Undo"',
+                         '"Space starts one focus session for the exact task"',
+                         '"held Space does not start another focus session"'):
+            self.assertIn(expected, source)
+        compact = (ROOT / "scripts/compact_home_probe.swift").read_text()
+        self.assertIn('"dense", "timer-notepad"', compact)
+        self.assertIn('let editor = panel.firstResponder as? NSTextView, editor.isFieldEditor', compact)
 
     def test_native_row_custom_actions_are_discovered_and_exercised(self):
         source = (ROOT / "scripts/focus_entry_probe.swift").read_text()

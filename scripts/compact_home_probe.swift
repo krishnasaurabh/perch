@@ -59,6 +59,27 @@ func snapshot(_ root: NSView, _ name: String, into output: URL) {
     try! rep.representation(using: .png, properties: [:])!.write(to: output.appendingPathComponent(name + ".png"))
 }
 
+@MainActor
+func recordFocus(delegate: AppDelegate, scenario: String, output: URL) {
+    let state: [String: Any] = [
+        "scenario": scenario,
+        "expanded": delegate.model.expanded,
+        "captureRequest": delegate.model.captureFocusRequest?.uuidString ?? "none",
+        "windows": NSApp.windows.map { window -> [String: Any] in
+            [
+                "key": window.isKeyWindow,
+                "visible": window.isVisible,
+                "firstResponder": String(describing: window.firstResponder),
+                "captureFrame": window.contentView.flatMap { controlFrame("Add a task", in: $0) }
+                    .map(NSStringFromRect) ?? "missing",
+            ]
+        },
+    ]
+    try! JSONSerialization.data(withJSONObject: state, options: [.prettyPrinted, .sortedKeys]).write(
+        to: output.appendingPathComponent("capture-focus-\(scenario).json"))
+    delegate.notch.snapshot(into: output.appendingPathComponent("capture-focus-\(scenario)"))
+}
+
 MainActor.assumeIsolated {
     let app = NSApplication.shared
     let delegate = AppDelegate()
@@ -102,6 +123,7 @@ MainActor.assumeIsolated {
                     }
                     NotificationCenter.default.post(name: .perchOpenWorkspace, object: NotchPage.home)
                     await settle()
+                    recordFocus(delegate: delegate, scenario: scenario, output: output)
                     guard let panel = NSApp.keyWindow, let root = panel.contentView,
                         let editor = panel.firstResponder as? NSTextView, editor.isFieldEditor,
                         let geometry = delegate.model.geometry

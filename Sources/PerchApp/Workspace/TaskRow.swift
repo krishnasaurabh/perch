@@ -57,12 +57,7 @@ struct TaskRow: View {
                             editing = false; focusBinding.wrappedValue = .task(task.id, .complete)
                         }
                 } else {
-                    Text(task.title).font(Theme.title)
-                        .foregroundStyle(task.done ? Theme.secondary : Theme.text)
-                        .strikethrough(task.done)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .onTapGesture(count: 2, perform: beginRename)
+                    accessibleTitle
                 }
                 if !compact { metadata }
                 // Keep the title's full width at narrow sizes and at larger text sizes.
@@ -76,18 +71,6 @@ struct TaskRow: View {
         .onHover { hover = $0 }
         .contextMenu { menu }
         .accessibilityElement(children: .contain)
-        .accessibilityIdentifier("task-row-\(task.id)")
-        .accessibilityLabel(task.title)
-        .accessibilityValue(accessibilitySummary)
-        .accessibilityHint(
-            "Use actions to complete or reopen, view details, focus, or delete this task. Deletion can be undone."
-        )
-        .accessibilityActions {
-            Button(task.done ? "Reopen" : "Complete", action: toggle)
-            Button("Details") { model.detailsTaskID = task.id }
-            Button("Delete", role: .destructive, action: delete)
-            if canFocus { Button("Focus", action: startFocus) }
-        }
         .onChange(of: canFocus) { _, available in
             if !available && focusBinding.wrappedValue == .task(task.id, .focus) {
                 focusBinding.wrappedValue = .task(task.id, .complete)
@@ -108,6 +91,29 @@ struct TaskRow: View {
             }
             ticked = false
         }
+    }
+
+    // Keep native child buttons navigable, but publish the row summary on a leaf.
+    // macOS accessibility groups do not consistently expose a value or help text.
+    private var accessibleTitle: some View {
+        Text(task.title).font(Theme.title)
+            .foregroundStyle(task.done ? Theme.secondary : Theme.text)
+            .strikethrough(task.done)
+            .fixedSize(horizontal: false, vertical: true)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .onTapGesture(count: 2, perform: beginRename)
+            .accessibilityIdentifier("task-row-\(task.id)")
+            .accessibilityLabel(task.title)
+            .accessibilityValue(accessibilitySummary)
+            .accessibilityHint(
+                "Use actions to complete or reopen, view details, focus, or delete this task. Deletion can be undone."
+            )
+            .accessibilityActions {
+                Button(task.done ? "Reopen" : "Complete", action: toggle)
+                Button("Details") { model.detailsTaskID = task.id }
+                Button("Delete", role: .destructive, action: delete)
+                if canFocus { Button("Focus", action: startFocus) }
+            }
     }
 
     private var completion: some View {
@@ -162,8 +168,20 @@ struct TaskRow: View {
                 .foregroundStyle(role == .destructive ? Theme.danger : Theme.text)
         }
         .buttonStyle(PillStyle())
+        .focusable(true)
         .focused(focusBinding, equals: .task(task.id, kind))
+        .onKeyPress(.space, phases: [.down, .repeat, .up]) { press in
+            guard focusBinding.wrappedValue == .task(task.id, kind), press.modifiers.isEmpty else {
+                return .ignored
+            }
+            if press.phase == .down { perform() }
+            return .handled
+        }
         .focusEffectDisabled()
+        .overlay(
+            ControlFocusRing(
+                shape: Capsule(), focused: focusBinding.wrappedValue == .task(task.id, kind))
+        )
         .accessibilityLabel("\(title) \(task.title)")
         .accessibilityIdentifier(kind.identifierPrefix + task.id.uuidString)
         .help(title == "Delete" ? "Delete task. Use Undo below the list to restore it." : "\(title) task")

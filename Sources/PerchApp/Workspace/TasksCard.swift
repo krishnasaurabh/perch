@@ -84,6 +84,8 @@ struct TasksCard: View {
             if let id = value?.taskID { lastFocusedTask = id } else if value == .capture { lastFocusedTask = nil }
         }
         .onChange(of: ids) { previous, remaining in
+            // Row recovery must not override an explicit capture or Undo destination.
+            guard focus != .capture && focus != .undo else { return }
             // SwiftUI may clear native focus as the row leaves, before this callback.
             guard let id = focus?.taskID ?? lastFocusedTask, previous.contains(id), !remaining.contains(id) else {
                 return
@@ -108,7 +110,14 @@ struct TasksCard: View {
             }
             .buttonStyle(PillStyle(disabledReason: "There is no task edit to undo."))
             .disabled(!store.canUndo)
+            .focusable(store.canUndo)
             .focused($focus, equals: .undo)
+            .onKeyPress(.space, phases: [.down, .repeat, .up]) { press in
+                guard focus == .undo, store.canUndo, press.modifiers.isEmpty else { return .ignored }
+                if press.phase == .down { store.undo() }
+                return .handled
+            }
+            .focusEffectDisabled()
             .overlay(ControlFocusRing(shape: Capsule(), focused: focus == .undo))
             .accessibilityIdentifier("today-undo")
             .help("Undo the last edit, including task deletion (Command-Z)")
@@ -311,7 +320,13 @@ struct TaskComposer: View {
         )
         .task(id: model.captureFocusRequest) {
             // Only explicit openings request focus; hover and drag previews do not steal typing.
-            guard model.captureFocusRequest != nil && model.expanded && model.page == .home else { return }
+            guard model.captureFocusRequest != nil && model.expanded && model.page == .home else {
+                if focused { focusBinding.wrappedValue = nil }
+                return
+            }
+            // Closing a panel can end native editing without clearing SwiftUI's focus value.
+            // A new explicit request must reacquire the editor even if capture was last focused.
+            focusBinding.wrappedValue = nil
             await Task.yield()
             guard !Task.isCancelled else { return }
             focusBinding.wrappedValue = .capture
