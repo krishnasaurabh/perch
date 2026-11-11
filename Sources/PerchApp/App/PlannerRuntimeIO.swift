@@ -1,5 +1,32 @@
 import AppKit
+import os
 import PlannerCore
+
+/// Dispatch resources may be cancelled from any executor. Keeping their lifetime separate avoids
+/// nesting actor-isolated deinitializers when a store releases its observer on older runtimes.
+private final class DirectoryWatchLifetime: Sendable {
+    private struct State {
+        var sources: [URL: DispatchSourceFileSystemObject] = [:]
+        var delivery: DispatchWorkItem?
+    }
+    private let state = OSAllocatedUnfairLock(initialState: State())
+    func replace(_ source: DispatchSourceFileSystemObject?, at url: URL) {
+        // The closure is synchronous and never escapes the lock; Dispatch handles stay private.
+        state.withLockUnchecked { state in
+            state.sources.removeValue(forKey: url)?.cancel()
+            state.sources[url] = source
+        }
+    }
+    func delivery(_ work: DispatchWorkItem?) {
+        state.withLockUnchecked { $0.delivery = work }
+    }
+    deinit {
+        state.withLockUnchecked { state in
+            state.delivery?.cancel()
+            for source in state.sources.values { source.cancel() }
+        }
+    }
+}
 
 /// Watches both the file (in-place edits) and its directory (atomic replacement).
 /// The parent's watch and periodic repair also survive replacement of the directory itself.
@@ -9,6 +36,7 @@ final class PlannerDirectoryObserver {
         let identity: UInt64
         let source: DispatchSourceFileSystemObject
     }
+    private let lifetime = DirectoryWatchLifetime()
     private let url: URL
     private let changed: @MainActor () -> Void
     private var watches: [URL: Watch] = [:]
@@ -22,18 +50,14 @@ final class PlannerDirectoryObserver {
         repair()
     }
 
-    isolated deinit {
-        delivery?.cancel()
-        for watch in watches.values { watch.source.cancel() }
-    }
-
     func repair() {
         let directory = url.deletingLastPathComponent()
         for path in Set([url, directory, directory.deletingLastPathComponent()]) {
             let identity =
                 (try? FileManager.default.attributesOfItem(atPath: path.path)[.systemFileNumber]) as? NSNumber
             if watches[path]?.identity == identity?.uint64Value { continue }
-            watches.removeValue(forKey: path)?.source.cancel()
+            watches.removeValue(forKey: path)
+            lifetime.replace(nil, at: path)
             guard let identity else { continue }
             let fd = open(path.path, O_EVTONLY | O_CLOEXEC)
             guard fd >= 0 else { continue }
@@ -44,6 +68,7 @@ final class PlannerDirectoryObserver {
             }
             source.setCancelHandler { close(fd) }
             watches[path] = Watch(identity: identity.uint64Value, source: source)
+            lifetime.replace(source, at: path)
             registrations += 1
             source.resume()
         }
@@ -57,11 +82,13 @@ final class PlannerDirectoryObserver {
             MainActor.assumeIsolated {
                 guard let self else { return }
                 self.delivery = nil
+                self.lifetime.delivery(nil)
                 self.deliveries += 1
                 self.changed()
             }
         }
         delivery = work
+        lifetime.delivery(work)
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.1, execute: work)
     }
 }
