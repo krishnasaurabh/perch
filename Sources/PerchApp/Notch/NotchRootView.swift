@@ -15,7 +15,7 @@ struct NotchRootView: View {
 
     private var active: Bool { model.screenID == screen.id }
     private var expanded: Bool { active && model.expanded }
-    private var activity: PresentedNotchActivity? { active ? model.activity : nil }
+    private var activity: PresentedNotchActivity? { active ? model.displayedActivity : nil }
 
     var body: some View {
         let g = screen.geometry
@@ -184,7 +184,7 @@ struct ActivityStrip: View {
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 GlassButton(symbol: "xmark", help: "Dismiss", size: Theme.minimumTarget) {
-                    model.dismissActivity()
+                    model.dismissPresentedActivity(in: store.planner)
                 }
                 .accessibilityIdentifier("notch.dismiss")
             }

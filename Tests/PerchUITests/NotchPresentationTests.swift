@@ -66,6 +66,103 @@ final class NotchPresentationTests: XCTestCase {
         XCTAssertFalse(NotchReminderPresentation.isMissed(task: nil, records: history, now: now))
     }
 
+    func testMissedPresentationSurvivesGraceExpiryAndLateWakeWithoutAlertReplay() throws {
+        let due = Date(timeIntervalSince1970: 1_800_000_000)
+        let task = PlanTask(title: "Synthetic reminder", day: "2027-01-15", remindAt: due)
+        var planner = Planner(); planner.tasks = [task]
+        let request = ScheduledReminder(task: task)
+        var records = [request.id: ReminderRecord(date: due, state: .scheduled)]
+        for seconds in [59.0, 60, 61, 3600] {
+            let now = due.addingTimeInterval(seconds)
+            let plan = ReminderSchedule.reconcile(
+                planner: planner, now: now, pending: [request], delivered: [], records: records, authorized: true)
+            records = plan.records
+            let missed = NotchReminderPresentation.missedTask(in: planner, records: records, now: now)
+            if seconds < ReminderSchedule.deliveryGrace {
+                XCTAssertNil(missed)
+                XCTAssertNotNil(NotchActivityTimeline(planner: planner).showing(at: now))
+            } else {
+                XCTAssertNil(NotchActivityTimeline(planner: planner).showing(at: now))
+                XCTAssertEqual(missed?.id, task.id)
+                XCTAssertTrue(plan.requests.isEmpty, "A persistent indication must not replay the OS alert")
+            }
+        }
+        let wake = due.addingTimeInterval(7200)
+        let late = ReminderSchedule.reconcile(
+            planner: planner, now: wake, pending: [], delivered: [], records: [:], authorized: true)
+        XCTAssertEqual(NotchReminderPresentation.missedTask(in: planner, records: late.records, now: wake)?.id, task.id)
+        XCTAssertTrue(late.requests.isEmpty)
+    }
+
+    func testMissedPresentationClearsForDismissalCompletionRescheduleAndDeletion() {
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        let due = now.addingTimeInterval(-120)
+        var task = PlanTask(title: "Synthetic reminder", day: "2027-01-15", remindAt: due)
+        let id = ScheduledReminder(task: task).id
+        let records = [id: ReminderRecord(date: due, state: .missed)]
+        var planner = Planner(); planner.tasks = [task]
+        XCTAssertNotNil(NotchReminderPresentation.missedTask(in: planner, records: records, now: now))
+        XCTAssertNil(NotchReminderPresentation.missedTask(in: planner, records: records, now: now, dismissed: [id]))
+        task.done = true; planner.tasks = [task]
+        XCTAssertNil(NotchReminderPresentation.missedTask(in: planner, records: records, now: now))
+        task.done = false; task.remindAt = now.addingTimeInterval(300); planner.tasks = [task]
+        XCTAssertNil(NotchReminderPresentation.missedTask(in: planner, records: records, now: now))
+        task.remindAt = due.addingTimeInterval(-10); planner.tasks = [task]
+        XCTAssertNil(NotchReminderPresentation.missedTask(in: planner, records: records, now: now))
+        let newID = ScheduledReminder(task: task).id
+        let newRecords = [newID: ReminderRecord(date: task.remindAt!, state: .missed)]
+        XCTAssertEqual(
+            NotchReminderPresentation.missedTask(in: planner, records: newRecords, now: now, dismissed: [id])?.id,
+            task.id, "A dismissed occurrence must not suppress a rescheduled occurrence")
+        planner.tasks = []
+        XCTAssertNil(NotchReminderPresentation.missedTask(in: planner, records: records, now: now))
+    }
+
+    func testNewestMissedOccurrenceYieldsToRemainingUndismissedOccurrence() {
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        let older = PlanTask(title: "Older", day: "2027-01-15", remindAt: now.addingTimeInterval(-300))
+        let newer = PlanTask(title: "Newer", day: "2027-01-15", remindAt: now.addingTimeInterval(-120))
+        var planner = Planner(); planner.tasks = [older, newer]
+        let olderID = ScheduledReminder(task: older).id, newerID = ScheduledReminder(task: newer).id
+        let records = [
+            olderID: ReminderRecord(date: older.remindAt!, state: .missed),
+            newerID: ReminderRecord(date: newer.remindAt!, state: .missed),
+        ]
+        XCTAssertEqual(NotchReminderPresentation.missedTask(in: planner, records: records, now: now)?.id, newer.id)
+        XCTAssertEqual(
+            NotchReminderPresentation.missedTask(in: planner, records: records, now: now, dismissed: [newerID])?.id,
+            older.id)
+        XCTAssertNil(
+            NotchReminderPresentation.missedTask(
+                in: planner, records: records, now: now, dismissed: [olderID, newerID]))
+    }
+
+    func testUnchangedFullscreenScansPreserveDwellAndDismissal() throws {
+        var intent = NotchHoverIntent()
+        let token = try XCTUnwrap(intent.enter(screen: 1))
+        for _ in 0..<3 { XCTAssertFalse(intent.fullScreenChanged(on: 1, from: false, to: false)) }
+        XCTAssertTrue(intent.consume(token, screen: 1, eligible: true))
+        intent.cancel(blocking: 1)
+        XCTAssertFalse(intent.fullScreenChanged(on: 1, from: false, to: false))
+        XCTAssertNil(intent.enter(screen: 1))
+        XCTAssertFalse(intent.fullScreenChanged(on: 1, from: false, to: true))
+        XCTAssertFalse(intent.fullScreenChanged(on: 1, from: true, to: false))
+        XCTAssertNil(intent.enter(screen: 1), "Even a real transition does not simulate a pointer exit")
+        _ = intent.enter(screen: nil)
+        XCTAssertNotNil(intent.enter(screen: 1))
+    }
+
+    func testFullscreenTransitionCancelsOnlyAffectedScreensPendingDwell() throws {
+        var intent = NotchHoverIntent()
+        let token = try XCTUnwrap(intent.enter(screen: 1))
+        XCTAssertFalse(intent.fullScreenChanged(on: 2, from: false, to: true))
+        XCTAssertTrue(intent.consume(token, screen: 1, eligible: true))
+        let next = try XCTUnwrap(intent.enter(screen: 1))
+        XCTAssertTrue(intent.fullScreenChanged(on: 1, from: false, to: true))
+        XCTAssertFalse(intent.consume(next, screen: 1, eligible: true))
+        XCTAssertNotNil(intent.enter(screen: 1))
+    }
+
     func testClosedTriggerDoesNotIncludeMenuItemsOrTimerGap() {
         for (_, screen) in Screens.all {
             let workspace = WorkspaceLayout.frame(screen: screen)

@@ -15,8 +15,9 @@ extension NotchModel {
     /// A rejected mutation leaves the reminder and its actions available for retry.
     @discardableResult
     func performActivityAction<T>(in store: PlannerStore, _ action: (PlannerCommands) throws -> T) -> Bool {
+        let before = store.planner
         guard store.apply(action) != nil else { return false }
-        dismissActivity()
+        dismissPresentedActivity(in: before)
         return true
     }
 }

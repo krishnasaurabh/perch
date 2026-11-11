@@ -26,6 +26,15 @@ public struct NotchHoverIntent: Sendable {
         blockedScreen = screen
     }
 
+    /// Only a real eligibility transition invalidates a dwell. Keep the dismissal latch
+    /// until a pointer exit or explicit opening; another display's transition is unrelated.
+    @discardableResult
+    public mutating func fullScreenChanged(on screen: UInt32, from previous: Bool, to current: Bool) -> Bool {
+        guard previous != current, pending?.screen == screen else { return false }
+        pending = nil
+        return true
+    }
+
     public mutating func consume(_ id: UUID, screen: UInt32, eligible: Bool) -> Bool {
         guard let candidate = pending, candidate.id == id else { return false }
         pending = nil

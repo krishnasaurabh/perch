@@ -43,9 +43,6 @@ final class NotchBehaviorTests: XCTestCase {
 
     @MainActor
     func testTimerInkFitsAtOneAndTwoTimesScaleWhenPausedAndRunning() async throws {
-        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-        defer { try? FileManager.default.removeItem(at: root) }
-        let store = PlannerStore(file: PlannerFile(url: root.appendingPathComponent("planner.json")), watching: false)
         let screen = NotchLayout.Screen(
             frame: CGRect(x: 0, y: 0, width: 1512, height: 982),
             visibleFrame: CGRect(x: 0, y: 0, width: 1512, height: 950),
@@ -60,11 +57,9 @@ final class NotchBehaviorTests: XCTestCase {
                         var focus = FocusSession(taskID: nil, limit: nil, now: now)
                         focus.banked = seconds
                         if !running { focus.state = .paused; focus.resumedAt = nil }
-                        try store.file.mutate { $0.focus = focus }
-                        store.reloadFromDisk(external: false)
-                        XCTAssertEqual(store.planner.focus?.state, running ? .running : .paused)
+                        XCTAssertEqual(focus.state, running ? .running : .paused)
                         let view = TimerPillLayer(
-                            geometry: geometry, side: side, bounds: pill, focus: store.planner.focus
+                            geometry: geometry, side: side, bounds: pill, focus: focus
                         )
                         .frame(width: pill.width, height: pill.height)
                         let renderer = ImageRenderer(content: view)

@@ -32,6 +32,11 @@ final class NotchModel: ObservableObject {
     @Published var expanded = false
     @Published var page: NotchPage = .home
     @Published var activity: PresentedNotchActivity?
+    @Published private(set) var missedReminder: PresentedNotchActivity?
+    private var missedTask: PlanTask?
+    private var dismissedReminders = Set<String>()
+    /// Transient activities take priority; unresolved reminders remain available afterward.
+    var displayedActivity: PresentedNotchActivity? { activity ?? missedReminder }
     /// The screen whose notch is open or showing activity.
     @Published var screenID: CGDirectDisplayID = 0
     /// Geometry of the active screen.
@@ -107,6 +112,35 @@ final class NotchModel: ObservableObject {
         Motion.animate(Motion.activityDismiss, policy: motionPolicy) { activity = nil }
     }
 
+    /// Read only the notification owner's exact current occurrences. Dismissals are
+    /// local presentation state and never change the delivery ledger.
+    func refreshMissedReminder(planner: Planner, records: [String: ReminderRecord], now: Date) {
+        let current = Set(planner.tasks.filter { $0.remindAt != nil }.map { ScheduledReminder(task: $0).id })
+        dismissedReminders.formIntersection(current)
+        let task = NotchReminderPresentation.missedTask(
+            in: planner, records: records, now: now, dismissed: dismissedReminders)
+        defer { missedTask = task }
+        guard missedTask != task else { return }
+        if let task {
+            missedReminder = PresentedNotchActivity(
+                kind: .reminder(task.id), title: task.title, subtitle: "Missed reminder · delivery unconfirmed")
+        } else {
+            missedReminder = nil
+        }
+    }
+
+    /// Explicit dismissal covers this occurrence even if its transient card has not
+    /// expired yet. Automatic timeline expiry still uses dismissActivity alone.
+    func dismissPresentedActivity(in planner: Planner) {
+        if case .reminder(let id) = displayedActivity?.kind,
+            let task = planner.tasks.first(where: { $0.id == id }), task.remindAt != nil
+        {
+            dismissedReminders.insert(ScheduledReminder(task: task).id)
+            if missedTask?.id == id { missedTask = nil; missedReminder = nil }
+        }
+        dismissActivity()
+    }
+
     /// The side the closed notch shows a running timer on, or nil (no timer, or hidden): only then does it grow a pill.
     static func timerShowing(_ store: PlannerStore) -> NotchTimerPlacement? {
         guard let f = store.planner.focus, f.state != .finished else { return nil }
@@ -170,6 +204,7 @@ final class NotchController {
     }
     private lazy var dragObservation = DragPointerObservation { [weak self] in self?.trackPointer() }
     private var fullscreenObservation: FullscreenObservation?
+    private var reminderObservation: NotchReminderObservation?
     private var cancellables = Set<AnyCancellable>()
     private var hotKey: GlobalHotKey?
     /// Drag pasteboard change count while no button is held; a different count with the button down means a drag.
@@ -186,6 +221,7 @@ final class NotchController {
 
     func start() {
         updateScreens()
+        reminderObservation = NotchReminderObservation(store: store, reminders: services.reminders, model: model)
 
         let mask: NSEvent.EventTypeMask = [.mouseMoved, .leftMouseDragged, .leftMouseDown, .leftMouseUp]
         if let monitor = NSEvent.addGlobalMonitorForEvents(
@@ -229,8 +265,9 @@ final class NotchController {
                 self.updateMouseRouting(); self.applyFullScreen()
             }
         }.store(in: &cancellables)
-        model.$activity.sink { [weak self] _ in DispatchQueue.main.async { self?.updateMouseRouting() } }.store(
-            in: &cancellables)
+        model.$activity.merge(with: model.$missedReminder)
+            .sink { [weak self] _ in DispatchQueue.main.async { self?.updateMouseRouting() } }
+            .store(in: &cancellables)
         store.$planner.map(\.preferences.notchOpenTrigger).removeDuplicates().dropFirst().sink { [weak self] _ in
             self?.cancelHover()
         }.store(in: &cancellables)
@@ -432,11 +469,10 @@ final class NotchController {
         if NotchLayout.closedNotchVisible(screen: slot.state.geometry.screen, enabled: store.prefs.notchOnMonitors) {
             return true
         }
-        return model.screenID == slot.state.id && (model.expanded || model.activity != nil)
+        return model.screenID == slot.state.id && (model.expanded || model.displayedActivity != nil)
     }
 
     func checkFullScreenSoon() {
-        cancelHover()
         applyFullScreen()
         fullscreenWork.forEach { $0.cancel() }
         fullscreenWork = []
@@ -453,6 +489,9 @@ final class NotchController {
         for slot in slots.values {
             let fs = NotchLayout.isFullScreen(
                 screen: slot.state.geometry.screen, windows: windows, primaryHeight: primary)
+            if hoverIntent.fullScreenChanged(on: slot.state.id, from: slot.state.fullScreen, to: fs) {
+                openWork?.cancel(); openWork = nil
+            }
             if slot.state.fullScreen != fs { slot.state.fullScreen = fs }
             let keep = !fs || (model.expanded && model.screenID == slot.state.id)
             if keep && !slot.panel.isVisible { slot.panel.orderFrontRegardless() }
@@ -475,13 +514,14 @@ final class NotchController {
         let active = model.screenID == slot.state.id
         return slot.state.geometry.shapeContains(
             p, expanded: active && model.expanded, timer: timerShowing(),
-            activity: active && model.activity != nil)
+            activity: active && model.displayedActivity != nil)
     }
 
     private func hoverRect(_ slot: Slot) -> NSRect {
         let active = model.screenID == slot.state.id
         return slot.state.geometry.hover(
-            expanded: active && model.expanded, timer: timerShowing(), activity: active && model.activity != nil)
+            expanded: active && model.expanded, timer: timerShowing(),
+            activity: active && model.displayedActivity != nil)
     }
 
     // MARK: Pointer
@@ -592,7 +632,7 @@ final class NotchController {
         guard let slot = slots[model.screenID] else { return false }
         if NotchLayout.contains(hoverRect(slot), pointer: p) { return true }
         guard model.expanded,
-            let bridge = slot.state.geometry.openBridge(timer: timerShowing(), activity: model.activity != nil)
+            let bridge = slot.state.geometry.openBridge(timer: timerShowing(), activity: model.displayedActivity != nil)
         else { return false }
         return NotchLayout.contains(bridge, pointer: p)
     }
@@ -626,7 +666,8 @@ final class NotchController {
                 // Mouse-routing probes: the decision `updateMouseRouting` makes at each point, from the live code path.
                 let expanded = model.expanded && model.screenID == s.state.id
                 let shape = expanded ? g.workspace : g.idle(timer: timerShowing(), activity: false)
-                let capsule = !expanded && model.activity == nil ? timerShowing().map { g.pill(side: $0) } : nil
+                let capsule =
+                    !expanded && model.displayedActivity == nil ? timerShowing().map { g.pill(side: $0) } : nil
                 // A detached capsule leaves the union's top midpoint/corners empty. Sample the individual components,
                 // retaining the original outline probes unchanged for the expanded workspace and timer-free notch.
                 let topOutside =
