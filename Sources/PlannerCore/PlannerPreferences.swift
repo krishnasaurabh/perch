@@ -44,6 +44,7 @@ public struct DevicePreferences: Codable, Equatable, Sendable {
     public var notchTimerPlacement: NotchTimerPlacement
     public var workspaceTimerStyle: WorkspaceTimerStyle
     public var notchOpenTrigger: NotchOpenTrigger
+    public var notchTaskCount: Bool
     public var notchOnMonitors: Bool
     public var showOnDisplay: String?
     public var remindersSync: Bool
@@ -65,6 +66,7 @@ public struct DevicePreferences: Codable, Equatable, Sendable {
         notchTimerPlacement = value.notchTimerPlacement
         workspaceTimerStyle = value.workspaceTimerStyle
         notchOpenTrigger = value.notchOpenTrigger
+        notchTaskCount = value.notchTaskCount
         notchOnMonitors = value.notchOnMonitors
         showOnDisplay = value.showOnDisplay
         remindersSync = value.remindersSync
@@ -83,6 +85,7 @@ public struct DevicePreferences: Codable, Equatable, Sendable {
         value.notchTimerPlacement = notchTimerPlacement
         value.workspaceTimerStyle = workspaceTimerStyle
         value.notchOpenTrigger = notchOpenTrigger
+        value.notchTaskCount = notchTaskCount
         value.notchOnMonitors = notchOnMonitors
         value.showOnDisplay = showOnDisplay
         value.remindersSync = remindersSync
