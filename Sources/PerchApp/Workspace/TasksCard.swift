@@ -449,7 +449,7 @@ struct TaskComposer: View {
 
     var body: some View {
         HStack(spacing: 8) {
-            Image(systemName: "plus").font(.system(size: 11, weight: .bold)).foregroundStyle(Theme.secondary)
+            Image(systemName: "plus").font(Theme.label).foregroundStyle(Theme.text)
             // Prompt drawn by Perch. AppKit draws a TextField's own placeholder in the system placeholder
             // colour (≈ 2.4:1 resting, 1.6:1 focused on the input fill) and ignores `prompt:` foreground styles on
             // macOS. `Theme.text` is the only ink token that clears 4.5:1 on both the 8 % and 12 % fill.
@@ -469,7 +469,7 @@ struct TaskComposer: View {
                 .accessibilityIdentifier("task-capture")
                 .onSubmit(add)
             if !text.isEmpty, let preview = preview {
-                Text(preview).font(.system(size: 10, weight: .medium)).foregroundStyle(Theme.accent).lineLimit(1)
+                Text(preview).font(Theme.meta).foregroundStyle(Theme.text).lineLimit(1)
             }
             VoiceButton { spoken in
                 store.apply { try $0.addTasks([spoken], on: day) }
@@ -477,12 +477,16 @@ struct TaskComposer: View {
         }
         .padding(.horizontal, 10).padding(.vertical, 8)
         .background(
-            RoundedRectangle(cornerRadius: 10, style: .continuous).fill(
+            RoundedRectangle(cornerRadius: Theme.controlRadius, style: .continuous).fill(
                 focused ? Theme.inputFillFocused : Theme.inputFill)
         )
         .overlay(
-            RoundedRectangle(cornerRadius: 10, style: .continuous)
+            RoundedRectangle(cornerRadius: Theme.controlRadius, style: .continuous)
                 .strokeBorder(Theme.inputStroke, lineWidth: focused ? 2 : 1)
+        )
+        .overlay(
+            ControlFocusRing(
+                shape: RoundedRectangle(cornerRadius: Theme.controlRadius, style: .continuous), focused: focused)
         )
         .task(id: model.captureFocusRequest) {
             // Explicit openings focus capture; hover and drag previews must not steal typing.
@@ -541,7 +545,7 @@ private struct VoiceButtonBody: View {
                 if listening { Circle().fill(Theme.fillStrong).frame(width: 24, height: 24) }
                 Image(systemName: listening ? "waveform" : "mic.fill")
                     .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(listening ? Theme.accent : Theme.secondary)
+                    .foregroundStyle(Theme.text)
             }
             .frame(width: 22, height: 22)
         }

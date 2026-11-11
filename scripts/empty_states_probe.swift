@@ -94,12 +94,21 @@ func probeWeekBars(_ focusOnly: Insights, output: URL) async {
         let inner = size.width - 20, col = (inner - 6 * 14) / 7
         let x = Int((10 + 6 * (col + 14) + col / 2) * scale)
         var planned: Int?, completed: Int?
+        let plannedColor = NSColor(Theme.chartPlanned).usingColorSpace(.sRGB)!
+        let completedColor = NSColor(Theme.chartCompleted).usingColorSpace(.sRGB)!
+        func matches(_ a: NSColor, _ b: NSColor) -> Bool {
+            max(
+                abs(a.redComponent - b.redComponent), abs(a.greenComponent - b.greenComponent),
+                abs(a.blueComponent - b.blueComponent)) < 0.02
+        }
+        var plannedRun = 0, completedRun = 0
         // Scan only the plot: the day labels below the baseline are dark text too.
         for y in 0..<Int((size.height - 48) * scale) {
-            guard let c = rep.colorAt(x: x, y: y)?.usingColorSpace(.deviceRGB) else { continue }
-            let v = (c.redComponent + c.greenComponent + c.blueComponent) / 3
-            if completed == nil, v < 0.3 { completed = y }
-            if planned == nil, v > 0.6, v < 0.9 { planned = y }
+            guard let c = rep.colorAt(x: x, y: y)?.usingColorSpace(.sRGB) else { continue }
+            plannedRun = matches(c, plannedColor) ? plannedRun + 1 : 0
+            completedRun = matches(c, completedColor) ? completedRun + 1 : 0
+            if completed == nil, completedRun >= 3 { completed = y - 2 }
+            if planned == nil, plannedRun >= 3 { planned = y - 2 }
         }
         return (planned.map { CGFloat($0) / scale }, completed.map { CGFloat($0) / scale })
     }

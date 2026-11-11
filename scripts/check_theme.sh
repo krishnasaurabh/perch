@@ -21,6 +21,6 @@ data = pathlib.Path(output) / 'planner.json'
 data.write_text(json.dumps({'preferences': {'welcomeCompleted': True,
                                           'catchCopies': False, 'catchScreenshots': False}}))
 env = dict(os.environ, PERCH_DATA=str(data), THEME_PROBE_OUTPUT=output)
-subprocess.run([binary], env=env, check=True, timeout=90)
+subprocess.run([binary], env=env, check=True, timeout=120)
 PY
 python3 "$ROOT/scripts/theme_contrast.py" --pixels "$OUT"

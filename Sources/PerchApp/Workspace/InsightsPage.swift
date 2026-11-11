@@ -120,7 +120,7 @@ struct InsightsPage: View {
 
     private func stat(_ value: String, _ label: String) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 6) {
-            Text(value).font(.system(size: 15, weight: .bold).monospacedDigit())
+            Text(value).font(Theme.heading.monospacedDigit())
             Text(label).font(Theme.meta).foregroundStyle(Theme.secondary)
             Spacer(minLength: 0)
         }
@@ -197,9 +197,9 @@ struct WeekBars: View {
                     let isToday = d.day == today
                     VStack(spacing: 1) {
                         Text(d.day.date().formatted(.dateTime.weekday(.abbreviated)))
-                            .font(.system(size: 10.5, weight: isToday ? .bold : .medium))
+                            .font(Theme.meta.weight(isToday ? .semibold : .medium))
                         Text(d.day.date().formatted(.dateTime.day()))
-                            .font(.system(size: 10, weight: isToday ? .bold : .regular).monospacedDigit())
+                            .font(Theme.meta.weight(isToday ? .semibold : .regular).monospacedDigit())
                             .foregroundStyle(Theme.secondary)
                     }
                     .frame(maxWidth: .infinity)

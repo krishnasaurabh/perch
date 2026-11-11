@@ -43,7 +43,7 @@ struct WorkspaceView: View {
             HStack(spacing: 7) {
                 OwlMark(size: 18)
                 Text(Date.now, format: .dateTime.weekday(.wide).month(.abbreviated).day())
-                    .font(.system(size: 12.5, weight: .semibold)).foregroundStyle(Theme.text)
+                    .font(Theme.title).foregroundStyle(Theme.text)
                     .lineLimit(1)
             }
             Spacer(minLength: 0)
@@ -55,26 +55,14 @@ struct WorkspaceView: View {
 
     /// Text-only tabs in one dark pill. The selected pill snaps; only the page below crossfades.
     private var pagePicker: some View {
-        HStack(spacing: 0) {
-            ForEach(NotchPage.allCases) { p in
-                let on = model.page == p
-                Button {
-                    Motion.animate(Motion.page) { model.page = p }
-                } label: {
-                    Text(p.title)
-                        .font(.system(size: 11.5, weight: on ? .semibold : .medium))
-                        .padding(.horizontal, 9).padding(.vertical, 5)
-                        .background(Capsule().fill(on ? Theme.fillStrong : .clear))
-                        .foregroundStyle(on ? Theme.text : Theme.secondary)
-                        .contentShape(Capsule())
-                }
-                .buttonStyle(.plain)
-                .accessibilityAddTraits(on ? .isSelected : [])
-                .transaction { $0.animation = nil }
-            }
-        }
-        .padding(2)
-        .background(Capsule().fill(Theme.fill))
+        SegmentPills(
+            items: NotchPage.allCases.map { ($0, $0.title) },
+            selection: Binding(
+                get: { model.page },
+                set: { page in Motion.animate(Motion.page) { model.page = page } }
+            )
+        )
+        .accessibilityLabel("Workspace pages")
     }
 
     /// Undo, Dashboard and Settings behind one button. ⌘Z still undoes directly.
@@ -86,9 +74,9 @@ struct WorkspaceView: View {
             Button("Settings…") { SettingsWindow.show(store: store, services: services) }
         } label: {
             Image(systemName: "ellipsis")
-                .font(.system(size: 12, weight: .semibold))
+                .font(Theme.label)
                 .foregroundStyle(Theme.text)
-                .frame(width: 26, height: 26)
+                .frame(width: Theme.minimumTarget, height: Theme.minimumTarget)
                 .background(Circle().fill(Theme.fill))
         }
         .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
@@ -246,18 +234,4 @@ struct OverdueBanner: View {
         }
     }
 
-}
-
-struct PillStyle: ButtonStyle {
-    var prominent = false
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .font(.system(size: 11, weight: .semibold))
-            .padding(.horizontal, 10).padding(.vertical, 5)
-            .background(
-                Capsule().fill(prominent ? Theme.prominent : (configuration.isPressed ? Theme.fillStrong : Theme.fill))
-            )
-            .opacity(prominent && configuration.isPressed ? 0.8 : 1)
-            .foregroundStyle(prominent ? Theme.onAccent : Theme.text)
-    }
 }

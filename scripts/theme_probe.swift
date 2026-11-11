@@ -18,7 +18,7 @@ struct ColorPair {
 @MainActor func pairs(_ light: Bool) -> [ColorPair] {
     let surface = light ? Theme.sage : Theme.tile
     let strong = light ? Theme.lavender : Theme.tileStrong
-    return [
+    var rows = [
         ColorPair(
             name: "card silhouette/body", foreground: light ? Theme.sage : Theme.cardStroke, background: .black,
             minimum: 3),
@@ -46,9 +46,47 @@ struct ColorPair {
         ColorPair(name: "priority/alternate", foreground: Theme.priority(.high), background: strong, minimum: 3),
         ColorPair(
             name: "selected/card (informational)", foreground: Theme.selectedPill, background: surface, minimum: 0),
-        ColorPair(name: "text/card (unchanged)", foreground: Theme.text, background: surface, minimum: 4.5),
-        ColorPair(name: "secondary/card (unchanged)", foreground: Theme.secondary, background: surface, minimum: 4.5),
+        ColorPair(name: "text/card", foreground: Theme.text, background: surface, minimum: 4.5),
+        ColorPair(name: "secondary/card", foreground: Theme.secondary, background: surface, minimum: 4.5),
     ]
+    let backgrounds: [(String, Color)] =
+        light
+        ? [("card", surface), ("alternate", strong), ("window", Color(hex: "#F5F5F5")), ("form", .white)]
+        : [("card", surface), ("alternate", strong), ("shell", .black)]
+    let inks: [(String, Color)] = [
+        ("text", Theme.text), ("secondary", Theme.secondary),
+        ("tertiary", Theme.tertiary), ("success", Theme.success), ("danger", Theme.danger),
+        ("warning", Theme.warning), ("info", Theme.info),
+    ]
+    for (label, bg) in backgrounds {
+        for (name, ink) in inks {
+            rows.append(ColorPair(name: "\(name)/\(label) readable", foreground: ink, background: bg, minimum: 4.5))
+        }
+    }
+    for (state, fill) in [
+        ("rest", Theme.fill), ("hover", Theme.fillStrong),
+        ("pressed", Theme.fillPressed), ("selected", Theme.selectedPill),
+    ] {
+        for (name, ink) in inks.prefix(3) {
+            rows.append(ColorPair(name: "\(name)/control-\(state)", foreground: ink, background: fill, minimum: 4.5))
+        }
+    }
+    for (label, bg) in [("card", surface), ("alternate", strong)] {
+        for (state, fill) in [("rest", Theme.inputFill), ("focused", Theme.inputFillFocused)] {
+            rows.append(
+                ColorPair(
+                    name: "input-text/\(label)-\(state)", foreground: Theme.text,
+                    background: fill.composited(over: bg), minimum: 4.5))
+        }
+        rows.append(ColorPair(name: "focus-ring/\(label)", foreground: Theme.info, background: bg, minimum: 3))
+    }
+    rows.append(
+        ColorPair(name: "prominent-label", foreground: Theme.onAccent, background: Theme.prominent, minimum: 4.5))
+    if light {
+        rows.append(
+            ColorPair(name: "planned-chart/lavender", foreground: Theme.chartPlanned, background: strong, minimum: 3))
+    }
+    return rows
 }
 
 // Compose in sRGB exactly as SwiftUI draws the two translucent field fills.
@@ -68,8 +106,9 @@ extension Color {
     NSWindow, NSHostingView<V>
 ) {
     let host = NSHostingView(rootView: view)
+    host.safeAreaRegions = []
     let window = NSWindow(
-        contentRect: NSRect(origin: .zero, size: size), styleMask: [.borderless], backing: .buffered, defer: false)
+        contentRect: NSRect(origin: .zero, size: size), styleMask: [.titled], backing: .buffered, defer: false)
     window.isReleasedWhenClosed = false
     window.appearance = appearance
     window.contentView = host
@@ -78,12 +117,84 @@ extension Color {
     return (window, host)
 }
 
-@MainActor func save(_ view: NSView, _ url: URL) {
+@MainActor func save(_ view: NSView, _ url: URL, scale: Int? = nil) {
     view.layoutSubtreeIfNeeded()
-    guard let bitmap = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { fatalError("No bitmap") }
+    let bitmap: NSBitmapImageRep
+    if let scale {
+        bitmap = NSBitmapImageRep(
+            bitmapDataPlanes: nil, pixelsWide: Int(view.bounds.width) * scale,
+            pixelsHigh: Int(view.bounds.height) * scale, bitsPerSample: 8, samplesPerPixel: 4,
+            hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0)!
+        bitmap.size = view.bounds.size
+    } else {
+        bitmap = view.bitmapImageRepForCachingDisplay(in: view.bounds)!
+    }
     view.cacheDisplay(in: view.bounds, to: bitmap)
     guard let png = bitmap.representation(using: .png, properties: [:]) else { fatalError("No PNG") }
     try! png.write(to: url)
+}
+
+@MainActor final class ControlFixture: ObservableObject {
+    @Published var state = "rest"
+    @Published var selection = 0
+    var actions = 0
+    var frames: [String: CGRect] = [:]
+}
+
+struct ControlBounds: ViewModifier {
+    let fixture: ControlFixture
+    let name: String
+    func body(content: Content) -> some View {
+        content.background(
+            GeometryReader { geometry in
+                Color.clear
+                    .onAppear { fixture.frames[name] = geometry.frame(in: .named("gallery")) }
+                    .onChange(of: geometry.frame(in: .named("gallery"))) { _, frame in fixture.frames[name] = frame }
+            })
+    }
+}
+
+struct ControlGallery: View {
+    @ObservedObject var fixture: ControlFixture
+    let tone: CardTone
+    @FocusState private var focus: Bool
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text("Primary task title").font(Theme.title).foregroundStyle(Theme.text)
+            Text("Secondary supporting label").font(Theme.body).foregroundStyle(Theme.secondary)
+            Text("Tertiary hint stays readable").font(Theme.meta).foregroundStyle(Theme.tertiary)
+            HStack(spacing: 14) {
+                Label("Done", systemImage: "checkmark.circle").foregroundStyle(Theme.success)
+                Label("Error", systemImage: "exclamationmark.circle").foregroundStyle(Theme.danger)
+                Label("High", systemImage: "flag.fill").foregroundStyle(Theme.warning)
+                Label("Info", systemImage: "info.circle").foregroundStyle(Theme.info)
+            }.font(Theme.meta)
+            HStack(spacing: 24) {
+                Button("Continue") { fixture.actions += 1 }
+                    .buttonStyle(PillStyle(prominent: true)).focused($focus).focusEffectDisabled()
+                    .disabled(fixture.state == "disabled")
+                    .modifier(ControlBounds(fixture: fixture, name: "continue"))
+                Button("Unavailable") { fixture.actions += 1 }
+                    .buttonStyle(PillStyle(disabledReason: "Choose a task first."))
+                    .disabled(true)
+                    .modifier(ControlBounds(fixture: fixture, name: "unavailable"))
+                GlassButton(symbol: "play.fill", help: "Start focus", action: { fixture.actions += 1 })
+                    .disabled(fixture.state == "disabled")
+            }
+            SegmentPills(items: [(0, "Today"), (1, "Week"), (2, "Insights")], selection: $fixture.selection)
+            Text("Choose a task first.").font(Theme.meta).foregroundStyle(Theme.secondary)
+        }
+        .frame(width: 480, height: 270, alignment: .topLeading)
+        .card(tone)
+        .padding(10)
+        .background(Color.black)
+        .coordinateSpace(name: "gallery")
+        .task(id: fixture.state) {
+            await Task.yield()
+            focus = fixture.state == "focused"
+        }
+    }
 }
 
 MainActor.assumeIsolated {
@@ -110,6 +221,7 @@ MainActor.assumeIsolated {
                 frame: CGRect(x: 0, y: 0, width: 1024, height: 768),
                 visibleFrame: CGRect(x: 0, y: 0, width: 1024, height: 744)))
         var manifest: [[String: Any]] = []
+        var controls: [[String: Any]] = []
         for light in [true, false] {
             let mode = light ? "light" : "dark"
             let appearance = NSAppearance(named: light ? .aqua : .darkAqua)!
@@ -121,13 +233,16 @@ MainActor.assumeIsolated {
                     ZStack(alignment: .leading) {
                         rows[i].background
                         rows[i].foreground.frame(width: 60)
-                    }.frame(width: 120, height: 30)
+                        Text("Aa Medium 08").font(Theme.title).foregroundStyle(rows[i].foreground)
+                            .frame(width: 200, alignment: .leading).offset(x: 140)
+                    }.frame(width: 360, height: 30)
                 }
             }.environment(\.colorScheme, light ? .light : .dark)
             let (swatchWindow, swatchHost) = render(
-                swatches, size: CGSize(width: 120, height: rows.count * 30), appearance: appearance)
+                swatches, size: CGSize(width: 360, height: rows.count * 30), appearance: appearance)
             try? await Task.sleep(nanoseconds: 400_000_000)
-            save(swatchHost, output.appendingPathComponent("\(mode)-swatches.png"))
+            save(swatchHost, output.appendingPathComponent("\(mode)-swatches.png"), scale: 1)
+            save(swatchHost, output.appendingPathComponent("\(mode)-swatches-2x.png"), scale: 2)
             manifest.append(["appearance": mode, "rows": rows.map { ["name": $0.name, "minimum": $0.minimum] }])
             swatchWindow.close()
 
@@ -162,9 +277,38 @@ MainActor.assumeIsolated {
             try? await Task.sleep(nanoseconds: 700_000_000)
             save(settingsHost, output.appendingPathComponent("\(mode)-settings.png"))
             settingsWindow.close()
+            for increased in [false, true] {
+                for (toneName, tone) in [("sage", CardTone.tasks), ("lavender", .timer), ("tile", .tile)] {
+                    let fixture = ControlFixture()
+                    let gallery = ControlGallery(fixture: fixture, tone: tone)
+                        .environment(\.colorSchemeContrast, increased ? .increased : .standard)
+                    let (galleryWindow, galleryHost) = render(
+                        gallery, size: CGSize(width: 528, height: 318), appearance: appearance)
+                    galleryWindow.makeKeyAndOrderFront(nil)
+                    app.activate(ignoringOtherApps: true)
+                    for state in ["rest", "focused", "disabled"] {
+                        fixture.state = state
+                        try? await Task.sleep(nanoseconds: 250_000_000)
+                        for scale in [1, 2] {
+                            let name =
+                                "\(mode)-\(increased ? "increased" : "standard")-\(toneName)-\(state)-\(scale)x.png"
+                            save(galleryHost, output.appendingPathComponent(name), scale: scale)
+                            controls.append([
+                                "file": name, "tone": toneName, "state": state, "scale": scale,
+                                "appearance": mode, "increased": increased,
+                                "frames": fixture.frames.mapValues { [$0.minX, $0.minY, $0.width, $0.height] },
+                            ])
+                        }
+                    }
+                    galleryWindow.close()
+                }
+            }
+
         }
         try! JSONSerialization.data(withJSONObject: manifest, options: [.prettyPrinted, .sortedKeys])
             .write(to: output.appendingPathComponent("swatches.json"))
+        try! JSONSerialization.data(withJSONObject: controls, options: [.prettyPrinted, .sortedKeys])
+            .write(to: output.appendingPathComponent("controls.json"))
         exit(0)
     }
     app.run()

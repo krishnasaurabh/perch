@@ -3,7 +3,7 @@ import SwiftUI
 // MARK: - Surfaces
 
 /// A card's job decides its color: tasks are sage, time and charts lavender, everything else a dark tile.
-enum CardTone {
+@MainActor enum CardTone: Sendable {
     case tasks, timer, tile
     var fill: Color {
         switch self {
@@ -31,6 +31,7 @@ struct CardSurface: ViewModifier {
             )
             .foregroundStyle(Theme.text)
             .environment(\.colorScheme, tone.scheme)
+            .environment(\.controlSurface, tone.fill)
     }
 }
 
