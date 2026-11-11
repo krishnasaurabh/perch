@@ -39,6 +39,37 @@ class WeekViewTests(unittest.TestCase):
         self.assertIn('"AXButton", "Completion control is not a button"', source)
         self.assertIn('"Checking one task changed its neighbour"', source)
 
+    def test_native_probe_reports_labeled_unwrap_failures_and_progress(self):
+        source = (ROOT / "scripts/week_shots.sh").read_text()
+        launcher = source.split("<<'SWIFT'", 1)[1].split("\nSWIFT", 1)[0]
+        self.assertIn('XCTFreeUnwrap<T>(_ value: T?, _ label: String)', launcher)
+        self.assertIn('NSLocalizedDescriptionKey: "Missing \\(label)"', launcher)
+        for label in ["daily recurrence fixture", "editable rollover occurrence", "multiline fixture",
+                      "persisted checked task", "tracked Week context menu", "enabled Details item"]:
+            self.assertIn('"' + label + '"', launcher)
+        self.assertIn('FileHandle.standardError.write', launcher)
+        self.assertNotIn('print("PASS Week', launcher)
+        self.assertNotIn('fputs(', launcher)
+
+    def test_native_menu_probe_dispatches_to_rendered_title_and_tracks_appkit(self):
+        source = (ROOT / "scripts/week_shots.sh").read_text()
+        self.assertNotIn('.menu(for:', source)
+        self.assertIn('NSMenu.didBeginTrackingNotification', source)
+        self.assertIn('forMode: .eventTracking', source)
+        self.assertIn('selector: #selector(tick)', source)
+        self.assertIn('window.sendEvent(event)', source)
+        self.assertIn('frame("title:\\(tasks[0].id)", in: host)', source)
+        self.assertIn('menu.items[$0].isEnabled', source)
+        self.assertIn('menu.performActionForItem(at: detailsIndex)', source)
+        self.assertIn('model.detailsTaskID == tasks[0].id', source)
+        self.assertIn('candidate.cancelTracking()', source)
+
+    def test_multiline_fixture_is_checked_before_native_build(self):
+        source = (ROOT / "scripts/week_shots.sh").read_text()
+        self.assertIn('"literal": True', source)
+        self.assertIn('assert len(multiline) == 1', source)
+        self.assertIn('"multiline fixture missing or split"', source)
+
     def test_chips_have_real_completion_and_menu_controls(self):
         source = (ROOT / "Sources/PerchApp/Workspace/WeekPage.swift").read_text()
         self.assertIn("WeekTaskPolicy.completionAction", source)

@@ -32,6 +32,8 @@ json.dump(p, open(sys.argv[1], "w"))
 on = [t for t in p["tasks"] if t.get("day") == datetime.date.today().isoformat()]
 print(f"seeded {len(p['tasks'])} tasks, {len(on)} today, {sum(bool(t.get('repeatRule')) for t in on)} repeating")
 assert len(on) >= 10, "need at least 10 tasks today"
+multiline = [t for t in on if "\n" in t["title"]]
+assert len(multiline) == 1, "multiline fixture missing or split"
 EOF
 SNAP="$OUT/week-heavy"; rm -rf "$SNAP"; mkdir -p "$SNAP"
 PERCH_DATA="$DATA" "$APP" --preview-open --page week --snapshot "$SNAP" > "$OUT/week-heavy.log" 2>&1 &
@@ -77,8 +79,11 @@ import PerchMCP
 #endif
 import Vision
 
+func report(_ message: String) {
+    FileHandle.standardError.write(Data("\(message)\n".utf8))
+}
 func require(_ condition: Bool, _ message: String = "Week assertion failed") {
-    guard condition else { fputs("Week assertion failed: \(message)\n", stderr); exit(1) }
+    guard condition else { report("Week assertion failed: \(message)"); exit(1) }
 }
 @MainActor var measurements: [String: NSView] = [:]
 struct WeekMeasure: NSViewRepresentable {
@@ -133,8 +138,11 @@ func prefixCount(_ recognized: String, _ title: String) -> Int {
     let own = (root as? NSScrollView).map { [$0] } ?? []
     return own + root.subviews.flatMap { allScrolls($0) }
 }
-func XCTFreeUnwrap<T>(_ value: T?) throws -> T {
-    guard let value else { throw NSError(domain: "WeekProbe", code: 1) }
+func XCTFreeUnwrap<T>(_ value: T?, _ label: String) throws -> T {
+    guard let value else {
+        throw NSError(domain: "WeekProbe", code: 1,
+                      userInfo: [NSLocalizedDescriptionKey: "Missing \(label)"])
+    }
     return value
 }
 func wakeAccessibility() async {
@@ -184,12 +192,71 @@ func wakeAccessibility() async {
     typealias Press = @convention(c) (AnyObject, Selector) -> Bool
     require(unsafeBitCast(implementation, to: Press.self)(node, selector), "Native press rejected")
 }
-@MainActor func contextMenu(in root: NSView) -> NSMenu? {
-    let event = NSEvent.mouseEvent(with: .rightMouseDown, location: .zero, modifierFlags: [], timestamp: 0,
-        windowNumber: root.window!.windowNumber, context: nil, eventNumber: 1, clickCount: 1, pressure: 1)!
-    if let menu = root.menu(for: event), menu.items.contains(where: { $0.title == "Details…" }) { return menu }
-    for child in root.subviews { if let menu = contextMenu(in: child) { return menu } }
-    return nil
+// AppKit creates SwiftUI context menus while dispatching the pointer event. Asking
+// arbitrary descendants for menu(for:) skips that path and can return nil.
+@MainActor final class WeekMenuTracker: NSObject {
+    var menu: NSMenu?
+    private var trackingMenu: NSMenu?
+    private var seenTitles: [String] = []
+    private var timer: Timer?
+    private let deadline = ProcessInfo.processInfo.systemUptime + 3
+
+    func start() {
+        NotificationCenter.default.addObserver(self, selector: #selector(beganTracking(_:)),
+            name: NSMenu.didBeginTrackingNotification, object: nil)
+        let timer = Timer(timeInterval: 0.05, target: self, selector: #selector(tick),
+                          userInfo: nil, repeats: true)
+        self.timer = timer
+        // Main-queue Tasks do not necessarily run inside AppKit's tracking loop.
+        RunLoop.main.add(timer, forMode: .eventTracking)
+        RunLoop.main.add(timer, forMode: .default)
+    }
+    func stop() {
+        timer?.invalidate()
+        NotificationCenter.default.removeObserver(self)
+    }
+    @objc private func beganTracking(_ notification: Notification) {
+        trackingMenu = notification.object as? NSMenu
+        report("Week menu began tracking")
+    }
+    @objc private func tick() {
+        if let candidate = trackingMenu {
+            seenTitles = candidate.items.map(\.title)
+            if candidate.items.contains(where: { $0.title == "Details…" }) {
+                menu = candidate
+                timer?.invalidate()
+                candidate.cancelTracking()
+                return
+            }
+        }
+        if ProcessInfo.processInfo.systemUptime >= deadline {
+            trackingMenu?.cancelTracking()
+            require(false, "Context menu tracking timed out; observed items: \(seenTitles)")
+        }
+    }
+    func finishWaiting() {
+        while menu == nil && ProcessInfo.processInfo.systemUptime < deadline {
+            _ = RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.05))
+        }
+        report("Week tracked menu items: \(seenTitles)")
+    }
+}
+@MainActor func contextMenu(in host: NSView, titleRect: CGRect) throws -> NSMenu {
+    let window = try XCTFreeUnwrap(host.window, "Week host window")
+    require(titleRect.width > 4 && titleRect.height > 4 && host.bounds.contains(titleRect),
+            "Context-menu title target must be visible")
+    let point = host.convert(NSPoint(x: titleRect.midX, y: titleRect.midY), to: nil)
+    let event = try XCTFreeUnwrap(NSEvent.mouseEvent(with: .rightMouseDown, location: point,
+        modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+        windowNumber: window.windowNumber, context: nil, eventNumber: 1, clickCount: 1, pressure: 1),
+        "Week right-click event")
+    let tracker = WeekMenuTracker()
+    tracker.start()
+    defer { tracker.stop() }
+    report("Week dispatching right-click at rendered task title")
+    window.sendEvent(event)
+    tracker.finishWaiting()
+    return try XCTFreeUnwrap(tracker.menu, "tracked Week context menu")
 }
 @MainActor func verifyCalendarRollover(window: NSWindow, out: URL, model: NotchModel,
                                        seedDay: DayKey, whileInInbox: Bool) async throws -> [String: Any] {
@@ -203,7 +270,7 @@ func wakeAccessibility() async {
     try file.save(seed)
     let store = PlannerStore(file: file, now: { now }, watching: false)
     let id = try XCTFreeUnwrap(store.send(.addTasks(["Daily week fixture"], day: nil,
-        literal: true, agentID: nil))?.tasks.first?.id)
+        literal: true, agentID: nil))?.tasks.first?.id, "daily recurrence fixture")
     var edit = TaskEdit(); edit.repeatRule = "daily"
     require(store.send(.update(id, edit)) != nil, "Daily fixture setup failed")
     store.beginApplication()
@@ -247,7 +314,7 @@ func wakeAccessibility() async {
     }
     require(newDays.allSatisfy { measurements["count:\($0.raw)"]?.window != nil },
             "Rendered week did not follow the logical-week boundary")
-    let editableID = try XCTFreeUnwrap(saved.tasks.first { $0.day == newDays.first }?.id)
+    let editableID = try XCTFreeUnwrap(saved.tasks.first { $0.day == newDays.first }?.id, "editable rollover occurrence")
     require(store.send(.rename(editableID, "Renamed fixture")) != nil, "Rename fixture failed")
     store.undo(); await settle()
     require(store.canRedo, "Range observation replayed a mutation after Undo")
@@ -259,7 +326,7 @@ func wakeAccessibility() async {
     let afterModified = try FileManager.default.attributesOfItem(atPath: file.url.path)[.modificationDate] as? Date
     require(afterModified == modified, "Unrelated presentation update touched storage")
     try save(host, out.appendingPathComponent("rollover-\(seedDay.raw).png"))
-    print("PASS Week rollover: \(lastDay.raw) to \(nextDay.raw), seven persisted occurrences, Inbox \(whileInInbox)")
+    report("PASS Week rollover: \(lastDay.raw) to \(nextDay.raw), seven persisted occurrences, Inbox \(whileInInbox)")
     return ["before": lastDay.raw, "after": nextDay.raw, "resetHour": 4,
             "displayedDays": newDays.map(\.raw), "whileInInbox": whileInInbox, "persistedOccurrences": 7]
 }
@@ -323,13 +390,15 @@ MainActor.assumeIsolated {
                                    "required": min(12, length), "rect": [rect.minX, rect.minY, rect.width, rect.height]])
                 }
                 }
-                let multiline = try XCTFreeUnwrap(tasks.first { $0.title.contains("\n") })
+                report("PASS Week \(width): OCR viewport scan, \(titles.count) title crops")
+                let multiline = try XCTFreeUnwrap(tasks.first { $0.title.contains("\n") }, "multiline fixture")
                 let multilineRect = frame("title:\(multiline.id)", in: host)
                 let reference = NSHostingView(rootView: Text(multiline.title).font(Theme.body)
                     .fixedSize(horizontal: false, vertical: true).frame(width: multilineRect.width))
                 reference.frame.size.width = multilineRect.width
                 require(reference.fittingSize.height > 40, "Multiline positive control must exceed two lines")
                 require(multilineRect.height >= reference.fittingSize.height - 1, "Multiline title clipped")
+                report("PASS Week \(width): multiline title height \(multilineRect.height)")
                 listScroll.contentView.scroll(to: .zero)
                 listScroll.reflectScrolledClipView(listScroll.contentView)
                 await settle()
@@ -349,6 +418,7 @@ MainActor.assumeIsolated {
                 let afterRead = try recognize(bitmap(host, rect: addAfter))
                 require(normalized(afterRead) == "addatask")
                 try save(host, out.appendingPathComponent("heavy-\(width)-scrolled.png"))
+                report("PASS Week \(width): Add pinned during list scroll")
                 // The Inbox is a real button outside the seven-day scroll, never an eighth column.
                 await wakeAccessibility()
                 press("week-inbox", in: host)
@@ -373,18 +443,27 @@ MainActor.assumeIsolated {
                 require(saved.tasks.first { $0.id == tasks[0].id }!.done != wasDone, "Check action did not persist")
                 require(saved.tasks.count == store.planner.tasks.count, "Check changed task identity/count")
                 await wakeAccessibility()
-                _ = completionName(try XCTFreeUnwrap(saved.tasks.first { $0.id == tasks[0].id }), in: host)
+                _ = completionName(try XCTFreeUnwrap(saved.tasks.first { $0.id == tasks[0].id }, "persisted checked task"), in: host)
                 require(saved.tasks.first { $0.id == namedTasks[1].id }!.done == namedTasks[1].done,
                         "Checking one task changed its neighbour")
                 press(checkID, in: host)
                 await settle()
                 require(store.planner.tasks.first { $0.id == tasks[0].id }!.done == wasDone, "Uncheck did not persist")
-                // Invoke the real native context menu, not a substitute model mutation.
-                let menu = try XCTFreeUnwrap(contextMenu(in: host))
-                let detailsIndex = menu.items.firstIndex { $0.title == "Details…" }!
+                report("PASS Week \(width): Inbox navigation, task-specific checks and persisted completion")
+                // Right-click the rendered title and use the menu AppKit actually tracks.
+                let titleRect = frame("title:\(tasks[0].id)", in: host)
+                let listRect = frame("list:\(today)", in: host)
+                let visibleTitle = titleRect.intersection(listRect).intersection(host.bounds)
+                model.detailsTaskID = nil
+                let menu = try contextMenu(in: host, titleRect: visibleTitle)
+                menu.update()
+                let detailsIndex = try XCTFreeUnwrap(menu.items.indices.first {
+                    menu.items[$0].title == "Details…" && menu.items[$0].isEnabled
+                }, "enabled Details item")
                 menu.performActionForItem(at: detailsIndex)
                 await settle()
-                require(store.planner.tasks.contains { $0.id == model.detailsTaskID }, "Native Details menu lost task identity")
+                require(model.detailsTaskID == tasks[0].id, "Native Details menu lost task identity")
+                report("PASS Week \(width): context menu opened Details for the right-clicked task")
                 model.detailsTaskID = nil
                 // Command-Option-I is the Week keyboard shortcut, including when a task list scrolled.
                 let event = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [.command, .option],
@@ -395,7 +474,7 @@ MainActor.assumeIsolated {
                 require(measurements["add:inbox"]?.window != nil, "Shortcut did not reveal Inbox")
                 results.append(["width": width, "medianVisibleCharacters": median, "titles": titles,
                                 "countOCR": countRead, "addOCR": addRead, "addPinned": true, "inboxReachable": true, "nativeCheck": true, "nativeMenu": true, "inboxShortcut": true])
-                print("PASS Week \(width): median \(median), \(titles.count) title crops; count \(countRead); Add pinned; Inbox reachable")
+                report("PASS Week \(width): median \(median), \(titles.count) title crops; count \(countRead); Add pinned; Inbox reachable")
             }
             try JSONSerialization.data(withJSONObject: results, options: [.prettyPrinted, .sortedKeys])
                 .write(to: out.appendingPathComponent("heavy-assertions.json"))
@@ -407,7 +486,7 @@ MainActor.assumeIsolated {
             try JSONSerialization.data(withJSONObject: rollovers, options: [.prettyPrinted, .sortedKeys])
                 .write(to: out.appendingPathComponent("rollover-assertions.json"))
             exit(0)
-        } catch { fputs("Week assertion error: \(error)\n", stderr); exit(1) }
+        } catch { report("Week assertion error: \(error.localizedDescription) [\(error)]"); exit(1) }
     }
     withExtendedLifetime((window, store, model)) { app.run() }
 }
