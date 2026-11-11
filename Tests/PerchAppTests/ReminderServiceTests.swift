@@ -154,7 +154,7 @@ final class ReminderServiceTests: XCTestCase {
     }
 
     @MainActor
-    func testNativeRequestUsesOneShotUTCTriggerWithoutAccessingCenter() throws {
+    func testNativeRequestUsesOneShotUTCTriggerWithoutAccessingCenter() async throws {
         let instant = Date(timeIntervalSince1970: 1_800_000_000.25)
         let reminder = ScheduledReminder(
             id: ScheduledReminder.prefix + "fixture", date: instant, title: "Fixture", body: "Body")
@@ -172,7 +172,7 @@ final class ReminderServiceTests: XCTestCase {
     }
 
     @MainActor
-    func testLaunchAndLogicalRolloverMaterializeHorizonWithoutViews() throws {
+    func testLaunchAndLogicalRolloverMaterializeHorizonWithoutViews() async throws {
         let f = ReminderFixture(); defer { f.clean() }; let id = f.task()
         f.store.updatePrefs { $0.resetHour = 4 }
         var edit = TaskEdit(); edit.repeatRule = TaskRepeat(unit: .day, interval: 2).description
@@ -196,7 +196,7 @@ final class ReminderServiceTests: XCTestCase {
     }
 
     @MainActor
-    func testRolloverWaitsForResetHourAndDoesNotResurrectDeletedOccurrence() throws {
+    func testRolloverWaitsForResetHourAndDoesNotResurrectDeletedOccurrence() async throws {
         let f = ReminderFixture(); defer { f.clean() }
         f.store.updatePrefs {
             $0.resetHour = 4; $0.carryMode = .never
@@ -241,7 +241,7 @@ final class ReminderServiceTests: XCTestCase {
     }
 
     @MainActor
-    func testCompletionRelativeRepeatsAreNotExpandedBeforeCompletion() throws {
+    func testCompletionRelativeRepeatsAreNotExpandedBeforeCompletion() async throws {
         let f = ReminderFixture(); defer { f.clean() }; let id = f.task()
         var edit = TaskEdit(); edit.repeatRule = TaskRepeat(unit: .day, fromCompletion: true).description
         XCTAssertNotNil(f.store.send(.update(id, edit)))

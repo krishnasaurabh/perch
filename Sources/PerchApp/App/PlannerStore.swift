@@ -286,7 +286,7 @@ final class PlannerStore: ObservableObject {
 
     private func observe(
         _ center: NotificationCenter, _ name: Notification.Name,
-        action: @escaping (PlannerStore) -> Void
+        action: @escaping @MainActor @Sendable (PlannerStore) -> Void
     ) {
         let token = center.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
             Task { @MainActor in if let self { action(self) } }
