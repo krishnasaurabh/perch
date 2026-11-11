@@ -79,6 +79,16 @@ struct SettingsView: View {
                         }
                     }))
         }
+        Section("Notch glance") {
+            Toggle("Show today's unfinished task count", isOn: pref(\.notchTaskCount))
+                .accessibilityIdentifier("settings.notchTaskCount")
+            Text("Off by default. Shows a count only, never task titles. Timers and reminders take priority.")
+                .font(Theme.meta).foregroundStyle(Theme.secondary)
+            Text(
+                "Screen sharing is not detected automatically. Turn this off, or choose Hide task count in the Perch menu, before sharing. If the menu action cannot save, it hides the count for this session only."
+            )
+            .font(Theme.meta).foregroundStyle(Theme.secondary)
+        }
         Section("Displays") {
             Picker(
                 "Show Perch on",
