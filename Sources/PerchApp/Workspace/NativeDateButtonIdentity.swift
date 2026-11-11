@@ -49,8 +49,8 @@ struct NativeDateButtonIdentity<Content: View>: NSViewRepresentable {
         override func accessibilityRole() -> NSAccessibility.Role? {
             ownsAccessibility ? .button : super.accessibilityRole()
         }
-        override func accessibilityIdentifier() -> String? {
-            ownsAccessibility ? identifierValue : nil
+        override func accessibilityIdentifier() -> String {
+            ownsAccessibility ? identifierValue : ""
         }
         override func accessibilityLabel() -> String? {
             ownsAccessibility ? labelValue : nil
