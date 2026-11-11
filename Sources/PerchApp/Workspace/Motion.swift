@@ -35,7 +35,9 @@ enum Motion {
     @discardableResult
     static func animate<R>(_ a: Animation, policy: MotionPolicy = .system, _ body: () throws -> R) rethrows -> R {
         let transaction = policy.transaction(a)
-        MotionScript.recordTransaction(transaction, stage: "explicit-action")
+        #if DEBUG || PERCH_TESTING
+            MotionScript.recordTransaction(transaction, stage: "explicit-action")
+        #endif
         return try withTransaction(transaction, body)
     }
 }
@@ -46,7 +48,10 @@ enum Motion {
 struct MotionPolicy: Equatable {
     let reduceMotion: Bool
     static var system: Self {
-        MotionScript.policyOverride ?? Self(reduceMotion: NSWorkspace.shared.accessibilityDisplayShouldReduceMotion)
+        #if DEBUG || PERCH_TESTING
+            if let override = MotionScript.policyOverride { return override }
+        #endif
+        return Self(reduceMotion: NSWorkspace.shared.accessibilityDisplayShouldReduceMotion)
     }
 
     func animation(_ normal: Animation) -> Animation? { reduceMotion ? nil : normal }
@@ -85,6 +90,15 @@ extension EnvironmentValues {
 }
 
 extension View {
+    @ViewBuilder
+    func motionDiagnostics() -> some View {
+        #if DEBUG || PERCH_TESTING
+            modifier(MotionScript.PolicyProbe())
+        #else
+            self
+        #endif
+    }
+
     func motion<V: Equatable>(_ a: Animation, value: V) -> some View {
         modifier(MotionModifier(animation: a, value: value))
     }
@@ -108,7 +122,9 @@ private struct MotionBoundary: ViewModifier {
     func body(content: Content) -> some View {
         content.transaction {
             policy.enforce(on: &$0)
-            MotionScript.recordTransaction($0, stage: "motion-boundary-after-enforce")
+            #if DEBUG || PERCH_TESTING
+                MotionScript.recordTransaction($0, stage: "motion-boundary-after-enforce")
+            #endif
         }
     }
 }

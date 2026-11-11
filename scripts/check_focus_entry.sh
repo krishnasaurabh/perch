@@ -13,7 +13,7 @@ cp -R "$ROOT/Sources" "$PROBE/"
 cp -R "$ROOT/Tests" "$PROBE/"
 cp "$ROOT/scripts/focus_entry_probe.swift" "$PROBE/Sources/Perch/main.swift"
 git -C "$ROOT" rev-parse HEAD > "$OUT/source-sha.txt"
-swift build -Xswiftc -enable-testing --package-path "$PROBE" -c release --product Perch
+swift build -Xswiftc -DPERCH_TESTING -Xswiftc -enable-testing --package-path "$PROBE" -c release --product Perch
 python3 - "$PROBE/.build/release/Perch" "$OUT" <<'PY'
 import json, os, pathlib, subprocess, sys
 binary, output = sys.argv[1:]

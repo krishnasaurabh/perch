@@ -10,7 +10,7 @@ trap 'rm -rf "$PROBE"' EXIT
 cp "$ROOT/Package.swift" "$PROBE/"
 cp -R "$ROOT/Sources" "$ROOT/Tests" "$PROBE/"
 cp "$ROOT/scripts/integration_probe.swift" "$PROBE/Sources/Perch/main.swift"
-swift build -Xswiftc -enable-testing --package-path "$PROBE" -c release --product Perch
+swift build -Xswiftc -DPERCH_TESTING -Xswiftc -enable-testing --package-path "$PROBE" -c release --product Perch
 python3 - "$PROBE/.build/release/Perch" "$OUT" <<'PY'
 import json, os, pathlib, subprocess, sys
 binary, out = sys.argv[1:]

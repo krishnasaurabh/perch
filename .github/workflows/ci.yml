@@ -53,6 +53,8 @@ jobs:
       - uses: actions/checkout@v4
       - uses: swift-actions/setup-swift@v2
         with: { swift-version: "6.1" }
+      - name: Release and testing configuration regression
+        run: python3 -m unittest discover -s scripts -p test_launch_configuration.py
       - name: Motion evidence classification regression
         run: python3 -m unittest discover -s scripts -p test_motion_evidence.py
       - name: Domain, MCP and portable UI tests
@@ -119,17 +121,21 @@ jobs:
         run: |
           python3 -m unittest discover -s Tests/ArchitectureTests
           swift test
-      - name: Build and bundle
+      - name: Build and smoke-test the distribution Release app
         run: |
           scripts/bundle.sh
-          python3 scripts/motion_build_manifest.py dist/Perch.app
+          python3 scripts/check_release.py dist/Perch.app/Contents/MacOS/Perch "$RUNNER_TEMP/release-smoke"
+      - name: Build instrumented probe app separately
+        run: |
+          PERCH_BUILD_VARIANT=testing scripts/bundle.sh
+          python3 scripts/motion_build_manifest.py dist/testing/Perch.app
       - name: Undo persistence and timer regression
         run: bash scripts/check_undo.sh "$RUNNER_TEMP/undo"
       - name: External URL confirmation regression
         run: bash scripts/check_url_requests.sh "$RUNNER_TEMP/url-requests"
       - name: Archive app bundle
         # The sibling manifest binds motion evidence to this exact build.
-        run: tar -czf "$RUNNER_TEMP/perch-app.tar.gz" -C dist Perch.app motion-build.json
+        run: tar -czf "$RUNNER_TEMP/perch-app.tar.gz" -C dist/testing Perch.app motion-build.json
       - name: Upload app bundle
         uses: actions/upload-artifact@v4
         with:
@@ -144,7 +150,7 @@ jobs:
         run: python3 scripts/focus_crash_check.py "$PWD/dist/Perch.app/Contents/MacOS/Perch" "$RUNNER_TEMP/focus-crash"
       - name: App launches and survives 5 s
         run: |
-          PERCH_DATA=$RUNNER_TEMP/launch.json dist/Perch.app/Contents/MacOS/Perch --preview-open &
+          PERCH_DATA=$RUNNER_TEMP/launch.json dist/Perch.app/Contents/MacOS/Perch &
           PID=$!; sleep 5
           kill -0 $PID && echo "still running" && kill $PID
       - name: Upload app package and crash evidence
@@ -401,9 +407,9 @@ jobs:
           sudo xcode-select -s "$(ls -d /Applications/Xcode_26*.app | sort -V | tail -1)"
       - name: Baseline exact-source normal-policy recording
         run: |
-          scripts/bundle.sh
-          python3 scripts/motion_build_manifest.py dist/Perch.app
-          PERCH_MOTION_POLICY=normal scripts/motion_capture.sh "$RUNNER_TEMP/isolation/baseline" dist/Perch.app
+          PERCH_BUILD_VARIANT=testing scripts/bundle.sh
+          python3 scripts/motion_build_manifest.py dist/testing/Perch.app
+          PERCH_MOTION_POLICY=normal scripts/motion_capture.sh "$RUNNER_TEMP/isolation/baseline" dist/testing/Perch.app
       - name: Sandbox-only layer-order experiment (never approval evidence)
         run: |
           python3 - <<'PY'
@@ -416,10 +422,10 @@ jobs:
           PY
           mkdir -p "$RUNNER_TEMP/isolation"
           git diff > "$RUNNER_TEMP/isolation/EXPERIMENT.patch"
-          scripts/bundle.sh
+          PERCH_BUILD_VARIANT=testing scripts/bundle.sh
           # Invalidate the baseline manifest: the patched app is explicitly NOT exact-head evidence.
-          rm -f dist/motion-build.json
-          PERCH_MOTION_POLICY=normal scripts/motion_capture.sh "$RUNNER_TEMP/isolation/raised-layer" dist/Perch.app
+          rm -f dist/testing/motion-build.json
+          PERCH_MOTION_POLICY=normal scripts/motion_capture.sh "$RUNNER_TEMP/isolation/raised-layer" dist/testing/Perch.app
       - uses: actions/upload-artifact@v4
         if: always()
         with:

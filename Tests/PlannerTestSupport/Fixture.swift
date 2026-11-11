@@ -3,7 +3,7 @@ import PlannerCore
 
 /// Fixed clock: Monday 2026-11-09 15:00 in Los Angeles.
 public enum Fixture {
-    public static var calendar: Calendar = {
+    public static let calendar: Calendar = {
         var c = Calendar(identifier: .gregorian)
         c.timeZone = TimeZone(identifier: "America/Los_Angeles")!
         return c

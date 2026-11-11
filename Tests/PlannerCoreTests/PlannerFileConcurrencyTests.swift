@@ -5,7 +5,14 @@ import XCTest
 /// Cross-process and in-process contention on planner.json. Every read-modify-write
 /// takes an advisory lock, so no update may be lost when 50 perch-cli processes race.
 final class PlannerFileConcurrencyTests: XCTestCase {
-    private let fixtureCalendar = Fixture.calendar
+    /// Only this small test accumulator crosses queues; every access holds its private lock.
+    private final class LockedFailures: @unchecked Sendable {
+        private let lock = NSLock()
+        private var values: [String] = []
+        func append(_ value: String) { lock.withLock { values.append(value) } }
+        var isEmpty: Bool { lock.withLock { values.isEmpty } }
+        func joined(separator: String) -> String { lock.withLock { values.joined(separator: separator) } }
+    }
 
     // MARK: Helpers
 
@@ -53,7 +60,7 @@ final class PlannerFileConcurrencyTests: XCTestCase {
 
     private func seed(_ file: PlannerFile, titles: [String]) throws {
         try file.mutate { p in
-            var e = PlannerEngine(planner: p, now: { Fixture.now }, calendar: self.fixtureCalendar)
+            var e = PlannerEngine(planner: p, now: { Fixture.now }, calendar: Fixture.calendar)
             _ = try e.addTasks(titles, literal: true)
             p = e.planner
         }
@@ -65,8 +72,7 @@ final class PlannerFileConcurrencyTests: XCTestCase {
         let (_, url) = tempPlanner()
         let cli = try perchCLI()
         let count = 50
-        let lock = NSLock()
-        var failures: [String] = []
+        let failures = LockedFailures()
         let group = DispatchGroup()
 
         for i in 0..<count {
@@ -87,14 +93,10 @@ final class PlannerFileConcurrencyTests: XCTestCase {
                     let outText = String(decoding: out.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
                     let errText = String(decoding: err.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
                     if process.terminationStatus != 0 || !errText.isEmpty || !outText.contains("Added 1 task") {
-                        lock.lock()
                         failures.append("task \(i): status \(process.terminationStatus) out=\(outText) err=\(errText)")
-                        lock.unlock()
                     }
                 } catch {
-                    lock.lock()
                     failures.append("task \(i): \(error)")
-                    lock.unlock()
                 }
                 group.leave()
             }
@@ -120,20 +122,17 @@ final class PlannerFileConcurrencyTests: XCTestCase {
         let (_, url) = tempPlanner()
         let file = PlannerFile(url: url)
         let count = 100
-        let lock = NSLock()
-        var failures: [String] = []
+        let failures = LockedFailures()
 
         DispatchQueue.concurrentPerform(iterations: count) { i in
             do {
                 try file.mutate { p in
-                    var e = PlannerEngine(planner: p, now: { Fixture.now }, calendar: self.fixtureCalendar)
+                    var e = PlannerEngine(planner: p, now: { Fixture.now }, calendar: Fixture.calendar)
                     _ = try e.addTasks(["in process \(i)"], literal: true)
                     p = e.planner
                 }
             } catch {
-                lock.lock()
                 failures.append("mutate \(i): \(error)")
-                lock.unlock()
             }
         }
 
@@ -148,8 +147,7 @@ final class PlannerFileConcurrencyTests: XCTestCase {
         let file = PlannerFile(url: url)
         try seed(file, titles: ["seed"])
         let writers = 25
-        let lock = NSLock()
-        var failures: [String] = []
+        let failures = LockedFailures()
         let group = DispatchGroup()
 
         for i in 0..<writers {
@@ -157,12 +155,12 @@ final class PlannerFileConcurrencyTests: XCTestCase {
             DispatchQueue.global().async {
                 do {
                     try file.mutate { p in
-                        var e = PlannerEngine(planner: p, now: { Fixture.now }, calendar: self.fixtureCalendar)
+                        var e = PlannerEngine(planner: p, now: { Fixture.now }, calendar: Fixture.calendar)
                         _ = try e.addTasks(["writer \(i)"], literal: true)
                         p = e.planner
                     }
                 } catch {
-                    lock.lock(); failures.append("writer \(i): \(error)"); lock.unlock()
+                    failures.append("writer \(i): \(error)")
                 }
                 group.leave()
             }
@@ -172,7 +170,7 @@ final class PlannerFileConcurrencyTests: XCTestCase {
             DispatchQueue.global().async {
                 for _ in 0..<10 {
                     do { _ = try file.load() } catch {
-                        lock.lock(); failures.append("reader: \(error)"); lock.unlock()
+                        failures.append("reader: \(error)")
                     }
                 }
                 group.leave()
@@ -221,18 +219,17 @@ final class PlannerFileConcurrencyTests: XCTestCase {
         try seed(file, titles: (0..<20).map { "job \($0)" })
         let planner = try file.load()
         let ids = planner.tasks.map(\.id)
-        let lock = NSLock()
-        var failures: [String] = []
+        let failures = LockedFailures()
 
         DispatchQueue.concurrentPerform(iterations: ids.count) { i in
             do {
                 try file.mutate { p in
-                    var e = PlannerEngine(planner: p, now: { Fixture.now }, calendar: self.fixtureCalendar)
+                    var e = PlannerEngine(planner: p, now: { Fixture.now }, calendar: Fixture.calendar)
                     _ = try e.complete(ids[i])
                     p = e.planner
                 }
             } catch {
-                lock.lock(); failures.append("complete \(i): \(error)"); lock.unlock()
+                failures.append("complete \(i): \(error)")
             }
         }
 

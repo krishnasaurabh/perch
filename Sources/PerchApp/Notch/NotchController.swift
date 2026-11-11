@@ -204,67 +204,74 @@ final class NotchController {
 
         store.focusFinished = { [weak services] in services?.focusFinished() }
 
-        // `--dump-layout <path>`: write every screen's live frames as JSON (CI artifact, real-Mac checks).
-        let args = CommandLine.arguments
-        if let i = args.firstIndex(of: "--dump-layout"), i + 1 < args.count {
-            let path = args[i + 1]
-            startupWork.append(
-                scheduler.schedule(after: 2) { [weak self] in
-                    guard let self,
-                        let data = try? JSONSerialization.data(
-                            withJSONObject: self.layoutDump(), options: [.prettyPrinted, .sortedKeys])
-                    else { return }
-                    try? data.write(to: URL(fileURLWithPath: path))
-                })
-        }
-        // `--snapshot <dir>`: render each notch window's own content to PNG (no Screen Recording permission needed).
-        if let i = args.firstIndex(of: "--snapshot"), i + 1 < args.count {
-            let dir = URL(fileURLWithPath: args[i + 1])
-            startupWork.append(scheduler.schedule(after: 2.5) { [weak self] in self?.snapshot(into: dir) })
-        }
+        #if DEBUG || PERCH_TESTING
+            // `--dump-layout <path>`: write every screen's live frames as JSON (CI artifact, real-Mac checks).
+            let args = CommandLine.arguments
+            if let i = args.firstIndex(of: "--dump-layout"), i + 1 < args.count {
+                let path = args[i + 1]
+                startupWork.append(
+                    scheduler.schedule(after: 2) { [weak self] in
+                        guard let self,
+                            let data = try? JSONSerialization.data(
+                                withJSONObject: self.layoutDump(), options: [.prettyPrinted, .sortedKeys])
+                        else { return }
+                        try? data.write(to: URL(fileURLWithPath: path))
+                    })
+            }
+            // `--snapshot <dir>`: render each notch window's own content to PNG (no Screen Recording permission needed).
+            if let i = args.firstIndex(of: "--snapshot"), i + 1 < args.count {
+                let dir = URL(fileURLWithPath: args[i + 1])
+                startupWork.append(scheduler.schedule(after: 2.5) { [weak self] in self?.snapshot(into: dir) })
+            }
+        #endif
     }
 
-    /// Debug render: grey backdrop, the screen's menu-bar band in a lighter grey, the window's content, and the camera
-    /// housing outlined in red, so a reviewer can see whether the wings sit beside the real housing and whether the open
-    /// shell clears the menu bar (its top corners/shoulders show against the band). Pixel scale follows the screen.
-    func snapshot(into dir: URL) {
-        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        for slot in slots.values {
-            guard let view = slot.panel.contentView, let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds),
-                let out = NSBitmapImageRep(
-                    bitmapDataPlanes: nil, pixelsWide: rep.pixelsWide, pixelsHigh: rep.pixelsHigh,
-                    bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
-                    colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0),
-                let ctx = NSGraphicsContext(bitmapImageRep: out)
-            else { continue }
-            view.cacheDisplay(in: view.bounds, to: rep)
-            NSGraphicsContext.saveGraphicsState()
-            NSGraphicsContext.current = ctx
-            let size = view.bounds.size
-            ctx.cgContext.scaleBy(x: CGFloat(out.pixelsWide) / size.width, y: CGFloat(out.pixelsHigh) / size.height)
-            NSColor(calibratedRed: 0.47, green: 0.49, blue: 0.53, alpha: 1).setFill()
-            NSRect(origin: .zero, size: size).fill()
-            let w = slot.panel.frame, sf = slot.state.geometry.screenFrame
-            let bar =
-                slot.state.geometry.screen.menuBarHeight > 0
-                ? slot.state.geometry.screen.menuBarHeight : NotchLayout.fallbackMenuBarHeight
-            NSColor(calibratedWhite: 0.86, alpha: 1).setFill()
-            NSRect(x: sf.minX, y: sf.maxY - bar, width: sf.width, height: bar).offsetBy(dx: -w.minX, dy: -w.minY).fill()
-            rep.draw(
-                in: NSRect(origin: .zero, size: size), from: .zero, operation: .sourceOver, fraction: 1,
-                respectFlipped: true, hints: nil)
-            if let cam = slot.state.geometry.camera {
-                NSColor.systemRed.setStroke()
-                let path = NSBezierPath(rect: cam.offsetBy(dx: -w.minX, dy: -w.minY).insetBy(dx: 0.5, dy: 0.5))
-                path.lineWidth = 1
-                path.stroke()
+    #if DEBUG || PERCH_TESTING
+        /// Debug render: grey backdrop, the screen's menu-bar band in a lighter grey, the window's content, and the camera
+        /// housing outlined in red, so a reviewer can see whether the wings sit beside the real housing and whether the open
+        /// shell clears the menu bar (its top corners/shoulders show against the band). Pixel scale follows the screen.
+        func snapshot(into dir: URL) {
+            try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+            for slot in slots.values {
+                guard let view = slot.panel.contentView,
+                    let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds),
+                    let out = NSBitmapImageRep(
+                        bitmapDataPlanes: nil, pixelsWide: rep.pixelsWide, pixelsHigh: rep.pixelsHigh,
+                        bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
+                        colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0),
+                    let ctx = NSGraphicsContext(bitmapImageRep: out)
+                else { continue }
+                view.cacheDisplay(in: view.bounds, to: rep)
+                NSGraphicsContext.saveGraphicsState()
+                NSGraphicsContext.current = ctx
+                let size = view.bounds.size
+                ctx.cgContext.scaleBy(x: CGFloat(out.pixelsWide) / size.width, y: CGFloat(out.pixelsHigh) / size.height)
+                NSColor(calibratedRed: 0.47, green: 0.49, blue: 0.53, alpha: 1).setFill()
+                NSRect(origin: .zero, size: size).fill()
+                let w = slot.panel.frame, sf = slot.state.geometry.screenFrame
+                let bar =
+                    slot.state.geometry.screen.menuBarHeight > 0
+                    ? slot.state.geometry.screen.menuBarHeight : NotchLayout.fallbackMenuBarHeight
+                NSColor(calibratedWhite: 0.86, alpha: 1).setFill()
+                NSRect(x: sf.minX, y: sf.maxY - bar, width: sf.width, height: bar).offsetBy(dx: -w.minX, dy: -w.minY)
+                    .fill()
+                rep.draw(
+                    in: NSRect(origin: .zero, size: size), from: .zero, operation: .sourceOver, fraction: 1,
+                    respectFlipped: true, hints: nil)
+                if let cam = slot.state.geometry.camera {
+                    NSColor.systemRed.setStroke()
+                    let path = NSBezierPath(rect: cam.offsetBy(dx: -w.minX, dy: -w.minY).insetBy(dx: 0.5, dy: 0.5))
+                    path.lineWidth = 1
+                    path.stroke()
+                }
+                NSGraphicsContext.restoreGraphicsState()
+                guard let png = out.representation(using: .png, properties: [:]) else { continue }
+                try? png.write(
+                    to: dir.appendingPathComponent("notch-\(slot.state.id)-\(model.expanded ? "open" : "closed").png"))
             }
-            NSGraphicsContext.restoreGraphicsState()
-            guard let png = out.representation(using: .png, properties: [:]) else { continue }
-            try? png.write(
-                to: dir.appendingPathComponent("notch-\(slot.state.id)-\(model.expanded ? "open" : "closed").png"))
         }
-    }
+
+    #endif
 
     // MARK: Screens
 
@@ -313,7 +320,7 @@ final class NotchController {
         let state = NotchScreenState(id: id, geometry: g)
         let panel = NotchPanel(frame: g.window)
         let root = NotchRootView()
-            .modifier(MotionScript.PolicyProbe())
+            .motionDiagnostics()
             .environment(\.motionPolicyOverride, model.motionPolicyOverride)
             .environmentObject(store).environmentObject(model).environmentObject(services).environmentObject(state)
         let host = NotchHostingView(rootView: root)

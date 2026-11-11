@@ -11,6 +11,7 @@ import PerchMCP
 let args = Array(CommandLine.arguments.dropFirst())
 let tools = AgentTools(file: PlannerFile())
 
+@MainActor
 func run(_ tool: String, _ a: JSON) -> Int32 {
     do {
         print(try tools.call(tool, a))

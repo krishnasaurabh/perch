@@ -379,6 +379,6 @@ Task { @MainActor in
 }
 app.run()
 SWIFT
-swift build -Xswiftc -enable-testing --package-path "$PROBE" -j 2 -c release --product Perch
+swift build -Xswiftc -DPERCH_TESTING -Xswiftc -enable-testing --package-path "$PROBE" -j 2 -c release --product Perch
 DATA=$(mktemp -d "$OUT/data.XXXXXX")
 PERCH_DATA="$DATA/planner.json" RECOVERY_OUTPUT="$OUT" "$PROBE/.build/release/Perch"
