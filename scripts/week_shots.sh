@@ -160,6 +160,17 @@ func wakeAccessibility() async {
     }
     return walk(root)
 }
+@MainActor func completionName(_ task: PlanTask, in host: NSView) -> String {
+    let identifier = "week-check-\(task.id)"
+    guard let node = nodes(host).first(where: { attribute($0, "accessibilityIdentifier") as? String == identifier })
+    else { require(false, "Missing completion control: \(identifier)"); return "" }
+    require(attribute(node, "accessibilityRole") as? String == "AXButton", "Completion control is not a button")
+    let name = (attribute(node, "accessibilityLabel") as? String)
+        ?? (attribute(node, "accessibilityTitle") as? String) ?? ""
+    let expected = "\(task.done ? "Uncheck task" : "Check off task"): \(task.title)"
+    require(name == expected, "Completion name is not task-specific: \(name)")
+    return name
+}
 @MainActor func press(_ identifier: String, in host: NSView) {
     guard let node = nodes(host).first(where: { attribute($0, "accessibilityIdentifier") as? String == identifier })
     else { require(false, "Missing native control: \(identifier)"); return }
@@ -176,6 +187,77 @@ func wakeAccessibility() async {
     if let menu = root.menu(for: event), menu.items.contains(where: { $0.title == "Details…" }) { return menu }
     for child in root.subviews { if let menu = contextMenu(in: child) { return menu } }
     return nil
+}
+@MainActor func verifyCalendarRollover(window: NSWindow, out: URL, model: NotchModel,
+                                       seedDay: DayKey, whileInInbox: Bool) async throws -> [String: Any] {
+    let calendar = Calendar.current
+    let lastDay = WeekColumnLayout.days(today: seedDay, calendar: calendar).last!
+    let nextDay = lastDay.adding(days: 1, calendar: calendar)
+    let boundary = nextDay.start(resetHour: 4, calendar: calendar)
+    var now = boundary.addingTimeInterval(-1)
+    let file = PlannerFile(url: out.appendingPathComponent("rollover-\(seedDay.raw).json"))
+    var seed = Planner(); seed.preferences.resetHour = 4
+    try file.save(seed)
+    let store = PlannerStore(file: file, now: { now }, watching: false)
+    let id = try XCTFreeUnwrap(store.send(.addTasks(["Daily week fixture"], day: nil,
+        literal: true, agentID: nil))?.tasks.first?.id)
+    var edit = TaskEdit(); edit.repeatRule = "daily"
+    require(store.send(.update(id, edit)) != nil, "Daily fixture setup failed")
+    store.beginApplication()
+    measurements.removeAll()
+    let host = NSHostingView(rootView: WeekPage().environmentObject(store).environmentObject(model)
+        .environment(\.motionPolicyOverride, MotionPolicy(reduceMotion: true)).padding(12))
+    window.contentView = host
+    window.makeKeyAndOrderFront(nil)
+    await settle()
+    for _ in 0..<3 {
+        let event = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [.command, .option],
+            timestamp: 0, windowNumber: window.windowNumber, context: nil, characters: "\u{F703}",
+            charactersIgnoringModifiers: "\u{F703}", isARepeat: false, keyCode: 124)!
+        require(window.performKeyEquivalent(with: event), "Next-week shortcut not handled")
+        await settle()
+    }
+    let oldDays = WeekColumnLayout.days(today: store.today, weekOffset: 3, calendar: calendar)
+    require(oldDays.allSatisfy { day in store.engine.tasks(on: .day(day)).count == 1 },
+            "Navigation did not generate the selected week")
+    let newDays = WeekColumnLayout.days(today: nextDay, weekOffset: 3, calendar: calendar)
+    require(store.engine.tasks(on: .day(newDays.last!)).isEmpty,
+            "Negative control is already covered by the reminder horizon")
+    if whileInInbox {
+        await wakeAccessibility(); press("week-inbox", in: host); await settle()
+        require(measurements["add:inbox"]?.window != nil, "Inbox fixture not active")
+    }
+    now = boundary.addingTimeInterval(-0.5)
+    store.advanceLifecycle(); await settle()
+    require(store.today == lastDay, "Week changed before its configured reset hour")
+    now = boundary
+    store.advanceLifecycle(); await settle()
+    require(store.today == nextDay, "Logical day did not advance at reset")
+    let saved = try file.load()
+    for day in newDays {
+        require(saved.tasks.filter { $0.day == day && $0.title == "Daily week fixture" }.count == 1,
+                "Missing or duplicated recurring task on displayed day \(day.raw)")
+    }
+    if whileInInbox {
+        press("week-inbox", in: host); await settle()
+    }
+    require(newDays.allSatisfy { measurements["count:\($0.raw)"]?.window != nil },
+            "Rendered week did not follow the logical-week boundary")
+    let editableID = try XCTFreeUnwrap(saved.tasks.first { $0.day == newDays.first }?.id)
+    require(store.send(.rename(editableID, "Renamed fixture")) != nil, "Rename fixture failed")
+    store.undo(); await settle()
+    require(store.canRedo, "Range observation replayed a mutation after Undo")
+    let bytes = try Data(contentsOf: file.url)
+    let modified = try FileManager.default.attributesOfItem(atPath: file.url.path)[.modificationDate] as? Date
+    store.lastError = .planner("Synthetic presentation update")
+    await settle()
+    require(try Data(contentsOf: file.url) == bytes, "Unrelated presentation update rewrote tasks")
+    let afterModified = try FileManager.default.attributesOfItem(atPath: file.url.path)[.modificationDate] as? Date
+    require(afterModified == modified, "Unrelated presentation update touched storage")
+    try save(host, out.appendingPathComponent("rollover-\(seedDay.raw).png"))
+    print("PASS Week rollover: \(lastDay.raw) to \(nextDay.raw), seven persisted occurrences, Inbox \(whileInInbox)")
+    return ["before": lastDay.raw, "after": nextDay.raw, "resetHour": 4,
+            "displayedDays": newDays.map(\.raw), "whileInInbox": whileInInbox, "persistedOccurrences": 7]
 }
 MainActor.assumeIsolated {
     let app = NSApplication.shared
@@ -273,6 +355,11 @@ MainActor.assumeIsolated {
                 await settle()
                 await wakeAccessibility()
                 let checkID = "week-check-\(tasks[0].id)"
+                let namedTasks = Array(store.engine.tasks(on: .day(store.today)).prefix(2))
+                require(namedTasks.count == 2 && namedTasks[0].title != namedTasks[1].title,
+                        "Distinct task-name positive control is missing")
+                let completionNames = namedTasks.map { completionName($0, in: host) }
+                require(Set(completionNames).count == 2, "Completion buttons share an accessible name")
                 let wasDone = store.planner.tasks.first { $0.id == tasks[0].id }!.done
                 press(checkID, in: host)
                 await settle()
@@ -280,6 +367,10 @@ MainActor.assumeIsolated {
                 let saved = try store.file.load()
                 require(saved.tasks.first { $0.id == tasks[0].id }!.done != wasDone, "Check action did not persist")
                 require(saved.tasks.count == store.planner.tasks.count, "Check changed task identity/count")
+                await wakeAccessibility()
+                _ = completionName(try XCTFreeUnwrap(saved.tasks.first { $0.id == tasks[0].id }), in: host)
+                require(saved.tasks.first { $0.id == namedTasks[1].id }!.done == namedTasks[1].done,
+                        "Checking one task changed its neighbour")
                 press(checkID, in: host)
                 await settle()
                 require(store.planner.tasks.first { $0.id == tasks[0].id }!.done == wasDone, "Uncheck did not persist")
@@ -303,6 +394,13 @@ MainActor.assumeIsolated {
             }
             try JSONSerialization.data(withJSONObject: results, options: [.prettyPrinted, .sortedKeys])
                 .write(to: out.appendingPathComponent("heavy-assertions.json"))
+            var rollovers: [[String: Any]] = []
+            for (seed, inbox) in [("2026-03-08", false), ("2026-11-01", true)] {
+                rollovers.append(try await verifyCalendarRollover(window: window, out: out, model: model,
+                    seedDay: DayKey(seed)!, whileInInbox: inbox))
+            }
+            try JSONSerialization.data(withJSONObject: rollovers, options: [.prettyPrinted, .sortedKeys])
+                .write(to: out.appendingPathComponent("rollover-assertions.json"))
             exit(0)
         } catch { fputs("Week assertion error: \(error)\n", stderr); exit(1) }
     }

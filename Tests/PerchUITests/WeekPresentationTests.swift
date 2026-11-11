@@ -57,6 +57,48 @@ final class WeekPresentationTests: XCTestCase {
         XCTAssertEqual(Set(days).count, 7)
     }
 
+    func testSelectedFutureWeekRegeneratesAtResetBeyondReminderHorizon() {
+        for (zone, firstWeekday, seed) in [
+            ("America/Los_Angeles", 2, "2026-03-08"),
+            ("America/Los_Angeles", 2, "2026-11-01"),
+            ("America/Los_Angeles", 1, "2026-11-01"),
+            ("Australia/Lord_Howe", 2, "2026-10-04"),
+        ] {
+            let cal = calendar(zone, firstWeekday: firstWeekday)
+            let lastDay = WeekColumnLayout.days(today: DayKey(seed)!, calendar: cal).last!
+            let nextDay = lastDay.adding(days: 1, calendar: cal)
+            let boundary = nextDay.start(resetHour: 4, calendar: cal)
+            var now = boundary.addingTimeInterval(-1)
+            var planner = Planner(); planner.preferences.resetHour = 4
+            planner.tasks = [PlanTask(title: "Daily week fixture", day: lastDay, repeatRule: .daily)]
+            var engine = PlannerEngine(planner: planner, now: { now }, calendar: cal)
+            let oldDays = WeekColumnLayout.days(today: engine.today, weekOffset: 3, calendar: cal)
+            for day in ReminderSchedule.days(today: engine.today, calendar: cal) + oldDays {
+                engine.applyRepeats(on: day)
+            }
+            XCTAssertTrue(oldDays.allSatisfy { engine.tasks(on: .day($0)).count == 1 })
+            let newDays = WeekColumnLayout.days(today: nextDay, weekOffset: 3, calendar: cal)
+            XCTAssertTrue(engine.tasks(on: .day(newDays.last!)).isEmpty)
+            XCTAssertEqual(engine.today, lastDay)
+            now = boundary
+            XCTAssertEqual(engine.today, nextDay)
+            // Replaying relative offsets alone covers only the first day of the new calendar week.
+            for day in oldDays {
+                engine.applyRepeats(on: day.adding(days: 1, calendar: cal))
+            }
+            for day in ReminderSchedule.days(today: engine.today, calendar: cal) {
+                engine.applyRepeats(on: day)
+            }
+            XCTAssertEqual(newDays.filter { engine.tasks(on: .day($0)).isEmpty }.count, 6)
+            // WeekPage registers the changed absolute selection through the lifecycle gateway.
+            for day in newDays { engine.applyRepeats(on: day) }
+            XCTAssertTrue(newDays.allSatisfy { engine.tasks(on: .day($0)).count == 1 })
+            let registered = engine.planner
+            for day in newDays { engine.applyRepeats(on: day) }
+            XCTAssertEqual(engine.planner, registered, "Range registration must not duplicate occurrences")
+        }
+    }
+
     func testNarrowAndWideLayoutsNeverCompressTheMinimumTitleSpace() {
         for available in [320.0, 620, 820, 1440, 2048] {
             let width = WeekColumnLayout.columnWidth(available: available)

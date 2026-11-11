@@ -86,6 +86,11 @@ struct WeekPage: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
+        // Register the selected dates, not stale offsets from a previous logical week.
+        // Observe only the range so task edits cannot reapply lifecycle mutations after Undo.
+        .onChange(of: days, initial: true) { _, value in
+            store.materializeRepeats(on: value)
+        }
     }
 
     private func label(_ day: DayKey, format: String) -> String {
@@ -98,10 +103,6 @@ struct WeekPage: View {
     }
 
     private func go(_ week: Int) {
-        store.materializeRepeats(
-            on: WeekColumnLayout.days(
-                today: store.today, weekOffset: week,
-                calendar: store.engine.calendar))
         Motion.animate(Motion.page) {
             anchor = week; showInbox = false
         }
@@ -232,7 +233,7 @@ struct WeekChip: View {
         HStack(alignment: .top, spacing: Theme.gutter) {
             GlassButton(
                 symbol: task.done ? "checkmark.circle.fill" : "circle",
-                help: task.done ? "Uncheck task" : "Check off task",
+                help: task.done ? "Uncheck task: \(task.title)" : "Check off task: \(task.title)",
                 tint: task.done
                     ? Theme.success : task.priority == .none ? Theme.secondary : Theme.priority(task.priority),
                 disabledReason: checkHint
