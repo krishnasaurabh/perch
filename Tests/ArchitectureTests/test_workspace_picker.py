@@ -27,7 +27,11 @@ class WorkspacePickerContractTests(unittest.TestCase):
         self.assertNotIn(".onAppear", source, "Passive presentation must not request focus")
 
     def test_native_regression_hosts_the_production_workspace(self):
-        source = (ROOT / "Tests/PerchAppTests/WorkspaceNavigationTests.swift").read_text()
+        launcher = (ROOT / "Tests/PerchAppTests/WorkspaceNavigationTests.swift").read_text()
+        self.assertIn("check_workspace_navigation.sh", launcher)
+        self.assertIn("process.terminationStatus, 0", launcher)
+        self.assertNotIn("Services(store:", launcher)
+        source = (ROOT / "scripts/workspace_navigation_probe.swift").read_text()
         self.assertIn("WorkspaceView(notchHeight:", source)
         self.assertNotIn("SegmentPills(", source)
         for expected in ("testKeyboardGroup", "testPassive", "assertFocusRing", "isAccessibilityFocused"):
