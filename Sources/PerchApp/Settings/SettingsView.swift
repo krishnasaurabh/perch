@@ -48,7 +48,11 @@ struct SettingsView: View {
                 }
             }
             .formStyle(.grouped)
+            .font(Theme.body)
+            .foregroundStyle(Theme.text)
+            .buttonStyle(PillStyle())
         }
+        .environment(\.controlSurface, Color(nsColor: .windowBackgroundColor))
     }
 
     func pref<V>(_ kp: WritableKeyPath<Preferences, V>) -> Binding<V> {
@@ -63,7 +67,8 @@ struct SettingsView: View {
                 Text("Double-click").tag(NotchOpenTrigger.doubleClick)
             }
             ShortcutPreferenceRow()
-            Text("Works anywhere, even when Perch isn't the front app.").font(.caption).foregroundStyle(.secondary)
+            Text("Works anywhere, even when Perch isn't the front app.").font(Theme.meta).foregroundStyle(
+                Theme.secondary)
             Toggle(
                 "Open at login",
                 isOn: Binding(
@@ -87,17 +92,29 @@ struct SettingsView: View {
                     Text(s.localizedName).tag(s.localizedName)
                 }
             }
-            Text("Choose Automatic to follow the pointer between displays.").font(.caption).foregroundStyle(.secondary)
+            Text("Choose Automatic to follow the pointer between displays.").font(Theme.meta).foregroundStyle(
+                Theme.secondary)
             Toggle("Draw a fake notch on external displays", isOn: pref(\.notchOnMonitors))
-            Text("Behaves like the built-in notch and hides while an app is full screen.").font(.caption)
-                .foregroundStyle(.secondary)
+            Text("Behaves like the built-in notch and hides while an app is full screen.").font(Theme.meta)
+                .foregroundStyle(Theme.secondary)
         }
         Section("Day") {
             Stepper(value: pref(\.resetHour), in: 0...6) {
                 LabeledContent("Day ends at", value: Self.hourLabel(store.prefs.resetHour))
             }
             Text("Up to this hour, Perch still counts it as the previous day, so a late night stays on today's list.")
-                .font(.caption).foregroundStyle(.secondary)
+                .font(Theme.meta).foregroundStyle(Theme.secondary)
+        }
+        Section("Overdue tasks") {
+            Picker("Unfinished tasks from earlier days", selection: pref(\.carryMode)) {
+                Text("Ask each time").tag(CarryMode.ask)
+                Text("Automatically bring to today").tag(CarryMode.auto)
+                Text("Leave in history").tag(CarryMode.never)
+            }
+            Text(
+                "Applies when Today opens and at the day boundary. Previously handled tasks are not restored. You can still move individual tasks yourself."
+            )
+            .font(Theme.meta).foregroundStyle(Theme.secondary)
         }
         Section("Insights") {
             Toggle("Count Saturday and Sunday toward the streak", isOn: pref(\.includeWeekendsInStreak))
@@ -109,7 +126,7 @@ struct SettingsView: View {
                     ? "Uses the on-device model to suggest a priority and project for new tasks. Your explicit #project and !priority choices take precedence."
                     : AISorter.unavailableReason
             )
-            .font(.caption).foregroundStyle(.secondary)
+            .font(Theme.meta).foregroundStyle(Theme.secondary)
         }
     }
 
@@ -135,12 +152,16 @@ struct SettingsView: View {
                         moveCard(id, -1)
                     } label: {
                         Image(systemName: "chevron.up")
-                    }.buttonStyle(.borderless)
+                    }.buttonStyle(PillStyle())
+                        .disabled(HomeLayout.ordered(store.prefs.workspaceCardOrder).first == id)
+                        .accessibilityLabel("Move \(cardName(id)) up")
                     Button {
                         moveCard(id, 1)
                     } label: {
                         Image(systemName: "chevron.down")
-                    }.buttonStyle(.borderless)
+                    }.buttonStyle(PillStyle())
+                        .disabled(HomeLayout.ordered(store.prefs.workspaceCardOrder).last == id)
+                        .accessibilityLabel("Move \(cardName(id)) down")
                 }
             }
             Button("Reset to default") {
@@ -152,12 +173,13 @@ struct SettingsView: View {
             Text(
                 "Today always shows your tasks. The focus timer appears while it runs and the agenda when you have events. Insights has its own tab."
             )
-            .font(.caption).foregroundStyle(.secondary)
+            .font(Theme.meta).foregroundStyle(Theme.secondary)
         }
         Section("Clips") {
             Toggle("Add new screenshots to Clips", isOn: pref(\.catchScreenshots))
             Toggle("Add copied items to Clips", isOn: pref(\.catchCopies))
-            Text("Password managers' concealed copies are always skipped.").font(.caption).foregroundStyle(.secondary)
+            Text("Password managers' concealed copies are always skipped.").font(Theme.meta).foregroundStyle(
+                Theme.secondary)
         }
         Section("Calendar") {
             if services.calendar.hasAccess {
@@ -177,11 +199,8 @@ struct SettingsView: View {
                                 services.calendar.refresh()
                             }))
                 }
-            } else {
-                Button("Allow Calendar Access") { Task { await services.calendar.requestAccess() } }
-                Text("Read your schedule alongside the task list. Calendar access is read-only.").font(.caption)
-                    .foregroundStyle(.secondary)
             }
+            PermissionPanel(services: services, features: [.calendar])
         }
     }
 
@@ -190,7 +209,7 @@ struct SettingsView: View {
             Stepper(value: pref(\.defaultFocusMinutes), in: 5...180, step: 5) {
                 LabeledContent("Default length", value: "\(store.prefs.defaultFocusMinutes) min")
             }
-            Text("Tasks with their own time budget use that instead.").font(.caption).foregroundStyle(.secondary)
+            Text("Tasks with their own time budget use that instead.").font(Theme.meta).foregroundStyle(Theme.secondary)
             Toggle("Chime when the timer ends", isOn: pref(\.focusCompletionSound))
             Picker("Timer in the notch", selection: pref(\.notchTimerPlacement)) {
                 Text("Right of the notch").tag(NotchTimerPlacement.right)
@@ -226,16 +245,17 @@ struct SettingsView: View {
             Text(
                 "Perch creates a separate Reminders list for today's and upcoming tasks. Standard mirroring imports only today's completion. Experimental two-way sync can also import text, priority, due dates, reopening and deletion for linked tasks. Conflicting edits pause sync rather than choose a winner. Existing reminders and other lists are never adopted. Undo or Redo pauses sync until you turn it off and on again."
             )
-            .font(.caption).foregroundStyle(.secondary)
+            .font(Theme.meta).foregroundStyle(Theme.secondary)
             Toggle("Alert on iPhone and Apple Watch too", isOn: pref(\.ringOnPhone)).disabled(
                 !store.prefs.remindersSync)
+            Text(
+                "Mirroring pauses if access is denied or revoked. Phone and Watch alerts also depend on your Reminders account and device settings."
+            )
+            .font(Theme.meta).foregroundStyle(Theme.secondary)
             ReminderSyncStatus(sync: services.remindersSync)
         }
         Section("Permissions") {
-            Button("Request notification permission") { Task { await services.reminders.requestAuthorization() } }
-            Button("Privacy settings…") {
-                NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security")!)
-            }
+            PermissionPanel(services: services)
         }
         Section("Your data") {
             LabeledContent("Stored at", value: store.file.url.path).textSelection(.enabled)
@@ -244,9 +264,9 @@ struct SettingsView: View {
                 Button("Export JSON backup…") { exportBackup() }
             }
             Text(
-                "Perch has no account, no server and no analytics. Nothing leaves this Mac unless you turn on Reminders sync (via iCloud) or connect an AI app."
+                "Perch stores your planner on this Mac and has no analytics. Optional Reminders sync uses your configured Reminders account. Connected AI apps can read and edit the planner."
             )
-            .font(.caption).foregroundStyle(.secondary)
+            .font(Theme.meta).foregroundStyle(Theme.secondary)
         }
         Section("About") {
             LabeledContent("Version", value: AppInfo.version)

@@ -6,7 +6,7 @@ struct ProjectsList: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             if store.planner.projects.isEmpty {
-                Text("No projects yet. Add #project to a new task.").foregroundStyle(.secondary)
+                Text("No projects yet. Add #project to a new task.").foregroundStyle(Theme.secondary)
             }
             ForEach(store.planner.projects) { p in
                 let tasks = store.planner.tasks.filter { $0.projectID == p.id }
@@ -14,19 +14,19 @@ struct ProjectsList: View {
                 VStack(alignment: .leading, spacing: 4) {
                     HStack {
                         Circle().fill(Color(hex: p.colorHex)).frame(width: 10, height: 10)
-                        Text(p.name).font(.headline)
-                        Text("\(open.count) open · \(tasks.filter(\.done).count) done").foregroundStyle(.secondary)
+                        Text(p.name).font(Theme.heading)
+                        Text("\(open.count) open · \(tasks.filter(\.done).count) done").foregroundStyle(Theme.secondary)
                         Spacer()
-                        Button("Delete Project", role: .destructive) {
+                        Button("Delete project", role: .destructive) {
                             store.apply { try $0.deleteProject(p.id) }
-                        }.buttonStyle(.borderless)
+                        }.buttonStyle(PillStyle())
                     }
                     ForEach(open) { t in DashboardTaskLine(task: t) }
                 }
             }
             if !store.planner.projects.isEmpty {
-                Text("Deleting a project keeps its tasks, without a project. ⌘Z undoes it.").font(.caption)
-                    .foregroundStyle(.secondary)
+                Text("Deleting a project keeps its tasks, without a project. ⌘Z undoes it.").font(Theme.meta)
+                    .foregroundStyle(Theme.secondary)
             }
         }.frame(maxWidth: .infinity, alignment: .leading)
     }
