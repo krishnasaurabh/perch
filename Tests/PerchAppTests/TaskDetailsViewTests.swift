@@ -377,9 +377,18 @@ final class TaskDetailsViewTests: XCTestCase {
         }
     }
 
+    @MainActor private static func legacyAttribute(_ node: NSObject, _ key: String) -> Any? {
+        node.accessibilityAttributeValue(NSAccessibility.Attribute(rawValue: key))
+    }
+
     @MainActor private static func attribute(_ node: NSObject, _ name: String) -> Any? {
         let selector = NSSelectorFromString(name)
-        return node.responds(to: selector) ? node.perform(selector)?.takeUnretainedValue() : nil
+        if node.responds(to: selector), let value = node.perform(selector)?.takeUnretainedValue() { return value }
+        let keys = [
+            "accessibilityIdentifier": "AXIdentifier", "accessibilityRole": "AXRole",
+            "accessibilityLabel": "AXDescription", "accessibilityTitle": "AXTitle",
+        ]
+        return keys[name].flatMap { legacyAttribute(node, $0) }
     }
 
     @MainActor private static func nodes(_ root: NSObject) -> [NSObject] {
@@ -390,6 +399,8 @@ final class TaskDetailsViewTests: XCTestCase {
             // only AXChildren misses the SwiftUI elements within the native scroller.
             var children = ["accessibilityChildren", "accessibilityContents", "accessibilityChildrenInNavigationOrder"]
                 .flatMap { (attribute(node, $0) as? [NSObject]) ?? [] }
+            children += ["AXChildren", "AXContents", "AXChildrenInNavigationOrder"]
+                .flatMap { (legacyAttribute(node, $0) as? [NSObject]) ?? [] }
             // Ignored hosting containers may omit native descendants from their AX children.
             if let view = node as? NSView { children += view.subviews }
             if let window = node as? NSWindow, let content = window.contentView { children.append(content) }
