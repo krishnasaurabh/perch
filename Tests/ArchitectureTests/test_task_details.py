@@ -30,6 +30,12 @@ class TaskDetailsBoundaryTests(unittest.TestCase):
         self.assertIn(".safeAreaInset(edge: .bottom", self.source)
         self.assertNotIn(".frame(width: 460)", self.source)
 
+    def test_native_hosts_enable_the_swiftui_accessibility_tree(self):
+        native = (ROOT / "Tests/PerchAppTests/TaskDetailsViewTests.swift").read_text()
+        # Both the direct geometry host and the presented sheet need the public
+        # environment override; native AppKit children alone lack SwiftUI IDs.
+        self.assertEqual(native.count(r".environment(\.accessibilityEnabled, true)"), 2)
+
     def test_historical_title_is_not_editable(self):
         self.assertIn(".disabled(readOnly)", self.source)
         self.assertIn('Text(draft.title)', self.source)

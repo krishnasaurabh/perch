@@ -15,7 +15,11 @@ final class TaskDetailsViewTests: XCTestCase {
         {
             let window = Self.makeWindow(size: size)
             let host = NSHostingView(
-                rootView: TaskDetailsSheet(taskID: fixture.task.id).environmentObject(fixture.store))
+                rootView: TaskDetailsSheet(taskID: fixture.task.id)
+                    .environmentObject(fixture.store)
+                    // XCTest is not an assistive client. Materialize SwiftUI's
+                    // real AX elements without changing system permissions.
+                    .environment(\.accessibilityEnabled, true))
             window.contentView = host
             window.setContentSize(size)
             window.makeKeyAndOrderFront(nil)
@@ -158,9 +162,10 @@ final class TaskDetailsViewTests: XCTestCase {
         -> NSObject
     {
         // Waking the AX client is asynchronous; one immediate lookup can precede SwiftUI's tree publication.
+        var wakeResult = "not queried"
         for _ in 0..<20 {
             window.contentView?.layoutSubtreeIfNeeded()
-            await wakeAccessibility()
+            wakeResult = await wakeAccessibility()
             await settle()
             if let node = nodes(window).first(where: {
                 attribute($0, "accessibilityIdentifier") as? String == identifier
@@ -172,19 +177,23 @@ final class TaskDetailsViewTests: XCTestCase {
         let observed = nodes(window).map {
             "\(attribute($0, "accessibilityRole") ?? "?")/\(attribute($0, "accessibilityIdentifier") ?? "?")/\(attribute($0, "accessibilityLabel") ?? "?")"
         }.joined(separator: "\n")
-        XCTFail("Missing \(identifier) (\(role)) in native window; observed:\n\(observed)")
+        XCTFail("Missing \(identifier) (\(role)) in native window; AX query: \(wakeResult); observed:\n\(observed)")
         throw DetailsTestError.missingControl
     }
 
-    private static func wakeAccessibility() async {
+    private static func wakeAccessibility() async -> String {
         await Task.detached {
             let app = AXUIElementCreateApplication(getpid())
             var value: CFTypeRef?
-            _ = AXUIElementCopyAttributeValue(app, kAXWindowsAttribute as CFString, &value)
-            for window in (value as? [AXUIElement]) ?? [] {
+            let result = AXUIElementCopyAttributeValue(app, kAXWindowsAttribute as CFString, &value)
+            let windows = (value as? [AXUIElement]) ?? []
+            var results = ["windows=\(result.rawValue):\(windows.count)"]
+            for window in windows {
                 var children: CFTypeRef?
-                _ = AXUIElementCopyAttributeValue(window, kAXChildrenAttribute as CFString, &children)
+                let childResult = AXUIElementCopyAttributeValue(window, kAXChildrenAttribute as CFString, &children)
+                results.append("children=\(childResult.rawValue):\((children as? [AXUIElement])?.count ?? 0)")
             }
+            return results.joined(separator: " ")
         }.value
     }
 
@@ -241,6 +250,7 @@ private struct DetailsPresenter: View {
         Text("Synthetic task host").frame(width: 640, height: 780)
             .sheet(isPresented: $presentation.isPresented) {
                 TaskDetailsSheet(taskID: taskID).environmentObject(store)
+                    .environment(\.accessibilityEnabled, true)
             }
     }
 }
