@@ -1,0 +1,225 @@
+name: Release packaging
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/release.yml'
+      - 'Resources/**'
+      - 'scripts/bundle.sh'
+      - 'scripts/test_packaging.py'
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/release.yml'
+      - 'Resources/**'
+      - 'scripts/bundle.sh'
+      - 'scripts/test_packaging.py'
+  workflow_dispatch:
+    inputs:
+      signing:
+        description: Signing identity selection
+        type: choice
+        options: [auto, ad-hoc, developer-id]
+        default: auto
+      notarize:
+        description: Notarize and staple; requires complete Apple credentials
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-packaging-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name != 'workflow_dispatch' }}
+
+jobs:
+  package:
+    name: Reproducible package and conditional Apple distribution
+    runs-on: macos-15
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - name: Toolchain
+        run: |
+          sudo xcode-select -s "$(ls -d /Applications/Xcode_26*.app 2>/dev/null | sort -V | tail -1 || ls -d /Applications/Xcode*.app | sort -V | tail -1)"
+          swift --version
+      - name: Portable packaging and launch-configuration regressions
+        run: |
+          python3 -m unittest discover -s scripts -p test_packaging.py -v
+          python3 -m unittest discover -s scripts -p test_launch_configuration.py -v
+      - name: Select signing mode without disclosing credentials
+        id: credentials
+        env:
+          REQUESTED_SIGNING: ${{ inputs.signing || 'ad-hoc' }}
+          REQUESTED_NOTARIZE: ${{ inputs.notarize || false }}
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          ASC_KEY_P8: ${{ secrets.ASC_KEY_P8 }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mode=ad-hoc
+          if [[ "$REQUESTED_SIGNING" != ad-hoc ]]; then
+            present=0
+            for name in APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_SIGNING_IDENTITY; do
+              [[ -z "${!name:-}" ]] || present=$((present + 1))
+            done
+            if [[ $present -eq 3 ]]; then
+              mode=developer-id
+            elif [[ $present -ne 0 ]]; then
+              echo "Signing credentials are incomplete; provide all three signing secrets or select ad-hoc" >&2
+              exit 2
+            elif [[ "$REQUESTED_SIGNING" == developer-id ]]; then
+              echo "Developer ID was requested but its signing secrets are unavailable" >&2
+              exit 2
+            fi
+          fi
+          if [[ "$REQUESTED_NOTARIZE" == true ]]; then
+            [[ "$mode" == developer-id ]] || { echo "Notarization requires Developer ID credentials" >&2; exit 2; }
+            for name in ASC_KEY_ID ASC_ISSUER_ID ASC_KEY_P8; do
+              [[ -n "${!name:-}" ]] || { echo "Notarization requires the $name secret" >&2; exit 2; }
+            done
+          fi
+          printf 'mode=%s\n' "$mode" >>"$GITHUB_OUTPUT"
+          printf 'Signing mode: %s; notarization requested: %s\n' "$mode" "$REQUESTED_NOTARIZE"
+      - name: Build, sign and conditionally notarize
+        id: build
+        env:
+          SIGNING_MODE: ${{ steps.credentials.outputs.mode }}
+          REQUESTED_NOTARIZE: ${{ inputs.notarize || false }}
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          ASC_KEY_P8: ${{ secrets.ASC_KEY_P8 }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          WORK=$(mktemp -d "$RUNNER_TEMP/perch-release.XXXXXX")
+          KEYCHAIN=
+          cleanup() {
+            if [[ -n "$KEYCHAIN" ]]; then security delete-keychain "$KEYCHAIN" >/dev/null 2>&1 || true; fi
+            rm -rf "$WORK"
+          }
+          trap cleanup EXIT
+          if [[ "$SIGNING_MODE" == ad-hoc ]]; then
+            export SIGN_ID=- NOTARIZE=0
+          else
+            python3 - "$WORK/signing.p12" <<'PY'
+          import base64, os, pathlib, sys
+          encoded = "".join(os.environ["APPLE_CERTIFICATE"].split())
+          pathlib.Path(sys.argv[1]).write_bytes(base64.b64decode(encoded, validate=True))
+          os.chmod(sys.argv[1], 0o600)
+          PY
+            unset APPLE_CERTIFICATE
+            KEYCHAIN="$WORK/signing.keychain-db"
+            KEYCHAIN_PASSWORD=$(python3 -c 'import secrets; print(secrets.token_urlsafe(32))')
+            security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN" >/dev/null
+            security import "$WORK/signing.p12" -k "$KEYCHAIN" -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign >/dev/null
+            security set-key-partition-list -S apple-tool:,apple: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN" >/dev/null
+            rm -f "$WORK/signing.p12"
+            unset APPLE_CERTIFICATE_PASSWORD KEYCHAIN_PASSWORD
+            export SIGN_ID="$APPLE_SIGNING_IDENTITY" SIGN_KEYCHAIN="$KEYCHAIN"
+            if [[ "$REQUESTED_NOTARIZE" == true ]]; then
+              python3 - "$WORK/asc-key.p8" <<'PY'
+          import os, pathlib, sys
+          pathlib.Path(sys.argv[1]).write_text(os.environ["ASC_KEY_P8"])
+          os.chmod(sys.argv[1], 0o600)
+          PY
+              unset ASC_KEY_P8
+              export ASC_KEY_PATH="$WORK/asc-key.p8" NOTARIZE=1
+            else
+              export NOTARIZE=0
+            fi
+          fi
+          scripts/bundle.sh
+      - name: Repeat ad-hoc packaging and require identical app archives
+        if: steps.credentials.outputs.mode == 'ad-hoc'
+        shell: bash
+        run: |
+          set -euo pipefail
+          archives=(dist/*-app.zip)
+          [[ ${#archives[@]} -eq 1 && -f "${archives[0]}" ]]
+          cp "${archives[0]}" "$RUNNER_TEMP/first-app.zip"
+          sleep 2
+          scripts/bundle.sh
+          cmp "$RUNNER_TEMP/first-app.zip" "${archives[0]}"
+          echo "Repeated ad-hoc app archives are byte-identical"
+      - name: Verify metadata, modes, hashes, signatures and Gatekeeper status
+        env:
+          EXPECTED_MODE: ${{ steps.credentials.outputs.mode }}
+          EXPECTED_NOTARIZE: ${{ inputs.notarize || false }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import hashlib, json, os, pathlib, plistlib, stat
+          dist = pathlib.Path("dist")
+          with (dist / "Perch.app/Contents/Info.plist").open("rb") as stream:
+              info = plistlib.load(stream)
+          with pathlib.Path("Resources/Info.plist").open("rb") as stream:
+              source_info = plistlib.load(stream)
+          assert info["CFBundleIdentifier"] == "app.perch.mac"
+          assert info["CFBundleShortVersionString"] == source_info["CFBundleShortVersionString"]
+          assert info["CFBundleVersion"] == source_info["CFBundleVersion"]
+          assert info["CFBundleIconFile"] == "AppIcon"
+          assert (dist / "Perch.app/Contents/Resources/AppIcon.icns").read_bytes() == pathlib.Path("Resources/AppIcon.icns").read_bytes()
+          assert stat.S_IMODE((dist / "Perch.app/Contents/MacOS/Perch").stat().st_mode) == 0o755
+          assert stat.S_IMODE((dist / "Perch.app/Contents/Info.plist").stat().st_mode) == 0o644
+          report = json.loads((dist / "release-metadata.json").read_text())
+          assert report["signature"] == os.environ["EXPECTED_MODE"]
+          assert report["notarized"] == (os.environ["EXPECTED_NOTARIZE"] == "true")
+          lines = (dist / "SHA256SUMS").read_text().splitlines()
+          assert lines
+          for line in lines:
+              digest, name = line.split("  ", 1)
+              assert digest == hashlib.sha256((dist / name).read_bytes()).hexdigest()
+          assert len(list(dist.glob("*-app.zip"))) == (0 if report["notarized"] else 1)
+          PY
+          codesign --verify --deep --strict --verbose=2 dist/Perch.app
+          dmgs=(dist/*.dmg)
+          [[ ${#dmgs[@]} -eq 1 && -f "${dmgs[0]}" ]]
+          hdiutil verify "${dmgs[0]}"
+          if [[ "$EXPECTED_MODE" == ad-hoc ]]; then
+            signature=$(codesign -d --verbose=2 dist/Perch.app 2>&1)
+            grep -q 'Signature=adhoc' <<<"$signature"
+            if spctl --assess --type execute --verbose=2 dist/Perch.app; then
+              echo "Gatekeeper accepted under local policy; this is not a notarization claim"
+            else
+              echo "Gatekeeper does not accept the ad-hoc package, as expected"
+            fi
+          elif [[ "$EXPECTED_NOTARIZE" == true ]]; then
+            xcrun stapler validate dist/Perch.app
+            xcrun stapler validate "${dmgs[0]}"
+            spctl --assess --type execute --verbose=2 dist/Perch.app
+            spctl --assess --type open --context context:primary-signature --verbose=2 "${dmgs[0]}"
+          fi
+      - name: Distribution binary has no test launch hooks
+        run: python3 scripts/check_release.py dist/Perch.app/Contents/MacOS/Perch "$RUNNER_TEMP/release-smoke"
+      - name: Record package status
+        shell: bash
+        run: |
+          python3 - <<'PY' >>"$GITHUB_STEP_SUMMARY"
+          import json
+          report = json.load(open("dist/release-metadata.json"))
+          print("## Package verification")
+          print(f"- Signature: **{report['signature']}**")
+          print(f"- Notarized: **{report['notarized']}**")
+          print(f"- Gatekeeper: **{report['gatekeeper']}**")
+          print("- SHA256SUMS and bundle metadata verified")
+          PY
+      - name: Upload package without publishing a release
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Perch-release-package
+          path: |
+            dist/*.dmg
+            dist/*-app.zip
+            dist/SHA256SUMS
+            dist/release-metadata.json
+          if-no-files-found: error
