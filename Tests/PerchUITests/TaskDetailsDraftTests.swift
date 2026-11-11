@@ -43,7 +43,7 @@ final class TaskDetailsDraftTests: XCTestCase {
         return result
     }
 
-    func testCancellationAndIncompleteSelectionsNeverWrite() throws {
+    func testDraftValidationAndIncompleteSelectionsNeverWrite() throws {
         try withPipeline { _, file, directory in
             let original = try snapshot(directory)
             var draft = TaskDetailsDraft(task: try file.load().tasks[0])

@@ -19,6 +19,12 @@ class TaskDetailsBoundaryTests(unittest.TestCase):
         self.assertIn(".keyboardShortcut(.cancelAction)", self.source)
         self.assertIn(".keyboardShortcut(.defaultAction)", self.source)
 
+    def test_unavailable_task_keeps_an_explicit_exit(self):
+        unavailable = self.source.split('"Task unavailable"', 1)[1].split("private struct TaskDetailsEditor", 1)[0]
+        self.assertIn('Button("Close")', unavailable)
+        self.assertIn(".keyboardShortcut(.cancelAction)", unavailable)
+        self.assertIn('"details-close"', unavailable)
+
     def test_footer_is_reserved_outside_scrolling_form(self):
         self.assertIn("ScrollView", self.source)
         self.assertIn(".safeAreaInset(edge: .bottom", self.source)

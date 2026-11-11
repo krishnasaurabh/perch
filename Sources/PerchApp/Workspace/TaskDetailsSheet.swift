@@ -6,14 +6,21 @@ import SwiftUI
 struct TaskDetailsSheet: View {
     let taskID: UUID
     @EnvironmentObject private var store: PlannerStore
+    @Environment(\.dismiss) private var dismiss
 
     var body: some View {
         if let task = store.planner.tasks.first(where: { $0.id == taskID }) {
             TaskDetailsEditor(task: task).id(taskID)
         } else {
-            ContentUnavailableView(
-                "Task unavailable", systemImage: "checkmark.circle", description: Text("This task was removed.")
-            )
+            VStack(spacing: Theme.cardPadding) {
+                ContentUnavailableView(
+                    "Task unavailable", systemImage: "checkmark.circle", description: Text("This task was removed.")
+                )
+                Button("Close") { dismiss() }
+                    .keyboardShortcut(.cancelAction)
+                    .buttonStyle(PillStyle())
+                    .accessibilityIdentifier("details-close")
+            }
             .padding()
         }
     }
