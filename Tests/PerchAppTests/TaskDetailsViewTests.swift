@@ -83,7 +83,7 @@ final class TaskDetailsViewTests: XCTestCase {
                 with: .keyDown, location: .zero, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
                 windowNumber: sheet.windowNumber, context: nil, characters: "\u{1b}",
                 charactersIgnoringModifiers: "\u{1b}", isARepeat: false, keyCode: 53))
-        XCTAssertTrue(sheet.performKeyEquivalent(escape), "The real Cancel shortcut handles Escape")
+        XCTAssertTrue(sheet.performKeyEquivalent(with: escape), "The real Cancel shortcut handles Escape")
         try await fixture.assertDismissed()
         XCTAssertEqual(try fixture.snapshot(), before)
     }
