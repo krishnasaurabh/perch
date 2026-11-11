@@ -71,6 +71,7 @@ final class ClipsService: ObservableObject {
     typealias QueryFactory = () -> any ScreenshotQuerying
     typealias WatcherFactory = (URL, DispatchQueue, @escaping FolderWatcher.Handler) -> any FolderWatching
     typealias FolderEntries = @Sendable (URL) -> [FolderScan.Entry]
+    typealias ClipOpener = (URL, @escaping @Sendable (Error?) -> Void) -> Void
     @Published private(set) var clips: [Clip] = []
     @Published private(set) var letGoBanner: LetGoBanner?
     @Published private(set) var folderWatch: FolderWatch = .off
@@ -81,6 +82,8 @@ final class ClipsService: ObservableObject {
     private let now: () -> Date
     private let scheduler: any AppScheduling
     private let pasteboard: any PasteboardAccess
+    private let clipOpener: ClipOpener
+    private var lastClipError: PerchAppError?
     @MainActor
     private final class LifetimeState {
         var letGoWork: (any AppScheduledAction)?
@@ -134,12 +137,18 @@ final class ClipsService: ObservableObject {
         },
         folderEntries: @escaping FolderEntries = FolderWatcher.entries,
         folderProvider: (() -> ScreenshotFolder.Resolved)? = nil,
-        folderQueue: DispatchQueue = DispatchQueue(label: "perch.clips.folder", qos: .utility)
+        folderQueue: DispatchQueue = DispatchQueue(label: "perch.clips.folder", qos: .utility),
+        clipOpener: @escaping ClipOpener = { url, completion in
+            NSWorkspace.shared.open(url, configuration: NSWorkspace.OpenConfiguration()) { _, error in
+                completion(error)
+            }
+        }
     ) {
         self.store = store
         self.now = now
         self.scheduler = scheduler
         self.pasteboard = pasteboard
+        self.clipOpener = clipOpener
         self.queryFactory = queryFactory
         self.watcherFactory = watcherFactory
         self.folderEntries = folderEntries
@@ -361,10 +370,17 @@ final class ClipsService: ObservableObject {
             }) {
                 return
             }
-            // A temp file disappears soon: hang our own copy instead.
-            if ClipVault.isTemporary(u), let kept = try? ClipVault.keepCopy(of: u, in: vault, now: now()) {
-                origin = u
-                content = .file(kept)
+            // A temp file disappears soon: keep a durable copy, or leave the drop retryable.
+            if ClipVault.isTemporary(u) {
+                do {
+                    let kept = try ClipVault.keepCopy(of: u, in: vault, now: now())
+                    origin = u
+                    content = .file(kept)
+                    clearClipError()
+                } catch {
+                    reportClipError(error)
+                    return
+                }
             }
         } else if clips.contains(where: { $0.content == content }) {
             return
@@ -454,7 +470,25 @@ final class ClipsService: ObservableObject {
     }
 
     func open(_ clip: Clip) {
-        if case .file(let u) = clip.content { NSWorkspace.shared.open(u) }
+        guard case .file(let u) = clip.content else { return }
+        clipOpener(u) { [weak self] error in
+            Task { @MainActor in
+                guard let self else { return }
+                if let error { self.reportClipError(error) } else { self.clearClipError() }
+            }
+        }
+    }
+
+    private func reportClipError(_ error: Error) {
+        let failure = PerchAppError.planner(error.perchPresentationDetail)
+        lastClipError = failure
+        store.lastError = failure
+    }
+
+    private func clearClipError() {
+        guard let lastClipError else { return }
+        if store.lastError == lastClipError { store.lastError = nil }
+        self.lastClipError = nil
     }
 
     func clipURL(_ clip: Clip) -> URL? { clip.content.fileURL }

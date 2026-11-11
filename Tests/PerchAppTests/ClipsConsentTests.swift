@@ -105,6 +105,16 @@ final class ClipsConsentTests: XCTestCase {
         XCTAssertEqual(access.enumerations, 0, "A fresh profile enumerated screenshots before Welcome consent")
         XCTAssertEqual(
             access.queries, 0, "A fresh profile started screenshot metadata monitoring before Welcome consent")
+        let delegate = AppDelegate()
+        delegate.store = store
+        delegate.completeWelcome()
+        queue.sync {}
+        let consented = counts.snapshot()
+        XCTAssertTrue(store.prefs.welcomeCompleted)
+        XCTAssertTrue(store.prefs.catchScreenshots)
+        XCTAssertEqual(consented.opens, 1)
+        XCTAssertEqual(consented.enumerations, 1)
+        XCTAssertEqual(consented.queries, 1)
         withExtendedLifetime(clips) {}
     }
 
