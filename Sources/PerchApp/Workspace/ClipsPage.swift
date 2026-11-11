@@ -77,13 +77,15 @@ private struct ClipsBody: View {
                 "Add screenshots",
                 isOn: Binding(
                     get: { store.prefs.catchScreenshots },
-                    set: { value in store.updatePrefs { $0.catchScreenshots = value } }))
-                .fixedSize().frame(minHeight: Theme.minimumTarget)
+                    set: { value in store.updatePrefs { $0.catchScreenshots = value } })
+            )
+            .fixedSize().frame(minHeight: Theme.minimumTarget)
             Toggle(
                 "Add copied items",
                 isOn: Binding(
-                    get: { store.prefs.catchCopies }, set: { value in store.updatePrefs { $0.catchCopies = value } }))
-                .fixedSize().frame(minHeight: Theme.minimumTarget)
+                    get: { store.prefs.catchCopies }, set: { value in store.updatePrefs { $0.catchCopies = value } })
+            )
+            .fixedSize().frame(minHeight: Theme.minimumTarget)
         }
         .toggleStyle(.switch).controlSize(.small).font(Theme.meta)
         // Refuse label compression so ViewThatFits moves these whole controls

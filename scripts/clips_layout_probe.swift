@@ -73,10 +73,12 @@ func pressClips(_ title: String, in host: NSView) throws {
     let node = try clipsControl(title, in: host)
     let enabledSelector = NSSelectorFromString("isAccessibilityEnabled")
     guard node.responds(to: enabledSelector), let enabledMethod = node.method(for: enabledSelector) else {
-        throw NSError(domain: "ClipsLayout", code: 3, userInfo: [NSLocalizedDescriptionKey: "Missing enabled state: \(title)"])
+        throw NSError(
+            domain: "ClipsLayout", code: 3, userInfo: [NSLocalizedDescriptionKey: "Missing enabled state: \(title)"])
     }
     typealias Enabled = @convention(c) (AnyObject, Selector) -> Bool
-    try requireClips(unsafeBitCast(enabledMethod, to: Enabled.self)(node, enabledSelector), "Disabled control: \(title)")
+    try requireClips(
+        unsafeBitCast(enabledMethod, to: Enabled.self)(node, enabledSelector), "Disabled control: \(title)")
     let selector = NSSelectorFromString("accessibilityPerformPress")
     guard node.responds(to: selector), let implementation = node.method(for: selector) else {
         throw NSError(domain: "ClipsLayout", code: 3, userInfo: [NSLocalizedDescriptionKey: "Cannot press \(title)"])
@@ -117,8 +119,9 @@ func checkClipsScrolling(host: NSView) async throws {
     await settleClips()
     try requireClips(scroll.contentView.bounds.origin.x > before.x, "Native scroll did not move")
     let after = try clipsFooterFrame(in: host)
-    try requireClips(abs(after.minY - footer.minY) < 0.5 && abs(after.minX - footer.minX) < 0.5,
-                     "Footer moved with the clips")
+    try requireClips(
+        abs(after.minY - footer.minY) < 0.5 && abs(after.minX - footer.minX) < 0.5,
+        "Footer moved with the clips")
     scroll.contentView.scroll(to: before)
     scroll.reflectScrolledClipView(scroll.contentView)
     await settleClips()
@@ -137,8 +140,9 @@ func checkClipsToolbar(_ url: URL, host: NSView) throws -> [String: Any] {
     let scale = CGFloat(bitmap.pixelsWide) / host.bounds.width
     // NSHostingView uses flipped coordinates; image coordinates are always top-down.
     let bottom = frames.map { host.isFlipped ? $0.maxY : host.bounds.height - $0.minY }.max()!
-    let box = CGRect(x: 24 * scale, y: 24 * scale,
-                     width: (host.bounds.width - 48) * scale, height: (bottom - 24) * scale)
+    let box = CGRect(
+        x: 24 * scale, y: 24 * scale,
+        width: (host.bounds.width - 48) * scale, height: (bottom - 24) * scale)
     let image = bitmap.cgImage!.cropping(to: box)!
     let request = VNRecognizeTextRequest()
     request.recognitionLevel = .accurate
@@ -147,8 +151,9 @@ func checkClipsToolbar(_ url: URL, host: NSView) throws -> [String: Any] {
     request.minimumTextHeight = 0.01
     try VNImageRequestHandler(cgImage: image, options: [:]).perform([request])
     let lines = (request.results ?? []).compactMap { $0.topCandidates(1).first?.string }
-    try requireClips(names.allSatisfy { name in lines.contains { $0.contains(name) } },
-                     "Toolbar labels must be whole single lines at \(Int(host.bounds.width))pt; OCR: \(lines)")
+    try requireClips(
+        names.allSatisfy { name in lines.contains { $0.contains(name) } },
+        "Toolbar labels must be whole single lines at \(Int(host.bounds.width))pt; OCR: \(lines)")
     for (name, frame) in zip(names, frames) {
         try requireClips(host.bounds.insetBy(dx: 24, dy: 24).contains(frame), "Control outside card: \(name)")
         try requireClips(frame.height >= 28, "Control target below 28pt: \(name), \(frame)")
@@ -194,7 +199,8 @@ final class ClipsMenuTracker: NSObject {
     private var timer: Timer?
     private let deadline = ProcessInfo.processInfo.systemUptime + 3
     func start() {
-        NotificationCenter.default.addObserver(self, selector: #selector(began(_:)),
+        NotificationCenter.default.addObserver(
+            self, selector: #selector(began(_:)),
             name: NSMenu.didBeginTrackingNotification, object: nil)
         let timer = Timer(timeInterval: 0.05, target: self, selector: #selector(tick), userInfo: nil, repeats: true)
         self.timer = timer
@@ -235,7 +241,8 @@ func clipsMenuAction(_ action: String, title: String, host: NSView, expectsOpen:
         try requireClips(menu.items.contains { $0.title == name && $0.isEnabled }, "Missing menu action: \(name)")
     }
     guard let index = menu.items.firstIndex(where: { $0.title == action && $0.isEnabled }) else {
-        throw NSError(domain: "ClipsLayout", code: 5, userInfo: [NSLocalizedDescriptionKey: "Missing menu action \(action)"])
+        throw NSError(
+            domain: "ClipsLayout", code: 5, userInfo: [NSLocalizedDescriptionKey: "Missing menu action \(action)"])
     }
     menu.performActionForItem(at: index)
 }
@@ -434,12 +441,14 @@ MainActor.assumeIsolated {
                                 await settleClips()
                                 try requireClips(services.clips.clips.isEmpty, "Remove unpinned did not empty the line")
                                 let undo = try clipsFrame(clipsControl("Undo", in: view), in: view)
-                                try requireClips(undo.height >= 28 && view.bounds.insetBy(dx: 24, dy: 24).contains(undo),
-                                                 "Undo target must be inside the card and at least 28pt high")
+                                try requireClips(
+                                    undo.height >= 28 && view.bounds.insetBy(dx: 24, dy: 24).contains(undo),
+                                    "Undo target must be inside the card and at least 28pt high")
                                 try capture(view, to: out.appendingPathComponent("\(appearance)-\(width)-undo.png"))
                                 try pressClips("Undo", in: view)
                                 await settleClips()
-                                try requireClips(services.clips.clips.map(\.id) == ids, "Undo changed the clip identities/order")
+                                try requireClips(
+                                    services.clips.clips.map(\.id) == ids, "Undo changed the clip identities/order")
                                 try pressClips("Remove unpinned", in: view)
                             default: break
                             }
