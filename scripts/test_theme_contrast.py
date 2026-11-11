@@ -33,9 +33,24 @@ class ControlPixelTests(unittest.TestCase):
                             name = f'{appearance}-{contrast}-{tone}-{state}-{scale}x.png'
                             image.resize((528 * scale, 318 * scale), Image.Resampling.NEAREST).save(directory / name)
                             entries.append({'file': name, 'tone': tone, 'state': state, 'scale': scale,
+                                            'focused_control': 'continue' if state == 'focused' else 'before-pages',
                                             'frames': {'continue': [40, 100, 100, 32], 'unavailable': [180, 100, 120, 32]}})
         (directory / 'controls.json').write_text(json.dumps(entries))
         return entries
+
+    def test_focus_identity_must_match_capture_state(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            directory = Path(tmp)
+            rows = self.fixture(directory)
+            for missing in (False, True):
+                with self.subTest(missing=missing):
+                    if missing:
+                        rows[2].pop('focused_control', None)
+                    else:
+                        rows[2]['focused_control'] = 'segment-Today'
+                    (directory / 'controls.json').write_text(json.dumps(rows))
+                    with self.assertRaisesRegex(AssertionError, 'focus identity'):
+                        theme_contrast.control_pixels(directory)
 
     def test_complete_matrix_and_negative_controls(self):
         with tempfile.TemporaryDirectory() as tmp:

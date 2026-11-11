@@ -164,6 +164,50 @@ extension Color {
     var actions = 0
     var frames: [String: CGRect] = [:]
     var increasedContrast: Bool?
+    var continueFocused = false
+    var destinations: [String: NSTextField] = [:]
+
+    func destinationHasFocus(_ name: String, in window: NSWindow) -> Bool {
+        guard let field = destinations[name], let editor = field.currentEditor() else { return false }
+        return window.isKeyWindow && window.firstResponder === editor
+    }
+
+    func focusedControl(in window: NSWindow) -> String {
+        guard window.isKeyWindow else { return "no-key-window" }
+        if continueFocused { return "continue" }
+        for name in ["before-pages", "after-pages"] where destinationHasFocus(name, in: window) {
+            return name
+        }
+        return "other"
+    }
+}
+
+// Observe focus granted by SwiftUI, independently of the FocusState request.
+struct FocusObservation: ViewModifier {
+    let fixture: ControlFixture
+    @Environment(\.isFocused) private var focused
+
+    func body(content: Content) -> some View {
+        content.onChange(of: focused, initial: true) { _, value in fixture.continueFocused = value }
+    }
+}
+
+// Real text fields make both ends of the key-view loop testable even when
+// ordinary buttons are excluded by the host's keyboard-navigation setting.
+struct FocusDestination: NSViewRepresentable {
+    let name: String
+    let fixture: ControlFixture
+
+    func makeNSView(context: Context) -> NSTextField {
+        let field = NSTextField(string: "")
+        field.placeholderString = name == "before-pages" ? "Before pages" : "After pages"
+        field.setAccessibilityIdentifier(name)
+        field.font = .systemFont(ofSize: 12)
+        fixture.destinations[name] = field
+        return field
+    }
+
+    func updateNSView(_ view: NSTextField, context: Context) {}
 }
 
 struct ControlBounds: ViewModifier {
@@ -197,10 +241,16 @@ struct ControlGallery: View {
                 StatusLabel(title: "Info", tone: .info)
             }.font(Theme.meta)
             HStack(spacing: 24) {
-                Button("Continue") { fixture.actions += 1 }
-                    .buttonStyle(PillStyle(prominent: true)).focused($focus).focusEffectDisabled()
-                    .disabled(fixture.state == "disabled")
-                    .modifier(ControlBounds(fixture: fixture, name: "continue"))
+                Button {
+                    fixture.actions += 1
+                } label: {
+                    Text("Continue").modifier(FocusObservation(fixture: fixture))
+                }
+                .buttonStyle(PillStyle(prominent: true))
+                .focusable(fixture.state != "disabled")
+                .focused($focus).focusEffectDisabled()
+                .disabled(fixture.state == "disabled")
+                .modifier(ControlBounds(fixture: fixture, name: "continue"))
                 Button("Unavailable") { fixture.actions += 1 }
                     .buttonStyle(PillStyle(disabledReason: "Choose a task first."))
                     .disabled(true)
@@ -208,8 +258,12 @@ struct ControlGallery: View {
                 GlassButton(symbol: "play.fill", help: "Start focus", action: { fixture.actions += 1 })
                     .disabled(fixture.state == "disabled")
             }
-            SegmentPills(items: [(0, "Today"), (1, "Week"), (2, "Insights")], selection: $fixture.selection)
-                .modifier(ControlBounds(fixture: fixture, name: "tabs"))
+            HStack(spacing: 14) {
+                FocusDestination(name: "before-pages", fixture: fixture).frame(width: 80, height: 24)
+                SegmentPills(items: [(0, "Today"), (1, "Week"), (2, "Insights")], selection: $fixture.selection)
+                    .modifier(ControlBounds(fixture: fixture, name: "tabs"))
+                FocusDestination(name: "after-pages", fixture: fixture).frame(width: 80, height: 24)
+            }
             Text("Choose a task first.").font(Theme.meta).foregroundStyle(Theme.secondary)
         }
         .frame(width: 480, height: 270, alignment: .topLeading)
@@ -227,6 +281,9 @@ struct ControlGallery: View {
 }
 
 MainActor.assumeIsolated {
+    require(
+        UserDefaults.standard.integer(forKey: "AppleKeyboardUIMode") == 3,
+        "Probe process explicitly enables keyboard navigation")
     let app = NSApplication.shared
     app.setActivationPolicy(.accessory)
     let output = URL(fileURLWithPath: ProcessInfo.processInfo.environment["THEME_PROBE_OUTPUT"]!)
@@ -322,13 +379,23 @@ MainActor.assumeIsolated {
                         fixture.state = state
                         try? await Task.sleep(nanoseconds: 250_000_000)
                         require(fixture.increasedContrast == increased, "Native contrast appearance resolved")
+                        if state != "focused" {
+                            require(
+                                galleryWindow.makeFirstResponder(fixture.destinations["before-pages"]!),
+                                "The before-pages field accepts native focus")
+                            try? await Task.sleep(nanoseconds: 100_000_000)
+                        }
+                        let focusedControl = fixture.focusedControl(in: galleryWindow)
+                        require(
+                            focusedControl == (state == "focused" ? "continue" : "before-pages"),
+                            "\(state) capture focus identity: \(focusedControl)")
                         for scale in [1, 2] {
                             let name =
                                 "\(mode)-\(increased ? "increased" : "standard")-\(toneName)-\(state)-\(scale)x.png"
                             save(galleryHost, output.appendingPathComponent(name), scale: scale)
                             controls.append([
                                 "file": name, "tone": toneName, "state": state, "scale": scale,
-                                "appearance": mode, "increased": increased,
+                                "appearance": mode, "increased": increased, "focused_control": focusedControl,
                                 "frames": fixture.frames.mapValues { [$0.minX, $0.minY, $0.width, $0.height] },
                             ])
                         }
@@ -341,6 +408,16 @@ MainActor.assumeIsolated {
                         try? await Task.sleep(nanoseconds: 250_000_000)
                         click(CGPoint(x: button.midX, y: button.midY), in: galleryHost, window: galleryWindow)
                         require(fixture.actions == 1, "enabled control invokes its real action")
+                        fixture.state = "focused"
+                        try? await Task.sleep(nanoseconds: 250_000_000)
+                        require(
+                            fixture.focusedControl(in: galleryWindow) == "continue",
+                            "Continue owns focus before keyboard activation")
+                        key(49, " ", in: galleryWindow)
+                        try? await Task.sleep(nanoseconds: 250_000_000)
+                        require(fixture.actions == 2, "Space activates the focused button exactly once")
+                        fixture.state = "rest"
+                        try? await Task.sleep(nanoseconds: 250_000_000)
                         let tabs = fixture.frames["tabs"]!
                         click(CGPoint(x: tabs.minX + 24, y: tabs.midY), in: galleryHost, window: galleryWindow)
                         try? await Task.sleep(nanoseconds: 250_000_000)
@@ -355,9 +432,25 @@ MainActor.assumeIsolated {
                         require(fixture.selection == 0, "Home selects first tab")
                         key(48, "\t", in: galleryWindow)
                         try? await Task.sleep(nanoseconds: 250_000_000)
+                        require(
+                            fixture.destinationHasFocus("after-pages", in: galleryWindow),
+                            "Tab focuses the native field after the page-picker group")
                         key(124, "\u{F703}", in: galleryWindow)
                         try? await Task.sleep(nanoseconds: 250_000_000)
                         require(fixture.selection == 0, "Tab leaves the page-picker group")
+                        key(48, "\t", in: galleryWindow, modifiers: .shift)
+                        try? await Task.sleep(nanoseconds: 250_000_000)
+                        key(124, "\u{F703}", in: galleryWindow)
+                        try? await Task.sleep(nanoseconds: 250_000_000)
+                        require(fixture.selection == 1, "Shift-Tab re-enters at the selected page")
+                        key(48, "\t", in: galleryWindow, modifiers: .shift)
+                        try? await Task.sleep(nanoseconds: 250_000_000)
+                        require(
+                            fixture.destinationHasFocus("before-pages", in: galleryWindow),
+                            "Shift-Tab focuses the native field before the page-picker group")
+                        key(124, "\u{F703}", in: galleryWindow)
+                        try? await Task.sleep(nanoseconds: 250_000_000)
+                        require(fixture.selection == 1, "Shift-Tab leaves the page-picker group")
                     }
                     galleryWindow.close()
                 }

@@ -22,6 +22,7 @@ data = pathlib.Path(output) / 'planner.json'
 data.write_text(json.dumps({'preferences': {'welcomeCompleted': True,
                                           'catchCopies': False, 'catchScreenshots': False}}))
 env = dict(os.environ, PERCH_DATA=str(data), THEME_PROBE_OUTPUT=output)
-subprocess.run([binary], env=env, check=True, timeout=120)
+# Argument-domain override is process-local: never write global keyboard preferences.
+subprocess.run([binary, '-AppleKeyboardUIMode', '3'], env=env, check=True, timeout=120)
 PY
 python3 "$ROOT/scripts/theme_contrast.py" --pixels "$OUT"

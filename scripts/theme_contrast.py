@@ -174,6 +174,8 @@ def control_pixels(directory):
     assert len(manifest) == len(expected) and {r['file'] for r in manifest} == expected
     results = []
     for row in manifest:
+        expected_focus = 'continue' if row['state'] == 'focused' else 'before-pages'
+        assert row.get('focused_control') == expected_focus, (row['file'], 'focus identity', row.get('focused_control'))
         image = Image.open(directory / row['file']).convert('RGB')
         scale = row['scale']
         assert image.size == (528 * scale, 318 * scale), (row['file'], image.size)
