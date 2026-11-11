@@ -84,6 +84,131 @@ final class TaskDetailsPickerDraftTests: XCTestCase {
         }
     }
 
+    func testQuarterlyPickerSaveMaterializesClampedMonthsWithoutDrift() throws {
+        try assertSavedRepeat(
+            frequency: .quarterly, anchor: "2027-11-30", zone: "America/Los_Angeles",
+            expected: ["2028-02-29", "2028-05-30", "2028-08-30", "2028-11-30"])
+    }
+
+    func testYearlyPickerSaveReturnsToLeapDayAfterThreeClampedYears() throws {
+        try assertSavedRepeat(
+            frequency: .yearly, anchor: "2028-02-29", zone: "America/Los_Angeles",
+            expected: ["2029-02-28", "2030-02-28", "2031-02-28", "2032-02-29"])
+    }
+
+    func testSavedRepeatPreviewAndMaterializationAgreeAcrossDSTTransitions() throws {
+        let cases: [(String, DayKey, RepeatPickerDraft.Frequency, [DayKey])] = [
+            ("America/Los_Angeles", "2027-03-13", .daily, ["2027-03-14", "2027-03-15", "2027-03-16"]),
+            ("America/Los_Angeles", "2026-10-25", .weekly, ["2026-11-01", "2026-11-08", "2026-11-15"]),
+            ("Australia/Lord_Howe", "2026-10-03", .daily, ["2026-10-04", "2026-10-05", "2026-10-06"]),
+            ("Australia/Lord_Howe", "2027-04-03", .daily, ["2027-04-04", "2027-04-05", "2027-04-06"]),
+            ("America/Santiago", "2026-09-05", .daily, ["2026-09-06", "2026-09-07", "2026-09-08"]),
+        ]
+        for (zone, anchor, frequency, expected) in cases {
+            try assertSavedRepeat(frequency: frequency, anchor: anchor, zone: zone, expected: expected)
+        }
+    }
+
+    /// Exercise the integrated date/repeat adapter, disk transaction and real repeat engine.
+    /// Iterate a bounded civil-day range, so a missing occurrence fails rather than hanging.
+    private func assertSavedRepeat(
+        frequency: RepeatPickerDraft.Frequency, anchor: DayKey, zone: String, expected: [DayKey],
+        file sourceFile: StaticString = #filePath, line: UInt = #line
+    ) throws {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = try XCTUnwrap(TimeZone(identifier: zone))
+        let today = anchor.adding(days: -1, calendar: calendar)
+        let instant = today.date(calendar: calendar).addingTimeInterval(12 * 3600)
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let storage = PlannerFile(url: directory.appendingPathComponent("planner.json"))
+        let task = PlanTask(title: "Synthetic recurring checklist", day: today, createdAt: instant)
+        var planner = Planner()
+        planner.preferences.resetHour = 0
+        planner.tasks = [task]
+        try storage.save(planner)
+        let pipeline = PlannerCommandPipeline(
+            file: storage, clock: ClosurePlannerClock { instant }, calendar: calendar)
+        var draft = TaskDetailsPickerDraft(task: task, today: today, calendar: calendar)
+        var date = draft.scheduledDate
+        date.type(anchor.raw)
+        try draft.setScheduledDate(date, using: PlannerEngine(planner: planner, now: { instant }, calendar: calendar))
+        draft.repeatRule.select(frequency)
+        XCTAssertTrue(draft.errors(today: today, now: instant, projects: []).isEmpty, file: sourceFile, line: line)
+        XCTAssertEqual(
+            draft.repeatRule.preview(count: expected.count), .scheduled(expected), file: sourceFile, line: line)
+        try pipeline.perform(origin: .user) { try draft.apply(using: $0) }
+        let saved = try storage.load()
+        let savedTask = try XCTUnwrap(saved.tasks.first(where: { $0.id == task.id }))
+        XCTAssertEqual(savedTask.day, anchor, file: sourceFile, line: line)
+        XCTAssertEqual(savedTask.repeatRule, draft.repeatRule.rule, file: sourceFile, line: line)
+        XCTAssertEqual(savedTask.repeatAnchor, anchor, file: sourceFile, line: line)
+        XCTAssertEqual(
+            RepeatPickerDraft(task: savedTask, calendar: calendar).preview(count: expected.count), .scheduled(expected),
+            file: sourceFile, line: line)
+        var engine = PlannerEngine(planner: saved, now: { instant }, calendar: calendar)
+        var day = anchor
+        let last = try XCTUnwrap(expected.last)
+        var actual: [DayKey] = []
+        while day < last {
+            day = day.adding(days: 1, calendar: calendar)
+            actual += engine.applyRepeats(on: day).compactMap(\.day)
+        }
+        XCTAssertEqual(actual, expected, "\(zone): \(frequency)", file: sourceFile, line: line)
+        XCTAssertTrue(
+            engine.applyRepeats(on: last).isEmpty, "Materialization is idempotent", file: sourceFile, line: line)
+        _ = try pipeline.undo()
+        XCTAssertEqual(try storage.load().tasks, [task], file: sourceFile, line: line)
+    }
+
+    func testRepeatWithoutDateBlocksThenRecoversThroughDateSelection() throws {
+        try fixture { pipeline, file, directory, task in
+            var draft = TaskDetailsPickerDraft(task: task, today: today, calendar: calendar)
+            let engine = PlannerEngine(planner: try file.load(), now: { self.now }, calendar: calendar)
+            var date = draft.scheduledDate
+            date.clear()
+            try draft.setScheduledDate(date, using: engine)
+            draft.repeatRule.select(.quarterly)
+            let before = try snapshot(directory)
+            XCTAssertEqual(draft.repeatRule.visibleIssue, .missingAnchor)
+            XCTAssertEqual(
+                draft.errors(today: today, now: now, projects: [])[.recurrence],
+                "Choose a date for this task before setting a repeat.")
+            XCTAssertThrowsError(try pipeline.perform(origin: .user) { try draft.apply(using: $0) })
+            XCTAssertEqual(try snapshot(directory), before)
+            XCTAssertFalse(pipeline.canUndo)
+            date.type("2028-02-29")
+            try draft.setScheduledDate(date, using: engine)
+            XCTAssertNil(draft.repeatRule.visibleIssue)
+            XCTAssertTrue(draft.errors(today: today, now: now, projects: []).isEmpty)
+            try pipeline.perform(origin: .user) { try draft.apply(using: $0) }
+            let saved = try file.load().tasks[0]
+            XCTAssertEqual(saved.day, "2028-02-29")
+            XCTAssertEqual(saved.repeatRule, TaskRepeat(unit: .month, interval: 3))
+            _ = try pipeline.undo()
+            XCTAssertEqual(try file.load().tasks[0], task)
+        }
+    }
+
+    func testEmptyAndMalformedRepeatIntervalsBlockAllEditsWithoutWrites() throws {
+        try fixture { pipeline, file, directory, task in
+            let before = try snapshot(directory)
+            for text in ["", " ", "0", "-1", "1.5", "1000", "999999999999999999999999999", "two"] {
+                var draft = TaskDetailsPickerDraft(task: task, today: today, calendar: calendar)
+                draft.details.title = "Must not escape invalid repeat validation"
+                draft.deadline.type("2028-03-01")
+                draft.repeatRule.select(.custom)
+                draft.repeatRule.typeInterval(text)
+                XCTAssertNotNil(draft.repeatRule.visibleIssue, text)
+                XCTAssertNotNil(draft.errors(today: today, now: now, projects: [])[.recurrence], text)
+                XCTAssertThrowsError(try pipeline.perform(origin: .user) { try draft.apply(using: $0) }, text)
+                XCTAssertEqual(try snapshot(directory), before, text)
+                XCTAssertEqual(try file.load().tasks[0], task, text)
+            }
+            XCTAssertFalse(pipeline.canUndo)
+        }
+    }
+
     func testUntouchedStoredRuleOutsidePickerRangeSurvivesOtherEdits() throws {
         for moveDate in [false, true] {
             try fixture { pipeline, file, _, task in

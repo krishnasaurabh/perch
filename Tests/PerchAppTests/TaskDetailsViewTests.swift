@@ -243,6 +243,54 @@ final class TaskDetailsViewTests: XCTestCase {
     }
 
     @MainActor
+    func testUnscheduledTaskCanSaveWithoutInventingDatesOrRepeat() async throws {
+        let fixture = try DetailsFixture(scheduled: false)
+        defer { fixture.close() }
+        let before = try fixture.snapshot()
+        let sheet = try await fixture.present()
+        let addSchedule = try await Self.control("schedule-date-add", in: sheet)
+        let addDeadline = try await Self.control("deadline-date-add", in: sheet)
+        XCTAssertTrue(try Self.isEnabled(addSchedule))
+        XCTAssertTrue(try Self.isEnabled(addDeadline))
+        let save = try await Self.control("details-save", in: sheet)
+        XCTAssertTrue(try Self.isEnabled(save))
+        XCTAssertEqual(try fixture.snapshot(), before, "Opening optional empty pickers does not write")
+        try await Self.editTitle("Saved inbox checklist", in: sheet)
+        try Self.press(try await Self.control("details-save", in: sheet))
+        try await fixture.assertDismissed()
+        let saved = try fixture.file.load().tasks[0]
+        XCTAssertEqual(saved.title, "Saved inbox checklist")
+        XCTAssertNil(saved.day)
+        XCTAssertNil(saved.deadline)
+        XCTAssertNil(saved.repeatRule)
+        XCTAssertNil(saved.remindAt)
+        fixture.store.undo()
+        XCTAssertEqual(try fixture.file.load().tasks[0], fixture.task)
+    }
+
+    @MainActor
+    func testEscapeDiscardsNativePickerEditsWithoutWrites() async throws {
+        let fixture = try DetailsFixture()
+        defer { fixture.close() }
+        let before = try fixture.snapshot()
+        let sheet = try await fixture.present()
+        try Self.press(try await Self.control("schedule-date-clear", in: sheet))
+        try Self.press(try await Self.control("deadline-date-add", in: sheet))
+        _ = try await Self.control("schedule-date-add", in: sheet)
+        _ = try await Self.control("deadline-date-clear", in: sheet)
+        XCTAssertEqual(try fixture.snapshot(), before)
+        let escape = try XCTUnwrap(
+            NSEvent.keyEvent(
+                with: .keyDown, location: .zero, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                windowNumber: sheet.windowNumber, context: nil, characters: "\u{1b}",
+                charactersIgnoringModifiers: "\u{1b}", isARepeat: false, keyCode: 53))
+        XCTAssertTrue(sheet.performKeyEquivalent(with: escape))
+        try await fixture.assertDismissed()
+        XCTAssertEqual(try fixture.snapshot(), before, "Escape discards both picker edits and all sidecar writes")
+        XCTAssertEqual(try fixture.file.load().tasks[0], fixture.task)
+    }
+
+    @MainActor
     func testInvalidTypedDateDisablesSaveUntilCorrected() async throws {
         let fixture = try DetailsFixture()
         defer { fixture.close() }
@@ -328,7 +376,8 @@ final class TaskDetailsViewTests: XCTestCase {
     {
         let names = [
             "details-title": "Task title", "details-save": "Save", "details-cancel": "Cancel", "details-close": "Close",
-            "schedule-date-clear": "Clear schedule", "deadline-date-add": "Add deadline",
+            "schedule-date-clear": "Clear schedule", "schedule-date-add": "Add schedule",
+            "deadline-date-add": "Add deadline", "deadline-date-clear": "Clear deadline",
             "schedule-date-text": "YYYY-MM-DD", "deadline-date-text": "YYYY-MM-DD",
         ]
         for _ in 0..<20 {
@@ -499,14 +548,14 @@ private final class DetailsFixture {
     let presentation = DetailsPresentation()
     let activationPolicy: NSApplication.ActivationPolicy
 
-    init() throws {
+    init(scheduled: Bool = true) throws {
         activationPolicy = NSApplication.shared.activationPolicy()
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         directory = root
         file = PlannerFile(url: root.appendingPathComponent("planner.json"))
         let now = Date(timeIntervalSince1970: 1_800_000_000)
         task = PlanTask(
-            title: "Review the synthetic checklist", day: DayKey(now), createdAt: now,
+            title: "Review the synthetic checklist", day: scheduled ? DayKey(now) : nil, createdAt: now,
             notes: String(repeating: "A long note for scrolling. ", count: 30),
             steps: (1...12).map { Subtask(title: "Checklist step \($0)") })
         var planner = Planner()
