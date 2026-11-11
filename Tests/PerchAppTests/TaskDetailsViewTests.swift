@@ -78,8 +78,14 @@ final class TaskDetailsViewTests: XCTestCase {
         XCTAssertTrue(window.firstResponder === editor, "The title field holds focus when details open")
         _ = try await Self.identifierControl("details-save", in: window)
         _ = try await Self.identifierControl("details-cancel", in: window)
-        _ = try await Self.identifierControl("schedule-date-clear", in: window)
-        _ = try await Self.identifierControl("deadline-date-add", in: window)
+        let clear = try await Self.control("schedule-date-clear", in: window)
+        let add = try await Self.control("deadline-date-add", in: window)
+        XCTAssertEqual(Self.attribute(clear, "accessibilityRole") as? String, "AXButton")
+        XCTAssertEqual(Self.attribute(add, "accessibilityRole") as? String, "AXButton")
+        XCTAssertTrue(try Self.isEnabled(clear))
+        XCTAssertTrue(try Self.isEnabled(add))
+        let date = try await Self.control("schedule-date-text", role: "AXTextField", in: window)
+        XCTAssertEqual((date as? NSTextField)?.placeholderString, "YYYY-MM-DD")
         XCTAssertNotNil(fixture.store.send(.delete(fixture.task.id)))
         _ = try await Self.identifierControl("details-close", in: window)
     }
@@ -270,7 +276,7 @@ final class TaskDetailsViewTests: XCTestCase {
         let names = [
             "details-title": "Task title", "details-save": "Save", "details-cancel": "Cancel", "details-close": "Close",
             "schedule-date-clear": "Clear schedule", "deadline-date-add": "Add deadline",
-            "schedule-date-text": "YYYY-MM-DD",
+            "schedule-date-text": "YYYY-MM-DD", "deadline-date-text": "YYYY-MM-DD",
         ]
         for _ in 0..<20 {
             window.contentView?.layoutSubtreeIfNeeded()
@@ -288,9 +294,15 @@ final class TaskDetailsViewTests: XCTestCase {
                 }
                 if role == "AXButton",
                     let button = candidates.compactMap({ $0 as? NSButton }).first(where: {
-                        $0.title == name
+                        $0.accessibilityRole() == .button
+                            && ($0.title == name || $0.accessibilityLabel() == name)
                     })
                 {
+                    print(
+                        "Resolved \(identifier): native \(type(of: button)) "
+                            + "role=\(button.accessibilityRole()?.rawValue ?? "nil") "
+                            + "label=\(button.accessibilityLabel() ?? "nil") "
+                            + "id=\(button.accessibilityIdentifier() ?? "nil") enabled=\(button.isEnabled)")
                     return button
                 }
             }
@@ -337,6 +349,7 @@ final class TaskDetailsViewTests: XCTestCase {
     }
 
     @MainActor private static func press(_ node: NSObject) throws {
+        XCTAssertEqual(attribute(node, "accessibilityRole") as? String, "AXButton")
         if let button = node as? NSButton {
             XCTAssertTrue(button.isEnabled, "The native button must be enabled")
             button.performClick(nil)

@@ -161,14 +161,23 @@ struct DateFieldEditor: View {
     private func button(
         _ control: DateFieldControl, title: String, prominent: Bool = false, action: @escaping () -> Void
     ) -> some View {
-        Button(title, action: action)
-            .buttonStyle(
-                PillStyle(prominent: prominent, disabledReason: draft.visibleIssue?.message ?? "Fix the date first.")
-            )
-            .fixedSize()
-            .focused($focus, equals: control)
-            .accessibilityLabel(control.accessibilityLabel(field: field))
-            .accessibilityIdentifier(control.identifier(field: key))
+        Button(action: action) {
+            Text(title)
+                .background {
+                    NativeDateButtonIdentity(
+                        identifier: control.identifier(field: key),
+                        label: control.accessibilityLabel(field: field)
+                    )
+                    .allowsHitTesting(false)
+                }
+        }
+        .buttonStyle(
+            PillStyle(prominent: prominent, disabledReason: draft.visibleIssue?.message ?? "Fix the date first.")
+        )
+        .fixedSize()
+        .focused($focus, equals: control)
+        .accessibilityLabel(control.accessibilityLabel(field: field))
+        .accessibilityIdentifier(control.identifier(field: key))
     }
 
     private func commit() {
