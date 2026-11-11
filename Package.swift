@@ -1,4 +1,4 @@
-// swift-tools-version: 5.10
+// swift-tools-version: 6.2
 import PackageDescription
 
 var products: [Product] = [
@@ -46,5 +46,5 @@ let package = Package(
     platforms: [.macOS(.v14)],
     products: products,
     targets: targets,
-    swiftLanguageVersions: [.v5]
+    swiftLanguageModes: [.v6]
 )

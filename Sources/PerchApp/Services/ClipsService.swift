@@ -69,9 +69,27 @@ final class ClipsService: ObservableObject {
     private let now: () -> Date
     private let scheduler: any AppScheduling
     private let pasteboard: any PasteboardAccess
-    private var letGoWork: (any AppScheduledAction)?
-    private var demoWork: (any AppScheduledAction)?
-    private var recheckTask: Task<Void, Never>?
+    @MainActor
+    private final class LifetimeState {
+        var letGoWork: (any AppScheduledAction)?
+        var demoWork: (any AppScheduledAction)?
+        var recheckTask: Task<Void, Never>?
+    }
+    private let lifetimeState = MainActorLifetime(LifetimeState()) { state in
+        state.demoWork?.cancel(); state.recheckTask?.cancel(); state.letGoWork?.cancel()
+    }
+    private var letGoWork: (any AppScheduledAction)? {
+        get { lifetimeState.state.letGoWork }
+        set { lifetimeState.state.letGoWork = newValue }
+    }
+    private var demoWork: (any AppScheduledAction)? {
+        get { lifetimeState.state.demoWork }
+        set { lifetimeState.state.demoWork = newValue }
+    }
+    private var recheckTask: Task<Void, Never>? {
+        get { lifetimeState.state.recheckTask }
+        set { lifetimeState.state.recheckTask = newValue }
+    }
 
     private var query: NSMetadataQuery?
     private var queryObserver: NSObjectProtocol?
@@ -114,36 +132,37 @@ final class ClipsService: ObservableObject {
         DispatchQueue.global(qos: .utility).async {
             ClipVault.sweep(vault, olderThan: cutoff, keeping: [])
         }
-        if Self.demo {
-            demoWork = scheduler.schedule(after: 0.8) { [weak self] in self?.seedDemo() }
+        #if DEBUG || PERCH_TESTING
+            if Self.demo {
+                demoWork = scheduler.schedule(after: 0.8) { [weak self] in self?.seedDemo() }
+            }
+        #endif
+    }
+
+    #if DEBUG || PERCH_TESTING
+        /// `--demo-clips` (screenshots, real-Mac checks): a temp file gets kept, one clip is let go, Clips opens with the toast.
+        private func seedDemo() {
+            let temp = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("Perch demo clip.txt")
+            try? Data("Kept out of a temporary folder.".utf8).write(to: temp)
+            add(.file(temp), source: "dropped")
+            add(.text("https://example.com/launch-checklist"), source: "copied")
+            add(.text("Ship notes: folder watch, kept copies, undo"), source: "copied")
+            if let first = clips.first { letGo(first.id) }
+            debugLog("seeded kept=\(clips.compactMap(\.content.fileURL).count)")
+            model?.open(page: .clips, pinned: true)
         }
-    }
 
-    deinit {
-        demoWork?.cancel()
-        recheckTask?.cancel()
-        letGoWork?.cancel()
-    }
+        private static let demo = CommandLine.arguments.contains("--demo-clips")
+    #endif
 
-    /// `--demo-clips` (screenshots, real-Mac checks): a temp file gets kept, one clip is let go, Clips opens with the toast.
-    private func seedDemo() {
-        let temp = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("Perch demo clip.txt")
-        try? Data("Kept out of a temporary folder.".utf8).write(to: temp)
-        add(.file(temp), source: "dropped")
-        add(.text("https://example.com/launch-checklist"), source: "copied")
-        add(.text("Ship notes: folder watch, kept copies, undo"), source: "copied")
-        if let first = clips.first { letGo(first.id) }
-        debugLog("seeded kept=\(clips.compactMap(\.content.fileURL).count)")
-        model?.open(page: .clips, pinned: true)
-    }
-
-    private static let demo = CommandLine.arguments.contains("--demo-clips")
     private func debugLog(_ event: String) {
-        guard Self.demo else { return }
-        FileHandle.standardError.write(
-            Data(
-                "clips: \(event) | line=\(clips.count) pending=\(letGoBanner?.count ?? 0) watch=\(folderWatch.diagnosticName)\n"
-                    .utf8))
+        #if DEBUG || PERCH_TESTING
+            guard Self.demo else { return }
+            FileHandle.standardError.write(
+                Data(
+                    "clips: \(event) | line=\(clips.count) pending=\(letGoBanner?.count ?? 0) watch=\(folderWatch.diagnosticName)\n"
+                        .utf8))
+        #endif
     }
 
     // MARK: Screenshots
@@ -186,7 +205,9 @@ final class ClipsService: ObservableObject {
     /// `defaults read com.apple.screencapture location`, re-read from disk each time.
     /// `PERCH_SCREENSHOT_FOLDER` overrides it for tests, so checks never touch the user's own folders or defaults.
     private static func screencaptureLocation() -> String? {
-        if let override = ProcessInfo.processInfo.environment["PERCH_SCREENSHOT_FOLDER"] { return override }
+        #if DEBUG || PERCH_TESTING
+            if let override = ProcessInfo.processInfo.environment["PERCH_SCREENSHOT_FOLDER"] { return override }
+        #endif
         let domain = "com.apple.screencapture" as CFString
         CFPreferencesAppSynchronize(domain)
         return CFPreferencesCopyAppValue("location" as CFString, domain) as? String

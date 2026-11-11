@@ -6,11 +6,48 @@ import ApplicationServices
 @MainActor
 final class FullscreenObservation {
     private let changed: @MainActor () -> Void
-    private var tokens: [NSObjectProtocol] = []
-    private var observer: AXObserver?
-    private var registrations: [(AXUIElement, CFString)] = []
-    private var timer: Timer?
-    private var delivery: DispatchWorkItem?
+    @MainActor
+    private final class CallbackContext {
+        weak var owner: FullscreenObservation?
+        init(_ owner: FullscreenObservation) { self.owner = owner }
+    }
+    @MainActor
+    private final class LifetimeState {
+        var tokens: [NSObjectProtocol] = []
+        var observer: AXObserver?
+        var callbackContext: CallbackContext?
+        var registrations: [(AXUIElement, CFString)] = []
+        var timer: Timer?
+        var delivery: DispatchWorkItem?
+    }
+    private let lifetimeState = MainActorLifetime(LifetimeState()) { state in
+        state.timer?.invalidate(); state.delivery?.cancel()
+        for token in state.tokens { NSWorkspace.shared.notificationCenter.removeObserver(token) }
+        if let observer = state.observer {
+            CFRunLoopRemoveSource(CFRunLoopGetMain(), AXObserverGetRunLoopSource(observer), .commonModes)
+            for (element, name) in state.registrations { AXObserverRemoveNotification(observer, element, name) }
+        }
+    }
+    private var tokens: [NSObjectProtocol] {
+        get { lifetimeState.state.tokens }
+        set { lifetimeState.state.tokens = newValue }
+    }
+    private var observer: AXObserver? {
+        get { lifetimeState.state.observer }
+        set { lifetimeState.state.observer = newValue }
+    }
+    private var registrations: [(AXUIElement, CFString)] {
+        get { lifetimeState.state.registrations }
+        set { lifetimeState.state.registrations = newValue }
+    }
+    private var timer: Timer? {
+        get { lifetimeState.state.timer }
+        set { lifetimeState.state.timer = newValue }
+    }
+    private var delivery: DispatchWorkItem? {
+        get { lifetimeState.state.delivery }
+        set { lifetimeState.state.delivery = newValue }
+    }
     private(set) var recoveryInterval: TimeInterval = 5
 
     init(changed: @escaping @MainActor () -> Void) {
@@ -30,32 +67,25 @@ final class FullscreenObservation {
         refreshApplication()
     }
 
-    deinit {
-        timer?.invalidate(); delivery?.cancel()
-        for token in tokens { NSWorkspace.shared.notificationCenter.removeObserver(token) }
-        if let observer {
-            CFRunLoopRemoveSource(CFRunLoopGetMain(), AXObserverGetRunLoopSource(observer), .commonModes)
-            for (element, name) in registrations { AXObserverRemoveNotification(observer, element, name) }
-        }
-    }
-
     func refreshApplication() {
         if let observer {
             CFRunLoopRemoveSource(CFRunLoopGetMain(), AXObserverGetRunLoopSource(observer), .commonModes)
             for (element, name) in registrations { AXObserverRemoveNotification(observer, element, name) }
         }
         registrations = []; observer = nil
+        lifetimeState.state.callbackContext = nil
         if AXIsProcessTrusted(), let app = NSWorkspace.shared.frontmostApplication {
             var created: AXObserver?
             let callback: AXObserverCallback = { _, _, _, context in
                 guard let context else { return }
                 MainActor.assumeIsolated {
-                    let owner = Unmanaged<FullscreenObservation>.fromOpaque(context).takeUnretainedValue()
-                    owner.signal()
+                    let context = Unmanaged<CallbackContext>.fromOpaque(context).takeUnretainedValue()
+                    context.owner?.signal()
                 }
             }
             if AXObserverCreate(app.processIdentifier, callback, &created) == .success, let created {
                 observer = created
+                lifetimeState.state.callbackContext = CallbackContext(self)
                 let element = AXUIElementCreateApplication(app.processIdentifier)
                 for name in [kAXFocusedWindowChangedNotification, kAXWindowCreatedNotification] {
                     register(element, name as CFString)
@@ -91,8 +121,10 @@ final class FullscreenObservation {
     }
 
     private func register(_ element: AXUIElement, _ name: CFString) {
-        guard let observer else { return }
-        if AXObserverAddNotification(observer, element, name, Unmanaged.passUnretained(self).toOpaque()) == .success {
+        guard let observer, let context = lifetimeState.state.callbackContext else { return }
+        // The context outlives the owner until main-queue cleanup removes the observer.
+        if AXObserverAddNotification(observer, element, name, Unmanaged.passUnretained(context).toOpaque()) == .success
+        {
             registrations.append((element, name))
         }
     }

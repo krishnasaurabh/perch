@@ -236,6 +236,7 @@ struct ScratchpadEditor: NSViewRepresentable {
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
 
+    @MainActor
     final class Coordinator: NSObject, NSTextViewDelegate {
         var parent: ScratchpadEditor
         weak var fade: OverflowFadeView?

@@ -55,7 +55,7 @@ final class CoreTypesTests: XCTestCase {
     }
 
     @MainActor
-    func testActivityReplacementAndDismissCancelOwnedWork() {
+    func testActivityReplacementAndDismissCancelOwnedWork() async {
         let scheduler = CoreTypesScheduler()
         let model = NotchModel(scheduler: scheduler)
         let first = PresentedNotchActivity(kind: .message, title: "First", subtitle: "")
@@ -72,7 +72,7 @@ final class CoreTypesTests: XCTestCase {
     }
 
     @MainActor
-    func testActivityFiresOnceAndTeardownCancelsPendingWork() {
+    func testActivityFiresOnceAndTeardownCancelsPendingWork() async {
         let scheduler = CoreTypesScheduler()
         var model: NotchModel? = NotchModel(scheduler: scheduler)
         weak var weakModel = model

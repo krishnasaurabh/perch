@@ -1,5 +1,6 @@
 import Foundation
 import XCTest
+import PlannerTestSupport
 @testable import PlannerCore
 
 final class PlannerRecoveryContractTests: XCTestCase {
@@ -116,14 +117,14 @@ final class PlannerRecoveryContractTests: XCTestCase {
         let raw = Data(#"{"tasks":[]}"#.utf8)
         try raw.write(to: file.url)
         var io = PlannerFile.IO()
-        var writes = 0
-        io.read = { url in
-            if url.standardizedFileURL == self.file.url.standardizedFileURL {
+        let writes = LockedValue(0)
+        io.read = { [dataURL = file.url] url in
+            if url.standardizedFileURL == dataURL.standardizedFileURL {
                 throw CocoaError(.fileReadNoPermission)
             }
             return try Data(contentsOf: url)
         }
-        io.write = { _, _ in writes += 1 }
+        io.write = { _, _ in writes.update { $0 += 1 } }
         let unreadable = PlannerFile(url: file.url, io: io)
         for operation in [{ _ = try unreadable.load() }, { try unreadable.save(Planner()) }] {
             XCTAssertThrowsError(try operation()) { error in
@@ -135,7 +136,7 @@ final class PlannerRecoveryContractTests: XCTestCase {
                 XCTAssertTrue(error.localizedDescription.contains("The original was not changed"))
             }
         }
-        XCTAssertEqual(writes, 0)
+        XCTAssertEqual(writes.value, 0)
         XCTAssertEqual(try Data(contentsOf: file.url), raw)
     }
 

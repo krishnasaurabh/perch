@@ -5,6 +5,14 @@ import XCTest
 @testable import PerchMCP
 
 final class MigrationConcurrencyTests: XCTestCase {
+    // Every read and append is synchronized, including the assertion snapshot.
+    private final class LockedErrors: @unchecked Sendable {
+        private let lock = NSLock()
+        private var values: [String] = []
+        func append(_ value: String) { lock.withLock { values.append(value) } }
+        var isEmpty: Bool { lock.withLock { values.isEmpty } }
+        func joined(separator: String) -> String { lock.withLock { values.joined(separator: separator) } }
+    }
     func testConcurrentMCPAndApplicationCommandsMigrateOnceWithoutLostWrites() throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         let url = directory.appendingPathComponent("planner.json")
@@ -14,8 +22,7 @@ final class MigrationConcurrencyTests: XCTestCase {
         let original = Data(
             #"{"version":1,"tasks":[],"preferences":{"catchCopies":true,"defaultFocusMinutes":40}}"#.utf8)
         try original.write(to: url)
-        let lock = NSLock()
-        var errors: [String] = []
+        let errors = LockedErrors()
         DispatchQueue.concurrentPerform(iterations: 32) { index in
             let writer = PlannerFile(url: url, preferences: adapter)
             do {
@@ -40,7 +47,7 @@ final class MigrationConcurrencyTests: XCTestCase {
                         .addTasks(["App item \(index)"], day: .inbox, literal: true, agentID: nil), origin: .user)
                 }
             } catch {
-                lock.lock(); errors.append(String(describing: error)); lock.unlock()
+                errors.append(String(describing: error))
             }
         }
         XCTAssertTrue(errors.isEmpty, errors.joined(separator: "\n"))

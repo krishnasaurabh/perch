@@ -10,7 +10,17 @@ final class DragPointerObservation {
     private let pressed: () -> Bool
     private let sample: () -> Void
     private var deadline: Date?
-    private var work: (any AppScheduledAction)?
+    @MainActor
+    private final class LifetimeState {
+        var work: (any AppScheduledAction)?
+    }
+    private let lifetimeState = MainActorLifetime(LifetimeState()) { state in
+        state.work?.cancel()
+    }
+    private var work: (any AppScheduledAction)? {
+        get { lifetimeState.state.work }
+        set { lifetimeState.state.work = newValue }
+    }
     private(set) var samples = 0
 
     init(
@@ -19,8 +29,6 @@ final class DragPointerObservation {
     ) {
         self.scheduler = scheduler; self.now = now; self.pressed = pressed; self.sample = sample
     }
-
-    deinit { work?.cancel() }
 
     func begin() {
         deadline = now().addingTimeInterval(Self.maximumSilence)

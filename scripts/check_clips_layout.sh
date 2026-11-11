@@ -16,11 +16,11 @@ cp "$ROOT/scripts/clips_layout_probe.swift" "$PROBE/Sources/Perch/main.swift"
 if [[ -n ${CLIPS_BEFORE_SOURCE:-} ]]; then
     cp "$PROBE/Sources/PerchApp/Workspace/ClipsPage.swift" "$PROBE/after.swift"
     cp "$CLIPS_BEFORE_SOURCE" "$PROBE/Sources/PerchApp/Workspace/ClipsPage.swift"
-    swift build -Xswiftc -enable-testing --package-path "$PROBE" -c release --product Perch
+    swift build -Xswiftc -DPERCH_TESTING -Xswiftc -enable-testing --package-path "$PROBE" -c release --product Perch
     python3 "$ROOT/scripts/run_clips_probe.py" "$PROBE/.build/release/Perch" "$OUT/before"
     mv "$PROBE/after.swift" "$PROBE/Sources/PerchApp/Workspace/ClipsPage.swift"
 fi
 # The old view has no ClipPreview type; enable the new pixel regressions only for the exact-head view.
-swift build -Xswiftc -enable-testing --package-path "$PROBE" -c release --product Perch -Xswiftc -DCLIPS_PREVIEW_REGRESSION
+swift build -Xswiftc -DPERCH_TESTING -Xswiftc -enable-testing --package-path "$PROBE" -c release --product Perch -Xswiftc -DCLIPS_PREVIEW_REGRESSION
 python3 "$ROOT/scripts/run_clips_probe.py" "$PROBE/.build/release/Perch" "$OUT/after"
 python3 "$ROOT/scripts/measure_clips_bounds.py" "$OUT/after"

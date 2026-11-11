@@ -1,13 +1,14 @@
 import Foundation
 
 /// Device state is deliberately excluded from portable planner documents.
-public protocol PlannerPreferencesAdapter: AnyObject {
+public protocol PlannerPreferencesAdapter: AnyObject, Sendable {
     func load() throws -> DevicePreferences?
     func save(_ preferences: DevicePreferences?) throws
 }
 
 /// A single atomic value avoids partially migrated preference keys.
-public final class UserDefaultsPlannerPreferences: PlannerPreferencesAdapter {
+// Immutable adapter; UserDefaults synchronizes its own reads and writes.
+public final class UserDefaultsPlannerPreferences: PlannerPreferencesAdapter, @unchecked Sendable {
     private let defaults: UserDefaults
     private let key: String
     public init(defaults: UserDefaults = .standard, key: String = "perch.devicePreferences.v1") {
@@ -28,7 +29,8 @@ public final class UserDefaultsPlannerPreferences: PlannerPreferencesAdapter {
 }
 
 /// Useful for previews and tests; separate adapters model separate devices.
-public final class MemoryPlannerPreferences: PlannerPreferencesAdapter {
+// All mutable state is protected by the private lock.
+public final class MemoryPlannerPreferences: PlannerPreferencesAdapter, @unchecked Sendable {
     private var value: DevicePreferences?
     private let lock = NSLock()
     public init(_ value: DevicePreferences? = nil) { self.value = value }

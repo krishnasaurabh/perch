@@ -158,8 +158,8 @@ final class PlannerBackupTests: XCTestCase {
         let before = try file.backupURLs()
         let original = try Data(contentsOf: file.url)
         var io = PlannerFile.IO()
-        io.write = { data, target in
-            if target.deletingLastPathComponent().path == self.backupDirectory.path {
+        io.write = { [backupDirectory] data, target in
+            if target.deletingLastPathComponent().path == backupDirectory.path {
                 try Data(data.prefix(8)).write(to: target)
                 throw CocoaError(.fileWriteOutOfSpace)
             }
@@ -183,8 +183,8 @@ final class PlannerBackupTests: XCTestCase {
         for revision in 1...6 { try file.save(planner(revision)) }
         let original = try Data(contentsOf: file.url)
         var io = PlannerFile.IO()
-        io.write = { data, target in
-            if target == self.file.url { throw CocoaError(.fileWriteNoPermission) }
+        io.write = { [url = file.url] data, target in
+            if target == url { throw CocoaError(.fileWriteNoPermission) }
             try data.write(to: target, options: .atomic)
         }
         let isolated = PlannerFile(url: file.url, io: io)
@@ -202,8 +202,8 @@ final class PlannerBackupTests: XCTestCase {
         let backups = try file.backupURLs()
         let original = try Data(contentsOf: file.url)
         var io = PlannerFile.IO()
-        io.read = { target in
-            if target == self.file.url { throw CocoaError(.fileReadNoPermission) }
+        io.read = { [url = file.url] target in
+            if target == url { throw CocoaError(.fileReadNoPermission) }
             return try Data(contentsOf: target)
         }
         let isolated = PlannerFile(url: file.url, io: io)

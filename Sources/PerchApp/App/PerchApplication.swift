@@ -4,6 +4,14 @@ import PerchMCP
 
 public enum PerchApplication {
     public static func run() {
+        do {
+            try AppLaunchConfiguration.validate(
+                arguments: Array(CommandLine.arguments.dropFirst()),
+                environment: ProcessInfo.processInfo.environment)
+        } catch {
+            FileHandle.standardError.write(Data("Unsupported or invalid launch configuration.\n".utf8))
+            exit(64)
+        }
         // One binary, two modes:
         //   Perch.app/Contents/MacOS/Perch          -> the notch app
         //   Perch.app/Contents/MacOS/Perch --mcp    -> stdio MCP server for Claude Code / Claude app / Cursor

@@ -61,9 +61,27 @@ enum ShortcutStore {
 /// It owns the live registration, so a new choice in Settings re-registers the hot key in place instead of
 /// needing a relaunch. The initializer keeps the call site's key as the fallback: if the saved shortcut is
 /// unavailable at launch, Perch still gets a working hot key.
+@MainActor
 final class GlobalHotKey {
-    private var ref: EventHotKeyRef?
-    private var changeObserver: NSObjectProtocol?
+    @MainActor
+    private final class LifetimeState {
+        var id: UInt32 = 0
+        var ref: EventHotKeyRef?
+        var changeObserver: NSObjectProtocol?
+    }
+    private let lifetimeState = MainActorLifetime(LifetimeState()) { state in
+        if let observer = state.changeObserver { NotificationCenter.default.removeObserver(observer) }
+        if let ref = state.ref { UnregisterEventHotKey(ref) }
+        GlobalHotKey.handlers[state.id] = nil
+    }
+    private var ref: EventHotKeyRef? {
+        get { lifetimeState.state.ref }
+        set { lifetimeState.state.ref = newValue }
+    }
+    private var changeObserver: NSObjectProtocol? {
+        get { lifetimeState.state.changeObserver }
+        set { lifetimeState.state.changeObserver = newValue }
+    }
     private static var handlers: [UInt32: () -> Void] = [:]
     private static var installed = false
     private static var nextID: UInt32 = 1
@@ -72,6 +90,7 @@ final class GlobalHotKey {
 
     init?(keyCode: UInt32, modifiers: NSEvent.ModifierFlags, handler: @escaping () -> Void) {
         id = GlobalHotKey.nextID
+        lifetimeState.state.id = id
         GlobalHotKey.nextID += 1
         GlobalHotKey.installHandlerOnce()
 
@@ -90,14 +109,8 @@ final class GlobalHotKey {
             forName: ShortcutStore.didChange, object: nil, queue: .main
         ) { [weak self] note in
             guard let self, let key = note.userInfo?["key"] as? ShortcutKey else { return }
-            self.apply(key)
+            MainActor.assumeIsolated { self.apply(key) }
         }
-    }
-
-    deinit {
-        if let changeObserver { NotificationCenter.default.removeObserver(changeObserver) }
-        unregister()
-        GlobalHotKey.handlers[id] = nil
     }
 
     /// Swaps the live hot key. On failure the previous chord is put back and Settings is told why.

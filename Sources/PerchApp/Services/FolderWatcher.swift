@@ -2,19 +2,24 @@ import Foundation
 import PerchUI
 
 import Darwin
+import os
 
 /// Watches one folder with a vnode `DispatchSource` on an `O_EVTONLY` descriptor.
-final class FolderWatcher {
+final class FolderWatcher: Sendable {
     enum Event { case contents, folderMoved, recheck }
     static let captureAttribute = "com.apple.metadata:kMDItemIsScreenCapture"
     static let recordingAttribute = "com.apple.metadata:kMDItemIsScreenRecording"
 
     let url: URL
     private let queue: DispatchQueue
-    private let handler: (Event) -> Void
-    private var source: DispatchSourceFileSystemObject?
+    private let handler: @Sendable (Event) -> Void
+    private struct State {
+        var source: DispatchSourceFileSystemObject?
+        var stopped = false
+    }
+    private let state = OSAllocatedUnfairLock(initialState: State())
 
-    init(url: URL, queue: DispatchQueue, handler: @escaping (Event) -> Void) {
+    init(url: URL, queue: DispatchQueue, handler: @escaping @Sendable (Event) -> Void) {
         self.url = url; self.queue = queue; self.handler = handler
     }
 
@@ -22,7 +27,8 @@ final class FolderWatcher {
 
     /// False when the folder can't be opened (missing, or no permission yet for Desktop/Documents/Downloads).
     func start() -> Bool {
-        guard source == nil else { return true }
+        if state.withLock({ $0.source != nil }) { return true }
+        guard !state.withLock({ $0.stopped }) else { return false }
         let fd = open(url.path, O_EVTONLY)
         guard fd >= 0 else {
             PlatformLog.folders.error("start failed errno=\(errno, privacy: .public)")
@@ -36,15 +42,28 @@ final class FolderWatcher {
             handler(s.data.contains(.delete) || s.data.contains(.rename) ? .folderMoved : .contents)
         }
         s.setCancelHandler { close(fd) }
-        source = s
-        s.resume()
-        PlatformLog.folders.debug("watch started")
-        return true
+        // Opening a protected folder happens outside the lock, so stop never waits for a permission prompt.
+        // Publish and resume together: teardown can never see an unresumed source.
+        return state.withLock { state in
+            guard !state.stopped, state.source == nil else {
+                s.resume()
+                s.cancel()
+                return !state.stopped
+            }
+            state.source = s
+            s.resume()
+            PlatformLog.folders.debug("watch started")
+            return true
+        }
     }
 
     func stop() {
-        if source != nil { PlatformLog.folders.debug("watch stopped") }
-        source?.cancel(); source = nil
+        state.withLock { state in
+            state.stopped = true
+            if state.source != nil { PlatformLog.folders.debug("watch stopped") }
+            state.source?.cancel()
+            state.source = nil
+        }
     }
 
     static func hasScreenCaptureFlag(_ url: URL) -> Bool {

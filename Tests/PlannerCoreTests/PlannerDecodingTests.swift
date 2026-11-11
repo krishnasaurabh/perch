@@ -1,5 +1,6 @@
 import Foundation
 import XCTest
+import PlannerTestSupport
 @testable import PlannerCore
 
 final class PlannerDecodingTests: XCTestCase {
@@ -202,16 +203,16 @@ final class PlannerDecodingTests: XCTestCase {
     func testUnreadableDataIsNotTreatedAsMissingAndCannotSave() throws {
         let raw = Data(("{\"tasks\":[" + task("1") + "]}").utf8)
         try raw.write(to: file.url)
-        var reads = 0
+        let reads = LockedValue(0)
         var io = PlannerFile.IO()
-        io.read = { url in
-            if url == self.file.url { reads += 1; throw CocoaError(.fileReadNoPermission) }
+        io.read = { [dataURL = file.url] url in
+            if url == dataURL { reads.update { $0 += 1 }; throw CocoaError(.fileReadNoPermission) }
             return try Data(contentsOf: url)
         }
         let unreadable = PlannerFile(url: file.url, io: io)
         XCTAssertThrowsError(try unreadable.load())
         XCTAssertThrowsError(try unreadable.save(Planner()))
-        XCTAssertEqual(reads, 2)
+        XCTAssertEqual(reads.value, 2)
         XCTAssertEqual(try Data(contentsOf: file.url), raw)
         XCTAssertTrue(try file.backupURLs().isEmpty)
     }

@@ -52,7 +52,9 @@ jobs:
         run: test "$FORMAT_RESULT" = success
       - uses: actions/checkout@v4
       - uses: swift-actions/setup-swift@v2
-        with: { swift-version: "6.1" }
+        with: { swift-version: "6.2" }
+      - name: Release and testing configuration regression
+        run: python3 -m unittest discover -s scripts -p test_launch_configuration.py
       - name: Motion evidence classification regression
         run: python3 -m unittest discover -s scripts -p test_motion_evidence.py
       - name: Domain, MCP and portable UI tests
@@ -118,18 +120,32 @@ jobs:
       - name: Domain, MCP, UI logic and macOS app-layer tests
         run: |
           python3 -m unittest discover -s Tests/ArchitectureTests
-          swift test
-      - name: Build and bundle
+          if ! swift test; then
+            mkdir -p "$RUNNER_TEMP/native-diagnostics"
+            # Preserve an actual native backtrace, rather than hiding a runner crash behind retries.
+            lldb --batch -o 'settings set target.disable-aslr false' -o 'breakpoint set -n malloc_error_break' -o run -o 'thread backtrace all' -k 'thread backtrace all' -- \
+              "$(xcrun --find xctest)" -XCTest 'PerchAppTests.RuntimeObservationTests' \
+              .build/debug/PerchPackageTests.xctest > "$RUNNER_TEMP/native-diagnostics/backtrace.txt" 2>&1 || true
+            exit 1
+          fi
+      - name: Native failure diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-diagnostics
+          path: ${{ runner.temp }}/native-diagnostics
+          if-no-files-found: ignore
+      - name: Build and smoke-test the distribution Release app
         run: |
           scripts/bundle.sh
-          python3 scripts/motion_build_manifest.py dist/Perch.app
-      - name: Undo persistence and timer regression
-        run: bash scripts/check_undo.sh "$RUNNER_TEMP/undo"
-      - name: External URL confirmation regression
-        run: bash scripts/check_url_requests.sh "$RUNNER_TEMP/url-requests"
+          python3 scripts/check_release.py dist/Perch.app/Contents/MacOS/Perch "$RUNNER_TEMP/release-smoke"
+      - name: Build instrumented probe app separately
+        run: |
+          ARCHS=arm64 PERCH_BUILD_VARIANT=testing scripts/bundle.sh
+          python3 scripts/motion_build_manifest.py dist/testing/Perch.app
       - name: Archive app bundle
         # The sibling manifest binds motion evidence to this exact build.
-        run: tar -czf "$RUNNER_TEMP/perch-app.tar.gz" -C dist Perch.app motion-build.json
+        run: tar -czf "$RUNNER_TEMP/perch-app.tar.gz" -C dist/testing Perch.app motion-build.json
       - name: Upload app bundle
         uses: actions/upload-artifact@v4
         with:
@@ -141,10 +157,10 @@ jobs:
           pip3 install --quiet --break-system-packages mcp || pip3 install --quiet mcp
           PERCH_DATA=$RUNNER_TEMP/p.json python3 scripts/mcp_smoke.py "$PWD/dist/Perch.app/Contents/MacOS/Perch"
       - name: Focus survives an app crash without crediting offline time
-        run: python3 scripts/focus_crash_check.py "$PWD/dist/Perch.app/Contents/MacOS/Perch" "$RUNNER_TEMP/focus-crash"
+        run: python3 scripts/focus_crash_check.py "$PWD/dist/Perch.app/Contents/MacOS/Perch" "$RUNNER_TEMP/focus-crash" "$PWD/dist/testing/Perch.app/Contents/MacOS/Perch"
       - name: App launches and survives 5 s
         run: |
-          PERCH_DATA=$RUNNER_TEMP/launch.json dist/Perch.app/Contents/MacOS/Perch --preview-open &
+          PERCH_DATA=$RUNNER_TEMP/launch.json dist/Perch.app/Contents/MacOS/Perch &
           PID=$!; sleep 5
           kill -0 $PID && echo "still running" && kill $PID
       - name: Upload app package and crash evidence
@@ -155,7 +171,6 @@ jobs:
           path: |
             dist/*.dmg
             ${{ runner.temp }}/focus-crash/
-            ${{ runner.temp }}/url-requests/*.png
           if-no-files-found: error
 
   probes-layout-macos:
@@ -174,10 +189,12 @@ jobs:
           name: perch-app-bundle
           path: ${{ runner.temp }}/perch-bundle
       - name: Restore app bundle
+        id: restore
         run: |
           mkdir -p dist
           tar -xzf "$RUNNER_TEMP/perch-bundle/perch-app.tar.gz" -C dist
       - name: Screenshots (grey wallpaper so the notch outline shows)
+        if: ${{ !cancelled() && steps.restore.outcome == 'success' }}
         run: |
           python3 -c "import zlib,struct;w,h=64,64;raw=b''.join(b'\\x00'+bytes([120,124,135])*w for _ in range(h));c=lambda t,d:struct.pack('>I',len(d))+t+d+struct.pack('>I',zlib.crc32(t+d));open('/tmp/grey.png','wb').write(b'\\x89PNG\\r\\n\\x1a\\n'+c(b'IHDR',struct.pack('>IIBBBBB',w,h,8,2,0,0,0))+c(b'IDAT',zlib.compress(raw))+c(b'IEND',b''))"
           osascript -e 'tell application "System Events" to tell every desktop to set picture to "/tmp/grey.png"' || true
@@ -197,6 +214,7 @@ jobs:
           sleep 5; kill %1 || true
           ls -la $OUT $RUNNER_TEMP/perch-*.png
       - name: Home and Insights snapshots (empty, 3 tasks, timer running, insights)
+        if: ${{ !cancelled() && steps.restore.outcome == 'success' }}
         run: |
           for sc in empty:home three:home timer:home insights:insights empty:insights; do
             name=${sc%%:*}; page=${sc##*:}; OUT=$RUNNER_TEMP/notch/$name-$page; mkdir -p $OUT
@@ -205,8 +223,10 @@ jobs:
             ls $OUT/*.png || { echo "no snapshot for $name"; exit 1; }
           done
       - name: Home cards legibility (exact timer value, default and dot-matrix faces, heavy notepad)
+        if: ${{ !cancelled() && steps.restore.outcome == 'success' }}
         run: bash scripts/homecards_shots.sh "$RUNNER_TEMP/notch/homecards"
       - name: NotchLayout frames (fixtures + live) and mouse routing
+        if: ${{ !cancelled() && steps.restore.outcome == 'success' }}
         run: |
           OUT=$RUNNER_TEMP/notch
           NOTCH_LAYOUT_JSON=$OUT/fixtures.json swift test --filter NotchLayoutTests/testDumpFramesToJSON
@@ -264,15 +284,19 @@ jobs:
           sys.exit(1 if bad else 0)
           EOF
       - name: Theme contrast and Home Week Settings in both appearances
+        if: ${{ !cancelled() && steps.restore.outcome == 'success' }}
         run: |
           pip3 install --quiet --break-system-packages Pillow
           bash scripts/check_theme.sh "$RUNNER_TEMP/notch/theme"
       - name: Week with a busy today (overflow fade, +N more, pinned Add)
+        if: ${{ !cancelled() && steps.restore.outcome == 'success' }}
         run: bash scripts/week_shots.sh "$RUNNER_TEMP/notch/week"
       - name: Compact Home bounds and stress snapshots
+        if: ${{ !cancelled() && steps.restore.outcome == 'success' }}
         run: |
           bash scripts/check_compact_home.sh "$RUNNER_TEMP/notch/compact-home"
       - name: Larger flat desktop (best effort; the runner's virtual display defaults to 1024x768)
+        if: ${{ !cancelled() && steps.restore.outcome == 'success' }}
         run: |
           OUT=$RUNNER_TEMP/notch/large; mkdir -p $OUT
           brew install --quiet jakehilborn/jakehilborn/displayplacer >/dev/null 2>&1 || true
@@ -298,6 +322,7 @@ jobs:
               assert not s["routing"]["menuBarRight"] and not s["routing"]["menuBarAboveWorkspaceEdge"], "menu bar must click through"
           EOF
       - name: Capture prompt contrast (rendered, resting + focused)
+        if: ${{ !cancelled() && steps.restore.outcome == 'success' }}
         run: bash scripts/check_capture_contrast.sh "$RUNNER_TEMP/capture-contrast"
       - uses: actions/upload-artifact@v4
         if: always()
@@ -325,20 +350,33 @@ jobs:
           name: perch-app-bundle
           path: ${{ runner.temp }}/perch-bundle
       - name: Restore app bundle
+        id: restore
         run: |
           mkdir -p dist
           tar -xzf "$RUNNER_TEMP/perch-bundle/perch-app.tar.gz" -C dist
+      - name: Undo persistence and timer regression
+        if: ${{ !cancelled() && steps.restore.outcome == 'success' }}
+        run: bash scripts/check_undo.sh "$RUNNER_TEMP/undo"
+      - name: External URL confirmation regression
+        if: ${{ !cancelled() && steps.restore.outcome == 'success' }}
+        run: bash scripts/check_url_requests.sh "$RUNNER_TEMP/url-requests"
       - name: Discoverable focus entry and real button lifecycle
+        if: ${{ !cancelled() && steps.restore.outcome == 'success' }}
         run: bash scripts/check_focus_entry.sh "$RUNNER_TEMP/notch/focus-entry"
       - name: Integrated store, repeats, clips and settings
+        if: ${{ !cancelled() && steps.restore.outcome == 'success' }}
         run: bash scripts/check_integration.sh "$RUNNER_TEMP/integration"
       - name: Recovery stays read-only with synthetic data
+        if: ${{ !cancelled() && steps.restore.outcome == 'success' }}
         run: bash scripts/check_recovery.sh "$RUNNER_TEMP/notch/recovery"
       - name: Reduced motion policy and nested transaction regression
+        if: ${{ !cancelled() && steps.restore.outcome == 'success' }}
         run: bash scripts/check_motion.sh "$RUNNER_TEMP/motion-policy"
       - name: Empty states and capture focus
+        if: ${{ !cancelled() && steps.restore.outcome == 'success' }}
         run: bash scripts/check_empty_states.sh "$RUNNER_TEMP/empty-states"
       - name: Clips layout (empty/populated, dark/light, pixel bounds)
+        if: ${{ !cancelled() && steps.restore.outcome == 'success' }}
         run: |
           pip3 install --quiet --break-system-packages Pillow || pip3 install --quiet Pillow
           python3 -m unittest discover -s scripts -p test_measure_clips_bounds.py
@@ -353,6 +391,8 @@ jobs:
             ${{ runner.temp }}/empty-states/
             ${{ runner.temp }}/motion-policy/
             ${{ runner.temp }}/integration/
+            ${{ runner.temp }}/url-requests/
+            ${{ runner.temp }}/undo/
           if-no-files-found: error
 
   motion-macos:
@@ -371,6 +411,7 @@ jobs:
           name: perch-app-bundle
           path: ${{ runner.temp }}/perch-bundle
       - name: Restore app bundle
+        id: restore
         run: |
           mkdir -p dist
           tar -xzf "$RUNNER_TEMP/perch-bundle/perch-app.tar.gz" -C dist
@@ -401,9 +442,9 @@ jobs:
           sudo xcode-select -s "$(ls -d /Applications/Xcode_26*.app | sort -V | tail -1)"
       - name: Baseline exact-source normal-policy recording
         run: |
-          scripts/bundle.sh
-          python3 scripts/motion_build_manifest.py dist/Perch.app
-          PERCH_MOTION_POLICY=normal scripts/motion_capture.sh "$RUNNER_TEMP/isolation/baseline" dist/Perch.app
+          ARCHS=arm64 PERCH_BUILD_VARIANT=testing scripts/bundle.sh
+          python3 scripts/motion_build_manifest.py dist/testing/Perch.app
+          PERCH_MOTION_POLICY=normal scripts/motion_capture.sh "$RUNNER_TEMP/isolation/baseline" dist/testing/Perch.app
       - name: Sandbox-only layer-order experiment (never approval evidence)
         run: |
           python3 - <<'PY'
@@ -416,10 +457,10 @@ jobs:
           PY
           mkdir -p "$RUNNER_TEMP/isolation"
           git diff > "$RUNNER_TEMP/isolation/EXPERIMENT.patch"
-          scripts/bundle.sh
+          ARCHS=arm64 PERCH_BUILD_VARIANT=testing scripts/bundle.sh
           # Invalidate the baseline manifest: the patched app is explicitly NOT exact-head evidence.
-          rm -f dist/motion-build.json
-          PERCH_MOTION_POLICY=normal scripts/motion_capture.sh "$RUNNER_TEMP/isolation/raised-layer" dist/Perch.app
+          rm -f dist/testing/motion-build.json
+          PERCH_MOTION_POLICY=normal scripts/motion_capture.sh "$RUNNER_TEMP/isolation/raised-layer" dist/testing/Perch.app
       - uses: actions/upload-artifact@v4
         if: always()
         with:

@@ -19,27 +19,35 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Once per launch, before the first tick: a timer left running by a crash or kill -9 comes back
         // paused with its last checkpoint banked. The time the app was gone is not focus time.
         store.beginApplication()
-        model = NotchModel(motionPolicy: MotionScript.policyOverride)
+        #if DEBUG || PERCH_TESTING
+            model = NotchModel(motionPolicy: MotionScript.policyOverride)
+        #else
+            model = NotchModel()
+        #endif
         services = Services(store: store)
         services.attach(model: model)
         notch = NotchController(store: store, model: model, services: services)
         notch.start()
         setupMenuBar()
         setupURLScheme()
-        setupActivityDump()
-        MotionScript.startIfRequested(store: store, model: model)  // CI motion capture only (--motion-script)
+        #if DEBUG || PERCH_TESTING
+            setupActivityDump()
+            MotionScript.startIfRequested(store: store, model: model)  // CI motion capture only (--motion-script)
 
-        let args = CommandLine.arguments
-        if args.contains("--demo") { seedDemo() }
-        if let i = args.firstIndex(of: "--scenario"), i + 1 < args.count { seedScenario(args[i + 1]) }
-        if args.contains("--preview-open") {
-            // `--page <home|week|clips|insights>` picks the page the preview opens on (CI snapshots).
-            let page = args.firstIndex(of: "--page").flatMap { i in
-                i + 1 < args.count ? NotchPage(rawValue: args[i + 1]) : nil
+            let args = CommandLine.arguments
+            if args.contains("--demo") { seedDemo() }
+            if let i = args.firstIndex(of: "--scenario"), i + 1 < args.count { seedScenario(args[i + 1]) }
+            if args.contains("--preview-open") {
+                // `--page <home|week|clips|insights>` picks the page the preview opens on (CI snapshots).
+                let page = args.firstIndex(of: "--page").flatMap { i in
+                    i + 1 < args.count ? NotchPage(rawValue: args[i + 1]) : nil
+                }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { self.model.open(page: page, pinned: true) }
             }
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { self.model.open(page: page, pinned: true) }
-        }
-        if !store.prefs.welcomeCompleted && !CommandLine.arguments.contains("--preview-open") { showWelcome() }
+            if !store.prefs.welcomeCompleted && !args.contains("--preview-open") { showWelcome() }
+        #else
+            if !store.prefs.welcomeCompleted { showWelcome() }
+        #endif
     }
 
     // Menu bar icon: a fallback way in, plus quit.

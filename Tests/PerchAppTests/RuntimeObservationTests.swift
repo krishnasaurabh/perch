@@ -1,6 +1,7 @@
 import AppKit
 import Combine
 import Foundation
+import os
 import XCTest
 @testable import PerchApp
 @testable import PlannerCore
@@ -37,6 +38,14 @@ private final class RuntimeScheduler: AppScheduling {
         }
         time = end
     }
+}
+
+private final class RuntimeSubscription: Sendable {
+    // Combine permits cancellation on any thread; only this lock owns the cancellable.
+    private let value: OSAllocatedUnfairLock<AnyCancellable>
+    init(_ value: AnyCancellable) { self.value = OSAllocatedUnfairLock(uncheckedState: value) }
+    func cancel() { value.withLockUnchecked { $0.cancel() } }
+    deinit { cancel() }
 }
 
 final class RuntimeObservationTests: XCTestCase {
@@ -219,7 +228,7 @@ final class RuntimeObservationTests: XCTestCase {
         try PlannerFile.encoder.encode(PlannerDiskDocument(planner)).write(to: file.url, options: .atomic)
         let loaded = expectation(description: "missed event recovered")
         let subscription = await MainActor.run {
-            store.$planner.sink { if !$0.tasks.isEmpty { loaded.fulfill() } }
+            RuntimeSubscription(store.$planner.sink { if !$0.tasks.isEmpty { loaded.fulfill() } })
         }
         await MainActor.run { for _ in 0..<20 { store.recoverObservation() } }
         await fulfillment(of: [loaded], timeout: 3)
@@ -244,8 +253,8 @@ final class RuntimeObservationTests: XCTestCase {
             preferences: MemoryPlannerPreferences())
         let store = await MainActor.run { PlannerStore(file: file) }
         let initialReads = counters.value.0
-        let publications = await MainActor.run { () -> AnyCancellable in
-            store.$planner.dropFirst().sink { _ in XCTFail("Idle planner must not republish") }
+        let publications = await MainActor.run {
+            RuntimeSubscription(store.$planner.dropFirst().sink { _ in XCTFail("Idle planner must not republish") })
         }
         try await Task.sleep(nanoseconds: 1_200_000_000)
         XCTAssertEqual(counters.value.0, initialReads)
@@ -263,15 +272,17 @@ final class RuntimeObservationTests: XCTestCase {
         let checkpoint = expectation(description: "durable boundary")
         let store = await MainActor.run { PlannerStore(file: file) }
         let subscription = await MainActor.run {
-            store.$planner.dropFirst().sink { state in
-                if (state.focus?.banked ?? 0) >= 30 { checkpoint.fulfill() }
-            }
+            RuntimeSubscription(
+                store.$planner.dropFirst().sink { state in
+                    if (state.focus?.banked ?? 0) >= 30 { checkpoint.fulfill() }
+                })
         }
         await fulfillment(of: [checkpoint], timeout: 3)
         subscription.cancel()
         XCTAssertGreaterThanOrEqual(try file.load().focus?.banked ?? 0, 30)
         let idle = await MainActor.run {
-            store.$planner.dropFirst().sink { _ in XCTFail("No timer-second publication between checkpoints") }
+            RuntimeSubscription(
+                store.$planner.dropFirst().sink { _ in XCTFail("No timer-second publication between checkpoints") })
         }
         try await Task.sleep(nanoseconds: 1_200_000_000)
         withExtendedLifetime((store, idle)) {}
@@ -319,7 +330,8 @@ final class RuntimeObservationTests: XCTestCase {
         let store = await MainActor.run { PlannerStore(file: file) }
         let changed = expectation(description: "new revision published")
         let subscription = await MainActor.run {
-            store.$planner.sink { if $0.tasks.first?.title == "External synthetic task" { changed.fulfill() } }
+            RuntimeSubscription(
+                store.$planner.sink { if $0.tasks.first?.title == "External synthetic task" { changed.fulfill() } })
         }
         let date = file.modificationDate!
         var planner = Planner()

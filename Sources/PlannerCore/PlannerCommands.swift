@@ -20,6 +20,8 @@ public struct PlannerCommandResult<Value> {
     public let state: Planner
 }
 
+extension PlannerCommandResult: Sendable where Value: Sendable {}
+
 /// A scoped command session. The planner is a value snapshot, never a writable reference.
 public final class PlannerCommands {
     fileprivate var engine: PlannerEngine

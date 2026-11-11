@@ -14,15 +14,24 @@ final class VoiceCapture: ObservableObject {
     private var task: SFSpeechRecognitionTask?
     private var onFinish: ((String) -> Void)?
     private let scheduler: any AppScheduling
-    private var timeoutWork: (any AppScheduledAction)?
-    private var finishWork: (any AppScheduledAction)?
+    @MainActor
+    private final class LifetimeState {
+        var timeoutWork: (any AppScheduledAction)?
+        var finishWork: (any AppScheduledAction)?
+    }
+    private let lifetimeState = MainActorLifetime(LifetimeState()) { state in
+        state.timeoutWork?.cancel(); state.finishWork?.cancel()
+    }
+    private var timeoutWork: (any AppScheduledAction)? {
+        get { lifetimeState.state.timeoutWork }
+        set { lifetimeState.state.timeoutWork = newValue }
+    }
+    private var finishWork: (any AppScheduledAction)? {
+        get { lifetimeState.state.finishWork }
+        set { lifetimeState.state.finishWork = newValue }
+    }
 
     init(scheduler: any AppScheduling = MainQueueScheduler()) { self.scheduler = scheduler }
-
-    deinit {
-        timeoutWork?.cancel()
-        finishWork?.cancel()
-    }
 
     func toggle(onFinish: @escaping (String) -> Void) {
         if state == .listening { stop() } else { Task { await start(onFinish: onFinish) } }

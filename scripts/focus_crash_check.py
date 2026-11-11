@@ -1,22 +1,27 @@
 #!/usr/bin/env python3
 """Focus timer crash recovery, end to end against the real app binary (macOS CI or a real Mac).
 
-  focus_crash_check.py <path/to/Perch.app/Contents/MacOS/Perch> <workdir>
+  focus_crash_check.py <release-binary> <workdir> [instrumented-snapshot-binary]
 
 1. Launch the app on an empty planner, then start a 30 min timer through `Perch --mcp`.
 2. While it runs, check the app's 1 s tick banks a checkpoint every 30 s (timer keeps running).
-3. kill -9 the app mid-stretch, wait, relaunch it with --snapshot.
+3. kill -9 the app mid-stretch, wait, relaunch it without diagnostic flags.
 4. Banked time must be >= elapsed - 30 s, the offline gap must not count, and the timer must come back paused.
+The instrumented binary renders the recovered state separately, after Release checks pass.
 Writes <workdir>/focus-crash.json (report) and <workdir>/snap/*.png. Exit 1 on any failed check.
 """
 import json, os, signal, subprocess, sys, time
 from datetime import datetime, timezone
 
 BIN, WORK = sys.argv[1], sys.argv[2]
+SNAPSHOT_BIN = sys.argv[3] if len(sys.argv) > 3 else BIN
 os.makedirs(WORK, exist_ok=True)
 DATA = os.path.join(WORK, "crash.json")
 for p in (DATA, DATA + ".lock"):
     if os.path.exists(p): os.remove(p)
+with open(DATA, "w") as f:
+    json.dump({"preferences": {"welcomeCompleted": True, "catchCopies": False,
+                               "catchScreenshots": False, "remindersSync": False}}, f)
 ENV = dict(os.environ, PERCH_DATA=DATA)
 KILL_AT = 80      # s after start: 20 s past the 60 s checkpoint, so a real unbanked tail is at stake
 OFFLINE = 5       # s the app stays dead; none of it may be credited
@@ -89,7 +94,7 @@ check(p["focus"]["banked"] >= elapsed - 30, f"on disk at kill -9: banked {p['foc
 
 time.sleep(OFFLINE)
 snap = os.path.join(WORK, "snap")
-app = subprocess.Popen([BIN, "--snapshot", snap], env=ENV)
+app = subprocess.Popen([BIN], env=ENV)
 time.sleep(6)
 p = planner(); f = p["focus"]
 report.update(afterRelaunch={"state": f["state"], "banked": f["banked"], "resumedAt": f.get("resumedAt"), "logged": round(logged(p), 3)})
@@ -103,9 +108,14 @@ later = planner()["focus"]
 report["afterRelaunch"]["bankedLater"] = later["banked"]
 check(later["banked"] == before, f"paused timer stays put on later ticks ({before:.2f} -> {later['banked']:.2f})")
 check(later["banked"] <= elapsed + 0.5, f"9 s after relaunch: offline gap still not credited (banked {later['banked']:.2f}s)")
+check(app.poll() is None, "relaunched Release app is still running")
+app.terminate(); app.wait(timeout=10)
+app = subprocess.Popen([SNAPSHOT_BIN, "--snapshot", snap], env=ENV)
+time.sleep(6)
+check(planner()["focus"] == later, "instrumented render preserves recovered focus state")
 pngs = sorted(x for x in os.listdir(snap) if x.endswith(".png")) if os.path.isdir(snap) else []
 report["snapshots"] = pngs
-check(bool(pngs), f"relaunched app rendered --snapshot ({pngs})")
-check(app.poll() is None, "relaunched app is still running")
+check(bool(pngs), f"instrumented app rendered recovered state ({pngs})")
+check(app.poll() is None, "instrumented app is still running")
 app.terminate(); app.wait(timeout=10)
 finish()

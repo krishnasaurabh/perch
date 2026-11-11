@@ -43,17 +43,36 @@ final class NotchModel: ObservableObject {
     /// Explicit opening intent, not passive hover/drag. A new ID also refocuses an already-open page.
     @Published var captureFocusRequest: UUID?
 
-    /// Nil in production (live system preference); deterministic override for in-process probes.
-    let motionPolicyOverride: MotionPolicy?
+    #if DEBUG || PERCH_TESTING
+        /// Deterministic override in the test product only.
+        let motionPolicyOverride: MotionPolicy?
+    #endif
     private let scheduler: any AppScheduling
-    private var activityWork: (any AppScheduledAction)?
-    var motionPolicy: MotionPolicy { motionPolicyOverride ?? .system }
-    init(motionPolicy: MotionPolicy? = nil, scheduler: any AppScheduling = MainQueueScheduler()) {
-        self.motionPolicyOverride = motionPolicy
-        self.scheduler = scheduler
+    @MainActor
+    private final class ActivityLifetime {
+        var activityWork: (any AppScheduledAction)?
     }
-
-    deinit { activityWork?.cancel() }
+    private let activityLifetime = MainActorLifetime(ActivityLifetime()) { state in
+        state.activityWork?.cancel()
+    }
+    private var activityWork: (any AppScheduledAction)? {
+        get { activityLifetime.state.activityWork }
+        set { activityLifetime.state.activityWork = newValue }
+    }
+    var motionPolicy: MotionPolicy {
+        #if DEBUG || PERCH_TESTING
+            if let motionPolicyOverride { return motionPolicyOverride }
+        #endif
+        return .system
+    }
+    #if DEBUG || PERCH_TESTING
+        init(motionPolicy: MotionPolicy? = nil, scheduler: any AppScheduling = MainQueueScheduler()) {
+            self.motionPolicyOverride = motionPolicy
+            self.scheduler = scheduler
+        }
+    #else
+        init(scheduler: any AppScheduling = MainQueueScheduler()) { self.scheduler = scheduler }
+    #endif
 
     func open(page: NotchPage? = nil, pinned: Bool = false) {
         if let page { self.page = page }
@@ -115,12 +134,40 @@ final class NotchController {
 
     private struct Slot { let panel: NotchPanel; let state: NotchScreenState }
     private var slots: [CGDirectDisplayID: Slot] = [:]
-    private var monitors: [Any] = []
+    @MainActor
+    private final class ControllerLifetime {
+        var monitors: [Any] = []
+        var closeWork: (any AppScheduledAction)?
+        var openWork: (any AppScheduledAction)?
+        var fullscreenWork: [any AppScheduledAction] = []
+        var startupWork: [any AppScheduledAction] = []
+    }
+    private let controllerLifetime = MainActorLifetime(ControllerLifetime()) { state in
+        for monitor in state.monitors { NSEvent.removeMonitor(monitor) }
+        state.closeWork?.cancel(); state.openWork?.cancel()
+        state.fullscreenWork.forEach { $0.cancel() }; state.startupWork.forEach { $0.cancel() }
+    }
+    private var monitors: [Any] {
+        get { controllerLifetime.state.monitors }
+        set { controllerLifetime.state.monitors = newValue }
+    }
     private let scheduler: any AppScheduling
-    private var closeWork: (any AppScheduledAction)?
-    private var openWork: (any AppScheduledAction)?
-    private var fullscreenWork: [any AppScheduledAction] = []
-    private var startupWork: [any AppScheduledAction] = []
+    private var closeWork: (any AppScheduledAction)? {
+        get { controllerLifetime.state.closeWork }
+        set { controllerLifetime.state.closeWork = newValue }
+    }
+    private var openWork: (any AppScheduledAction)? {
+        get { controllerLifetime.state.openWork }
+        set { controllerLifetime.state.openWork = newValue }
+    }
+    private var fullscreenWork: [any AppScheduledAction] {
+        get { controllerLifetime.state.fullscreenWork }
+        set { controllerLifetime.state.fullscreenWork = newValue }
+    }
+    private var startupWork: [any AppScheduledAction] {
+        get { controllerLifetime.state.startupWork }
+        set { controllerLifetime.state.startupWork = newValue }
+    }
     private lazy var dragObservation = DragPointerObservation { [weak self] in self?.trackPointer() }
     private var fullscreenObservation: FullscreenObservation?
     private var cancellables = Set<AnyCancellable>()
@@ -194,77 +241,85 @@ final class NotchController {
         fullscreenObservation = FullscreenObservation { [weak self] in self?.checkFullScreenSoon() }
         NotificationCenter.default.addObserver(forName: .perchOpenWorkspace, object: nil, queue: .main) {
             [weak self] n in
+            let page = n.object as? NotchPage
             Task { @MainActor in
                 guard let self else { return }
                 self.open(
-                    on: self.slotUnderPointer() ?? self.preferredID(), page: n.object as? NotchPage, pinned: true,
+                    on: self.slotUnderPointer() ?? self.preferredID(), page: page, pinned: true,
                     activate: true)
             }
         }
 
         store.focusFinished = { [weak services] in services?.focusFinished() }
 
-        // `--dump-layout <path>`: write every screen's live frames as JSON (CI artifact, real-Mac checks).
-        let args = CommandLine.arguments
-        if let i = args.firstIndex(of: "--dump-layout"), i + 1 < args.count {
-            let path = args[i + 1]
-            startupWork.append(
-                scheduler.schedule(after: 2) { [weak self] in
-                    guard let self,
-                        let data = try? JSONSerialization.data(
-                            withJSONObject: self.layoutDump(), options: [.prettyPrinted, .sortedKeys])
-                    else { return }
-                    try? data.write(to: URL(fileURLWithPath: path))
-                })
-        }
-        // `--snapshot <dir>`: render each notch window's own content to PNG (no Screen Recording permission needed).
-        if let i = args.firstIndex(of: "--snapshot"), i + 1 < args.count {
-            let dir = URL(fileURLWithPath: args[i + 1])
-            startupWork.append(scheduler.schedule(after: 2.5) { [weak self] in self?.snapshot(into: dir) })
-        }
+        #if DEBUG || PERCH_TESTING
+            // `--dump-layout <path>`: write every screen's live frames as JSON (CI artifact, real-Mac checks).
+            let args = CommandLine.arguments
+            if let i = args.firstIndex(of: "--dump-layout"), i + 1 < args.count {
+                let path = args[i + 1]
+                startupWork.append(
+                    scheduler.schedule(after: 2) { [weak self] in
+                        guard let self,
+                            let data = try? JSONSerialization.data(
+                                withJSONObject: self.layoutDump(), options: [.prettyPrinted, .sortedKeys])
+                        else { return }
+                        try? data.write(to: URL(fileURLWithPath: path))
+                    })
+            }
+            // `--snapshot <dir>`: render each notch window's own content to PNG (no Screen Recording permission needed).
+            if let i = args.firstIndex(of: "--snapshot"), i + 1 < args.count {
+                let dir = URL(fileURLWithPath: args[i + 1])
+                startupWork.append(scheduler.schedule(after: 2.5) { [weak self] in self?.snapshot(into: dir) })
+            }
+        #endif
     }
 
-    /// Debug render: grey backdrop, the screen's menu-bar band in a lighter grey, the window's content, and the camera
-    /// housing outlined in red, so a reviewer can see whether the wings sit beside the real housing and whether the open
-    /// shell clears the menu bar (its top corners/shoulders show against the band). Pixel scale follows the screen.
-    func snapshot(into dir: URL) {
-        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        for slot in slots.values {
-            guard let view = slot.panel.contentView, let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds),
-                let out = NSBitmapImageRep(
-                    bitmapDataPlanes: nil, pixelsWide: rep.pixelsWide, pixelsHigh: rep.pixelsHigh,
-                    bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
-                    colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0),
-                let ctx = NSGraphicsContext(bitmapImageRep: out)
-            else { continue }
-            view.cacheDisplay(in: view.bounds, to: rep)
-            NSGraphicsContext.saveGraphicsState()
-            NSGraphicsContext.current = ctx
-            let size = view.bounds.size
-            ctx.cgContext.scaleBy(x: CGFloat(out.pixelsWide) / size.width, y: CGFloat(out.pixelsHigh) / size.height)
-            NSColor(calibratedRed: 0.47, green: 0.49, blue: 0.53, alpha: 1).setFill()
-            NSRect(origin: .zero, size: size).fill()
-            let w = slot.panel.frame, sf = slot.state.geometry.screenFrame
-            let bar =
-                slot.state.geometry.screen.menuBarHeight > 0
-                ? slot.state.geometry.screen.menuBarHeight : NotchLayout.fallbackMenuBarHeight
-            NSColor(calibratedWhite: 0.86, alpha: 1).setFill()
-            NSRect(x: sf.minX, y: sf.maxY - bar, width: sf.width, height: bar).offsetBy(dx: -w.minX, dy: -w.minY).fill()
-            rep.draw(
-                in: NSRect(origin: .zero, size: size), from: .zero, operation: .sourceOver, fraction: 1,
-                respectFlipped: true, hints: nil)
-            if let cam = slot.state.geometry.camera {
-                NSColor.systemRed.setStroke()
-                let path = NSBezierPath(rect: cam.offsetBy(dx: -w.minX, dy: -w.minY).insetBy(dx: 0.5, dy: 0.5))
-                path.lineWidth = 1
-                path.stroke()
+    #if DEBUG || PERCH_TESTING
+        /// Debug render: grey backdrop, the screen's menu-bar band in a lighter grey, the window's content, and the camera
+        /// housing outlined in red, so a reviewer can see whether the wings sit beside the real housing and whether the open
+        /// shell clears the menu bar (its top corners/shoulders show against the band). Pixel scale follows the screen.
+        func snapshot(into dir: URL) {
+            try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+            for slot in slots.values {
+                guard let view = slot.panel.contentView,
+                    let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds),
+                    let out = NSBitmapImageRep(
+                        bitmapDataPlanes: nil, pixelsWide: rep.pixelsWide, pixelsHigh: rep.pixelsHigh,
+                        bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
+                        colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0),
+                    let ctx = NSGraphicsContext(bitmapImageRep: out)
+                else { continue }
+                view.cacheDisplay(in: view.bounds, to: rep)
+                NSGraphicsContext.saveGraphicsState()
+                NSGraphicsContext.current = ctx
+                let size = view.bounds.size
+                ctx.cgContext.scaleBy(x: CGFloat(out.pixelsWide) / size.width, y: CGFloat(out.pixelsHigh) / size.height)
+                NSColor(calibratedRed: 0.47, green: 0.49, blue: 0.53, alpha: 1).setFill()
+                NSRect(origin: .zero, size: size).fill()
+                let w = slot.panel.frame, sf = slot.state.geometry.screenFrame
+                let bar =
+                    slot.state.geometry.screen.menuBarHeight > 0
+                    ? slot.state.geometry.screen.menuBarHeight : NotchLayout.fallbackMenuBarHeight
+                NSColor(calibratedWhite: 0.86, alpha: 1).setFill()
+                NSRect(x: sf.minX, y: sf.maxY - bar, width: sf.width, height: bar).offsetBy(dx: -w.minX, dy: -w.minY)
+                    .fill()
+                rep.draw(
+                    in: NSRect(origin: .zero, size: size), from: .zero, operation: .sourceOver, fraction: 1,
+                    respectFlipped: true, hints: nil)
+                if let cam = slot.state.geometry.camera {
+                    NSColor.systemRed.setStroke()
+                    let path = NSBezierPath(rect: cam.offsetBy(dx: -w.minX, dy: -w.minY).insetBy(dx: 0.5, dy: 0.5))
+                    path.lineWidth = 1
+                    path.stroke()
+                }
+                NSGraphicsContext.restoreGraphicsState()
+                guard let png = out.representation(using: .png, properties: [:]) else { continue }
+                try? png.write(
+                    to: dir.appendingPathComponent("notch-\(slot.state.id)-\(model.expanded ? "open" : "closed").png"))
             }
-            NSGraphicsContext.restoreGraphicsState()
-            guard let png = out.representation(using: .png, properties: [:]) else { continue }
-            try? png.write(
-                to: dir.appendingPathComponent("notch-\(slot.state.id)-\(model.expanded ? "open" : "closed").png"))
         }
-    }
+
+    #endif
 
     // MARK: Screens
 
@@ -313,8 +368,7 @@ final class NotchController {
         let state = NotchScreenState(id: id, geometry: g)
         let panel = NotchPanel(frame: g.window)
         let root = NotchRootView()
-            .modifier(MotionScript.PolicyProbe())
-            .environment(\.motionPolicyOverride, model.motionPolicyOverride)
+            .motionDiagnostics(model: model)
             .environmentObject(store).environmentObject(model).environmentObject(services).environmentObject(state)
         let host = NotchHostingView(rootView: root)
         host.frame = NSRect(origin: .zero, size: g.window.size)
@@ -523,68 +577,65 @@ final class NotchController {
         }
     }
 
-    deinit {
-        for monitor in monitors { NSEvent.removeMonitor(monitor) }
-        closeWork?.cancel(); openWork?.cancel()
-        fullscreenWork.forEach { $0.cancel() }; startupWork.forEach { $0.cancel() }
-    }
-
-    /// Frames for the closed and open shapes on every screen, for `--dump-layout`.
-    func layoutDump() -> [[String: Any]] {
-        slots.values.sorted { $0.state.id < $1.state.id }.map { s in
-            let g = s.state.geometry
-            func r(_ x: NSRect) -> [String: Double] { ["x": x.minX, "y": x.minY, "w": x.width, "h": x.height] }
-            var d: [String: Any] = [
-                "displayID": Int(s.state.id),
-                "name": NSScreen.screens.first { $0.displayID == s.state.id }?.localizedName ?? "",
-                "safeAreaTop": g.screen.safeAreaTop, "frame": r(g.screenFrame), "notch": r(g.notchRect),
-                "expanded": model.expanded && model.screenID == s.state.id, "ignoresMouse": s.panel.ignoresMouseEvents,
-                "idle": r(g.idle(timer: timerShowing(), activity: false)), "workspace": r(g.workspace),
-                "window": r(s.panel.frame), "hardwareNotch": g.hasHardwareNotch, "fullScreen": s.state.fullScreen,
-                "menuBarHeight": g.screen.menuBarHeight, "workspaceAttached": g.workspaceAttached,
-                "visible": s.panel.isVisible,
-            ]
-            if let c = g.camera { d["camera"] = r(c) }
-            // Mouse-routing probes: the decision `updateMouseRouting` makes at each point, from the live code path.
-            let expanded = model.expanded && model.screenID == s.state.id
-            let shape = expanded ? g.workspace : g.idle(timer: timerShowing(), activity: false)
-            let capsule = !expanded && model.activity == nil ? timerShowing().map { g.pill(side: $0) } : nil
-            // A detached capsule leaves the union's top midpoint/corners empty. Sample the individual components,
-            // retaining the original outline probes unchanged for the expanded workspace and timer-free notch.
-            let topOutside =
-                capsule.map { NSPoint(x: $0.midX, y: $0.maxY + 1) }
-                ?? NSPoint(x: shape.minX + 1.5, y: shape.maxY - 2)
-            let topInside =
-                capsule.map { _ in NSPoint(x: g.tuckedNotch.midX, y: g.tuckedNotch.maxY - 2) }
-                ?? NSPoint(x: shape.midX, y: shape.maxY - 2)
-            var probes: [(String, NSPoint)] = [
-                ("notchCenterTopEdge", NSPoint(x: g.notchRect.midX, y: g.screenFrame.maxY)),
-                ("leftWing", NSPoint(x: shape.minX + 14, y: shape.maxY - 10)),
-                ("shoulderCorner", NSPoint(x: shape.minX + 0.5, y: shape.minY + 1)),
-                ("justBelowShape", NSPoint(x: shape.midX, y: shape.minY - 2)),
-                ("leftOfShape", NSPoint(x: shape.minX - 3, y: shape.maxY - 5)),
-                ("workspaceCenter", NSPoint(x: g.workspace.midX, y: g.workspace.midY)),
-                ("windowCornerOutsideShape", NSPoint(x: s.panel.frame.minX + 2, y: s.panel.frame.minY + 2)),
-                // Where the clock and status items sit: must always click through to the menu bar.
-                ("menuBarRight", NSPoint(x: g.screenFrame.maxX - 40, y: g.screenFrame.maxY - 4)),
-                ("menuBarAboveWorkspaceEdge", NSPoint(x: g.workspace.maxX - 30, y: g.screenFrame.maxY - 4)),
-                // Transparent outside the component and inside its top edge, including a detached capsule's empty surround.
-                ("shapeTopCornerOutside", topOutside),
-                ("shapeTopInside", topInside),
-            ]
-            if let capsule {
-                let n = g.notchRect
-                let gapX = capsule.midX < n.midX ? (capsule.maxX + n.minX) / 2 : (n.maxX + capsule.minX) / 2
-                d["timerCapsule"] = r(capsule)
-                probes += [
-                    ("timerCapsuleCenter", NSPoint(x: capsule.midX, y: capsule.midY)),
-                    ("timerGap", NSPoint(x: gapX, y: capsule.midY)),
+    #if DEBUG || PERCH_TESTING
+        /// Frames for the closed and open shapes on every screen, for `--dump-layout`.
+        func layoutDump() -> [[String: Any]] {
+            slots.values.sorted { $0.state.id < $1.state.id }.map { s in
+                let g = s.state.geometry
+                func r(_ x: NSRect) -> [String: Double] { ["x": x.minX, "y": x.minY, "w": x.width, "h": x.height] }
+                var d: [String: Any] = [
+                    "displayID": Int(s.state.id),
+                    "name": NSScreen.screens.first { $0.displayID == s.state.id }?.localizedName ?? "",
+                    "safeAreaTop": g.screen.safeAreaTop, "frame": r(g.screenFrame), "notch": r(g.notchRect),
+                    "expanded": model.expanded && model.screenID == s.state.id,
+                    "ignoresMouse": s.panel.ignoresMouseEvents,
+                    "idle": r(g.idle(timer: timerShowing(), activity: false)), "workspace": r(g.workspace),
+                    "window": r(s.panel.frame), "hardwareNotch": g.hasHardwareNotch, "fullScreen": s.state.fullScreen,
+                    "menuBarHeight": g.screen.menuBarHeight, "workspaceAttached": g.workspaceAttached,
+                    "visible": s.panel.isVisible,
                 ]
+                if let c = g.camera { d["camera"] = r(c) }
+                // Mouse-routing probes: the decision `updateMouseRouting` makes at each point, from the live code path.
+                let expanded = model.expanded && model.screenID == s.state.id
+                let shape = expanded ? g.workspace : g.idle(timer: timerShowing(), activity: false)
+                let capsule = !expanded && model.activity == nil ? timerShowing().map { g.pill(side: $0) } : nil
+                // A detached capsule leaves the union's top midpoint/corners empty. Sample the individual components,
+                // retaining the original outline probes unchanged for the expanded workspace and timer-free notch.
+                let topOutside =
+                    capsule.map { NSPoint(x: $0.midX, y: $0.maxY + 1) }
+                    ?? NSPoint(x: shape.minX + 1.5, y: shape.maxY - 2)
+                let topInside =
+                    capsule.map { _ in NSPoint(x: g.tuckedNotch.midX, y: g.tuckedNotch.maxY - 2) }
+                    ?? NSPoint(x: shape.midX, y: shape.maxY - 2)
+                var probes: [(String, NSPoint)] = [
+                    ("notchCenterTopEdge", NSPoint(x: g.notchRect.midX, y: g.screenFrame.maxY)),
+                    ("leftWing", NSPoint(x: shape.minX + 14, y: shape.maxY - 10)),
+                    ("shoulderCorner", NSPoint(x: shape.minX + 0.5, y: shape.minY + 1)),
+                    ("justBelowShape", NSPoint(x: shape.midX, y: shape.minY - 2)),
+                    ("leftOfShape", NSPoint(x: shape.minX - 3, y: shape.maxY - 5)),
+                    ("workspaceCenter", NSPoint(x: g.workspace.midX, y: g.workspace.midY)),
+                    ("windowCornerOutsideShape", NSPoint(x: s.panel.frame.minX + 2, y: s.panel.frame.minY + 2)),
+                    // Where the clock and status items sit: must always click through to the menu bar.
+                    ("menuBarRight", NSPoint(x: g.screenFrame.maxX - 40, y: g.screenFrame.maxY - 4)),
+                    ("menuBarAboveWorkspaceEdge", NSPoint(x: g.workspace.maxX - 30, y: g.screenFrame.maxY - 4)),
+                    // Transparent outside the component and inside its top edge, including a detached capsule's empty surround.
+                    ("shapeTopCornerOutside", topOutside),
+                    ("shapeTopInside", topInside),
+                ]
+                if let capsule {
+                    let n = g.notchRect
+                    let gapX = capsule.midX < n.midX ? (capsule.maxX + n.minX) / 2 : (n.maxX + capsule.minX) / 2
+                    d["timerCapsule"] = r(capsule)
+                    probes += [
+                        ("timerCapsuleCenter", NSPoint(x: capsule.midX, y: capsule.midY)),
+                        ("timerGap", NSPoint(x: gapX, y: capsule.midY)),
+                    ]
+                }
+                d["routing"] = Dictionary(uniqueKeysWithValues: probes.map { ($0.0, drawn(s) && isOnShape($0.1, s)) })
+                return d
             }
-            d["routing"] = Dictionary(uniqueKeysWithValues: probes.map { ($0.0, drawn(s) && isOnShape($0.1, s)) })
-            return d
         }
-    }
+    #endif
 }
 
 extension NSScreen {

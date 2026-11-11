@@ -6,10 +6,14 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 VERSION="${VERSION:-$(/usr/libexec/PlistBuddy -c 'Print CFBundleShortVersionString' Resources/Info.plist)}"
 ARCHS="${ARCHS:-arm64 x86_64}"
-OUT=dist
+VARIANT="${PERCH_BUILD_VARIANT:-release}"
+case "$VARIANT" in
+  release) OUT=dist; args=(-c release --product Perch) ;;
+  testing) OUT=dist/testing; args=(-c release --product Perch --scratch-path .build-testing -Xswiftc -DPERCH_TESTING) ;;
+  *) printf 'Unknown build variant: %s\n' "$VARIANT" >&2; exit 2 ;;
+esac
 APP="$OUT/Perch.app"
 
-args=(-c release --product Perch)
 for a in $ARCHS; do args+=(--arch "$a"); done
 swift build "${args[@]}"
 BIN=$(swift build "${args[@]}" --show-bin-path)/Perch
@@ -31,6 +35,10 @@ ID="${SIGN_ID:--}"
 codesign --force --options runtime --timestamp=none --entitlements Resources/Perch.entitlements -s "$ID" "$APP"
 codesign --verify --strict --verbose=2 "$APP"
 
+if [[ "$VARIANT" == testing ]]; then
+  echo "Built instrumented test app $APP (not for distribution)"
+  exit 0
+fi
 rm -f "$OUT/Perch-$VERSION.dmg"
 STAGE=$(mktemp -d); cp -R "$APP" "$STAGE/"; ln -s /Applications "$STAGE/Applications"
 hdiutil create -volname Perch -srcfolder "$STAGE" -ov -format UDZO "$OUT/Perch-$VERSION.dmg" >/dev/null

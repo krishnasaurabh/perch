@@ -29,7 +29,7 @@ else
     ENTRY="$APP_SOURCES/App/main.swift"
 fi
 cp "$ROOT/scripts/compact_home_probe.swift" "$ENTRY"
-swift build -Xswiftc -enable-testing --package-path "$PROBE" -c release --product Perch
+swift build -Xswiftc -DPERCH_TESTING -Xswiftc -enable-testing --package-path "$PROBE" -c release --product Perch
 python3 - "$PROBE/.build/release/Perch" "$OUT" <<'PY'
 import json, os, pathlib, subprocess, sys
 binary, output = sys.argv[1:]
@@ -50,7 +50,7 @@ attachment = '                    .background(TasksContinuationObserver())\n'
 assert source.count(attachment) == 1
 path.write_text(source.replace(attachment, ''))
 PY
-    swift build -Xswiftc -enable-testing --package-path "$PROBE" -c release --product Perch
+    swift build -Xswiftc -DPERCH_TESTING -Xswiftc -enable-testing --package-path "$PROBE" -c release --product Perch
     mkdir -p "$OUT/no-cue"
     COMPACT_HOME_GEOMETRY_ONLY=1 COMPACT_HOME_OUTPUT="$OUT/no-cue" PERCH_DATA="$OUT/no-cue/planner.json" \
         python3 - "$PROBE/.build/release/Perch" "$OUT" <<'PY'

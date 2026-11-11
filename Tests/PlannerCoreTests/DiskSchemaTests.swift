@@ -111,12 +111,12 @@ final class DiskSchemaTests: XCTestCase {
     func testInterruptedMigrationRetriesWithoutDuplicateBackupsOrPreferenceLoss() throws {
         let adapter = MemoryPlannerPreferences()
         let url = directory.appendingPathComponent("planner.json")
-        var fail = true
-        var hit = false
+        let fail = LockedValue(true)
+        let hit = LockedValue(false)
         var io = PlannerFile.IO()
         io.write = { data, target in
-            if target.standardizedFileURL == url.standardizedFileURL && fail {
-                hit = true
+            if target.standardizedFileURL == url.standardizedFileURL && fail.value {
+                hit.value = true
                 throw PlannerError("Synthetic replacement failure")
             }
             try data.write(to: target, options: .atomic)
@@ -125,12 +125,12 @@ final class DiskSchemaTests: XCTestCase {
         let raw = try legacy(file)
         let loaded = try file.load()
         XCTAssertThrowsError(try file.save(loaded))
-        XCTAssertTrue(hit)
+        XCTAssertTrue(hit.value)
         XCTAssertEqual(try Data(contentsOf: url), raw)
         XCTAssertNil(adapter.load(), "Failed replacement restores the old adapter state")
         let backups = try file.backupURLs()
         XCTAssertEqual(backups.count, 1)
-        fail = false
+        fail.value = false
         try file.save(file.load())
         XCTAssertEqual(try file.load(), loaded)
         XCTAssertEqual(try file.backupURLs(), backups)
@@ -140,18 +140,18 @@ final class DiskSchemaTests: XCTestCase {
     func testMigrationBackupFailurePreventsDataAndPreferenceChanges() throws {
         let adapter = MemoryPlannerPreferences()
         let url = directory.appendingPathComponent("planner.json")
-        var hit = false
+        let hit = LockedValue(false)
         var io = PlannerFile.IO()
         io.write = { data, target in
             if target.deletingLastPathComponent().lastPathComponent == "planner.json.migrations" {
-                hit = true; throw PlannerError("Synthetic migration backup failure")
+                hit.value = true; throw PlannerError("Synthetic migration backup failure")
             }
             try data.write(to: target, options: .atomic)
         }
         let file = PlannerFile(url: url, io: io, preferences: adapter)
         let raw = try legacy(file)
         XCTAssertThrowsError(try file.save(file.load()))
-        XCTAssertTrue(hit)
+        XCTAssertTrue(hit.value)
         XCTAssertEqual(try Data(contentsOf: url), raw)
         XCTAssertNil(adapter.load())
         XCTAssertTrue(try file.backupURLs().isEmpty)

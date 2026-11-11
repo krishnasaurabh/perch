@@ -26,14 +26,46 @@ final class PlannerStore: ObservableObject {
     private var visibleDayOffsets = [0]
     private var loadFailure: PerchAppError?
     private var loadNeedsRetry = false
-    private var recoveryTimer: Timer?
-    private var saveWork: (any AppScheduledAction)?
-    private var reloadWork: (any AppScheduledAction)?
-    private var focusWork: (any AppScheduledAction)?
-    private var dayWork: (any AppScheduledAction)?
+    @MainActor
+    private final class LifetimeState {
+        var recoveryTimer: Timer?
+        var saveWork: (any AppScheduledAction)?
+        var reloadWork: (any AppScheduledAction)?
+        var focusWork: (any AppScheduledAction)?
+        var dayWork: (any AppScheduledAction)?
+        var observationTokens: [(NotificationCenter, NSObjectProtocol)] = []
+    }
+    private let lifetimeState = MainActorLifetime(LifetimeState()) { state in
+        state.recoveryTimer?.invalidate()
+        for (center, token) in state.observationTokens { center.removeObserver(token) }
+        state.reloadWork?.cancel(); state.focusWork?.cancel(); state.dayWork?.cancel(); state.saveWork?.cancel()
+    }
+    private var recoveryTimer: Timer? {
+        get { lifetimeState.state.recoveryTimer }
+        set { lifetimeState.state.recoveryTimer = newValue }
+    }
+    private var saveWork: (any AppScheduledAction)? {
+        get { lifetimeState.state.saveWork }
+        set { lifetimeState.state.saveWork = newValue }
+    }
+    private var reloadWork: (any AppScheduledAction)? {
+        get { lifetimeState.state.reloadWork }
+        set { lifetimeState.state.reloadWork = newValue }
+    }
+    private var focusWork: (any AppScheduledAction)? {
+        get { lifetimeState.state.focusWork }
+        set { lifetimeState.state.focusWork = newValue }
+    }
+    private var dayWork: (any AppScheduledAction)? {
+        get { lifetimeState.state.dayWork }
+        set { lifetimeState.state.dayWork = newValue }
+    }
     private var observer: PlannerDirectoryObserver?
     private let runtimeIO = PlannerRuntimeIO()
-    private var observationTokens: [(NotificationCenter, NSObjectProtocol)] = []
+    private var observationTokens: [(NotificationCenter, NSObjectProtocol)] {
+        get { lifetimeState.state.observationTokens }
+        set { lifetimeState.state.observationTokens = newValue }
+    }
     private var revision: PlannerFileRevision?
     private var epoch = 0
     private var reloadInFlight = false
@@ -286,18 +318,12 @@ final class PlannerStore: ObservableObject {
 
     private func observe(
         _ center: NotificationCenter, _ name: Notification.Name,
-        action: @escaping (PlannerStore) -> Void
+        action: @escaping @MainActor @Sendable (PlannerStore) -> Void
     ) {
         let token = center.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
             Task { @MainActor in if let self { action(self) } }
         }
         observationTokens.append((center, token))
-    }
-
-    deinit {
-        recoveryTimer?.invalidate()
-        for (center, token) in observationTokens { center.removeObserver(token) }
-        reloadWork?.cancel(); focusWork?.cancel(); dayWork?.cancel(); saveWork?.cancel()
     }
 
     private func clockChanged() {

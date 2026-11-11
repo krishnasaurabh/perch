@@ -54,11 +54,15 @@ public enum PlannerAction {
     case deleteProject(UUID)
     case suggest(UUID, priority: TaskPriority, projectID: UUID?)
     case lifecycle(PlannerLifecycle)
-    /// Explicit synthetic preview initialization; rejected unless the document is empty.
-    case seedPreview(PlannerPreview)
+    #if DEBUG || PERCH_TESTING
+        /// Explicit synthetic preview initialization; rejected unless the document is empty.
+        case seedPreview(PlannerPreview)
+    #endif
 }
 
-public enum PlannerPreview { case empty, three, timer, insights }
+#if DEBUG || PERCH_TESTING
+    public enum PlannerPreview { case empty, three, timer, insights }
+#endif
 
 public enum PlannerLifecycle {
     case launch
@@ -66,7 +70,7 @@ public enum PlannerLifecycle {
     case dayChanged
 }
 
-public struct PlannerActionResult {
+public struct PlannerActionResult: Sendable {
     public var tasks: [PlanTask] = []
     public var focus: FocusSession?
     public var flag = false
@@ -158,39 +162,44 @@ extension PlannerEngine {
                 // Browsing history must not create tasks on an earlier day.
                 if day >= today { result.tasks = applyRepeats(on: day) }
             }
-        case .seedPreview(let scenario):
-            guard planner.tasks.isEmpty, planner.notes.isEmpty, planner.focus == nil,
-                planner.focusSegments.isEmpty, planner.projects.isEmpty
-            else {
-                throw PlannerError("Preview initialization needs an empty planner.")
-            }
-            planner.preferences.welcomeCompleted = true
-            switch scenario {
-            case .empty: break
-            case .three, .timer:
-                let added = try addTasks(
-                    ["Draft the test checklist !high #work", "Review the release notes", "Choose a desk plant"],
-                    on: .day(today))
-                if case .timer = scenario { _ = try startTimer(task: added[0].id, minutes: 45) }
-            case .insights:
-                let doneByDay = [2, 4, 3, 5, 1, 6, 4, 3, 2, 3, 2, 0, 3, 2]
-                for (i, done) in doneByDay.enumerated() {
-                    let ago = doneByDay.count - 1 - i
-                    let date = calendar.date(byAdding: .day, value: -ago, to: now())!
-                    let day = dayKey(date)
-                    for n in 0..<(done + 1 + i % 2) {
-                        let at = calendar.date(bySettingHour: 9 + n, minute: 15, second: 0, of: date) ?? date
-                        planner.tasks.append(
-                            PlanTask(
-                                title: "Task \(n + 1)", day: day, done: n < done, completedAt: n < done ? at : nil,
-                                createdAt: date))
-                    }
-                    if ago > 0, done > 0, let start = calendar.date(bySettingHour: 10, minute: 0, second: 0, of: date) {
-                        planner.focusSegments.append(
-                            FocusSegment(taskID: nil, start: start, end: start.addingTimeInterval(Double(done) * 600)))
+        #if DEBUG || PERCH_TESTING
+            case .seedPreview(let scenario):
+                guard planner.tasks.isEmpty, planner.notes.isEmpty, planner.focus == nil,
+                    planner.focusSegments.isEmpty, planner.projects.isEmpty
+                else {
+                    throw PlannerError("Preview initialization needs an empty planner.")
+                }
+                planner.preferences.welcomeCompleted = true
+                switch scenario {
+                case .empty: break
+                case .three, .timer:
+                    let added = try addTasks(
+                        ["Draft the test checklist !high #work", "Review the release notes", "Choose a desk plant"],
+                        on: .day(today))
+                    if case .timer = scenario { _ = try startTimer(task: added[0].id, minutes: 45) }
+                case .insights:
+                    let doneByDay = [2, 4, 3, 5, 1, 6, 4, 3, 2, 3, 2, 0, 3, 2]
+                    for (i, done) in doneByDay.enumerated() {
+                        let ago = doneByDay.count - 1 - i
+                        let date = calendar.date(byAdding: .day, value: -ago, to: now())!
+                        let day = dayKey(date)
+                        for n in 0..<(done + 1 + i % 2) {
+                            let at = calendar.date(bySettingHour: 9 + n, minute: 15, second: 0, of: date) ?? date
+                            planner.tasks.append(
+                                PlanTask(
+                                    title: "Task \(n + 1)", day: day, done: n < done, completedAt: n < done ? at : nil,
+                                    createdAt: date))
+                        }
+                        if ago > 0, done > 0,
+                            let start = calendar.date(bySettingHour: 10, minute: 0, second: 0, of: date)
+                        {
+                            planner.focusSegments.append(
+                                FocusSegment(
+                                    taskID: nil, start: start, end: start.addingTimeInterval(Double(done) * 600)))
+                        }
                     }
                 }
-            }
+        #endif
         }
         return result
     }

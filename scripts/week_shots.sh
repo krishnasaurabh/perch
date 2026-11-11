@@ -236,5 +236,5 @@ helper = source[start:end]
     'import AppKit\nimport SwiftUI\n\n' + helper)
 entry.write_text(source[:start] + source[end:])
 PY
-swift build -Xswiftc -enable-testing --package-path "$PROBE" -c release --product Perch
+swift build -Xswiftc -DPERCH_TESTING -Xswiftc -enable-testing --package-path "$PROBE" -c release --product Perch
 PERCH_DATA="$DATA" WEEK_OUTPUT="$OUT" "$PROBE/.build/release/Perch"
