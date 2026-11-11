@@ -140,7 +140,8 @@ extension Color {
 }
 
 @MainActor func click(_ point: CGPoint, in host: NSView, window: NSWindow) {
-    let location = host.convert(CGPoint(x: point.x, y: host.bounds.height - point.y), to: nil)
+    let local = CGPoint(x: point.x, y: host.isFlipped ? point.y : host.bounds.height - point.y)
+    let location = host.convert(local, to: nil)
     for type in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
         let event = NSEvent.mouseEvent(
             with: type, location: location, modifierFlags: [], timestamp: 0,

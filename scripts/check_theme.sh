@@ -9,6 +9,7 @@ OUT=$(cd "$OUT" && pwd)
 PROBE=$(mktemp -d "$OUT/build.XXXXXX")
 trap 'rm -rf "$PROBE"' EXIT
 python3 "$ROOT/scripts/theme_contrast.py"
+python3 -m unittest discover -s "$ROOT/scripts" -p test_theme_contrast.py
 cp "$ROOT/Package.swift" "$PROBE/"
 cp -R "$ROOT/Sources" "$PROBE/"
 cp -R "$ROOT/Tests" "$PROBE/"
