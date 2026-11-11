@@ -50,6 +50,22 @@ final class LocalizationTests: XCTestCase {
         for message in AgentConnector.ConnectionMessage.allCases {
             XCTAssertTrue(AgentConnector.connectionMessage(message, locale: pseudo).hasPrefix("⟦"), "\(message)")
         }
+        for key in [
+            "What would you like to do?", "Previous week", "Next week", "Add date", "Clear", "Apply",
+            "⌘↩ makes a task", "All day",
+        ] {
+            XCTAssertTrue(AppL10n.text(key, locale: pseudo).hasPrefix("⟦"), key)
+        }
+        for tab in DashboardView.Tab.allCases {
+            XCTAssertTrue(AppL10n.text(tab.rawValue, locale: pseudo).hasPrefix("⟦"), tab.rawValue)
+        }
+        for prompt in AgentConnector.examplePrompts {
+            XCTAssertTrue(AppL10n.text(prompt, locale: pseudo).hasPrefix("⟦"), prompt)
+        }
+        let shortcutProblem = AppL10n.format(
+            "macOS wouldn't give up that combination. Kept %@.", locale: pseudo, "⌥N")
+        XCTAssertTrue(shortcutProblem.hasPrefix("⟦"))
+        XCTAssertTrue(shortcutProblem.contains("⌥N"))
         let connectionError = AgentConnector.claudeCodeConnectionError(" Unavailable\n")
         XCTAssertEqual(connectionError.message, "Adding Perch to Claude Code failed. Unavailable")
         XCTAssertEqual(

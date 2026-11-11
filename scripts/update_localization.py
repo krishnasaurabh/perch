@@ -19,10 +19,15 @@ STATIC_UI = re.compile(
     r'(?:Text|Button|Label|Toggle|Section|Picker|LabeledContent|TextField|CardHeading|EmptyStateView|Menu|Tab|alert|confirmationDialog|accessibilityLabel|accessibilityHint|help|navigationTitle|prompt)\s*\(\s*"((?:\\.|[^"\\])*)"',
     re.S,
 )
+HELPER_ARGUMENT = re.compile(
+    r'\b(?:help|placeholder|title|subtitle|disabledReason|prompt):\s*"((?:\\.|[^"\\])*)"'
+)
 ERROR = re.compile(r'PlannerError\(\s*"((?:\\.|[^"\\])*)"')
 LOCAL_HELPER = re.compile(r'(?<![A-Za-z])(?:text|format)\(\s*"((?:\\.|[^"\\])*)"')
 ENUM_RAW = re.compile(r'(?:\bcase\s+|,\s*)[A-Za-z_]\w*\s*=\s*"((?:\\.|[^"\\])*)"')
 TERNARY = re.compile(r'\?\s*"((?:\\.|[^"\\])*)"\s*:\s*"((?:\\.|[^"\\])*)"', re.S)
+EXAMPLE_PROMPTS = re.compile(r'\bstatic\s+let\s+examplePrompts\s*=\s*\[(.*?)\]', re.S)
+QUOTED = re.compile(r'"((?:\\.|[^"\\])*)"')
 PRESENTATION = re.compile(
     r'AppL10n|PerchL10n|Text\(|Label\(|Button\(|Toggle\(|Picker\(|Menu\(|Section\(|'
     r'CardHeading\(|EmptyStateView\(|accessibilityLabel|accessibilityHint|\.help\(')
@@ -68,6 +73,7 @@ def human_app_strings():
     paths = list(APP.rglob('*.swift'))
     found = collect(L10N, paths)
     found |= collect(STATIC_UI, paths)
+    found |= collect(HELPER_ARGUMENT, paths)
     # PlannerError carries a stable presentation key and arguments. Its fully
     # rendered English transport text is deliberately not an extraction input.
     for directory in (APP, CORE, MCP):
@@ -75,8 +81,15 @@ def human_app_strings():
     for path in paths:
         text = source(path)
         # Enum raw values become visible only through an explicit AppL10n call.
-        if 'AppL10n.text(rawValue)' in text:
+        if re.search(r'AppL10n\.text\(\s*(?:\$0\.)?rawValue\b', text):
             found |= collect(ENUM_RAW, [path])
+        # Prompts are displayed through AppL10n but copied in their original
+        # English form, so extract their stable array entries separately.
+        for match in EXAMPLE_PROMPTS.finditer(text):
+            for raw in QUOTED.findall(match.group(1)):
+                value = key(raw)
+                if value and any(character.isalpha() for character in value):
+                    found.add(value)
         # Static ternary labels need both branches. Restrict this pass to actual
         # presentation expressions so logs, predicates and identifiers stay out.
         for match in TERNARY.finditer(text):

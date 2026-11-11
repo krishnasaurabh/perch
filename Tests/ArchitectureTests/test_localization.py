@@ -59,6 +59,34 @@ class LocalizationTests(unittest.TestCase):
             self.assertNotIn('\n', key, key)
             self.assertFalse(key.startswith(('authorization status=', 'calendar created id=', 'windows=')), key)
 
+    def test_dynamic_producers_and_helper_arguments_have_catalog_entries(self):
+        app = json.loads((ROOT / 'Sources/PerchApp/Resources/Localizable.xcstrings').read_text())['strings']
+        required = {
+            'What would you like to do?', 'Previous week', 'Next week', 'Add date', 'Clear', 'Apply',
+            'Upcoming', 'Projects', '⌘↩ makes a task', 'All day',
+            "macOS wouldn't give up that combination. Kept %@.",
+        }
+        agent = (ROOT / 'Sources/PerchApp/Services/AgentConnector.swift').read_text()
+        prompt_match = re.search(r'static let examplePrompts = \[(.*?)\]', agent, re.S)
+        assert prompt_match is not None
+        prompt_block = prompt_match.group(1)
+        required.update(raw.replace(r'\"', '"') for raw in re.findall(r'"((?:\\.|[^"\\])*)"', prompt_block))
+        for key in sorted(required):
+            self.assertIn(key, app)
+        dashboard = (ROOT / 'Sources/PerchApp/Settings/DashboardView.swift').read_text()
+        self.assertIn('Text(AppL10n.text($0.rawValue))', dashboard)
+        shortcut = (ROOT / 'Sources/PerchApp/Settings/ShortcutPreferenceRow.swift').read_text()
+        self.assertIn('AppL10n.format("macOS wouldn\'t give up that combination. Kept %@.", shortcut.display)', shortcut)
+
+    def test_week_measurement_hooks_match_production_source(self):
+        from scripts import week_measurement_hooks
+        source = (ROOT / 'Sources/PerchApp/Workspace/WeekPage.swift').read_text()
+        instrumented = week_measurement_hooks.instrument(source)
+        self.assertNotEqual(instrumented, source)
+        self.assertEqual(len(week_measurement_hooks.EDITS), 5)
+        for marker in ('WeekMeasure(key: "count:', 'WeekMeasure(key: "add:', 'week-overflow-'):
+            self.assertIn(marker, instrumented)
+
     def test_all_interactive_capture_paths_validate_language_before_mutation(self):
         store = (ROOT / 'Sources/PerchApp/App/PlannerStore.swift').read_text()
         self.assertIn('guard let supported = parserLanguage() else', store)

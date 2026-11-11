@@ -159,7 +159,7 @@ struct NotepadCard: View {
             CardHeading(
                 AppL10n.text("Notepad"),
                 trailing: AnyView(
-                    Text(flash ?? "⌘↩ makes a task").font(Theme.meta).foregroundStyle(
+                    Text(flash ?? AppL10n.text("⌘↩ makes a task")).font(Theme.meta).foregroundStyle(
                         flash == nil ? Theme.tertiary : Theme.accent)))
             ScratchpadEditor(
                 text: Binding(
@@ -362,9 +362,13 @@ private struct AgendaBody: View {
                                 .help(
                                     completed
                                         ? "Mark incomplete in Perch" : "Mark complete in Perch (Calendar is unchanged)")
-                                Text(e.allDay ? "All day" : e.start.formatted(date: .omitted, time: .shortened))
-                                    .font(Theme.meta.monospacedDigit()).foregroundStyle(Theme.secondary)
-                                    .frame(width: 58, alignment: .leading)
+                                Text(
+                                    e.allDay
+                                        ? AppL10n.text("All day")
+                                        : e.start.formatted(date: .omitted, time: .shortened)
+                                )
+                                .font(Theme.meta.monospacedDigit()).foregroundStyle(Theme.secondary)
+                                .frame(width: 58, alignment: .leading)
                                 Text(e.title).font(Theme.title).lineLimit(1)
                                     .strikethrough(completed)
                                     .foregroundStyle(completed ? Theme.secondary : Theme.text)

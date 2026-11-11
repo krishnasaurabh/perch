@@ -28,10 +28,11 @@ struct StatusLabel: View {
     let title: String
     let tone: Tone
     var locale: Locale? = nil
+    @ScaledMetric(relativeTo: .caption) private var metaSize = ThemeTokens.TypeSize.meta
 
     var body: some View {
         Label(AppL10n.text(title, locale: locale), systemImage: tone.symbol)
-            .font(Theme.meta)
+            .font(.system(size: metaSize, weight: .medium))
             .foregroundStyle(tone.color)
             .fixedSize(horizontal: false, vertical: true)
             .accessibilityElement(children: .ignore)
