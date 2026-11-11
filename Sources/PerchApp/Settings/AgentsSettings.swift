@@ -13,12 +13,12 @@ struct AgentsSettings: View {
             Text(
                 "One-time setup that lets Claude read and edit your plan, tick tasks off and run timers. The MCP server runs inside Perch on this Mac, with no network hop."
             )
-            .font(.caption).foregroundStyle(.secondary)
+            .font(Theme.meta).foregroundStyle(Theme.secondary)
             if !AppInfo.isInApplications {
                 Label(
                     "Agent setup requires Perch to be installed in Applications.",
                     systemImage: "exclamationmark.triangle"
-                ).foregroundStyle(.orange)
+                ).foregroundStyle(Theme.warning)
             }
             ForEach(AgentConnector.App.allCases) { app in
                 HStack {
@@ -26,7 +26,7 @@ struct AgentsSettings: View {
                     Spacer()
                     switch statuses[app] ?? .notInstalled {
                     case .connected:
-                        Label("Connected", systemImage: "checkmark.circle.fill").foregroundStyle(.green)
+                        Label("Connected", systemImage: "checkmark.circle.fill").foregroundStyle(Theme.success)
                         Button("Disconnect") {
                             try? AgentConnector.disconnect(app); refresh()
                         }
@@ -38,22 +38,23 @@ struct AgentsSettings: View {
                             refresh()
                         }
                     case .notInstalled:
-                        Text("Not installed").foregroundStyle(.secondary)
+                        Text("Not installed").foregroundStyle(Theme.secondary)
                         if app == .claudeApp { Link("Get it", destination: URL(string: "https://claude.ai/download")!) }
                     }
                 }
             }
-            if let message { Text(message).font(.caption) }
+            if let message { Text(message).font(Theme.meta) }
         }
         Section("Or use Terminal") {
             HStack {
-                Text(AgentConnector.terminalCommand).font(.system(size: 11, design: .monospaced)).textSelection(
+                Text(AgentConnector.terminalCommand).font(Theme.meta.monospaced()).textSelection(
                     .enabled
                 ).lineLimit(2)
                 Spacer()
                 Button(copied == "cmd" ? "Copied" : "Copy") { copy(AgentConnector.terminalCommand, "cmd") }
             }
-            Text("Scripts can also open perch://add?title=Your%20task").font(.caption).foregroundStyle(.secondary)
+            Text("Scripts can also open perch://add?title=Your%20task").font(Theme.meta).foregroundStyle(
+                Theme.secondary)
         }
         Section("Try one of these") {
             ForEach(AgentConnector.examplePrompts, id: \.self) { p in
@@ -61,13 +62,13 @@ struct AgentsSettings: View {
                     copy(p, p)
                 } label: {
                     HStack {
-                        Text(p); Spacer(); if copied == p { Text("Copied").foregroundStyle(.secondary) }
+                        Text(p); Spacer(); if copied == p { Text("Copied").foregroundStyle(Theme.secondary) }
                     }
-                }.buttonStyle(.plain)
+                }.buttonStyle(PillStyle())
             }
             Text(
                 "Click a prompt to copy it and paste it into Claude. Its edits appear in the notch immediately; ⌘Z reverts them."
-            ).font(.caption).foregroundStyle(.secondary)
+            ).font(Theme.meta).foregroundStyle(Theme.secondary)
         }
         .onAppear(perform: refresh)
         .task(id: copied) {
