@@ -3,7 +3,7 @@ import SwiftUI
 enum DashboardWindow {
     @MainActor static func show(store: PlannerStore, tab: DashboardView.Tab = .insights) {
         WindowHost.show("dashboard", title: "Perch", size: CGSize(width: 900, height: 640)) {
-            DashboardView(tab: tab).environmentObject(store)
+            DashboardView(tab: tab).environmentObject(store).environment(\.accessibilityEnabled, true)
         }
     }
 

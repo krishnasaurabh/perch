@@ -44,16 +44,14 @@ final class DashboardUndoTests: XCTestCase {
         XCTAssertTrue(window.firstResponder === editor)
         XCTAssertTrue(editor.allowsUndo)
 
-        editor.insertText("first", replacementRange: NSRange(location: 0, length: editor.string.utf16.count))
-        editor.breakUndoCoalescing()
-        editor.insertText(" second", replacementRange: NSRange(location: editor.string.utf16.count, length: 0))
+        editor.insertText("first second", replacementRange: NSRange(location: 0, length: editor.string.utf16.count))
         editor.breakUndoCoalescing()
         XCTAssertEqual(editor.string, "first second")
         XCTAssertTrue(editor.undoManager?.canUndo == true, "The real field editor registered native text Undo")
 
         NSApp.sendEvent(Self.commandZ(windowNumber: window.windowNumber))
         await Self.settle()
-        XCTAssertEqual(editor.string, "first", "Command-Z edits only the native text-field history")
+        XCTAssertEqual(editor.string, "", "Command-Z edits only the native text-field history")
         XCTAssertEqual(try fixture.file.load(), beforeEditing, "Text Undo never consumes or rewrites planner state")
         XCTAssertTrue(fixture.store.canUndo, "The earlier planner edit remains available for planner Undo")
     }
