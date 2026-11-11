@@ -83,9 +83,19 @@ struct ColorPair {
     }
     rows.append(
         ColorPair(name: "prominent-label", foreground: Theme.onAccent, background: Theme.prominent, minimum: 4.5))
+    rows.append(
+        ColorPair(
+            name: "planned-chart/lavender", foreground: Theme.chartPlanned, background: Theme.lavender, minimum: 3))
+    rows.append(
+        ColorPair(
+            name: "completed-chart/lavender", foreground: Theme.chartCompleted, background: Theme.lavender, minimum: 3))
+    rows.append(
+        ColorPair(
+            name: "completed-chart/planned-chart", foreground: Theme.chartCompleted,
+            background: Theme.chartPlanned, minimum: 3))
     if light {
         rows.append(
-            ColorPair(name: "planned-chart/lavender", foreground: Theme.chartPlanned, background: strong, minimum: 3))
+            ColorPair(name: "focus-progress/track", foreground: Theme.text, background: Theme.chartPlanned, minimum: 3))
     }
     return rows
 }

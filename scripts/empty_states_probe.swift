@@ -76,10 +76,11 @@ func probeWeekBars(_ focusOnly: Insights, output: URL) async {
     window.contentView = NSHostingView(
         rootView:
             WeekBars(days: insights.lastSeven, metric: .tasks, today: engine.today)
-            .padding(10).frame(width: size.width, height: size.height).background(Color.white))
+            .padding(10).frame(width: size.width, height: size.height).background(Theme.lavender)
+            .environment(\.colorScheme, .light))
     window.orderFrontRegardless()
 
-    // Top edge (in points from the top) of planned-grey and completed-dark pixels in today's column.
+    // Top edge (in points from the top) of planned-light and completed-dark pixels in today's column.
     @MainActor func frame(_ name: String) -> (planned: CGFloat?, completed: CGFloat?) {
         guard let view = window.contentView else { return (nil, nil) }
         let directory = output.appendingPathComponent("insights-bars")

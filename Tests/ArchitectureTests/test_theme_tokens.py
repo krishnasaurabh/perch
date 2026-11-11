@@ -22,7 +22,30 @@ class ThemeContrastTests(unittest.TestCase):
                          'tertiary/card readable', 'danger/alternate readable',
                          'text/control-pressed', 'input-text/alternate-focused', 'prominent-label'):
                 self.assertIn((mode, name), identities)
+            for name in ('planned-chart/lavender', 'completed-chart/lavender', 'completed-chart/planned-chart'):
+                self.assertIn((mode, name), identities)
+        self.assertIn(('light', 'focus-progress/track'), identities)
         self.assertTrue(all(r['ratio'] >= r['minimum'] for r in rows))
+
+    def test_low_contrast_adjacent_series_are_rejected(self):
+        original = Path.read_text
+        def altered(path, *args, **kwargs):
+            value = original(path, *args, **kwargs)
+            return value.replace('chartPlanned: UInt32 = 0xFFFFFF', 'chartPlanned: UInt32 = 0x423F50') if path.name == 'ThemeTokens.swift' else value
+        with patch.object(Path, 'read_text', altered), self.assertRaisesRegex(AssertionError, 'completed-chart/planned-chart'):
+            THEME.source_rows()
+
+    def test_graphic_pairs_match_production_callers(self):
+        home = (ROOT / 'Sources/PerchApp/Workspace/HomeCards.swift').read_text()
+        chart = (ROOT / 'Sources/PerchApp/Workspace/InsightsPage.swift').read_text()
+        surface = (ROOT / 'Sources/PerchApp/Workspace/Components/CardSurface.swift').read_text()
+        self.assertIn('Capsule().fill(Theme.chartPlanned)', home)
+        self.assertIn('Capsule().fill(Theme.text)', home)
+        self.assertIn('.card(.timer)', home)
+        self.assertIn('case .timer: return Theme.lavender', surface)
+        self.assertIn('self == .tile ? .dark : .light', surface)
+        self.assertIn('color: Theme.chartPlanned', chart)
+        self.assertIn('color: Theme.chartCompleted', chart)
 
     def test_low_contrast_tertiary_is_rejected(self):
         original = Path.read_text

@@ -24,6 +24,8 @@ class ThemeProbeContractTests(unittest.TestCase):
         source = (ROOT / 'scripts/empty_states_probe.swift').read_text()
         self.assertIn('ThemeTokens.chartPlanned', source)
         self.assertIn('ThemeTokens.chartCompleted', source)
+        self.assertIn('.background(Theme.lavender)', source)
+        self.assertNotIn('.background(Color.white)', source)
         self.assertNotIn('NSColor(Theme.chartPlanned)', source)
         self.assertIn('/usr/sbin/screencapture', source)
         self.assertIn('plannedRun >= 3', source)

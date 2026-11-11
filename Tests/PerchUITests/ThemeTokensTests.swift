@@ -47,6 +47,15 @@ final class ThemeTokensTests: XCTestCase {
         }
     }
 
+    func testOverlaidSeriesAndFocusProgressRemainDistinct() {
+        XCTAssertGreaterThanOrEqual(
+            contrast(ThemeTokens.chartCompleted, ThemeTokens.chartPlanned), 3,
+            "Completed overlays Planned, so their shared edge must remain visible")
+        XCTAssertGreaterThanOrEqual(
+            contrast(ThemeTokens.light.text, ThemeTokens.chartPlanned), 3,
+            "Focus progress uses light-context ink on the timer card's planned-color track")
+    }
+
     func testSmallTypeScaleAndGeometryContract() {
         XCTAssertEqual(
             [

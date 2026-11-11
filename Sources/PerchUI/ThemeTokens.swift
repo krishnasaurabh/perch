@@ -24,7 +24,8 @@ public enum ThemeTokens {
     public static let tile: UInt32 = 0x1D1D1D
     public static let tileStrong: UInt32 = 0x303030
     public static let chartCompleted: UInt32 = 0x1A1E20
-    public static let chartPlanned: UInt32 = 0x423F50
+    // Planned sits against both lavender and the overlaid dark completed/progress fill.
+    public static let chartPlanned: UInt32 = 0xFFFFFF
 
     public enum TypeSize {
         public static let meta: Double = 11

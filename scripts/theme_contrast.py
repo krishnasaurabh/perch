@@ -107,8 +107,14 @@ def source_rows():
                 add(mode, f'input-text/{label}-{state}', token('text', mode), token(fill, mode, bg), 4.5)
             add(mode, f'focus-ring/{label}', token('info', mode), bg, 3)
         add(mode, 'prominent-label', token('onAccent', mode), token('prominent', mode), 4.5)
+        # Chart colors do not vary with the desktop appearance. Both series must
+        # contrast with the timer card AND with each other where they overlap.
+        lavender = token('lavender', mode)
+        add(mode, 'planned-chart/lavender', token('chartPlanned', mode), lavender, 3)
+        add(mode, 'completed-chart/lavender', token('chartCompleted', mode), lavender, 3)
+        add(mode, 'completed-chart/planned-chart', token('chartCompleted', mode), token('chartPlanned', mode), 3)
         if mode == 'light':
-            add(mode, 'planned-chart/lavender', token('chartPlanned', mode), alternate, 3)
+            add(mode, 'focus-progress/track', token('text', mode), token('chartPlanned', mode), 3)
     assert len({(r['appearance'], r['name']) for r in rows}) == len(rows)
     return rows
 
