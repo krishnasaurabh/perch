@@ -120,7 +120,21 @@ jobs:
       - name: Domain, MCP, UI logic and macOS app-layer tests
         run: |
           python3 -m unittest discover -s Tests/ArchitectureTests
-          swift test
+          if ! swift test; then
+            mkdir -p "$RUNNER_TEMP/native-diagnostics"
+            # Preserve an actual native backtrace, rather than hiding a runner crash behind retries.
+            lldb --batch -o 'settings set target.disable-aslr false' -o run -o 'thread backtrace all' -- \
+              "$(xcrun --find xctest)" -XCTest 'PerchAppTests.RuntimeObservationTests/testStoreIdleDoesNotPublishOrDecodeEverySecond' \
+              .build/debug/PerchPackageTests.xctest > "$RUNNER_TEMP/native-diagnostics/backtrace.txt" 2>&1 || true
+            exit 1
+          fi
+      - name: Native failure diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-diagnostics
+          path: ${{ runner.temp }}/native-diagnostics
+          if-no-files-found: ignore
       - name: Build and smoke-test the distribution Release app
         run: |
           scripts/bundle.sh
