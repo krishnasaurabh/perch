@@ -69,7 +69,7 @@ cat > "$PROBE/Sources/Perch/main.swift" <<'SWIFT'
 import AppKit
 import ApplicationServices
 import SwiftUI
-import PlannerCore
+@testable import PlannerCore
 #if canImport(PerchApp)
 @testable import PerchApp
 import PerchUI
@@ -156,7 +156,10 @@ func wakeAccessibility() async {
     var seen = Set<ObjectIdentifier>()
     @MainActor func walk(_ node: NSObject) -> [NSObject] {
         guard seen.insert(ObjectIdentifier(node)).inserted else { return [] }
-        return [node] + ((attribute(node, "accessibilityChildren") as? [NSObject]) ?? []).flatMap { walk($0) }
+        let children = (attribute(node, "accessibilityChildren") as? [NSObject]) ?? []
+        let contents = (attribute(node, "accessibilityContents") as? [NSObject]) ?? []
+        let subviews = (node as? NSView)?.subviews ?? []
+        return [node] + (children + contents + subviews).flatMap { walk($0) }
     }
     return walk(root)
 }
@@ -206,6 +209,7 @@ func wakeAccessibility() async {
     store.beginApplication()
     measurements.removeAll()
     let host = NSHostingView(rootView: WeekPage().environmentObject(store).environmentObject(model)
+        .environment(\.accessibilityEnabled, true)
         .environment(\.motionPolicyOverride, MotionPolicy(reduceMotion: true)).padding(12))
     window.contentView = host
     window.makeKeyAndOrderFront(nil)
@@ -283,6 +287,7 @@ MainActor.assumeIsolated {
                 let host = NSHostingView(rootView: WeekPage()
                     .environmentObject(store).environmentObject(model)
                     .environment(\.colorScheme, .dark)
+                    .environment(\.accessibilityEnabled, true)
                     .environment(\.motionPolicyOverride, MotionPolicy(reduceMotion: true))
                     .padding(12).background(Color.black))
                 window.contentView = host

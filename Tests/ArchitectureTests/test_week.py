@@ -24,6 +24,21 @@ class WeekViewTests(unittest.TestCase):
         source = (ROOT / "Sources/PerchApp/Workspace/WeekPage.swift").read_text()
         self.assertIn('help: task.done ? "Uncheck task: \\(task.title)" : "Check off task: \\(task.title)"', source)
 
+    def test_native_probe_imports_the_fixture_storage_module(self):
+        source = (ROOT / "scripts/week_shots.sh").read_text()
+        launcher = source.split("<<'SWIFT'", 1)[1].split("\nSWIFT", 1)[0]
+        self.assertIn("try file.save(seed)", launcher)
+        self.assertIn("@testable import PlannerCore", launcher)
+        self.assertIn("-Xswiftc -enable-testing", source)
+
+    def test_native_probe_publishes_and_walks_accessibility(self):
+        source = (ROOT / "scripts/week_shots.sh").read_text()
+        self.assertEqual(source.count(r'.environment(\.accessibilityEnabled, true)'), 2)
+        self.assertIn('attribute(node, "accessibilityContents")', source)
+        self.assertIn('(node as? NSView)?.subviews', source)
+        self.assertIn('"AXButton", "Completion control is not a button"', source)
+        self.assertIn('"Checking one task changed its neighbour"', source)
+
     def test_chips_have_real_completion_and_menu_controls(self):
         source = (ROOT / "Sources/PerchApp/Workspace/WeekPage.swift").read_text()
         self.assertIn("WeekTaskPolicy.completionAction", source)

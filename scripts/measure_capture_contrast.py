@@ -223,30 +223,37 @@ def measure_week(path):
             joined[-1] = (joined[-1][0], end)
         else:
             joined.append((start, end))
-    # The bottom control band is capture, even when tall chips share its fill.
-    # Only one day can be editable at the end of a week, so require a field's
-    # run rather than a fixed percentage of the entire seven-day viewport.
-    fy0, fy1 = joined[-1]
-    band_pixels = Counter(p for row in img[fy0:fy1] for p in row)
-    control_count = sum(n for p, n in band_pixels.items() if near(p, fills["control"], 2))
-    legacy_count = sum(n for p, n in band_pixels.items() if near(p, fills["tile"], 2))
-    height = 32 if control_count > legacy_count else 22
-    k = max(1, round((fy1 - fy0) / height))
-    band = img[fy0:fy1]
-    fields = []
-    for name, fill in fills.items():
-        col = [sum(near(row[x], fill, 2) for row in band) >= 0.3 * len(band) for x in range(len(band[0]))]
-        x = 0
-        while x < len(col):
-            if not col[x]:
-                x += 1
-                continue
-            s = x
-            while x < len(col) and col[x]:
-                x += 1
-            if x - s >= 30 * k:
-                fields.append((s, x, name))
-    assert fields, f"{path}: no Week composer fields found"
+    # Inspect bottom-up, but reject glyph-sized bands before estimating scale.
+    # Antialiased footer text can match the fill; it is not a 22/32pt input.
+    # Require sustained field-width columns too, so scattered glyphs cannot
+    # displace the actual composer band. Only one day may be editable.
+    fields, selected = [], None
+    for fy0, fy1 in reversed(joined):
+        if fy1 - fy0 < 18:
+            continue
+        band = img[fy0:fy1]
+        band_pixels = Counter(p for row in band for p in row)
+        control_count = sum(n for p, n in band_pixels.items() if near(p, fills["control"], 2))
+        legacy_count = sum(n for p, n in band_pixels.items() if near(p, fills["tile"], 2))
+        height = 32 if control_count > legacy_count else 22
+        k = max(1, round((fy1 - fy0) / height))
+        for name, fill in fills.items():
+            col = [sum(near(row[x], fill, 2) for row in band) >= 0.3 * len(band) for x in range(len(band[0]))]
+            x = 0
+            while x < len(col):
+                if not col[x]:
+                    x += 1
+                    continue
+                s = x
+                while x < len(col) and col[x]:
+                    x += 1
+                if x - s >= 30 * k:
+                    fields.append((s, x, name))
+        if fields:
+            selected = (fy0, fy1, k)
+            break
+    assert selected is not None, f"{path}: no Week composer fields found"
+    fy0, fy1, k = selected
     out = []
     for fx0, fx1, under in sorted(fields):
         x0, x1, y0, y1 = fx0 + 4 * k, fx1 - 4 * k, fy0 + 2 * k, fy1 - 2 * k
