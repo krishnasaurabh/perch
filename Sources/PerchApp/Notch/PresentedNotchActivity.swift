@@ -1,4 +1,5 @@
 import Foundation
+import PlannerCore
 
 /// A short-lived thing the closed notch shows: a reminder nudge, a finished timer, a caught clip.
 struct PresentedNotchActivity: Identifiable, Equatable {
@@ -7,4 +8,16 @@ struct PresentedNotchActivity: Identifiable, Equatable {
     var kind: Kind
     var title: String
     var subtitle: String
+}
+
+@MainActor
+extension NotchModel {
+    /// A rejected mutation leaves the reminder and its actions available for retry.
+    @discardableResult
+    func performActivityAction<T>(in store: PlannerStore, _ action: (PlannerCommands) throws -> T) -> Bool {
+        let before = store.planner
+        guard store.apply(action) != nil else { return false }
+        dismissPresentedActivity(in: before)
+        return true
+    }
 }
