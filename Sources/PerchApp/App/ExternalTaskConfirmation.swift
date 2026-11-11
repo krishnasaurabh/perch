@@ -19,7 +19,7 @@ final class ExternalTaskConfirmationController: NSObject, ExternalTaskConfirming
         let panel = ExternalTaskPanel(
             contentRect: NSRect(x: 0, y: 0, width: 540, height: 440),
             styleMask: [.titled, .closable], backing: .buffered, defer: false)
-        panel.title = "Review external task"
+        panel.title = AppL10n.text("Review external task")
         panel.isReleasedWhenClosed = false
         panel.hidesOnDeactivate = false
         panel.delegate = self
@@ -27,7 +27,7 @@ final class ExternalTaskConfirmationController: NSObject, ExternalTaskConfirming
         let content = NSView()
         panel.contentView = content
         func label(_ text: String, size: CGFloat, bold: Bool = false) -> NSTextField {
-            let field = NSTextField(wrappingLabelWithString: text)
+            let field = NSTextField(wrappingLabelWithString: AppL10n.text(text))
             field.font = bold ? .boldSystemFont(ofSize: size) : .systemFont(ofSize: size)
             return field
         }
@@ -56,16 +56,16 @@ final class ExternalTaskConfirmationController: NSObject, ExternalTaskConfirming
         scroll.hasVerticalScroller = true
         scroll.autohidesScrollers = true
         scroll.documentView = text
-        let date = label("Date: \(request.dateLabel)", size: 14, bold: true)
+        let date = label(AppL10n.format("Date: %@", request.dateLabel), size: 14, bold: true)
         date.identifier = NSUserInterfaceItemIdentifier("external-task-date")
         let note = label(
             "Only this text and date will be saved. Dates, tags and commands inside the text will not be interpreted.",
             size: 12)
         note.textColor = .secondaryLabelColor
-        let cancel = NSButton(title: "Cancel", target: self, action: #selector(cancelRequest))
+        let cancel = NSButton(title: AppL10n.text("Cancel"), target: self, action: #selector(cancelRequest))
         cancel.identifier = NSUserInterfaceItemIdentifier("external-task-cancel")
         cancel.keyEquivalent = "\r"  // Return is deliberately the safe action.
-        let add = NSButton(title: "Add task", target: self, action: #selector(confirmRequest))
+        let add = NSButton(title: AppL10n.text("Add task"), target: self, action: #selector(confirmRequest))
         add.identifier = NSUserInterfaceItemIdentifier("external-task-add")
         add.keyEquivalent = ""
         let buttons = NSStackView(views: [cancel, add])

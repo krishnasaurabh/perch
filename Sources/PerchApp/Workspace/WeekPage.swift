@@ -334,7 +334,7 @@ struct MiniComposer: View {
             .overlay(ControlFocusRing(shape: RoundedRectangle(cornerRadius: Theme.controlRadius), focused: focused))
             .onSubmit {
                 guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
-                if store.apply({ try $0.addTasks([text], on: ref) }) != nil { text = "" }
+                if store.addTasks([text], on: ref) != nil { text = "" }
             }
     }
 }

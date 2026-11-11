@@ -205,12 +205,12 @@ struct ActivityStrip: View {
     }
 
     private func subtitle(at now: Date) -> String {
-        if actionFailed { return "Action failed. Please try again." }
+        if actionFailed { return AppL10n.text("Action failed. Please try again.") }
         if case .reminder(let id) = activity.kind,
             NotchReminderPresentation.isMissed(
                 task: store.planner.tasks.first { $0.id == id }, records: services.reminders.records, now: now)
         {
-            return "Missed reminder · delivery unconfirmed"
+            return AppL10n.text("Missed reminder · delivery unconfirmed")
         }
         return services.timeline.subtitle(for: activity, now: now)
     }

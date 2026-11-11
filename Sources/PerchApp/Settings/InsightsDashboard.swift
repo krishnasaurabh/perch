@@ -12,7 +12,7 @@ struct InsightsDashboard: View {
             prevFocus = i.previousSeven.reduce(0) { $0 + $1.focusSeconds }
         VStack(alignment: .leading, spacing: 20) {
             HStack(spacing: 14) {
-                tile("Streak", "\(i.streak) day\(i.streak == 1 ? "" : "s")", "flame.fill")
+                tile("Streak", AppL10n.format("%lld days", i.streak), "flame.fill")
                 tile("Done this week", "\(lastDone)", "checkmark.circle", delta: lastDone - prevDone)
                 tile(
                     "Focus this week", TimerText.short(lastFocus), "timer", delta: Int((lastFocus - prevFocus) / 60),

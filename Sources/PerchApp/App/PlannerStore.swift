@@ -19,6 +19,7 @@ final class PlannerStore: ObservableObject {
     @Published private(set) var today: DayKey
     let file: PlannerFile
     private let now: () -> Date
+    private let parserLanguage: () -> TaskParserLanguage?
     private let scheduler: any AppScheduling
     private let pipeline: PlannerCommandPipeline
     private var lifecycleDay: DayKey?
@@ -107,9 +108,11 @@ final class PlannerStore: ObservableObject {
 
     init(
         file: PlannerFile = PlannerFile(), now: @escaping () -> Date = Date.init, watching: Bool = true,
-        scheduler: any AppScheduling = MainQueueScheduler()
+        scheduler: any AppScheduling = MainQueueScheduler(),
+        parserLanguage: @escaping () -> TaskParserLanguage? = { TaskParserLanguage.current }
     ) {
         self.file = file
+        self.parserLanguage = parserLanguage
         self.pipeline = PlannerCommandPipeline(file: file.avoidingLockWaits(), clock: ClosurePlannerClock(now))
         self.now = now
         self.scheduler = scheduler
@@ -136,6 +139,24 @@ final class PlannerStore: ObservableObject {
     var prefs: Preferences { planner.preferences }
     func dayKey(_ date: Date) -> DayKey { engine.dayKey(date) }
     var capture: TaskCapture { TaskCapture(now: now(), resetHour: prefs.resetHour) }
+
+    /// Validates the presentation language before flushing drafts or taking the file lock.
+    /// Literal insertion is language-independent; parsed entry never falls back silently.
+    @discardableResult
+    func addTasks(_ titles: [String], on day: DayRef? = nil, literal: Bool = false) -> [PlanTask]? {
+        let language: TaskParserLanguage
+        if literal {
+            language = .english
+        } else {
+            guard let supported = parserLanguage() else {
+                lastError = .unsupportedParserLanguage(
+                    Locale.current.language.languageCode?.identifier ?? "")
+                return nil
+            }
+            language = supported
+        }
+        return apply { try $0.addTasks(titles, on: day, literal: literal, language: language) }
+    }
 
     private func refreshToday() {
         let t = engine.today
@@ -260,7 +281,9 @@ final class PlannerStore: ObservableObject {
                         current == draft.base || current == draft.text
                     else {
                         throw PlannerError(
-                            "This text changed elsewhere. Your draft is retained; restore the shared text before retrying."
+                            AppL10n.text(
+                                "This text changed elsewhere. Your draft is retained; restore the shared text before retrying."
+                            )
                         )
                     }
                     try target.apply(draft.text, using: commands)

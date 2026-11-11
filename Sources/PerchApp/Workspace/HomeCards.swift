@@ -36,8 +36,8 @@ struct FocusCard: View {
     }
 
     private func status(_ f: FocusSession) -> String {
-        if f.state == .paused { return "Paused" }
-        return f.limit == nil ? "Elapsed" : "Remaining"
+        if f.state == .paused { return AppL10n.text("Paused") }
+        return f.limit == nil ? AppL10n.text("Elapsed") : AppL10n.text("Remaining")
     }
 
     @ViewBuilder func face(_ f: FocusSession?, at now: Date) -> some View {
@@ -138,7 +138,7 @@ struct FocusProgress: View {
         .frame(height: 4)
         .accessibilityElement()
         .accessibilityLabel("Focus progress")
-        .accessibilityValue("\(Int(fraction * 100)) percent")
+        .accessibilityValue(AppL10n.format("%lld percent", Int(fraction * 100)))
     }
 }
 
@@ -166,9 +166,9 @@ struct NotepadCard: View {
                 onCommandReturn: { line in
                     let clean = line.trimmingCharacters(in: .whitespaces)
                     guard !clean.isEmpty,
-                        let t = store.apply({ try $0.lineToTask(clean, day: max(d, store.today)) }) ?? nil
+                        let t = store.addTasks([clean], on: .day(max(d, store.today)))?.first
                     else { return }
-                    flash = "Added “\(t.title)”"
+                    flash = AppL10n.format("Added “%@”", t.title)
                 }, onEndEditing: { store.flushPendingText() }
             )
             .focused($editing)
@@ -368,7 +368,8 @@ private struct AgendaBody: View {
                             }
                         }
                         if events.count > 4 {
-                            Text("+\(events.count - 4) more").font(Theme.meta).foregroundStyle(Theme.tertiary)
+                            Text(AppL10n.format("+%lld more", events.count - 4))
+                                .font(Theme.meta).foregroundStyle(Theme.tertiary)
                         }
                     }
                 }

@@ -292,7 +292,7 @@ class TodayInteractionTests(unittest.TestCase):
                          'Button("Delete", role: .destructive, action: delete)',
                          'if canFocus { Button("Focus", action: startFocus) }'):
             self.assertIn(expected, row)
-        self.assertIn('task.done || ticked ? "Completed" : "Not completed"', source)
+        self.assertIn('task.done || ticked ? AppL10n.text("Completed") : AppL10n.text("Not completed")', source)
         self.assertIn('priority.rawValue.capitalized', source)
         self.assertIn('private func startFocus()', source)
 

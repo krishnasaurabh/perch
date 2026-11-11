@@ -20,7 +20,12 @@ struct TasksCard: View {
         let shown = selection.wrappedValue == .active ? open : finished
         let ids = shown.map(\.id)
         let pills = TodayTabs.visible(completedCount: finished.count).map {
-            ($0, $0 == .active ? "To do \(open.count)" : "Completed \(finished.count)")
+            (
+                $0,
+                $0 == .active
+                    ? AppL10n.format("To do %lld", open.count)
+                    : AppL10n.format("Completed %lld", finished.count)
+            )
         }
         VStack(alignment: .leading, spacing: 8) {
             ViewThatFits(in: .horizontal) {
@@ -123,9 +128,11 @@ struct TasksCard: View {
             .help("Undo the last edit, including task deletion (Command-Z)")
             Spacer(minLength: 0)
             if !store.engine.overdue().isEmpty {
-                Button("Review overdue (\(store.engine.overdue().count))") { reviewingOverdue = true }
-                    .buttonStyle(PillStyle())
-                    .accessibilityIdentifier("today-review-overdue")
+                Button(AppL10n.format("Review overdue (%lld)", store.engine.overdue().count)) {
+                    reviewingOverdue = true
+                }
+                .buttonStyle(PillStyle())
+                .accessibilityIdentifier("today-review-overdue")
             }
         }
     }
@@ -296,18 +303,18 @@ struct TaskComposer: View {
                 .truncationMode(.tail)
                 .background(alignment: .leading) {
                     if text.isEmpty {
-                        Text(placeholder).font(Theme.body).foregroundStyle(Theme.text).lineLimit(1)
+                        Text(AppL10n.text(placeholder)).font(Theme.body).foregroundStyle(Theme.text).lineLimit(1)
                             .allowsHitTesting(false).accessibilityHidden(true)
                     }
                 }
                 .focused(focusBinding, equals: .capture)
                 .accessibilityLabel("Add a task")
-                .accessibilityHint(placeholder)
+                .accessibilityHint(AppL10n.text(placeholder))
                 .accessibilityIdentifier("task-capture")
                 .onSubmit(add)
                 .background(CaptureTextUndo())
             VoiceButton { spoken in
-                store.apply { try $0.addTasks([spoken], on: day) }
+                store.addTasks([spoken], on: day)
             }
         }
         .padding(.horizontal, 10).padding(.vertical, 8)
@@ -333,22 +340,25 @@ struct TaskComposer: View {
             focusBinding.wrappedValue = .capture
         }
         .overlay(ControlFocusRing(shape: RoundedRectangle(cornerRadius: 10), focused: focused))
-        .help(preview ?? "Return adds a task. Paste multiple lines to add multiple tasks.")
+        .help(preview ?? AppL10n.text("Return adds a task. Paste multiple lines to add multiple tasks."))
     }
 
     /// Live hint of what the parser read: "Tomorrow 5:00 PM · High".
     var preview: String? {
-        let c = store.capture.parse(text)
+        guard let language = TaskParserLanguage.current else { return nil }
+        let c = store.capture.parse(text, language: language)
         var bits: [String] = []
-        if c.inbox { bits.append("Inbox") }
+        if c.inbox { bits.append(AppL10n.text("Inbox")) }
         if let d = c.day, d != store.today {
             bits.append(d.date().formatted(.dateTime.weekday(.abbreviated).month(.abbreviated).day()))
         }
         if let r = c.remindAt { bits.append(r.formatted(date: .omitted, time: .shortened)) }
-        if c.priority != .none { bits.append(c.priority.rawValue.capitalized) }
+        if c.priority != .none { bits.append(AppL10n.text(c.priority.rawValue.capitalized)) }
         if let p = c.projectName { bits.append("#" + p) }
-        if let r = c.repeatRule { bits.append(r.description) }
-        if let m = c.minutes { bits.append("\(m)m") }
+        if let r = c.repeatRule {
+            bits.append(RepeatPickerDraft(original: r, anchor: c.day).summary())
+        }
+        if let m = c.minutes { bits.append(AppL10n.format("%lldm", m)) }
         return bits.isEmpty ? nil : bits.joined(separator: " · ")
     }
 
@@ -356,7 +366,7 @@ struct TaskComposer: View {
         let t = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !t.isEmpty else { return }
         // Insert is opacity only into reserved space; other rows stay put.
-        if let added = Motion.animate(Motion.row, { store.apply({ try $0.addTasks([t], on: day) }) }) {
+        if let added = Motion.animate(Motion.row, { store.addTasks([t], on: day) }) {
             text = ""
             AISorter.sort(added.map(\.id), store: store)
         }

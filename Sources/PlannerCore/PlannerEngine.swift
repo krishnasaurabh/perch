@@ -115,7 +115,8 @@ public struct PlannerEngine {
     /// Adds tasks to the end of a day's list (or the Inbox). Each title is parsed like typing it.
     @discardableResult
     public mutating func addTasks(
-        _ titles: [String], on day: DayRef? = nil, literal: Bool = false, agentID: String? = nil
+        _ titles: [String], on day: DayRef? = nil, literal: Bool = false, agentID: String? = nil,
+        language: TaskParserLanguage = .english
     ) throws -> [PlanTask] {
         let lines = titles.flatMap {
             literal ? [$0.trimmingCharacters(in: .whitespacesAndNewlines)] : TaskCapture.splitLines($0)
@@ -128,7 +129,7 @@ public struct PlannerEngine {
         for line in lines {
             var task = PlanTask(title: line, day: day?.key ?? today, createdAt: now(), agentID: agentID)
             if !literal {
-                let c = capture.parse(line)
+                let c = capture.parse(line, language: language)
                 guard !c.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
                     throw PlannerError("Add at least one task title with text.")
                 }

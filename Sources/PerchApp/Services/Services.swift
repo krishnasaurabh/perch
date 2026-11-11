@@ -37,9 +37,12 @@ final class Services: ObservableObject {
         let mins = Int((p.focus?.limit ?? 0) / 60)
         model?.show(
             .init(
-                kind: .focusDone(p.focus?.taskID), title: "Timer finished",
-                subtitle: title.map { "You gave \($0) \(mins) minutes of focus. Mark it done, or take a break." }
-                    ?? "\(mins)-minute focus block done."))
-        reminders.notify(id: "focus-\(UUID())", title: "Timer finished", body: title ?? "Time for a break.")
+                kind: .focusDone(p.focus?.taskID), title: AppL10n.text("Timer finished"),
+                subtitle: title.map {
+                    AppL10n.format("You gave %@ %lld minutes of focus. Mark it done, or take a break.", $0, mins)
+                } ?? AppL10n.format("%lld-minute focus block done.", mins)))
+        reminders.notify(
+            id: "focus-\(UUID())", title: AppL10n.text("Timer finished"),
+            body: title ?? AppL10n.text("Time for a break."))
     }
 }

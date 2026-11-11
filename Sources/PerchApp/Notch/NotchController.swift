@@ -10,10 +10,10 @@ enum NotchPage: String, CaseIterable, Identifiable {
     var id: String { rawValue }
     var title: String {
         switch self {
-        case .home: "Today"
-        case .week: "Week"
-        case .clips: "Clips"
-        case .insights: "Insights"
+        case .home: AppL10n.text("Today")
+        case .week: AppL10n.text("Week")
+        case .clips: AppL10n.text("Clips")
+        case .insights: AppL10n.text("Insights")
         }
     }
     var symbol: String {
@@ -140,7 +140,8 @@ final class NotchModel: ObservableObject {
         guard missedTask != task else { return }
         if let task {
             missedReminder = PresentedNotchActivity(
-                kind: .reminder(task.id), title: task.title, subtitle: "Missed reminder · delivery unconfirmed")
+                kind: .reminder(task.id), title: task.title,
+                subtitle: AppL10n.text("Missed reminder · delivery unconfirmed"))
         } else {
             missedReminder = nil
         }

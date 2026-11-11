@@ -86,7 +86,7 @@ struct InsightsPage: View {
             VStack(alignment: .leading, spacing: 8) {
                 stat("\(done)", "tasks done this week")
                 stat(TimerText.short(focus), "focused this week")
-                stat("\(i.streak) day\(i.streak == 1 ? "" : "s")", "streak")
+                stat(AppL10n.format("%lld days", i.streak), "streak")
                 stat("\(i.today.completed)/\(i.today.planned)", "done today")
                 if i.allTimeCompletedCalendarEvents > 0 {
                     stat("\(i.today.completedCalendarEvents)", "calendar events checked off today")
@@ -163,7 +163,7 @@ struct WeekBars: View {
         switch metric {
         case .tasks:
             let n = Int(top.rounded())
-            return "\(n) task\(n == 1 ? "" : "s")"
+            return PerchL10n.tasks(count: n)
         case .focus:
             return TimerText.short(top * 60)
         }

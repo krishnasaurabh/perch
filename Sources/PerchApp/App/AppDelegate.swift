@@ -58,11 +58,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let open = menu.addItem(withTitle: Self.openTitle(), action: #selector(openWorkspace), keyEquivalent: "")
         open.target = self
         openItem = open
-        menu.addItem(withTitle: "Dashboard", action: #selector(openDashboard), keyEquivalent: "").target = self
-        menu.addItem(withTitle: "Settings…", action: #selector(openSettings), keyEquivalent: ",").target = self
-        menu.addItem(withTitle: "Hide task count", action: #selector(hideTaskCount), keyEquivalent: "").target = self
+        menu.addItem(withTitle: AppL10n.text("Dashboard"), action: #selector(openDashboard), keyEquivalent: "").target =
+            self
+        menu.addItem(withTitle: AppL10n.text("Settings…"), action: #selector(openSettings), keyEquivalent: ",").target =
+            self
+        menu.addItem(withTitle: AppL10n.text("Hide task count"), action: #selector(hideTaskCount), keyEquivalent: "")
+            .target = self
         menu.addItem(.separator())
-        menu.addItem(withTitle: "Quit Perch", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+        menu.addItem(
+            withTitle: AppL10n.text("Quit Perch"), action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         item.menu = menu
         statusItem = item
 
@@ -76,7 +80,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         .store(in: &cancellables)
     }
 
-    private static func openTitle() -> String { "Open Perch (\(ShortcutStore.load().display))" }
+    private static func openTitle() -> String {
+        AppL10n.format("Open Perch (%@)", ShortcutStore.load().display)
+    }
 
     @objc func openWorkspace() { NotificationCenter.default.post(name: .perchOpenWorkspace, object: NotchPage.home) }
     @objc func hideTaskCount() { model.hideTaskCount(in: store) }
@@ -111,7 +117,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 if store.apply({ try $0.addTasks([task.title], on: task.day, literal: true) }) != nil {
                     // Keep untrusted task text out of status/agent messages.
                     self.model?.show(
-                        .init(kind: .message, title: "Task added", subtitle: "Confirmed external request"), for: 2.5)
+                        .init(
+                            kind: .message, title: AppL10n.text("Task added"),
+                            subtitle: AppL10n.text("Confirmed external request")), for: 2.5)
                 }
             }
         case .open(let page):

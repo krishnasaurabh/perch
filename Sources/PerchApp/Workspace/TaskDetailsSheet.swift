@@ -286,7 +286,9 @@ private struct TaskDetailsEditor: View {
         if store.apply({ try editor.apply(using: $0) }) != nil {
             dismiss()
         } else {
-            saveError = store.lastError?.localizedDescription ?? "Could not save. Your edits are still here; try again."
+            saveError =
+                store.lastError?.localizedDescription
+                ?? AppL10n.text("Could not save. Your edits are still here; try again.")
         }
     }
 
@@ -295,7 +297,7 @@ private struct TaskDetailsEditor: View {
         if store.send(.delete(editor.details.original.id)) != nil {
             dismiss()
         } else {
-            saveError = store.lastError?.localizedDescription ?? "Could not delete this task."
+            saveError = store.lastError?.localizedDescription ?? AppL10n.text("Could not delete this task.")
         }
     }
 }

@@ -143,8 +143,12 @@ struct TaskRow: View {
                 shape: RoundedRectangle(cornerRadius: 6),
                 focused: focusBinding.wrappedValue == .task(task.id, .complete))
         )
-        .accessibilityLabel(task.done ? "Reopen \(task.title)" : "Complete \(task.title)")
-        .accessibilityValue(task.done || ticked ? "Completed" : "Not completed")
+        .accessibilityLabel(
+            task.done
+                ? AppL10n.format("Reopen %@", task.title)
+                : AppL10n.format("Complete %@", task.title)
+        )
+        .accessibilityValue(task.done || ticked ? AppL10n.text("Completed") : AppL10n.text("Not completed"))
         .accessibilityIdentifier("task-complete-\(task.id)")
         .help(task.done ? "Reopen task" : "Complete task")
     }
@@ -251,8 +255,10 @@ struct TaskRow: View {
     }
 
     private var accessibilitySummary: String {
-        let state = task.done || ticked ? "Completed" : "Not completed"
-        return task.priority == .none ? state : "\(state), \(task.priority.rawValue.capitalized) priority"
+        let state = task.done || ticked ? AppL10n.text("Completed") : AppL10n.text("Not completed")
+        return task.priority == .none
+            ? state
+            : AppL10n.format("%@, %@ priority", state, task.priority.rawValue.capitalized)
     }
 
     private func startFocus() {

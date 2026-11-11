@@ -9,6 +9,7 @@ struct RepeatPickerFields: View {
 
     @Binding var draft: RepeatPickerDraft
     var focus: FocusState<Focus?>.Binding
+    @Environment(\.locale) private var locale
 
     var body: some View {
         VStack(alignment: .leading, spacing: Theme.gutter) {
@@ -30,7 +31,8 @@ struct RepeatPickerFields: View {
                 StatusLabel(title: issue.message, tone: .danger)
                     .fixedSize(horizontal: false, vertical: true)
                     .accessibilityIdentifier("repeat-error")
-            } else if let preview = RepeatPickerDraft.previewText(draft.preview(), anchor: draft.anchor) {
+            } else if let preview = RepeatPickerDraft.previewText(draft.preview(), anchor: draft.anchor, locale: locale)
+            {
                 Text(preview)
                     .font(Theme.meta)
                     .foregroundStyle(Theme.secondary)
@@ -61,7 +63,7 @@ struct RepeatPickerFields: View {
         .fixedSize()
         .focused(focus, equals: .frequency)
         .accessibilityLabel("Repeat")
-        .accessibilityValue(draft.summary)
+        .accessibilityValue(draft.summary(locale: locale))
         .accessibilityIdentifier("repeat-frequency")
     }
 
@@ -135,7 +137,7 @@ struct RepeatPickerFields: View {
 
         var body: some View {
             Button(action: action) {
-                Text(RepeatPickerDraft.weekdayShortNames[weekday - 1])
+                Text(RepeatPickerDraft.localizedShortWeekdayNames(locale: locale)[weekday - 1])
                     .font(selected ? Theme.label : Theme.meta)
                     .foregroundStyle(selected ? Theme.text : Theme.secondary)
                     .frame(
@@ -148,7 +150,7 @@ struct RepeatPickerFields: View {
             .buttonStyle(.plain)
             .focusEffectDisabled()
             .overlay(ControlFocusRing(shape: Circle(), focused: focused))
-            .accessibilityLabel(RepeatPickerDraft.weekdayNames[weekday - 1])
+            .accessibilityLabel(RepeatPickerDraft.localizedWeekdayNames(locale: locale)[weekday - 1])
             .accessibilityAddTraits(selected ? .isSelected : [])
             .accessibilityIdentifier("repeat-weekday-\(weekday)")
         }

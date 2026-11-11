@@ -1,0 +1,28 @@
+import Foundation
+import PerchUI
+import PlannerCore
+
+/// App-layer strings use the same catalog in SwiftPM probes and the bundled app.
+enum AppL10n {
+    static func text(_ key: String, locale: Locale? = nil) -> String {
+        LocalizedStringCatalog.text(key, locale: locale, bundle: .module)
+    }
+
+    static func format(_ key: String, locale: Locale? = nil, _ arguments: CVarArg...) -> String {
+        let numeric: Int?
+        switch arguments.first {
+        case let value as Int: numeric = value
+        case let value as Int64: numeric = Int(value)
+        case let value as Double: numeric = Int(value)
+        default: numeric = nil
+        }
+        let template = LocalizedStringCatalog.text(key, locale: locale, bundle: .module, numericArgument: numeric)
+        return String(format: template, locale: locale, arguments: arguments)
+    }
+
+    static var parserLanguage: TaskParserLanguage? { TaskParserLanguage.current }
+
+    static func plannerMessage(_ message: String) -> String {
+        text(message)
+    }
+}

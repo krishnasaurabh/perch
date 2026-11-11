@@ -39,7 +39,8 @@ APP_ZIP="$OUT/$ZIP_NAME"
 
 for a in $ARCHS; do args+=(--arch "$a"); done
 swift build "${args[@]}"
-BIN=$(swift build "${args[@]}" --show-bin-path)/Perch
+BIN_DIR=$(swift build "${args[@]}" --show-bin-path)
+BIN="$BIN_DIR/Perch"
 
 rm -rf "$APP"; mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 install -m 0755 "$BIN" "$APP/Contents/MacOS/Perch"
@@ -56,6 +57,18 @@ for f in icon_16x16.png icon_32x32.png icon_128x128.png icon_256x256.png icon_51
 done
 rm -rf "$(dirname "$ICONSET")"
 install -m 0644 Resources/AppIcon.icns "$APP/Contents/Resources/"
+install -m 0644 Resources/Localizable.xcstrings "$APP/Contents/Resources/"
+for bundle in "$BIN_DIR"/Perch_PerchApp.bundle "$BIN_DIR"/Perch_PerchUI.bundle; do
+  [ -d "$bundle" ] || { echo "Missing localization resource bundle: $bundle" >&2; exit 1; }
+  cp -R "$bundle" "$APP/Contents/Resources/"
+done
+# SwiftUI literals resolve against the main bundle; library helpers resolve
+# against the resource bundles copied above. SwiftPM compiles xcstrings to these.
+for localization in Localizable.strings Localizable.stringsdict; do
+  if [ -f "$BIN_DIR/Perch_PerchApp.bundle/$localization" ]; then
+    install -m 0644 "$BIN_DIR/Perch_PerchApp.bundle/$localization" "$APP/Contents/Resources/"
+  fi
+done
 
 sign_args=(--force --options runtime --entitlements Resources/Perch.entitlements)
 if [[ "$ID" == - ]]; then

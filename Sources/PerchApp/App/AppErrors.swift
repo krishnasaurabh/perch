@@ -8,15 +8,21 @@ enum PerchAppError: Error, Equatable {
     case loginItem(String)
     case remindersPermission
     case aiSorting(String)
+    case unsupportedParserLanguage(String)
 
     var message: String {
         switch self {
         case .planner(let detail): detail
-        case .aiSorting(let detail): "AI sorting failed: \(detail)"
-        case .reminderScheduling(let detail): "Reminder scheduling failed: \(detail)"
-        case .loginItem(let detail): "Perch couldn't update the login item: \(detail)"
+        case .aiSorting(let detail): AppL10n.format("AI sorting failed: %@", detail)
+        case .reminderScheduling(let detail): AppL10n.format("Reminder scheduling failed: %@", detail)
+        case .loginItem(let detail): AppL10n.format("Perch couldn't update the login item: %@", detail)
         case .remindersPermission:
-            "Perch has no Reminders permission. Grant it under System Settings › Privacy & Security › Reminders."
+            AppL10n.text(
+                "Perch has no Reminders permission. Grant it under System Settings › Privacy & Security › Reminders.")
+        case .unsupportedParserLanguage(let code):
+            AppL10n.format(
+                "Task entry currently supports English. The selected language (%@) is not supported, so nothing was added. Choose English for task entry or change the app language.",
+                code.isEmpty ? AppL10n.text("Unknown") : code)
         }
     }
 }
@@ -27,7 +33,13 @@ extension PerchAppError: LocalizedError {
 
 extension Error {
     var perchPresentationDetail: String {
-        (self as? PlannerError)?.message ?? localizedDescription
+        if let unsupported = self as? UnsupportedTaskParserLanguage {
+            return PerchAppError.unsupportedParserLanguage(unsupported.languageCode).message
+        }
+        if let planner = self as? PlannerError {
+            return AppL10n.plannerMessage(planner.message)
+        }
+        return AppL10n.text(localizedDescription)
     }
 }
 
@@ -38,8 +50,8 @@ enum ReminderServiceError: Error, Equatable {
 
     var message: String {
         switch self {
-        case .authorization(let detail): "Notification permission failed: \(detail)"
-        case .scheduling(let detail): "Reminder scheduling failed: \(detail)"
+        case .authorization(let detail): AppL10n.format("Notification permission failed: %@", detail)
+        case .scheduling(let detail): AppL10n.format("Reminder scheduling failed: %@", detail)
         }
     }
 }
@@ -56,17 +68,23 @@ enum RemindersSyncFailure: Error, Equatable {
     case sync(String)
     case disableAfterHistory(String)
 
-    static let consentMessage =
-        "Reminders sync is paused. Turn it off and on in Settings to enable safe mirroring. Existing reminders will not be adopted or changed."
-    static let historyMessage =
-        "Reminders sync paused after Undo or Redo. Your reminders were not changed. Turn sync off and on in Settings when ready to mirror this version."
+    static var consentMessage: String {
+        AppL10n.text(
+            "Reminders sync is paused. Turn it off and on in Settings to enable safe mirroring. Existing reminders will not be adopted or changed."
+        )
+    }
+    static var historyMessage: String {
+        AppL10n.text(
+            "Reminders sync paused after Undo or Redo. Your reminders were not changed. Turn sync off and on in Settings when ready to mirror this version."
+        )
+    }
 
     var message: String {
         switch self {
         case .consentRequired: Self.consentMessage
-        case .access(let detail): detail
+        case .access(let detail): AppL10n.text(detail)
         case .historyPaused: Self.historyMessage
-        case .sync(let detail): "Reminders sync stopped: \(detail)"
+        case .sync(let detail): AppL10n.format("Reminders sync stopped: %@", detail)
         case .disableAfterHistory(let detail): Self.historyMessage + " " + detail
         }
     }

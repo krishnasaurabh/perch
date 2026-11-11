@@ -7,11 +7,23 @@ var products: [Product] = [
     .library(name: "PerchUI", targets: ["PerchUI"]),
     .executable(name: "perch-cli", targets: ["PerchCLI"]),
 ]
+var localizationResources: [Resource] = [.copy("Resources/Localizable.json")]
+var localizationExcludes: [String] = []
+#if os(macOS)
+    localizationResources.append(.process("Resources/Localizable.xcstrings"))
+#else
+    localizationExcludes.append("Resources/Localizable.xcstrings")
+#endif
+
 var targets: [Target] = [
     // Dependencies flow inward: neither storage nor domain rules know about transport or presentation.
     .target(name: "PlannerCore"),
     .target(name: "PerchMCP", dependencies: ["PlannerCore"]),
-    .target(name: "PerchUI", dependencies: ["PlannerCore"]),
+    .target(
+        name: "PerchUI", dependencies: ["PlannerCore"],
+        exclude: localizationExcludes,
+        resources: localizationResources
+    ),
     .target(name: "PerchReminders", dependencies: ["PlannerCore"]),
     .testTarget(name: "PerchRemindersTests", dependencies: ["PerchReminders", "PlannerCore"]),
     .executableTarget(name: "PerchCLI", dependencies: ["PlannerCore", "PerchMCP"]),
@@ -28,6 +40,8 @@ var targets: [Target] = [
         .target(
             name: "PerchApp",
             dependencies: ["PlannerCore", "PerchMCP", "PerchUI", "PerchReminders"],
+            exclude: localizationExcludes,
+            resources: localizationResources,
             linkerSettings: [
                 .linkedFramework("AppKit"), .linkedFramework("SwiftUI"), .linkedFramework("EventKit"),
                 .linkedFramework("Speech"), .linkedFramework("AVFoundation"), .linkedFramework("Carbon"),

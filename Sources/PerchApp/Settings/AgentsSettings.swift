@@ -43,7 +43,7 @@ struct AgentsSettings: View {
                     }
                 }
             }
-            if let message { Text(message).font(Theme.meta) }
+            if let message { Text(AppL10n.text(message)).font(Theme.meta) }
         }
         Section("Or use Terminal") {
             HStack {
@@ -62,7 +62,8 @@ struct AgentsSettings: View {
                     copy(p, p)
                 } label: {
                     HStack {
-                        Text(p); Spacer(); if copied == p { Text("Copied").foregroundStyle(Theme.secondary) }
+                        Text(AppL10n.text(p)); Spacer();
+                        if copied == p { Text("Copied").foregroundStyle(Theme.secondary) }
                     }
                 }.buttonStyle(PillStyle())
             }

@@ -76,6 +76,13 @@ else:
     binary = out / "Perch"
     binary.write_bytes(b"synthetic-perch-binary")
     binary.chmod(0o755)
+    for name in ("Perch_PerchApp.bundle", "Perch_PerchUI.bundle"):
+        bundle = out / name
+        bundle.mkdir(exist_ok=True)
+        (bundle / "Localizable.xcstrings").write_text("synthetic-localization")
+        if name == "Perch_PerchApp.bundle":
+            (bundle / "Localizable.strings").write_text("synthetic-strings")
+            (bundle / "Localizable.stringsdict").write_text("synthetic-stringsdict")
 ''')
         self._write("PlistBuddy", '''import plistlib, sys
 from fake_common import record
@@ -211,6 +218,17 @@ if sys.argv[1:3] == ["notarytool", "submit"]:
         self.assertEqual(metadata["CFBundleIconFile"], "AppIcon")
         self.assertEqual((app / "Contents" / "Resources" / "AppIcon.icns").read_bytes(),
                          (self.root / "Resources" / "AppIcon.icns").read_bytes())
+        self.assertEqual((app / "Contents" / "Resources" / "Localizable.xcstrings").read_bytes(),
+                         (self.root / "Resources" / "Localizable.xcstrings").read_bytes())
+        for name in ("Perch_PerchApp.bundle", "Perch_PerchUI.bundle"):
+            self.assertEqual(
+                (app / "Contents" / "Resources" / name / "Localizable.xcstrings").read_text(),
+                "synthetic-localization",
+            )
+        self.assertEqual((app / "Contents" / "Resources" / "Localizable.strings").read_text(),
+                         "synthetic-strings")
+        self.assertEqual((app / "Contents" / "Resources" / "Localizable.stringsdict").read_text(),
+                         "synthetic-stringsdict")
         self.assertEqual(stat.S_IMODE((app / "Contents" / "MacOS" / "Perch").stat().st_mode), 0o755)
         self.assertEqual(stat.S_IMODE((app / "Contents" / "Info.plist").stat().st_mode), 0o644)
         sign = self.calls("codesign")[0]["args"]

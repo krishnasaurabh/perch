@@ -10,6 +10,19 @@ public struct TaskRecurrenceDraft: Equatable, Sendable {
     public enum Frequency: String, CaseIterable, Sendable {
         case none = "None", daily = "Daily", weekdays = "Weekdays", weekly = "Weekly"
         case monthly = "Monthly", quarterly = "Quarterly", yearly = "Yearly", custom = "Custom"
+
+        public var title: String {
+            switch self {
+            case .none: PerchL10n.text("None")
+            case .daily: PerchL10n.text("Daily")
+            case .weekdays: PerchL10n.text("Weekdays")
+            case .weekly: PerchL10n.text("Weekly")
+            case .monthly: PerchL10n.text("Monthly")
+            case .quarterly: PerchL10n.text("Quarterly")
+            case .yearly: PerchL10n.text("Yearly")
+            case .custom: PerchL10n.text("Custom")
+            }
+        }
     }
     public var frequency: Frequency = .none
     public var interval = "1"
@@ -53,13 +66,13 @@ public struct TaskRecurrenceDraft: Equatable, Sendable {
         case .yearly: unit = .month; count = 12
         case .custom:
             guard let value = Int(interval), (1...999).contains(value) else {
-                throw PlannerError("Enter a repeat interval from 1 to 999.")
+                throw PlannerError(PerchL10n.text("Enter a repeat interval from 1 to 999."))
             }
             unit = self.unit; count = value
         }
         let days = unit == .week && selectWeekdays ? weekdays.sorted() : []
         if unit == .week && selectWeekdays && (days.isEmpty || !days.allSatisfy({ (1...7).contains($0) })) {
-            throw PlannerError("Choose at least one weekday, or turn off specific weekdays.")
+            throw PlannerError(PerchL10n.text("Choose at least one weekday, or turn off specific weekdays."))
         }
         return TaskRepeat(
             unit: unit, interval: count, weekdays: days,
@@ -117,42 +130,46 @@ public struct TaskDetailsDraft: Equatable, Sendable {
     public func errors(today: DayKey, now: Date, projects: [TaskProject]) -> [TaskDetailsField: String] {
         var errors: [TaskDetailsField: String] = [:]
         if title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            errors[.title] = "Enter a task title."
+            errors[.title] = PerchL10n.text("Enter a task title.")
         }
         if scheduled {
             if let day {
-                if day < today { errors[.day] = "Choose today or a later day." }
+                if day < today { errors[.day] = PerchL10n.text("Choose today or a later day.") }
             } else {
-                errors[.day] = "Choose a scheduled day, or use Inbox."
+                errors[.day] = PerchL10n.text("Choose a scheduled day, or use Inbox.")
             }
         }
         if hasReminder {
             if !scheduled {
-                errors[.reminder] = "Schedule this task before adding a reminder."
+                errors[.reminder] = PerchL10n.text("Schedule this task before adding a reminder.")
             } else if let remindAt {
                 if remindAt != original.remindAt
                     && (original.done || !remindAt.timeIntervalSince1970.isFinite || remindAt <= now)
                 {
-                    errors[.reminder] = "Choose a future reminder for an open task."
+                    errors[.reminder] = PerchL10n.text("Choose a future reminder for an open task.")
                 }
             } else {
-                errors[.reminder] = "Choose a reminder date and time, or select None."
+                errors[.reminder] = PerchL10n.text("Choose a reminder date and time, or select None.")
             }
         }
-        if hasDeadline && deadline == nil { errors[.deadline] = "Choose a deadline, or select None." }
+        if hasDeadline && deadline == nil {
+            errors[.deadline] = PerchL10n.text("Choose a deadline, or select None.")
+        }
         do {
             if try resolvedRepeatRule() != nil && !scheduled {
-                errors[.recurrence] = "Schedule this task before adding a repeat."
+                errors[.recurrence] = PerchL10n.text("Schedule this task before adding a repeat.")
             }
         } catch { errors[.recurrence] = error.localizedDescription }
         if let projectID, !projects.contains(where: { $0.id == projectID }) {
-            errors[.project] = "This project is no longer available. Choose another project or None."
+            errors[.project] = PerchL10n.text("This project is no longer available. Choose another project or None.")
         }
-        if !(0...720).contains(minutes) { errors[.minutes] = "Choose a time limit from 0 to 720 minutes." }
+        if !(0...720).contains(minutes) {
+            errors[.minutes] = PerchL10n.text("Choose a time limit from 0 to 720 minutes.")
+        }
         if Set(steps.map(\.id)).count != steps.count
             || steps.contains(where: { $0.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty })
         {
-            errors[.steps] = "Each step needs a title and a distinct identity."
+            errors[.steps] = PerchL10n.text("Each step needs a title and a distinct identity.")
         }
         return errors
     }
@@ -160,11 +177,14 @@ public struct TaskDetailsDraft: Equatable, Sendable {
     /// Run inside a single PlannerCommandPipeline transaction. Runtime fields are re-read, never replayed.
     public func apply(using commands: PlannerCommands) throws {
         let current = try commands.task(original.id)
-        if let day = current.day, day < commands.today { throw PlannerError("Earlier days are read-only.") }
+        if let day = current.day, day < commands.today {
+            throw PlannerError(PerchL10n.text("Earlier days are read-only."))
+        }
         // Focus accounting may advance while the sheet is open; it is not editable draft state.
         guard Self.editableFieldsEqual(current, original) else {
             throw PlannerError(
-                "This task changed while you were editing. Cancel and reopen it to load the latest version.")
+                PerchL10n.text(
+                    "This task changed while you were editing. Cancel and reopen it to load the latest version."))
         }
         try applyValidated(using: commands)
     }

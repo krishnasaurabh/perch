@@ -12,7 +12,7 @@ enum WindowHost {
             contentRect: NSRect(origin: .zero, size: size),
             styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
             backing: .buffered, defer: false)
-        w.title = title
+        w.title = AppL10n.text(title)
         w.titlebarAppearsTransparent = true
         w.isReleasedWhenClosed = false
         w.contentView = NSHostingView(rootView: content())

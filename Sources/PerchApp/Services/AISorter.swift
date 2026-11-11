@@ -21,15 +21,17 @@ enum AISorter {
             if #available(macOS 26.0, *) {
                 switch SystemLanguageModel.default.availability {
                 case .available: return ""
-                case .unavailable(.deviceNotEligible): return "Apple Intelligence isn't available on this Mac."
+                case .unavailable(.deviceNotEligible):
+                    return AppL10n.text("Apple Intelligence isn't available on this Mac.")
                 case .unavailable(.appleIntelligenceNotEnabled):
-                    return "Apple Intelligence is switched off. Enable it in System Settings first."
-                case .unavailable(.modelNotReady): return "The on-device model isn't ready yet. Try again shortly."
-                default: return "Apple Intelligence isn't available."
+                    return AppL10n.text("Apple Intelligence is switched off. Enable it in System Settings first.")
+                case .unavailable(.modelNotReady):
+                    return AppL10n.text("The on-device model isn't ready yet. Try again shortly.")
+                default: return AppL10n.text("Apple Intelligence isn't available.")
                 }
             }
         #endif
-        return "Available from macOS 26, on Macs with Apple Intelligence."
+        return AppL10n.text("Available from macOS 26, on Macs with Apple Intelligence.")
     }
 
     /// Sorts tasks added since `ids`, in the background, then writes back only untouched fields.

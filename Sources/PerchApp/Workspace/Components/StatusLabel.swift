@@ -28,10 +28,10 @@ struct StatusLabel: View {
     let tone: Tone
 
     var body: some View {
-        Label(title, systemImage: tone.symbol)
+        Label(AppL10n.text(title), systemImage: tone.symbol)
             .font(Theme.meta)
             .foregroundStyle(tone.color)
             .accessibilityElement(children: .ignore)
-            .accessibilityLabel(title)
+            .accessibilityLabel(AppL10n.text(title))
     }
 }

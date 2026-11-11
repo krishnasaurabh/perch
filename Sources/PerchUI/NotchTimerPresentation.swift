@@ -9,7 +9,7 @@ public struct NotchTimerPresentation: Equatable, Sendable {
 
     public init(seconds: TimeInterval) {
         guard seconds.isFinite, seconds >= 0, seconds < 1_000_000_000_000 else {
-            text = "--:--"; fullText = "Timer unavailable"; usesDotMatrix = false
+            text = "--:--"; fullText = PerchL10n.text("Timer unavailable"); usesDotMatrix = false
             return
         }
         fullText = TimerText.clock(seconds)

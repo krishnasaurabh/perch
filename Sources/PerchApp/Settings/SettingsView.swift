@@ -22,6 +22,7 @@ struct SettingsView: View {
         case general = "General", workspace = "Workspace", focus = "Focus timer", agents = "AI agents", system =
             "System"
         var id: String { rawValue }
+        var title: String { AppL10n.text(rawValue) }
         var symbol: String {
             switch self {
             case .general: "gearshape"
@@ -35,7 +36,7 @@ struct SettingsView: View {
 
     var body: some View {
         NavigationSplitView {
-            List(Pane.allCases, selection: $section) { s in Label(s.rawValue, systemImage: s.symbol).tag(s) }
+            List(Pane.allCases, selection: $section) { s in Label(s.title, systemImage: s.symbol).tag(s) }
                 .navigationSplitViewColumnWidth(170)
         } detail: {
             Form {
@@ -78,6 +79,25 @@ struct SettingsView: View {
                             store.lastError = .loginItem(error.localizedDescription)
                         }
                     }))
+        }
+        Section("Language") {
+            LabeledContent(
+                "Interface",
+                value: Locale.current.localizedString(
+                    forLanguageCode: Locale.current.language.languageCode?.identifier ?? "") ?? "System language")
+            LabeledContent("Task entry parser", value: "English")
+            Text(
+                "Perch follows the app language for dates, numbers and interface text. Natural-language task entry supports English; other languages never fall back to English or rewrite tasks."
+            )
+            .font(Theme.meta).foregroundStyle(Theme.secondary)
+            .fixedSize(horizontal: false, vertical: true)
+            if TaskParserLanguage.current == nil {
+                Text(
+                    "Task entry is unavailable in this app language. Choose English to add parsed tasks; existing tasks and literal imports are unchanged."
+                )
+                .font(Theme.meta).foregroundStyle(Theme.accent)
+                .fixedSize(horizontal: false, vertical: true)
+            }
         }
         Section("Notch glance") {
             Toggle("Show today's unfinished task count", isOn: pref(\.notchTaskCount))
@@ -217,7 +237,7 @@ struct SettingsView: View {
     @ViewBuilder var focus: some View {
         Section("Focus timer") {
             Stepper(value: pref(\.defaultFocusMinutes), in: 5...180, step: 5) {
-                LabeledContent("Default length", value: "\(store.prefs.defaultFocusMinutes) min")
+                LabeledContent("Default length", value: AppL10n.format("%lld min", store.prefs.defaultFocusMinutes))
             }
             Text("Tasks with their own time budget use that instead.").font(Theme.meta).foregroundStyle(Theme.secondary)
             Toggle("Chime when the timer ends", isOn: pref(\.focusCompletionSound))
@@ -293,10 +313,12 @@ struct SettingsView: View {
     }
 
     func cardName(_ id: String) -> String {
-        [
-            "focus": "Focus timer (while running)", "notepad": "Notepad",
-            "events": "Today's agenda (when there are events)",
-        ][id] ?? id
+        let name =
+            [
+                "focus": "Focus timer (while running)", "notepad": "Notepad",
+                "events": "Today's agenda (when there are events)",
+            ][id] ?? id
+        return AppL10n.text(name)
     }
 
     func moveCard(_ id: String, _ delta: Int) {
