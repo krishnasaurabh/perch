@@ -524,7 +524,7 @@ final class TwoWayReminderTests: XCTestCase {
         object["version"] = 1; object.removeValue(forKey: "twoWayEnabled")
         let migrated = try JSONDecoder().decode(
             ReminderSyncLedger.self, from: JSONSerialization.data(withJSONObject: object))
-        XCTAssertEqual(migrated.version, 3); XCTAssertFalse(migrated.twoWayEnabled)
+        XCTAssertEqual(migrated.version, 4); XCTAssertFalse(migrated.twoWayEnabled)
         XCTAssertTrue(migrated.links[id]!.retired); XCTAssertEqual(migrated.installation, f.ledger.value.installation)
     }
     @MainActor func testDurableIntentSurvivesEncodeLoadAndRestart() async throws {

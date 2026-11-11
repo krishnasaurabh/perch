@@ -69,6 +69,7 @@ public final class ReminderReconciler {
         }
         try checkAccess()
         try validate()
+        try await recoverCleanups(&ledger, validate: validate)
         if ledger.twoWayEnabled {
             try await TwoWayReminderReconciler(repository: repository, storage: storage).reconcile(
                 &ledger, planner: planner, today: today, validate: validate,
@@ -87,26 +88,8 @@ public final class ReminderReconciler {
             try storage.save(ledger)
         }
         guard let calendarID = ledger.calendarID else { return }
-        let records = try await repository.fetch(calendarID: calendarID)
-        try checkAccess(); try validate()
-        // Do not silently resolve duplicate ownership or identifier collisions.
-        guard Set(records.map(\.id)).count == records.count else {
-            throw ReminderSyncError.stopped("Reminders returned duplicate identifiers. Sync is stopped.")
-        }
-        var byOwner: [ReminderOwner: ReminderSyncRecord] = [:]
-        for record in records {
-            guard record.calendarID == calendarID else {
-                throw ReminderSyncError.stopped("The Reminders list changed while syncing. Retry sync.")
-            }
-            if let owner = record.owner, owner.installation == ledger.installation {
-                guard byOwner[owner] == nil else {
-                    throw ReminderSyncError.stopped(
-                        "A mirrored reminder was duplicated. Resolve the duplicate before syncing.")
-                }
-                byOwner[owner] = record
-            }
-        }
-        let byID = Dictionary(uniqueKeysWithValues: records.map { ($0.id, $0) })
+        let (byOwner, byID) = try await snapshot(
+            calendarID: calendarID, installation: ledger.installation, validate: validate)
         let activeIDs = Set(active.map(\.id))
         let taskIDs = Set(planner.tasks.map(\.id))
         for id in ledger.links.keys.sorted(by: { $0.uuidString < $1.uuidString }) where !activeIDs.contains(id) {
@@ -133,13 +116,16 @@ public final class ReminderReconciler {
                         "A removed task's reminder was edited elsewhere. It was preserved; resolve the change before syncing."
                     )
                 }
-                try validate(); try checkAccess()
-                try repository.remove(record)
+                link.remoteID = record.id
+                link.cleanup = ReminderCleanupIntent(
+                    reason: taskIDs.contains(id) ? .outOfScope : .deleted, record: record)
+                ledger.links[id] = link
+                // A missing record authorizes recovery only after this write succeeds.
+                try storage.save(ledger)
+                try finishCleanup(&link, record: record, validate: validate)
+            } else {
+                retire(&link, reason: taskIDs.contains(id) ? .outOfScope : .deleted)
             }
-            link.retired = true
-            link.retirement = taskIDs.contains(id) ? .outOfScope : .deleted
-            if link.retirement == .outOfScope { link.remoteID = nil } else { link.deletedAt = Date() }
-            link.remote = nil; link.revision = nil
             ledger.links[id] = link; try storage.save(ledger)
         }
         for task in active.sorted(by: { $0.id.uuidString < $1.id.uuidString }) {
@@ -212,6 +198,73 @@ public final class ReminderReconciler {
             link.local = desired; link.retired = false
             if ledger.links[task.id] != link { ledger.links[task.id] = link; try storage.save(ledger) }
         }
+    }
+
+    private func snapshot(
+        calendarID: String, installation: UUID, validate: () throws -> Void
+    ) async throws -> ([ReminderOwner: ReminderSyncRecord], [String: ReminderSyncRecord]) {
+        let records = try await repository.fetch(calendarID: calendarID)
+        try checkAccess(); try validate()
+        // Do not silently resolve duplicate ownership or identifier collisions.
+        guard Set(records.map(\.id)).count == records.count else {
+            throw ReminderSyncError.stopped("Reminders returned duplicate identifiers. Sync is stopped.")
+        }
+        var byOwner: [ReminderOwner: ReminderSyncRecord] = [:]
+        for record in records {
+            guard record.calendarID == calendarID else {
+                throw ReminderSyncError.stopped("The Reminders list changed while syncing. Retry sync.")
+            }
+            if let owner = record.owner, owner.installation == installation {
+                guard byOwner[owner] == nil else {
+                    throw ReminderSyncError.stopped(
+                        "A mirrored reminder was duplicated. Resolve the duplicate before syncing.")
+                }
+                byOwner[owner] = record
+            }
+        }
+        let byID = Dictionary(uniqueKeysWithValues: records.map { ($0.id, $0) })
+        return (byOwner, byID)
+    }
+
+    private func recoverCleanups(_ ledger: inout ReminderSyncLedger, validate: () throws -> Void) async throws {
+        let ids = ledger.links.keys.filter { ledger.links[$0]?.cleanup != nil }.sorted { $0.uuidString < $1.uuidString }
+        guard !ids.isEmpty else { return }
+        guard let calendarID = ledger.calendarID else {
+            throw ReminderSyncError.stopped("Pending cleanup has no Reminders list. Sync is stopped.")
+        }
+        let (byOwner, byID) = try await snapshot(
+            calendarID: calendarID, installation: ledger.installation, validate: validate)
+        for id in ids {
+            guard var link = ledger.links[id] else { continue }
+            let record = try await ownedRecord(link, byOwner: byOwner, byID: byID, validate: validate)
+            try finishCleanup(&link, record: record, validate: validate)
+            ledger.links[id] = link
+            try storage.save(ledger)
+        }
+    }
+
+    private func finishCleanup(
+        _ link: inout ReminderSyncLink, record: ReminderSyncRecord?, validate: () throws -> Void
+    ) throws {
+        guard let intent = link.cleanup else { return }
+        if let record {
+            guard record.id == intent.remoteID, record.owner == link.owner, !record.unsupported,
+                record.fields == intent.fields, record.revision == intent.revision
+            else {
+                throw ReminderSyncError.stopped(
+                    "A reminder changed during pending cleanup. It was preserved; sync is stopped.")
+            }
+            try validate(); try checkAccess()
+            try repository.remove(record)
+        }
+        try validate(); try checkAccess()
+        retire(&link, reason: intent.reason)
+    }
+
+    private func retire(_ link: inout ReminderSyncLink, reason: ReminderSyncLink.Retirement) {
+        link.retired = true; link.retirement = reason; link.cleanup = nil
+        if reason == .outOfScope { link.remoteID = nil } else { link.deletedAt = Date() }
+        link.remote = nil; link.revision = nil
     }
 
     private func checkAccess() throws {
