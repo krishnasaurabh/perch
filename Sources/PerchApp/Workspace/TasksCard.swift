@@ -383,10 +383,13 @@ struct CaptureTextUndo: NSViewRepresentable {
                 NotificationCenter.default.addObserver(self, selector: #selector(editingBegan), name: name, object: nil)
             }
             monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
-                MainActor.assumeIsolated {
-                    guard let self else { return event }
-                    return self.handle(event)
+                // AppKit invokes local monitors on main; only the consumption decision crosses
+                // the isolation check. NSEvent itself must remain in the synchronous callback.
+                let consumed: Bool = MainActor.assumeIsolated {
+                    guard let self else { return false }
+                    return self.handle(event) == nil
                 }
+                return consumed ? nil : event
             }
             enableUndo()
         }

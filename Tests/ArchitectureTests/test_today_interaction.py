@@ -311,6 +311,17 @@ class TodayInteractionTests(unittest.TestCase):
         self.assertNotIn("store.undo", bridge)
         self.assertNotIn("NSApp.mainMenu =", bridge)
 
+    def test_capture_monitor_transfers_only_consumption_across_actor_check(self):
+        source = (WORKSPACE / "TasksCard.swift").read_text()
+        monitor = source.split("monitor = NSEvent.addLocalMonitorForEvents", 1)[1].split(
+            "enableUndo()", 1)[0]
+        self.assertIn("let consumed: Bool = MainActor.assumeIsolated", monitor)
+        self.assertIn("guard let self else { return false }", monitor)
+        self.assertIn("return self.handle(event) == nil", monitor)
+        self.assertIn("return consumed ? nil : event", monitor)
+        self.assertNotIn("Task {", monitor)
+        self.assertNotIn("@unchecked Sendable", source)
+
     def test_capture_undo_probe_records_native_history_and_editor_identity(self):
         source = (ROOT / "scripts/focus_entry_probe.swift").read_text()
         for expected in ('func recordTextUndo(', '"allowsUndo"', '"canUndo"', '"canRedo"',
