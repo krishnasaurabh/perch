@@ -8,10 +8,17 @@ struct WorkspaceView: View {
     @EnvironmentObject var store: PlannerStore
     @EnvironmentObject var model: NotchModel
     @EnvironmentObject var services: Services
+    @Environment(\.isEnabled) private var enabled
+    @FocusState private var focusedPage: NotchPage?
+    @FocusState private var moreFocused: Bool
 
     var body: some View {
         VStack(spacing: WorkspaceLayout.headerGap) {
-            header.frame(height: WorkspaceLayout.headerHeight(notchHeight: notchHeight))
+            // Reserve room for the shared target and its out-of-layout focus ring.
+            header.frame(
+                height: max(
+                    WorkspaceLayout.headerHeight(notchHeight: notchHeight),
+                    Theme.primaryHeight + 2 * (Theme.focusGap + Theme.focusWidth)))
             ErrorBanner()
             // In-place crossfade between pages: nothing slides or scales.
             ZStack(alignment: .top) {
@@ -43,8 +50,9 @@ struct WorkspaceView: View {
             HStack(spacing: 7) {
                 OwlMark(size: 18)
                 Text(Date.now, format: .dateTime.weekday(.wide).month(.abbreviated).day())
-                    .font(.system(size: 12.5, weight: .semibold)).foregroundStyle(Theme.text)
+                    .font(Theme.label).foregroundStyle(Theme.text)
                     .lineLimit(1)
+                    .accessibilityIdentifier("workspace-date")
             }
             Spacer(minLength: 0)
             pagePicker
@@ -59,22 +67,77 @@ struct WorkspaceView: View {
             ForEach(NotchPage.allCases) { p in
                 let on = model.page == p
                 Button {
-                    Motion.animate(Motion.page) { model.page = p }
+                    selectPage(p)
                 } label: {
                     Text(p.title)
-                        .font(.system(size: 11.5, weight: on ? .semibold : .medium))
-                        .padding(.horizontal, 9).padding(.vertical, 5)
-                        .background(Capsule().fill(on ? Theme.fillStrong : .clear))
-                        .foregroundStyle(on ? Theme.text : Theme.secondary)
-                        .contentShape(Capsule())
+                        .font(Theme.label)
+                        .padding(.horizontal, 9)
+                        .frame(minWidth: Theme.minimumTarget, minHeight: Theme.minimumTarget)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(WorkspacePageStyle(selected: on, focused: focusedPage == p))
+                // Only the selected tab participates in Tab navigation. The other
+                // tabs remain clickable; arrows move selection and native focus together.
+                .focusable(on)
+                .focused($focusedPage, equals: p)
+                .focusEffectDisabled()
+                .accessibilityIdentifier("workspace-page-\(p.rawValue)")
+                .accessibilityLabel(p.title)
+                .accessibilityValue(on ? "Selected" : "Not selected")
                 .accessibilityAddTraits(on ? .isSelected : [])
+                .onKeyPress(.leftArrow) { movePage(from: p, by: -1) }
+                .onKeyPress(.rightArrow) { movePage(from: p, by: 1) }
+                .onKeyPress(.home) { focusPage(.home) }
+                .onKeyPress(.end) { focusPage(.insights) }
                 .transaction { $0.animation = nil }
             }
         }
         .padding(2)
         .background(Capsule().fill(Theme.fill))
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("workspace-pages")
+    }
+
+    private func selectPage(_ page: NotchPage) {
+        Motion.animate(Motion.page) { model.page = page }
+        // A click within an already-focused group keeps its roving stop in sync.
+        // Passive activation must never acquire focus from another window.
+        if focusedPage != nil { focusedPage = page }
+    }
+
+    private func focusPage(_ page: NotchPage) -> KeyPress.Result {
+        guard enabled else { return .ignored }
+        selectPage(page)
+        focusedPage = page
+        return .handled
+    }
+
+    private func movePage(from page: NotchPage, by step: Int) -> KeyPress.Result {
+        let pages = NotchPage.allCases
+        guard let index = pages.firstIndex(of: page) else { return .ignored }
+        return focusPage(pages[min(max(index + step, 0), pages.count - 1)])
+    }
+
+    private struct WorkspacePageStyle: ButtonStyle {
+        let selected: Bool
+        let focused: Bool
+        @Environment(\.isEnabled) private var enabled
+        @State private var hover = false
+
+        func makeBody(configuration: Configuration) -> some View {
+            configuration.label
+                .foregroundStyle(selected ? Theme.text : Theme.secondary)
+                .background(Capsule().fill(fill(pressed: configuration.isPressed)))
+                .overlay(ControlFocusRing(shape: Capsule(), focused: focused && enabled))
+                .contentShape(Capsule())
+                .onHover { hover = $0 }
+        }
+
+        private func fill(pressed: Bool) -> Color {
+            if !enabled { return selected ? Theme.selectedPill : .clear }
+            if pressed { return Theme.fillPressed }
+            if selected { return Theme.selectedPill }
+            return hover ? Theme.fillStrong : .clear
+        }
     }
 
     /// Undo, Dashboard and Settings behind one button. ⌘Z still undoes directly.
@@ -86,14 +149,18 @@ struct WorkspaceView: View {
             Button("Settings…") { SettingsWindow.show(store: store, services: services) }
         } label: {
             Image(systemName: "ellipsis")
-                .font(.system(size: 12, weight: .semibold))
+                .font(Theme.label)
                 .foregroundStyle(Theme.text)
-                .frame(width: 26, height: 26)
-                .background(Circle().fill(Theme.fill))
         }
-        .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
+        .menuStyle(.button)
+        .buttonStyle(PillStyle())
+        .menuIndicator(.hidden).fixedSize()
+        .focused($moreFocused)
+        .focusEffectDisabled()
+        .overlay(ControlFocusRing(shape: Capsule(), focused: moreFocused && enabled))
         .help("More")
         .accessibilityLabel("More")
+        .accessibilityIdentifier("workspace-more")
     }
 }
 
