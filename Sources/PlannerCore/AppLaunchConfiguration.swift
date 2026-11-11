@@ -31,7 +31,7 @@ public enum AppLaunchConfiguration {
                     case "--page":
                         guard ["home", "week", "clips", "insights"].contains(value) else { throw Invalid.value }
                     case "--motion-policy":
-                        guard ["normal", "reduced"].contains(value) else { throw Invalid.value }
+                        guard ["production", "normal", "reduced"].contains(value) else { throw Invalid.value }
                     default: break
                     }
                 default: throw Invalid.argument

@@ -34,9 +34,11 @@ final class AppLaunchConfigurationTests: XCTestCase {
             }
             XCTAssertNoThrow(
                 try AppLaunchConfiguration.validate(arguments: ["--preview-open", "--page", "week"], environment: env))
-            XCTAssertNoThrow(
-                try AppLaunchConfiguration.validate(
-                    arguments: ["--motion-script", "x", "--motion-policy", "reduced"], environment: env))
+            for policy in ["production", "normal", "reduced"] {
+                XCTAssertNoThrow(
+                    try AppLaunchConfiguration.validate(
+                        arguments: ["--motion-script", "x", "--motion-policy", policy], environment: env))
+            }
         }
 
         func testDiagnosticEnvironmentNeedsIsolatedStorage() {

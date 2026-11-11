@@ -141,7 +141,7 @@ jobs:
           python3 scripts/check_release.py dist/Perch.app/Contents/MacOS/Perch "$RUNNER_TEMP/release-smoke"
       - name: Build instrumented probe app separately
         run: |
-          PERCH_BUILD_VARIANT=testing scripts/bundle.sh
+          ARCHS=arm64 PERCH_BUILD_VARIANT=testing scripts/bundle.sh
           python3 scripts/motion_build_manifest.py dist/testing/Perch.app
       - name: Archive app bundle
         # The sibling manifest binds motion evidence to this exact build.
@@ -442,7 +442,7 @@ jobs:
           sudo xcode-select -s "$(ls -d /Applications/Xcode_26*.app | sort -V | tail -1)"
       - name: Baseline exact-source normal-policy recording
         run: |
-          PERCH_BUILD_VARIANT=testing scripts/bundle.sh
+          ARCHS=arm64 PERCH_BUILD_VARIANT=testing scripts/bundle.sh
           python3 scripts/motion_build_manifest.py dist/testing/Perch.app
           PERCH_MOTION_POLICY=normal scripts/motion_capture.sh "$RUNNER_TEMP/isolation/baseline" dist/testing/Perch.app
       - name: Sandbox-only layer-order experiment (never approval evidence)
@@ -457,7 +457,7 @@ jobs:
           PY
           mkdir -p "$RUNNER_TEMP/isolation"
           git diff > "$RUNNER_TEMP/isolation/EXPERIMENT.patch"
-          PERCH_BUILD_VARIANT=testing scripts/bundle.sh
+          ARCHS=arm64 PERCH_BUILD_VARIANT=testing scripts/bundle.sh
           # Invalidate the baseline manifest: the patched app is explicitly NOT exact-head evidence.
           rm -f dist/testing/motion-build.json
           PERCH_MOTION_POLICY=normal scripts/motion_capture.sh "$RUNNER_TEMP/isolation/raised-layer" dist/testing/Perch.app
