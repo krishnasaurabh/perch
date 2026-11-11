@@ -8,7 +8,7 @@ public enum TodayTaskNavigation {
     }
 
     /// Completing or deleting a row keeps its position: next row, otherwise the previous row.
-    /// No surviving rows returns nil so the caller can put focus back in capture.
+    /// No surviving rows returns nil so the caller can focus Undo or capture as appropriate.
     public static func afterRemoval(of current: UUID, previous: [UUID], remaining: [UUID]) -> UUID? {
         guard !remaining.isEmpty else { return nil }
         if remaining.contains(current) { return current }

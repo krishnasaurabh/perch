@@ -4,6 +4,7 @@ import SwiftUI
 
 enum TodayFocus: Hashable {
     case capture
+    case undo
     case task(UUID, RowAction)
 
     enum RowAction: Hashable {
@@ -75,6 +76,18 @@ struct TaskRow: View {
         .onHover { hover = $0 }
         .contextMenu { menu }
         .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("task-row-\(task.id)")
+        .accessibilityLabel(task.title)
+        .accessibilityValue(accessibilitySummary)
+        .accessibilityHint(
+            "Use actions to complete or reopen, view details, focus, or delete this task. Deletion can be undone."
+        )
+        .accessibilityActions {
+            Button(task.done ? "Reopen" : "Complete", action: toggle)
+            Button("Details") { model.detailsTaskID = task.id }
+            Button("Delete", role: .destructive, action: delete)
+            if canFocus { Button("Focus", action: startFocus) }
+        }
         .onChange(of: canFocus) { _, available in
             if !available && focusBinding.wrappedValue == .task(task.id, .focus) {
                 focusBinding.wrappedValue = .task(task.id, .complete)
@@ -133,10 +146,7 @@ struct TaskRow: View {
     private var actions: some View {
         HStack(spacing: 8) {
             if canFocus {
-                action("play.fill", title: "Focus", kind: .focus) {
-                    guard canFocus else { return }
-                    store.apply { try $0.startTimer(task: task.id, minutes: nil) }
-                }
+                action("play.fill", title: "Focus", kind: .focus, perform: startFocus)
             }
             action("slider.horizontal.3", title: "Details", kind: .details) { model.detailsTaskID = task.id }
             action("trash", title: "Delete", kind: .delete, role: .destructive, perform: delete)
@@ -200,10 +210,7 @@ struct TaskRow: View {
 
     @ViewBuilder private var menu: some View {
         if !task.done {
-            Button("Start focusing") {
-                guard canFocus else { return }
-                store.apply { try $0.startTimer(task: task.id, minutes: nil) }
-            }.disabled(!canFocus)
+            Button("Start focusing", action: startFocus).disabled(!canFocus)
             Button("Set Time Limit…") { model.detailsTaskID = task.id }
             Divider()
             Button("Move to Tomorrow") { move(.day(store.today.adding(days: 1))) }
@@ -223,6 +230,16 @@ struct TaskRow: View {
         if task.repeatRule != nil { Button("Stop Repeating") { store.apply { try $0.endRepeat(of: task.id) } } }
         Divider()
         Button("Delete", role: .destructive, action: delete)
+    }
+
+    private var accessibilitySummary: String {
+        let state = task.done || ticked ? "Completed" : "Not completed"
+        return task.priority == .none ? state : "\(state), \(task.priority.rawValue.capitalized) priority"
+    }
+
+    private func startFocus() {
+        guard canFocus else { return }
+        store.apply { try $0.startTimer(task: task.id, minutes: nil) }
     }
 
     func toggle() {

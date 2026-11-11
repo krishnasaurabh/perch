@@ -198,6 +198,61 @@ class TodayInteractionTests(unittest.TestCase):
         self.assertIn('recordAccessibility(rowRoot, "task-\\(priority.rawValue)-narrow", into: output)', source)
         self.assertIn('"accessibilityContents"', source)
 
+    def test_last_row_focus_recovers_to_undo_not_the_text_editor(self):
+        source = (WORKSPACE / "TasksCard.swift").read_text()
+        row = (WORKSPACE / "TaskRow.swift").read_text()
+        recovery = source.split(".onChange(of: ids)", 1)[1].split(".onKeyPress", 1)[0]
+        self.assertIn("case undo", row)
+        self.assertIn("?? (store.canUndo ? .undo : .capture)", recovery)
+        self.assertIn(".focused($focus, equals: .undo)", source)
+        self.assertIn("ControlFocusRing(shape: Capsule(), focused: focus == .undo)", source)
+        panel = (ROOT / "Sources/PerchApp/Notch/NotchGeometry.swift").read_text()
+        self.assertIn("!(firstResponder is NSTextView)", panel)
+
+    def test_rows_expose_named_accessibility_actions_and_state(self):
+        source = (WORKSPACE / "TaskRow.swift").read_text()
+        row = source.split(".accessibilityElement(children: .contain)", 1)[1].split(".onChange", 1)[0]
+        for expected in ('accessibilityIdentifier("task-row-\\(task.id)")',
+                         '.accessibilityLabel(task.title)', '.accessibilityValue(accessibilitySummary)',
+                         '.accessibilityHint(', '.accessibilityActions {',
+                         'Button(task.done ? "Reopen" : "Complete", action: toggle)',
+                         'Button("Details") { model.detailsTaskID = task.id }',
+                         'Button("Delete", role: .destructive, action: delete)',
+                         'if canFocus { Button("Focus", action: startFocus) }'):
+            self.assertIn(expected, row)
+        self.assertIn('task.done || ticked ? "Completed" : "Not completed"', source)
+        self.assertIn('priority.rawValue.capitalized', source)
+        self.assertIn('private func startFocus()', source)
+
+    def test_native_last_row_delete_undo_uses_notch_panel_keyboard(self):
+        source = (ROOT / "scripts/focus_entry_probe.swift").read_text()
+        for expected in ('let panel = NotchPanel(', 'for completed in [false, true]',
+                         '"task-delete-\\(only.id)"',
+                         'key(" ", code: 49, in: panel)',
+                         'modifiers: [.command]',
+                         'sameTaskContent(store.planner.tasks, beforeDeletion)',
+                         'sameTaskContent(try! store.file.load().tasks, beforeDeletion)',
+                         'store.planner.tasks == afterUndo',
+                         '"last-row removal focuses Undo"',
+                         '"capture Command-Z preserves planner history"',
+                         '"capture Command-Z undoes only draft text"',
+                         'await verifyLastRowKeyboardUndo('):
+            self.assertIn(expected, source)
+
+    def test_native_row_custom_actions_are_discovered_and_exercised(self):
+        source = (ROOT / "scripts/focus_entry_probe.swift").read_text()
+        for expected in ('"accessibilityCustomActions"', '[NSAccessibilityCustomAction]',
+                         'action.handler', 'action.selector', 'action.target',
+                         'performCustomAction("Complete"', 'performCustomAction("Reopen"',
+                         'performCustomAction("Details"', 'performCustomAction("Delete"',
+                         'performCustomAction("Focus"',
+                         '"row custom completion persists only the target"',
+                         '"running row omits the Focus custom action"',
+                         '"row custom deletion persists only the target"',
+                         '"row custom reopening persists only the target"',
+                         'await verifyRowCustomActions('):
+            self.assertIn(expected, source)
+
     def test_overdue_policy_is_not_a_persistent_home_banner(self):
         source = "\n".join(p.read_text() for p in WORKSPACE.glob("*.swift"))
         self.assertNotIn("OverdueBanner()", source)

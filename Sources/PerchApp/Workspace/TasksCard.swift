@@ -90,7 +90,7 @@ struct TasksCard: View {
             }
             focus =
                 TodayTaskNavigation.afterRemoval(of: id, previous: previous, remaining: remaining)
-                .map { .task($0, .complete) } ?? .capture
+                .map { .task($0, .complete) } ?? (store.canUndo ? .undo : .capture)
         }
         .onKeyPress(.upArrow) { navigate(ids, offset: -1) }
         .onKeyPress(.downArrow) { navigate(ids, offset: 1) }
@@ -108,6 +108,8 @@ struct TasksCard: View {
             }
             .buttonStyle(PillStyle(disabledReason: "There is no task edit to undo."))
             .disabled(!store.canUndo)
+            .focused($focus, equals: .undo)
+            .overlay(ControlFocusRing(shape: Capsule(), focused: focus == .undo))
             .accessibilityIdentifier("today-undo")
             .help("Undo the last edit, including task deletion (Command-Z)")
             Spacer(minLength: 0)
