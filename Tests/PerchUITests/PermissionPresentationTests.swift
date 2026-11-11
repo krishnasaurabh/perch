@@ -129,10 +129,20 @@ final class PermissionPresentationTests: XCTestCase {
         let urls = PermissionFeature.allCases.map(\.settingsURL)
         XCTAssertEqual(Set(urls).count, PermissionFeature.allCases.count)
         XCTAssertTrue(urls.allSatisfy { $0.scheme == "x-apple.systempreferences" })
-        XCTAssertEqual(PermissionFeature.calendar.settingsURL.query, "Privacy_Calendars")
-        XCTAssertEqual(PermissionFeature.speech.settingsURL.query, "Privacy_SpeechRecognition")
-        XCTAssertEqual(PermissionFeature.microphone.settingsURL.query, "Privacy_Microphone")
-        XCTAssertEqual(PermissionFeature.reminders.settingsURL.query, "Privacy_Reminders")
+        // System Settings uses opaque URLs; Foundation may expose no separate query on macOS.
+        // Check the complete destination, including the privacy pane, on every platform.
+        XCTAssertEqual(
+            PermissionFeature.calendar.settingsURL.absoluteString,
+            "x-apple.systempreferences:com.apple.preference.security?Privacy_Calendars")
+        XCTAssertEqual(
+            PermissionFeature.speech.settingsURL.absoluteString,
+            "x-apple.systempreferences:com.apple.preference.security?Privacy_SpeechRecognition")
+        XCTAssertEqual(
+            PermissionFeature.microphone.settingsURL.absoluteString,
+            "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone")
+        XCTAssertEqual(
+            PermissionFeature.reminders.settingsURL.absoluteString,
+            "x-apple.systempreferences:com.apple.preference.security?Privacy_Reminders")
         XCTAssertEqual(
             PermissionFeature.notifications.settingsURL.absoluteString,
             "x-apple.systempreferences:com.apple.preference.notifications")
