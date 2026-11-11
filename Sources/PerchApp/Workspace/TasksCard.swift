@@ -275,6 +275,7 @@ struct TaskComposer: View {
     @EnvironmentObject var store: PlannerStore
     @EnvironmentObject var services: Services
     @EnvironmentObject var model: NotchModel
+    @Environment(\.locale) private var locale
     @State private var text = ""
     @FocusState private var localFocus: TodayFocus?
     private var focusBinding: FocusState<TodayFocus?>.Binding { focus ?? $localFocus }
@@ -356,7 +357,7 @@ struct TaskComposer: View {
         if c.priority != .none { bits.append(AppL10n.text(c.priority.rawValue.capitalized)) }
         if let p = c.projectName { bits.append("#" + p) }
         if let r = c.repeatRule {
-            bits.append(RepeatPickerDraft(original: r, anchor: c.day).summary())
+            bits.append(RepeatPickerDraft(original: r, anchor: c.day).summary(locale: locale))
         }
         if let m = c.minutes { bits.append(AppL10n.format("%lldm", m)) }
         return bits.isEmpty ? nil : bits.joined(separator: " · ")

@@ -134,6 +134,7 @@ struct RepeatPickerFields: View {
         let selected: Bool
         let focused: Bool
         let action: () -> Void
+        @Environment(\.locale) private var locale
 
         var body: some View {
             Button(action: action) {
