@@ -297,6 +297,40 @@ class TodayInteractionTests(unittest.TestCase):
                          'await verifyLastRowKeyboardUndo('):
             self.assertIn(expected, source)
 
+    def test_capture_shortcuts_are_owned_by_the_actual_native_editor(self):
+        source = (WORKSPACE / "TasksCard.swift").read_text()
+        self.assertIn("CaptureTextUndo()", source)
+        bridge = source.split("struct CaptureTextUndo:", 1)[1]
+        for expected in ("editor.delegate as? NSTextField", "field.currentEditor() === editor",
+                         "field.window === window", "bounds.intersects(",
+                         "NSText.didBeginEditingNotification", "editor.allowsUndo = true",
+                         "NSEvent.addLocalMonitorForEvents", "NSEvent.removeMonitor",
+                         "manager.undo()", "manager.redo()", "event.isARepeat",
+                         "flags == .command", "flags == [.command, .shift]"):
+            self.assertIn(expected, bridge)
+        self.assertNotIn("store.undo", bridge)
+        self.assertNotIn("NSApp.mainMenu =", bridge)
+
+    def test_capture_undo_probe_records_native_history_and_editor_identity(self):
+        source = (ROOT / "scripts/focus_entry_probe.swift").read_text()
+        for expected in ('func recordTextUndo(', '"allowsUndo"', '"canUndo"', '"canRedo"',
+                         '"registrationEnabled"', '"isCurrentEditor"', '"mainMenuPresent"',
+                         'recordTextUndo(editor, in: panel, phase: "before-command-z"',
+                         'recordTextUndo(editor, in: panel, phase: "after-command-z"',
+                         '"capture edit registers native Undo"',
+                         '"capture Command-Shift-Z restores only draft text"',
+                         '"capture Undo keeps the current editor"'):
+            self.assertIn(expected, source)
+
+    def test_capture_undo_redo_submits_the_binding_not_stale_text(self):
+        source = (ROOT / "scripts/focus_entry_probe.swift").read_text()
+        for expected in ('func verifyCaptureUndoSubmission(', 'await verifyCaptureUndoSubmission(',
+                         '"empty text Undo never consumes planner history"',
+                         '"text Redo never consumes planner history"',
+                         '"capture submission uses the undone and redone binding"',
+                         '"capture submission persists the exact draft"'):
+            self.assertIn(expected, source)
+
     def test_completed_keyboard_probe_reselects_restored_row_before_second_delete(self):
         source = (ROOT / "scripts/focus_entry_probe.swift").read_text()
         probe = source.split("func verifyLastRowKeyboardUndo(", 1)[1].split(

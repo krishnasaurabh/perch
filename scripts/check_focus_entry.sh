@@ -27,6 +27,7 @@ root = pathlib.Path(output)
 result = json.loads((root / 'results.json').read_text())
 assert result['activation'] == 'real-own-process-AX-press-no-model-fallback'
 assert result['lastRowKeyboardUndo'] == 'verified-own-process-NotchPanel'
+assert result['captureTextUndo'] == 'native-keyboard-undo-redo-and-submit'
 assert result['rowCustomActions'] == 'verified-native-handlers-exact-task'
 assert result['taskActivation'] == 'window-right-click-tracked-NSMenu-item-action'
 menu = json.loads((root / 'context-menu-trace.json').read_text())

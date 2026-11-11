@@ -305,6 +305,7 @@ struct TaskComposer: View {
                 .accessibilityHint(placeholder)
                 .accessibilityIdentifier("task-capture")
                 .onSubmit(add)
+                .background(CaptureTextUndo())
             VoiceButton { spoken in
                 store.apply { try $0.addTasks([spoken], on: day) }
             }
@@ -360,6 +361,75 @@ struct TaskComposer: View {
             AISorter.sort(added.map(\.id), store: store)
         }
         focusBinding.wrappedValue = .capture
+    }
+}
+
+/// Capture keeps working when the accessory panel has no application Edit menu.
+/// Its native text history remains separate from the planner's command history.
+struct CaptureTextUndo: NSViewRepresentable {
+    func makeNSView(context: Context) -> Marker { Marker() }
+    func updateNSView(_ view: Marker, context: Context) { view.enableUndo() }
+    static func dismantleNSView(_ view: Marker, coordinator: ()) { view.stop() }
+
+    final class Marker: NSView {
+        private var monitor: Any?
+
+        override func hitTest(_ point: NSPoint) -> NSView? { nil }
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            stop()
+            guard window != nil else { return }
+            for name in [NSText.didBeginEditingNotification, NSControl.textDidBeginEditingNotification] {
+                NotificationCenter.default.addObserver(self, selector: #selector(editingBegan), name: name, object: nil)
+            }
+            monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+                MainActor.assumeIsolated {
+                    guard let self else { return event }
+                    return self.handle(event)
+                }
+            }
+            enableUndo()
+        }
+        override func layout() { super.layout(); enableUndo() }
+
+        func stop() {
+            if let monitor { NSEvent.removeMonitor(monitor) }
+            monitor = nil
+            NotificationCenter.default.removeObserver(self)
+        }
+
+        // The background occupies only this capture field. A shared field editor
+        // must currently belong to that actual field, not another control/window.
+        private var editor: NSTextView? {
+            guard let window, let editor = window.firstResponder as? NSTextView,
+                editor.isFieldEditor, let field = editor.delegate as? NSTextField,
+                field.window === window, field.currentEditor() === editor,
+                !isHiddenOrHasHiddenAncestor, field.isEditable,
+                !bounds.isEmpty, bounds.intersects(convert(field.bounds, from: field))
+            else { return nil }
+            return editor
+        }
+
+        @objc private func editingBegan(_ notification: Notification) { enableUndo() }
+        func enableUndo() { editor?.allowsUndo = true }
+
+        private func handle(_ event: NSEvent) -> NSEvent? {
+            guard event.window === window, window?.isKeyWindow == true, let editor else { return event }
+            editor.allowsUndo = true
+            let flags = event.modifierFlags.intersection([.command, .shift, .option, .control])
+            guard event.charactersIgnoringModifiers?.lowercased() == "z",
+                flags == .command || flags == [.command, .shift]
+            else { return event }
+            // Consume empty history and held-key repeats too: neither may reach planner Undo.
+            guard !event.isARepeat, let manager = editor.undoManager else { return nil }
+            editor.breakUndoCoalescing()
+            if flags.contains(.shift) {
+                if manager.canRedo { manager.redo() }
+            } else if manager.canUndo {
+                manager.undo()
+            }
+            return nil
+        }
     }
 }
 

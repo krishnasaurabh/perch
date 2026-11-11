@@ -268,6 +268,26 @@ func focusByTab(_ identifier: String, in window: NSWindow, root: NSView, output:
 }
 
 @MainActor
+func recordTextUndo(_ editor: NSTextView, in panel: NSWindow, phase: String, scenario: String, output: URL) {
+    let manager = editor.undoManager
+    let field = editor.delegate as? NSTextField
+    let state: [String: Any] = [
+        "phase": phase, "text": editor.string,
+        "keyWindow": panel.isKeyWindow,
+        "isFieldEditor": editor.isFieldEditor,
+        "isCurrentEditor": field?.currentEditor() === editor && panel.firstResponder === editor,
+        "allowsUndo": editor.allowsUndo,
+        "registrationEnabled": manager?.isUndoRegistrationEnabled ?? false,
+        "canUndo": manager?.canUndo ?? false, "canRedo": manager?.canRedo ?? false,
+        "groupingLevel": manager?.groupingLevel ?? -1,
+        "mainMenuPresent": NSApp.mainMenu != nil,
+        "delegateClass": field.map { String(describing: type(of: $0)) } ?? "none",
+    ]
+    try! JSONSerialization.data(withJSONObject: state, options: [.prettyPrinted, .sortedKeys]).write(
+        to: output.appendingPathComponent("text-undo-\(scenario)-\(phase).json"))
+}
+
+@MainActor
 func verifyLastRowKeyboardUndo(store: PlannerStore, model: NotchModel, services: Services, output: URL) async {
     for completed in [false, true] {
         store.seedFixture { engine in
@@ -360,11 +380,24 @@ func verifyLastRowKeyboardUndo(store: PlannerStore, model: NotchModel, services:
         editor.insertText("temporary draft", replacementRange: NSRange(location: NSNotFound, length: 0))
         require(editor.string != oldText, "capture receives draft text")
         editor.breakUndoCoalescing()
+        recordTextUndo(editor, in: panel, phase: "before-command-z", scenario: "last-row-\(completed)", output: output)
+        require(editor.undoManager?.canUndo == true, "capture edit registers native Undo")
         sendKey(.keyDown, "z", code: 6, in: panel, modifiers: [.command])
         sendKey(.keyUp, "z", code: 6, in: panel, modifiers: [.command])
         await settle()
+        recordTextUndo(editor, in: panel, phase: "after-command-z", scenario: "last-row-\(completed)", output: output)
         require(undoCount == 1 && store.planner.tasks == afterUndo, "capture Command-Z preserves planner history")
         require(editor.string == oldText, "capture Command-Z undoes only draft text")
+        require(panel.firstResponder === editor, "capture Undo keeps the current editor")
+        sendKey(.keyDown, "z", code: 6, in: panel, modifiers: [.command, .shift])
+        sendKey(.keyUp, "z", code: 6, in: panel, modifiers: [.command, .shift])
+        await settle()
+        require(editor.string == oldText + "temporary draft", "capture Command-Shift-Z restores only draft text")
+        require(undoCount == 1 && store.planner.tasks == afterUndo, "capture Redo preserves planner history")
+        sendKey(.keyDown, "z", code: 6, in: panel, modifiers: [.command])
+        sendKey(.keyUp, "z", code: 6, in: panel, modifiers: [.command])
+        await settle()
+        require(editor.string == oldText, "capture draft can be undone again")
         if !completed {
             let reachedFocus = await focusByTab("task-focus-\(only.id)", in: panel, root: root, output: output)
             require(reachedFocus, "Tab reaches the row Focus control")
@@ -384,6 +417,74 @@ func verifyLastRowKeyboardUndo(store: PlannerStore, model: NotchModel, services:
         snapshot(root, "last-row-\(completed)-restored", into: output)
         panel.orderOut(nil)
     }
+}
+
+@MainActor
+func verifyCaptureUndoSubmission(store: PlannerStore, model: NotchModel, services: Services, output: URL) async {
+    store.seedFixture { engine in
+        engine.planner.tasks = []; engine.planner.focus = nil
+    }
+    let sentinel = store.apply { try $0.addTasks(["Inspect the tool shelf"], on: .day(store.today)) }![0]
+    let before = store.planner
+    let persistedBefore = try! Data(contentsOf: store.file.url)
+    let panel = NotchPanel(frame: CGRect(x: 50, y: 100, width: 420, height: 400))
+    panel.isReleasedWhenClosed = false
+    panel.ignoresMouseEvents = false
+    var plannerUndoCount = 0
+    panel.onUndo = { redo in
+        plannerUndoCount += 1
+        if redo { store.redo() } else { store.undo() }
+    }
+    let root = NSHostingView(
+        rootView: TasksCard().environmentObject(store).environmentObject(model).environmentObject(services)
+            .environment(\.accessibilityEnabled, true))
+    panel.contentView = root
+    panel.makeKeyAndOrderFront(nil); NSApp.activate(ignoringOtherApps: true)
+    await settle(); await wakeAX(); await settle()
+    panel.makeFirstResponder(nil)
+    for _ in 0..<60 {
+        key("\t", code: 48, in: panel)
+        try? await Task.sleep(nanoseconds: 50_000_000)
+        if panel.firstResponder is NSTextView { break }
+    }
+    guard let editor = panel.firstResponder as? NSTextView else {
+        require(false, "submission fixture reaches capture through Tab"); return
+    }
+    recordTextUndo(editor, in: panel, phase: "empty", scenario: "submission", output: output)
+    require(editor.string.isEmpty && editor.undoManager?.canUndo == false, "new capture has empty text history")
+    sendKey(.keyDown, "z", code: 6, in: panel, modifiers: [.command])
+    sendKey(.keyUp, "z", code: 6, in: panel, modifiers: [.command])
+    await settle()
+    require(plannerUndoCount == 0 && store.planner == before, "empty text Undo never consumes planner history")
+    let draft = "Sort the seed packets"
+    let replacement = "Label the seed packets"
+    editor.insertText(draft, replacementRange: NSRange(location: NSNotFound, length: 0))
+    editor.breakUndoCoalescing(); await settle()
+    editor.insertText(replacement, replacementRange: NSRange(location: 0, length: editor.string.utf16.count))
+    editor.breakUndoCoalescing(); await settle()
+    sendKey(.keyDown, "z", code: 6, in: panel, modifiers: [.command])
+    sendKey(.keyUp, "z", code: 6, in: panel, modifiers: [.command])
+    await settle()
+    require(editor.string == draft, "capture Undo restores the replaced selection")
+    sendKey(.keyDown, "z", code: 6, in: panel, modifiers: [.command, .shift])
+    sendKey(.keyUp, "z", code: 6, in: panel, modifiers: [.command, .shift])
+    await settle()
+    require(editor.string == replacement, "capture Redo restores the replacement")
+    require(plannerUndoCount == 0 && store.planner == before, "text Redo never consumes planner history")
+    require(try! Data(contentsOf: store.file.url) == persistedBefore, "draft Undo and Redo leave storage unchanged")
+    sendKey(.keyDown, "z", code: 6, in: panel, modifiers: [.command])
+    sendKey(.keyUp, "z", code: 6, in: panel, modifiers: [.command])
+    await settle()
+    require(editor.string == draft, "capture returns to the draft before submission")
+    key("\r", code: 36, in: panel); await settle()
+    require(
+        store.planner.tasks.count == 2 && store.planner.tasks.contains { $0.id == sentinel.id }
+            && store.planner.tasks.contains { $0.id != sentinel.id && $0.title == draft },
+        "capture submission uses the undone and redone binding")
+    require(try! store.file.load().tasks == store.planner.tasks, "capture submission persists the exact draft")
+    require(editor.string.isEmpty && panel.firstResponder === editor, "submission clears capture and keeps focus")
+    recordTextUndo(editor, in: panel, phase: "submitted", scenario: "submission", output: output)
+    panel.orderOut(nil)
 }
 
 @MainActor
@@ -763,6 +864,8 @@ MainActor.assumeIsolated {
             print("Keyboard activation before task route: \(keyboardVerified)")
             await verifyLastRowKeyboardUndo(
                 store: store, model: delegate.model, services: delegate.services, output: output)
+            await verifyCaptureUndoSubmission(
+                store: store, model: delegate.model, services: delegate.services, output: output)
             await verifyRowCustomActions(
                 store: store, model: delegate.model, services: delegate.services, output: output)
             // Dispatch a right-click to the rendered title and observe the menu AppKit actually opens.
@@ -878,6 +981,7 @@ MainActor.assumeIsolated {
                 "screenshots": "own-window-cacheDisplay-not-compositor", "physicalNotch": "unverified",
                 "voiceOverSpeech": "unverified",
                 "lastRowKeyboardUndo": "verified-own-process-NotchPanel",
+                "captureTextUndo": "native-keyboard-undo-redo-and-submit",
                 "rowCustomActions": "verified-native-handlers-exact-task",
             ]
             try! JSONSerialization.data(withJSONObject: report, options: [.prettyPrinted, .sortedKeys]).write(
