@@ -1,4 +1,5 @@
 import AppKit
+import PerchUI
 import SwiftUI
 import XCTest
 @testable import PerchApp
@@ -84,6 +85,58 @@ final class TaskDetailsViewTests: XCTestCase {
         _ = try await Self.identifierControl("schedule-date-picker", role: "AXDateTimeArea", in: window)
         XCTAssertNotNil(fixture.store.send(.delete(fixture.task.id)))
         _ = try await Self.identifierControl("details-close", in: window)
+    }
+
+    @MainActor
+    func testDateIdentifiersInsideScrollHost() async throws {
+        let fixture = try DetailsFixture()
+        defer { fixture.close() }
+        let draft = DateFieldDraft(original: fixture.task.day, today: fixture.store.today)
+        for mode in 0..<5 {
+            let content = VStack {
+                DateFieldEditor(field: "Schedule", draft: .constant(draft), onCommit: nil, onCancel: nil)
+                Button("Inner control") {}.accessibilityIdentifier("inner-control")
+            }
+            let scroll = ScrollView {
+                if mode == 3 {
+                    content.environment(\EnvironmentValues.accessibilityEnabled, true)
+                } else if mode == 2 {
+                    content.accessibilityElement(children: .contain)
+                } else {
+                    content
+                }
+            }
+            let window = Self.makeWindow(size: NSSize(width: 460, height: 600))
+            window.contentView = NSHostingView(
+                rootView: VStack {
+                    if mode == 1 {
+                        scroll.clipped()
+                    } else if mode == 4 {
+                        scroll.accessibilityElement(children: .contain)
+                    } else {
+                        scroll
+                    }
+                    Button("Outer control") {}.accessibilityIdentifier("outer-control")
+                }.environment(\EnvironmentValues.accessibilityEnabled, true))
+            window.makeKeyAndOrderFront(nil)
+            NSApp.activate(ignoringOtherApps: true)
+            for _ in 0..<5 { await Self.settle() }
+            let observed = Self.nodes(window).map {
+                "\(Self.attribute($0, "accessibilityRole") ?? "?") "
+                    + "\(Self.attribute($0, "accessibilityIdentifier") ?? "?")"
+            }
+            print("Scroll AX mode=\(mode): \(observed.joined(separator: "; "))")
+            for identifier in [
+                "inner-control", "outer-control", "schedule-date-clear", "schedule-date-text", "schedule-date-picker",
+            ] {
+                XCTAssertTrue(
+                    Self.nodes(window).contains {
+                        Self.attribute($0, "accessibilityIdentifier") as? String == identifier
+                    },
+                    "Scroll AX mode=\(mode) must publish \(identifier)")
+            }
+            window.close()
+        }
     }
 
     @MainActor
