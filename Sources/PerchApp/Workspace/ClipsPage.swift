@@ -127,7 +127,7 @@ private struct LetGoToast: View {
     var body: some View {
         VStack(spacing: 4) {
             HStack(spacing: Theme.gutter) {
-                Text(banner.count == 1 ? "Removed 1 clip" : "Removed \(banner.count) clips")
+                Text(AppL10n.format("Removed %lld clips", banner.count))
                     .font(Theme.meta).foregroundStyle(Theme.text)
                 Spacer(minLength: Theme.gutter)
                 Button("Undo", action: undo).buttonStyle(PillStyle(prominent: true))
@@ -155,9 +155,9 @@ private struct FolderWatchStatus: View {
         case .off:
             EmptyView()
         case .watching(let url):
-            Label("Watching \(url.lastPathComponent)", systemImage: "eye")
+            Label(AppL10n.format("Watching %@", url.lastPathComponent), systemImage: "eye")
                 .font(Theme.meta).foregroundStyle(Theme.secondary)
-                .help("New screenshots in \(url.path) appear here.")
+                .help(AppL10n.format("New screenshots in %@ appear here.", url.path))
         case .unreadable(let url):
             Button {
                 NSWorkspace.shared.open(
@@ -167,7 +167,9 @@ private struct FolderWatchStatus: View {
             }
             .buttonStyle(PillStyle())
             .help(
-                "Allow Perch to access \(url.path) in Privacy & Security › Files and Folders. Only Spotlight is active until then."
+                AppL10n.format(
+                    "Allow Perch to access %@ in Privacy & Security › Files and Folders. Only Spotlight is active until then.",
+                    url.path)
             )
         }
     }
@@ -199,7 +201,7 @@ private struct ClipCard: View {
                 .overlay(
                     ControlFocusRing(shape: RoundedRectangle(cornerRadius: Theme.controlRadius), focused: copyFocused)
                 )
-                .accessibilityLabel("Copy \(clip.title)")
+                .accessibilityLabel(AppL10n.format("Copy %@", clip.title))
                 HStack {
                     if clip.pinned {
                         Label("Pinned", systemImage: "pin.fill").font(Theme.meta).foregroundStyle(Theme.secondary)
@@ -213,7 +215,7 @@ private struct ClipCard: View {
                     }
                     .menuStyle(.borderlessButton)
                     .fixedSize()
-                    .accessibilityLabel("Actions for \(clip.title)")
+                    .accessibilityLabel(AppL10n.format("Actions for %@", clip.title))
                 }.frame(width: 132)
             }
             .padding(6)

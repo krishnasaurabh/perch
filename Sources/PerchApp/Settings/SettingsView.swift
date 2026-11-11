@@ -184,14 +184,14 @@ struct SettingsView: View {
                         Image(systemName: "chevron.up")
                     }.buttonStyle(PillStyle())
                         .disabled(HomeLayout.ordered(store.prefs.workspaceCardOrder).first == id)
-                        .accessibilityLabel("Move \(cardName(id)) up")
+                        .accessibilityLabel(AppL10n.format("Move %@ up", cardName(id)))
                     Button {
                         moveCard(id, 1)
                     } label: {
                         Image(systemName: "chevron.down")
                     }.buttonStyle(PillStyle())
                         .disabled(HomeLayout.ordered(store.prefs.workspaceCardOrder).last == id)
-                        .accessibilityLabel("Move \(cardName(id)) down")
+                        .accessibilityLabel(AppL10n.format("Move %@ down", cardName(id)))
                 }
             }
             Button("Reset to default") {
@@ -307,7 +307,7 @@ struct SettingsView: View {
     /// "Midnight" for 0, otherwise the hour in the user's clock style ("4 AM" or "04:00").
     static func hourLabel(_ hour: Int) -> String {
         guard hour > 0, let d = Calendar.current.date(bySettingHour: hour, minute: 0, second: 0, of: Date()) else {
-            return "Midnight"
+            return AppL10n.text("Midnight")
         }
         return d.formatted(date: .omitted, time: .shortened)
     }

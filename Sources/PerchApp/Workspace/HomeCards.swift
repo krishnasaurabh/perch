@@ -88,7 +88,8 @@ struct FocusCard: View {
                 }
             } else {
                 Stepper(value: $minutes, in: 5...180, step: 5) {
-                    Text("\(minutes) min").font(.system(size: 11.5, weight: .semibold).monospacedDigit())
+                    Text(AppL10n.format("%lld min", minutes)).font(
+                        .system(size: 11.5, weight: .semibold).monospacedDigit())
                 }
                 .controlSize(.small)
                 Spacer()
@@ -355,7 +356,7 @@ private struct AgendaBody: View {
                                 )
                                 .toggleStyle(.checkbox)
                                 .labelsHidden()
-                                .accessibilityLabel("Complete calendar event: \(e.title)")
+                                .accessibilityLabel(AppL10n.format("Complete calendar event: %@", e.title))
                                 .help(
                                     completed
                                         ? "Mark incomplete in Perch" : "Mark complete in Perch (Calendar is unchanged)")

@@ -41,6 +41,18 @@ class LocalizationTests(unittest.TestCase):
                             self.assertTrue(value.startswith('⟦') and value.endswith(' ·~⟧'), key)
                             self.assertGreater(len(value), len(english_values[index]), key)
 
+    def test_dynamic_extraction_has_stable_keys_without_source_debris(self):
+        ui = json.loads((ROOT / 'Sources/PerchUI/Resources/Localizable.xcstrings').read_text())['strings']
+        app = json.loads((ROOT / 'Sources/PerchApp/Resources/Localizable.xcstrings').read_text())['strings']
+        self.assertIn('999+ tasks', ui)
+        for key in ('General', 'Workspace', 'System', 'Already completed: %@.',
+                    'Removed %lld clips', '%lld more tasks below', 'A whole number from 1 to %lld'):
+            self.assertIn(key, app)
+        for key in set(ui) | set(app):
+            self.assertNotIn('\\(', key, key)
+            self.assertNotIn('\n', key, key)
+            self.assertFalse(key.startswith(('authorization status=', 'calendar created id=', 'windows=')), key)
+
     def test_all_interactive_capture_paths_validate_language_before_mutation(self):
         store = (ROOT / 'Sources/PerchApp/App/PlannerStore.swift').read_text()
         self.assertIn('guard let supported = parserLanguage() else', store)

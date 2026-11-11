@@ -7,13 +7,8 @@ var products: [Product] = [
     .library(name: "PerchUI", targets: ["PerchUI"]),
     .executable(name: "perch-cli", targets: ["PerchCLI"]),
 ]
-var localizationResources: [Resource] = [.copy("Resources/Localizable.json")]
-var localizationExcludes: [String] = []
-#if os(macOS)
-    localizationResources.append(.process("Resources/Localizable.xcstrings"))
-#else
-    localizationExcludes.append("Resources/Localizable.xcstrings")
-#endif
+let localizationResources: [Resource] = [.copy("Resources/Localizable.json")]
+let localizationExcludes = ["Resources/Localizable.xcstrings"]
 
 var targets: [Target] = [
     // Dependencies flow inward: neither storage nor domain rules know about transport or presentation.

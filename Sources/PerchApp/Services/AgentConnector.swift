@@ -142,7 +142,9 @@ enum AgentConnector {
         if data.isEmpty { return [:] }
         guard let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
             PlatformLog.agents.error("config decode failed reason=invalidJSON")
-            throw PlannerError("\(url.lastPathComponent) couldn't be read, so Perch left it unchanged.")
+            throw PlannerError(
+                "%@ couldn't be read, so Perch left it unchanged.", arguments: [url.lastPathComponent],
+                message: "\(url.lastPathComponent) couldn't be read, so Perch left it unchanged.")
         }
         return obj
     }

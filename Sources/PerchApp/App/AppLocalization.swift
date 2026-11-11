@@ -22,7 +22,9 @@ enum AppL10n {
 
     static var parserLanguage: TaskParserLanguage? { TaskParserLanguage.current }
 
-    static func plannerMessage(_ message: String) -> String {
-        text(message)
+    static func plannerMessage(_ error: PlannerError, locale: Locale? = nil) -> String {
+        guard let key = error.presentationKey else { return text(error.message, locale: locale) }
+        let template = text(key, locale: locale)
+        return String(format: template, locale: locale, arguments: error.presentationArguments.map { $0 as CVarArg })
     }
 }

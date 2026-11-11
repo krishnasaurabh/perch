@@ -178,7 +178,7 @@ struct DateFieldEditor: View {
     private func styledButton(
         _ control: DateFieldControl, title: String, prominent: Bool, action: @escaping () -> Void
     ) -> some View {
-        Button(title, action: action)
+        Button(AppL10n.text(title), action: action)
             .buttonStyle(
                 PillStyle(prominent: prominent, disabledReason: draft.visibleIssue?.message ?? "Fix the date first.")
             )

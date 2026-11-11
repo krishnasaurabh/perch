@@ -92,10 +92,10 @@ p = Path(sys.argv[1]); week = p.read_text()
 edits = {
     '.layoutPriority(1)': '.layoutPriority(1)\n                .background(WeekMeasure(key: "title:\\(task.id)"))',
     '.coordinateSpace(.named(Self.space))': '.coordinateSpace(.named(Self.space))\n            .background(WeekMeasure(key: "list:\\(ref.key?.raw ?? "inbox")"))',
-    '.accessibilityLabel("\\(tasks.filter(\\.done).count) of \\(tasks.count) tasks complete")':
-        '.accessibilityLabel("\\(tasks.filter(\\.done).count) of \\(tasks.count) tasks complete")\n                    .background(WeekMeasure(key: "count:\\(key)"))',
-    '.accessibilityLabel("\\(hidden) more \\(hidden == 1 ? "task" : "tasks") below")':
-        '.accessibilityLabel("\\(hidden) more \\(hidden == 1 ? "task" : "tasks") below")\n                    .accessibilityIdentifier("week-overflow-\\(ref.key?.raw ?? "inbox")")',
+    '.accessibilityLabel(AppL10n.format("%lld of %lld tasks complete", tasks.filter(\\.done).count, tasks.count))':
+        '.accessibilityLabel(AppL10n.format("%lld of %lld tasks complete", tasks.filter(\\.done).count, tasks.count))\n                    .background(WeekMeasure(key: "count:\\(key)"))',
+    '.accessibilityLabel(AppL10n.format("%lld more tasks below", hidden))':
+        '.accessibilityLabel(AppL10n.format("%lld more tasks below", hidden))\n                    .accessibilityIdentifier("week-overflow-\\(ref.key?.raw ?? "inbox")")',
     '            .onSubmit {': '            .background(WeekMeasure(key: "add:\\(ref.key?.raw ?? "inbox")"))\n            .onSubmit {'
 }
 for old, new in edits.items():

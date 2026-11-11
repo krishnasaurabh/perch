@@ -175,6 +175,47 @@
         }
       }
     },
+    "%lld more tasks below": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld more task below"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld more tasks below"
+                }
+              }
+            }
+          }
+        },
+        "zz": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "⟦%lld mörë tàsk bëlöw ·~⟧"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "⟦%lld mörë tàsks bëlöw ·~⟧"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "%lld tasks": {
       "extractionState": "manual",
       "localizations": {
@@ -209,6 +250,129 @@
                 "stringUnit": {
                   "state": "translated",
                   "value": "⟦%lld tàsks ·~⟧"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "%lld tasks done this week.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld task done this week."
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld tasks done this week."
+                }
+              }
+            }
+          }
+        },
+        "zz": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "⟦%lld tàsk dönë thïs wëëk. ·~⟧"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "⟦%lld tàsks dönë thïs wëëk. ·~⟧"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "%lld tasks done, against %lld the week before.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld task done, against %lld the week before."
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld tasks done, against %lld the week before."
+                }
+              }
+            }
+          }
+        },
+        "zz": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "⟦%lld tàsk dönë, àgàïnst %lld thë wëëk bëförë. ·~⟧"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "⟦%lld tàsks dönë, àgàïnst %lld thë wëëk bëförë. ·~⟧"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "%lld tasks done, up from %lld the week before.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld task done, up from %lld the week before."
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld tasks done, up from %lld the week before."
+                }
+              }
+            }
+          }
+        },
+        "zz": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "⟦%lld tàsk dönë, üp fröm %lld thë wëëk bëförë. ·~⟧"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "⟦%lld tàsks dönë, üp fröm %lld thë wëëk bëförë. ·~⟧"
                 }
               }
             }
@@ -335,6 +499,23 @@
                 }
               }
             }
+          }
+        }
+      }
+    },
+    "999+ tasks": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "999+ tasks"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦999+ tàsks ·~⟧"
           }
         }
       }
@@ -1100,6 +1281,47 @@
           "stringUnit": {
             "state": "translated",
             "value": "⟦Rëmïndër för %@. ·~⟧"
+          }
+        }
+      }
+    },
+    "Removed %lld clips": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Removed %lld clip"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Removed %lld clips"
+                }
+              }
+            }
+          }
+        },
+        "zz": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "⟦Rëmövëd %lld clïp ·~⟧"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "⟦Rëmövëd %lld clïps ·~⟧"
+                }
+              }
+            }
           }
         }
       }

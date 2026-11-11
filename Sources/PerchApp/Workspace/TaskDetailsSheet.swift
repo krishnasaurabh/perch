@@ -86,7 +86,10 @@ private struct TaskDetailsEditor: View {
                     field("Priority") {
                         Picker("Priority", selection: $editor.details.priority) {
                             ForEach(TaskPriority.allCases.reversed(), id: \.self) { priority in
-                                Text(priority == .none ? "None" : priority.rawValue.capitalized).tag(priority)
+                                Text(
+                                    priority == .none
+                                        ? AppL10n.text("None") : AppL10n.text(priority.rawValue.capitalized)
+                                ).tag(priority)
                             }
                         }.labelsHidden().pickerStyle(.menu)
                     }
@@ -108,8 +111,11 @@ private struct TaskDetailsEditor: View {
                     }
                     field("Time limit", error: errors[.minutes]) {
                         Stepper(value: $editor.details.minutes, in: 0...720, step: 5) {
-                            Text(editor.details.minutes == 0 ? "None" : "\(editor.details.minutes) min")
-                                .monospacedDigit()
+                            Text(
+                                editor.details.minutes == 0
+                                    ? AppL10n.text("None") : AppL10n.format("%lld min", editor.details.minutes)
+                            )
+                            .monospacedDigit()
                         }.disabled(editor.details.original.done)
                     }
                     steps
@@ -132,7 +138,8 @@ private struct TaskDetailsEditor: View {
                     .focusedSeconds,
                     seconds > 0
                 {
-                    Text("Focused \(TimerText.short(seconds))").font(Theme.meta).foregroundStyle(Theme.secondary)
+                    Text(AppL10n.format("Focused %@", TimerText.short(seconds))).font(Theme.meta).foregroundStyle(
+                        Theme.secondary)
                 }
                 if let saveError {
                     Label(saveError, systemImage: "exclamationmark.circle")
@@ -240,7 +247,7 @@ private struct TaskDetailsEditor: View {
                         editor.details.steps.removeAll { $0.id == step.id }
                     } label: {
                         Image(systemName: "minus.circle")
-                    }.buttonStyle(PillStyle()).accessibilityLabel("Remove step \(step.title)")
+                    }.buttonStyle(PillStyle()).accessibilityLabel(AppL10n.format("Remove step %@", step.title))
                 }
             }
             HStack {
@@ -256,7 +263,7 @@ private struct TaskDetailsEditor: View {
         -> some View
     {
         VStack(alignment: .leading, spacing: Theme.gutter) {
-            Text(title).font(Theme.label).foregroundStyle(Theme.secondary)
+            Text(AppL10n.text(title)).font(Theme.label).foregroundStyle(Theme.secondary)
             content()
             if let error {
                 Label(error, systemImage: "exclamationmark.circle").font(Theme.meta).foregroundStyle(Theme.danger)

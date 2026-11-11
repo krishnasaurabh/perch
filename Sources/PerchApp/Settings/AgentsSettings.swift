@@ -33,7 +33,7 @@ struct AgentsSettings: View {
                     case .notConnected:
                         Button("Connect") {
                             do { message = try AgentConnector.connect(app) } catch {
-                                message = (error as? PlannerError)?.message ?? error.localizedDescription
+                                message = error.perchPresentationDetail
                             }
                             refresh()
                         }

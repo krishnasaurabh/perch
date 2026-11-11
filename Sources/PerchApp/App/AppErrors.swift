@@ -37,7 +37,7 @@ extension Error {
             return PerchAppError.unsupportedParserLanguage(unsupported.languageCode).message
         }
         if let planner = self as? PlannerError {
-            return AppL10n.plannerMessage(planner.message)
+            return AppL10n.plannerMessage(planner)
         }
         return AppL10n.text(localizedDescription)
     }

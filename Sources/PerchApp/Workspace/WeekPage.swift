@@ -21,8 +21,11 @@ struct WeekPage: View {
                     .keyboardShortcut(.leftArrow, modifiers: [.command, .option])
                 VStack(alignment: .leading, spacing: 2) {
                     Text(anchor == 0 ? "This week" : "Week").font(Theme.heading)
-                    Text("\(label(days[0], format: "MMM d")) – \(label(days[6], format: "MMM d, yyyy"))")
-                        .font(Theme.meta).foregroundStyle(Theme.secondary).fixedSize()
+                    Text(
+                        AppL10n.format(
+                            "%@ – %@", label(days[0], format: "MMM d"), label(days[6], format: "MMM d, yyyy"))
+                    )
+                    .font(Theme.meta).foregroundStyle(Theme.secondary).fixedSize()
                 }
                 GlassButton(symbol: "chevron.right", help: "Next week") { go(anchor + 1) }
                     .keyboardShortcut(.rightArrow, modifiers: [.command, .option])
@@ -31,7 +34,11 @@ struct WeekPage: View {
                         .keyboardShortcut("t", modifiers: [.command, .option])
                 }
                 Spacer(minLength: 0)
-                Button(showInbox ? "Back to week" : "Inbox (\(store.engine.tasks(on: .inbox).count))") {
+                Button(
+                    showInbox
+                        ? AppL10n.text("Back to week")
+                        : AppL10n.format("Inbox (%lld)", store.engine.tasks(on: .inbox).count)
+                ) {
                     Motion.animate(Motion.page) { showInbox.toggle() }
                 }
                 .buttonStyle(PillStyle())
@@ -113,16 +120,17 @@ struct WeekPage: View {
         let key = ref.key?.raw ?? "inbox"
         return VStack(alignment: .leading, spacing: Theme.gutter) {
             HStack(alignment: .firstTextBaseline) {
-                Text(title).font(Theme.heading).foregroundStyle(isToday ? Theme.accent : Theme.text)
-                Text(subtitle).font(Theme.meta).foregroundStyle(Theme.secondary)
+                Text(AppL10n.text(title)).font(Theme.heading).foregroundStyle(isToday ? Theme.accent : Theme.text)
+                Text(AppL10n.text(subtitle)).font(Theme.meta).foregroundStyle(Theme.secondary)
                 Spacer(minLength: 0)
                 if isToday { Text("Today").font(Theme.label).foregroundStyle(Theme.accent) }
                 if past { Text("Past").font(Theme.label).foregroundStyle(Theme.secondary) }
             }
-            Text("\(tasks.filter(\.done).count)/\(tasks.count) done")
+            Text(AppL10n.format("%lld/%lld done", tasks.filter(\.done).count, tasks.count))
                 .font(Theme.meta.monospacedDigit()).foregroundStyle(Theme.secondary)
                 .fixedSize(horizontal: true, vertical: false)
-                .accessibilityLabel("\(tasks.filter(\.done).count) of \(tasks.count) tasks complete")
+                .accessibilityLabel(
+                    AppL10n.format("%lld of %lld tasks complete", tasks.filter(\.done).count, tasks.count))
             WeekDayList(tasks: tasks, ref: ref, past: past)
             if !past { MiniComposer(ref: ref) }
         }
@@ -202,7 +210,7 @@ private struct WeekDayList: View {
             if let more = WeekColumnLayout.overflowLabel(hidden: hidden) {
                 Text(more).font(Theme.label).foregroundStyle(Theme.tertiary)
                     .frame(maxWidth: .infinity, alignment: .center)
-                    .accessibilityLabel("\(hidden) more \(hidden == 1 ? "task" : "tasks") below")
+                    .accessibilityLabel(AppL10n.format("%lld more tasks below", hidden))
                     .transition(.opacity)
             }
         }
@@ -233,7 +241,9 @@ struct WeekChip: View {
         HStack(alignment: .top, spacing: Theme.gutter) {
             GlassButton(
                 symbol: task.done ? "checkmark.circle.fill" : "circle",
-                help: task.done ? "Uncheck task: \(task.title)" : "Check off task: \(task.title)",
+                help: task.done
+                    ? AppL10n.format("Uncheck task: %@", task.title)
+                    : AppL10n.format("Check off task: %@", task.title),
                 tint: task.done
                     ? Theme.success : task.priority == .none ? Theme.secondary : Theme.priority(task.priority),
                 disabledReason: checkHint
@@ -241,7 +251,7 @@ struct WeekChip: View {
                 if let completion { Motion.animate(Motion.row) { _ = store.send(completion) } }
             }
             .disabled(completion == nil)
-            .accessibilityValue(task.done ? "Complete" : "Incomplete")
+            .accessibilityValue(AppL10n.text(task.done ? "Complete" : "Incomplete"))
             .accessibilityIdentifier("week-check-\(task.id)")
             title
                 .fixedSize(horizontal: false, vertical: true)
@@ -260,7 +270,7 @@ struct WeekChip: View {
             .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
             .focused($menuFocused).focusEffectDisabled()
             .overlay(ControlFocusRing(shape: RoundedRectangle(cornerRadius: Theme.controlRadius), focused: menuFocused))
-            .accessibilityLabel("Task actions: \(task.title)")
+            .accessibilityLabel(AppL10n.format("Task actions: %@", task.title))
             .accessibilityIdentifier("week-menu-\(task.id)")
         }
         .padding(4)
@@ -281,7 +291,7 @@ struct WeekChip: View {
             Menu("Move to day") {
                 ForEach(WeekColumnLayout.days(today: store.today, calendar: store.engine.calendar), id: \.self) { day in
                     if day >= store.today && day != task.day {
-                        Button(day == store.today ? "Today" : day.raw) { move(.day(day)) }
+                        Button(day == store.today ? AppL10n.text("Today") : day.raw) { move(.day(day)) }
                     }
                 }
                 Button("Tomorrow") { move(.day(store.today.adding(days: 1, calendar: store.engine.calendar))) }
@@ -316,7 +326,7 @@ struct MiniComposer: View {
     @State private var text = ""
     @FocusState private var focused: Bool
     var body: some View {
-        let prompt = ref == .inbox ? "Add to Inbox" : "Add a task"
+        let prompt = AppL10n.text(ref == .inbox ? "Add to Inbox" : "Add a task")
         TextField("", text: $text)
             .textFieldStyle(.plain).font(Theme.body)
             .background(alignment: .leading) {

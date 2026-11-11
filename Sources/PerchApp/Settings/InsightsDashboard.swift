@@ -1,4 +1,5 @@
 import Charts
+import PerchUI
 import PlannerCore
 import SwiftUI
 
@@ -13,11 +14,11 @@ struct InsightsDashboard: View {
         VStack(alignment: .leading, spacing: 20) {
             HStack(spacing: 14) {
                 tile("Streak", AppL10n.format("%lld days", i.streak), "flame.fill")
-                tile("Done this week", "\(lastDone)", "checkmark.circle", delta: lastDone - prevDone)
+                tile("Done this week", PerchL10n.number(lastDone), "checkmark.circle", delta: lastDone - prevDone)
                 tile(
                     "Focus this week", TimerText.short(lastFocus), "timer", delta: Int((lastFocus - prevFocus) / 60),
                     unit: "m")
-                tile("All time", "\(i.allTimeCompleted) tasks", "trophy")
+                tile("All time", PerchL10n.tasks(count: i.allTimeCompleted), "trophy")
             }
             VStack(alignment: .leading) {
                 Text("Planned vs. done, last 7 days").font(Theme.heading)
@@ -45,11 +46,12 @@ struct InsightsDashboard: View {
             }.card(.timer)
             if !i.peakHours.isEmpty {
                 Text(
-                    "Your peak hours: "
-                        + i.peakHours.map {
+                    AppL10n.format(
+                        "Your peak hours: %@",
+                        i.peakHours.map {
                             Calendar.current.date(bySettingHour: $0, minute: 0, second: 0, of: Date())!.formatted(
                                 date: .omitted, time: .shortened)
-                        }.joined(separator: ", ")
+                        }.joined(separator: ", "))
                 )
                 .font(Theme.body)
             } else {
@@ -60,11 +62,13 @@ struct InsightsDashboard: View {
 
     func tile(_ label: String, _ value: String, _ symbol: String, delta: Int? = nil, unit: String = "") -> some View {
         VStack(alignment: .leading, spacing: 4) {
-            Label(label, systemImage: symbol).font(Theme.meta).foregroundStyle(Theme.secondary)
+            Label(AppL10n.text(label), systemImage: symbol).font(Theme.meta).foregroundStyle(Theme.secondary)
             Text(value).font(Theme.heading)
             if let delta {
                 Text(
-                    delta == 0 ? "same as the week before" : "\(delta > 0 ? "+" : "")\(delta)\(unit) vs the week before"
+                    delta == 0
+                        ? AppL10n.text("same as the week before")
+                        : AppL10n.format("%@%lld%@ vs the week before", delta > 0 ? "+" : "", delta, unit)
                 )
                 .font(Theme.meta).foregroundStyle(delta >= 0 ? Theme.success : Theme.warning)
             }

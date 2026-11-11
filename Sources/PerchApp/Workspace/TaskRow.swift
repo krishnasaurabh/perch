@@ -32,6 +32,7 @@ struct TaskRow: View {
     var focus: FocusState<TodayFocus?>.Binding? = nil
     @EnvironmentObject var store: PlannerStore
     @EnvironmentObject var model: NotchModel
+    @Environment(\.locale) private var locale
     @FocusState private var localFocus: TodayFocus?
     @State private var hover = false
     @State private var editing = false
@@ -168,7 +169,7 @@ struct TaskRow: View {
         role: ButtonRole? = nil, perform: @escaping () -> Void
     ) -> some View {
         Button(role: role, action: perform) {
-            Label(title, systemImage: symbol).labelStyle(.titleOnly)
+            Label(AppL10n.text(title), systemImage: symbol).labelStyle(.titleOnly)
                 .foregroundStyle(role == .destructive ? Theme.danger : Theme.text)
         }
         .buttonStyle(PillStyle())
@@ -186,9 +187,12 @@ struct TaskRow: View {
             ControlFocusRing(
                 shape: Capsule(), focused: focusBinding.wrappedValue == .task(task.id, kind))
         )
-        .accessibilityLabel("\(title) \(task.title)")
+        .accessibilityLabel(AppL10n.format("%@ %@", AppL10n.text(title), task.title))
         .accessibilityIdentifier(kind.identifierPrefix + task.id.uuidString)
-        .help(title == "Delete" ? "Delete task. Use Undo below the list to restore it." : "\(title) task")
+        .help(
+            title == "Delete"
+                ? AppL10n.text("Delete task. Use Undo below the list to restore it.")
+                : AppL10n.format("%@ task", AppL10n.text(title)))
     }
 
     private var metadata: some View {
@@ -204,9 +208,9 @@ struct TaskRow: View {
 
     @ViewBuilder private var metadataLabels: some View {
         if task.priority != .none {
-            Label(task.priority.rawValue.capitalized, systemImage: "flag.fill")
+            Label(AppL10n.text(task.priority.rawValue.capitalized), systemImage: "flag.fill")
                 .foregroundStyle(Theme.priority(task.priority))
-                .accessibilityLabel("\(task.priority.rawValue.capitalized) priority")
+                .accessibilityLabel(AppL10n.format("%@ priority", task.priority.rawValue.capitalized))
         }
         if let r = task.remindAt {
             Label(r.formatted(date: .omitted, time: .shortened), systemImage: "bell")
@@ -214,17 +218,22 @@ struct TaskRow: View {
         }
         if let p = store.engine.project(id: task.projectID) { Label(p.name, systemImage: "number") }
         if let d = task.deadline {
-            Label("Due " + shortDay(d), systemImage: "calendar")
+            Label(AppL10n.format("Due %@", shortDay(d)), systemImage: "calendar")
                 .foregroundStyle(d < store.today && !task.done ? Theme.danger : Theme.secondary)
         }
-        if let rule = task.repeatRule { Label(rule.description, systemImage: "repeat") }
-        if let m = task.minutes { Label("\(m)m", systemImage: "timer") }
-        if !task.steps.isEmpty {
-            Label("\(task.steps.filter(\.done).count)/\(task.steps.count) steps", systemImage: "list.bullet")
+        if let rule = task.repeatRule {
+            Label(RepeatPickerDraft(original: rule, anchor: task.day).summary(locale: locale), systemImage: "repeat")
         }
-        if let c = task.carriedFrom { Label("From " + shortDay(c), systemImage: "arrow.uturn.right") }
+        if let m = task.minutes { Label(AppL10n.format("%lldm", m), systemImage: "timer") }
+        if !task.steps.isEmpty {
+            Label(
+                AppL10n.format("%lld/%lld steps", task.steps.filter(\.done).count, task.steps.count),
+                systemImage: "list.bullet")
+        }
+        if let c = task.carriedFrom { Label(AppL10n.format("From %@", shortDay(c)), systemImage: "arrow.uturn.right") }
         if let agent = task.agentID, let name = AgentName.short(agent) {
-            Label("Via " + name, systemImage: "sparkles").help("Added through MCP by \(agent)")
+            Label(AppL10n.format("Via %@", name), systemImage: "sparkles").help(
+                AppL10n.format("Added through MCP by %@", agent))
         }
     }
 
@@ -241,7 +250,7 @@ struct TaskRow: View {
             Divider()
             Menu("Priority") {
                 ForEach(TaskPriority.allCases.reversed(), id: \.self) { p in
-                    Button(p == .none ? "None" : p.rawValue.capitalized) {
+                    Button(p == .none ? AppL10n.text("None") : AppL10n.text(p.rawValue.capitalized)) {
                         store.updateTask(task.id) { $0.priority = p }
                     }
                 }

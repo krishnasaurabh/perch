@@ -287,7 +287,7 @@ struct TaskComposer: View {
             if !text.isEmpty, let preview {
                 Text(preview).font(Theme.meta).foregroundStyle(Theme.text)
                     .fixedSize(horizontal: false, vertical: true)
-                    .accessibilityLabel("Task options: \(preview)")
+                    .accessibilityLabel(AppL10n.format("Task options: %@", preview))
             }
         }
     }
@@ -472,7 +472,7 @@ private struct VoiceButtonBody: View {
             .frame(width: Theme.minimumTarget, height: Theme.minimumTarget)
         }
         .buttonStyle(PillStyle())
-        .accessibilityLabel(listening ? "Stop dictation" : "Dictate a task")
+        .accessibilityLabel(AppL10n.text(listening ? "Stop dictation" : "Dictate a task"))
         .help("Say a task. Speech is recognized on this Mac.")
         .popover(
             isPresented: Binding(

@@ -191,7 +191,7 @@ struct PermissionPanel: View {
             Button(model.requesting == feature ? "Requesting…" : "Allow") { Task { await model.request(feature) } }
                 .buttonStyle(PillStyle(disabledReason: "Wait for the current permission request."))
                 .disabled(model.requesting != nil)
-                .accessibilityLabel("Allow \(feature.title)")
+                .accessibilityLabel(AppL10n.format("Allow %@", feature.title))
         } else if state != .checking {
             Button("Settings…") {
                 if !NSWorkspace.shared.open(feature.settingsURL) {
@@ -199,7 +199,7 @@ struct PermissionPanel: View {
                 }
             }
             .buttonStyle(PillStyle())
-            .accessibilityLabel("Open \(feature.title) settings")
+            .accessibilityLabel(AppL10n.format("Open %@ settings", feature.title))
         }
     }
 }

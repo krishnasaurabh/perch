@@ -151,8 +151,11 @@ struct TimerPillLayer: View {
                     }
                 }
                 .accessibilityElement(children: .ignore)
-                .accessibilityLabel("\(f.state == .running ? "Running" : "Paused") timer, \(face.fullText)")
-                .help("\(face.fullText) \(f.limit == nil ? "elapsed" : "remaining")")
+                .accessibilityLabel(
+                    AppL10n.format(
+                        "%@ timer, %@", AppL10n.text(f.state == .running ? "Running" : "Paused"), face.fullText)
+                )
+                .help(AppL10n.format("%@ %@", face.fullText, AppL10n.text(f.limit == nil ? "elapsed" : "remaining")))
             }
         }
     }
@@ -267,7 +270,7 @@ struct ActivityStrip: View {
     }
 
     private func pill(_ title: String, identifier: String, _ action: @escaping () -> Void) -> some View {
-        Button(title, action: action)
+        Button(AppL10n.text(title), action: action)
             .buttonStyle(PillStyle())
             .accessibilityIdentifier(identifier)
     }

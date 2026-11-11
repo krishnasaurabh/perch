@@ -1,3 +1,4 @@
+import Foundation
 import SwiftUI
 
 /// A status is always a named state plus a symbol; hue is supplementary.
@@ -26,12 +27,14 @@ struct StatusLabel: View {
 
     let title: String
     let tone: Tone
+    var locale: Locale? = nil
 
     var body: some View {
-        Label(AppL10n.text(title), systemImage: tone.symbol)
+        Label(AppL10n.text(title, locale: locale), systemImage: tone.symbol)
             .font(Theme.meta)
             .foregroundStyle(tone.color)
+            .fixedSize(horizontal: false, vertical: true)
             .accessibilityElement(children: .ignore)
-            .accessibilityLabel(AppL10n.text(title))
+            .accessibilityLabel(AppL10n.text(title, locale: locale))
     }
 }

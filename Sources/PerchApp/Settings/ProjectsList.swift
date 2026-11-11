@@ -15,7 +15,8 @@ struct ProjectsList: View {
                     HStack {
                         Circle().fill(Color(hex: p.colorHex)).frame(width: 10, height: 10)
                         Text(p.name).font(Theme.heading)
-                        Text("\(open.count) open · \(tasks.filter(\.done).count) done").foregroundStyle(Theme.secondary)
+                        Text(AppL10n.format("%lld open · %lld done", open.count, tasks.filter(\.done).count))
+                            .foregroundStyle(Theme.secondary)
                         Spacer()
                         Button("Delete project", role: .destructive) {
                             store.apply { try $0.deleteProject(p.id) }

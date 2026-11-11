@@ -9,6 +9,7 @@ ROOT = Path(__file__).resolve().parents[1]
 UI = ROOT / "Sources/PerchUI"
 APP = ROOT / "Sources/PerchApp"
 CORE = ROOT / "Sources/PlannerCore"
+MCP = ROOT / "Sources/PerchMCP"
 UI_CATALOG = UI / "Resources/Localizable.xcstrings"
 APP_CATALOG = APP / "Resources/Localizable.xcstrings"
 BUNDLED_CATALOG = ROOT / "Resources/Localizable.xcstrings"
@@ -19,6 +20,12 @@ STATIC_UI = re.compile(
     re.S,
 )
 ERROR = re.compile(r'PlannerError\(\s*"((?:\\.|[^"\\])*)"')
+LOCAL_HELPER = re.compile(r'(?<![A-Za-z])(?:text|format)\(\s*"((?:\\.|[^"\\])*)"')
+ENUM_RAW = re.compile(r'(?:\bcase\s+|,\s*)[A-Za-z_]\w*\s*=\s*"((?:\\.|[^"\\])*)"')
+TERNARY = re.compile(r'\?\s*"((?:\\.|[^"\\])*)"\s*:\s*"((?:\\.|[^"\\])*)"', re.S)
+PRESENTATION = re.compile(
+    r'AppL10n|PerchL10n|Text\(|Label\(|Button\(|Toggle\(|Picker\(|Menu\(|Section\(|'
+    r'CardHeading\(|EmptyStateView\(|accessibilityLabel|accessibilityHint|\.help\(')
 INTERPOLATION = re.compile(r'\\\((?:[^()]|\([^()]*\))*\)')
 
 
@@ -58,19 +65,28 @@ def collect(pattern, paths):
 
 
 def human_app_strings():
-    found = collect(L10N, APP.rglob('*.swift'))
-    found |= collect(STATIC_UI, APP.rglob('*.swift'))
-    # PlannerError is mapped at the app boundary. Keep every static message in
-    # the app catalog so existing storage/API text can remain stable English.
-    found |= collect(ERROR, CORE.rglob('*.swift'))
-    # Dynamic labels inside ternaries and helpers are still extraction inputs.
-    literal = re.compile(r'"((?:\\.|[^"\\])*)"')
-    for path in APP.rglob('*.swift'):
-        for match in literal.finditer(source(path)):
-            value = key(match.group(1))
-            if (' ' in value and any(character.isalpha() for character in value)
-                    and not value.startswith(('http', 'x-apple.', 'perch.', 'app.', 'Contents/', 'sources/'))):
-                found.add(value)
+    paths = list(APP.rglob('*.swift'))
+    found = collect(L10N, paths)
+    found |= collect(STATIC_UI, paths)
+    # PlannerError carries a stable presentation key and arguments. Its fully
+    # rendered English transport text is deliberately not an extraction input.
+    for directory in (APP, CORE, MCP):
+        found |= collect(ERROR, directory.rglob('*.swift'))
+    for path in paths:
+        text = source(path)
+        # Enum raw values become visible only through an explicit AppL10n call.
+        if 'AppL10n.text(rawValue)' in text:
+            found |= collect(ENUM_RAW, [path])
+        # Static ternary labels need both branches. Restrict this pass to actual
+        # presentation expressions so logs, predicates and identifiers stay out.
+        for match in TERNARY.finditer(text):
+            context = text[max(0, match.start() - 160):match.end() + 80]
+            if not PRESENTATION.search(context):
+                continue
+            for raw in match.groups():
+                value = key(raw)
+                if value and any(character.isalpha() for character in value):
+                    found.add(value)
     return found
 
 
@@ -85,6 +101,17 @@ PLURALS = {
     '%lld week repeat': ('Every week', 'Every %lld weeks'),
     '%lld month repeat': ('Every month', 'Every %lld months'),
     '+%lld more': ('+%lld more', '+%lld more'),
+    'Removed %lld clips': ('Removed %lld clip', 'Removed %lld clips'),
+    '%lld more tasks below': ('%lld more task below', '%lld more tasks below'),
+    '%lld tasks done this week.': ('%lld task done this week.', '%lld tasks done this week.'),
+    '%lld tasks done, up from %lld the week before.': (
+        '%lld task done, up from %lld the week before.',
+        '%lld tasks done, up from %lld the week before.',
+    ),
+    '%lld tasks done, against %lld the week before.': (
+        '%lld task done, against %lld the week before.',
+        '%lld tasks done, against %lld the week before.',
+    ),
 }
 
 
@@ -149,6 +176,7 @@ def main():
     parser.add_argument('--check', action='store_true')
     args = parser.parse_args()
     ui_keys = collect(L10N, UI.rglob('*.swift'))
+    ui_keys |= collect(LOCAL_HELPER, [UI / 'PerchLocalization.swift'])
     app_keys = human_app_strings()
     ui_document = catalog(ui_keys)
     write_or_check(UI_CATALOG, ui_document, args.check)

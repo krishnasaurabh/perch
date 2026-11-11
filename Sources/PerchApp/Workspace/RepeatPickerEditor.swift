@@ -77,7 +77,7 @@ struct RepeatPickerFields: View {
                 .frame(width: CGFloat(RepeatPickerLayout.intervalFieldWidth))
                 .focused(focus, equals: .interval)
                 .accessibilityLabel("Repeat interval")
-                .accessibilityHint("A whole number from 1 to \(RepeatPickerDraft.maximumInterval)")
+                .accessibilityHint(AppL10n.format("A whole number from 1 to %lld", RepeatPickerDraft.maximumInterval))
                 .accessibilityIdentifier("repeat-interval")
             Stepper(
                 "Repeat interval",

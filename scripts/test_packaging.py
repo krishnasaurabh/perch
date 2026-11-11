@@ -31,7 +31,13 @@ class PackagingTests(unittest.TestCase):
         self.root = Path(self.temp.name) / "repo"
         (self.root / "scripts").mkdir(parents=True)
         shutil.copy2(BUNDLE, self.root / "scripts" / "bundle.sh")
+        shutil.copy2(ROOT / "scripts" / "compile_localization.py", self.root / "scripts" / "compile_localization.py")
         shutil.copytree(ROOT / "Resources", self.root / "Resources")
+        for target in ("PerchApp", "PerchUI"):
+            shutil.copytree(
+                ROOT / "Sources" / target / "Resources",
+                self.root / "Sources" / target / "Resources",
+            )
         self.bin = self.root / "fake-bin"
         self.bin.mkdir()
         self.log = self.root / "calls.jsonl"
@@ -77,12 +83,11 @@ else:
     binary.write_bytes(b"synthetic-perch-binary")
     binary.chmod(0o755)
     for name in ("Perch_PerchApp.bundle", "Perch_PerchUI.bundle"):
+        if os.environ.get("FAKE_MISSING_CATALOG") == name:
+            continue
         bundle = out / name
         bundle.mkdir(exist_ok=True)
-        (bundle / "Localizable.xcstrings").write_text("synthetic-localization")
-        if name == "Perch_PerchApp.bundle":
-            (bundle / "Localizable.strings").write_text("synthetic-strings")
-            (bundle / "Localizable.stringsdict").write_text("synthetic-stringsdict")
+        (bundle / "Localizable.json").write_text("{}")
 ''')
         self._write("PlistBuddy", '''import plistlib, sys
 from fake_common import record
@@ -218,17 +223,21 @@ if sys.argv[1:3] == ["notarytool", "submit"]:
         self.assertEqual(metadata["CFBundleIconFile"], "AppIcon")
         self.assertEqual((app / "Contents" / "Resources" / "AppIcon.icns").read_bytes(),
                          (self.root / "Resources" / "AppIcon.icns").read_bytes())
-        self.assertEqual((app / "Contents" / "Resources" / "Localizable.xcstrings").read_bytes(),
-                         (self.root / "Resources" / "Localizable.xcstrings").read_bytes())
+        resources = app / "Contents" / "Resources"
+        english = (resources / "en.lproj" / "Localizable.strings").read_text()
+        pseudo = (resources / "zz.lproj" / "Localizable.strings").read_text()
+        self.assertIn('"General" = "General";', english)
+        self.assertIn('"General" = "⟦Gënëràl ·~⟧";', pseudo)
+        with (resources / "en.lproj" / "Localizable.stringsdict").open("rb") as stream:
+            plurals = plistlib.load(stream)
+        self.assertEqual(plurals["%lld tasks"]["count"]["one"], "%lld task")
+        self.assertEqual(plurals["%lld tasks"]["count"]["other"], "%lld tasks")
         for name in ("Perch_PerchApp.bundle", "Perch_PerchUI.bundle"):
-            self.assertEqual(
-                (app / "Contents" / "Resources" / name / "Localizable.xcstrings").read_text(),
-                "synthetic-localization",
-            )
-        self.assertEqual((app / "Contents" / "Resources" / "Localizable.strings").read_text(),
-                         "synthetic-strings")
-        self.assertEqual((app / "Contents" / "Resources" / "Localizable.stringsdict").read_text(),
-                         "synthetic-stringsdict")
+            bundle = resources / name
+            self.assertTrue((bundle / "Localizable.json").is_file())
+            for language in ("en", "zz"):
+                self.assertTrue((bundle / f"{language}.lproj" / "Localizable.strings").is_file())
+                self.assertTrue((bundle / f"{language}.lproj" / "Localizable.stringsdict").is_file())
         self.assertEqual(stat.S_IMODE((app / "Contents" / "MacOS" / "Perch").stat().st_mode), 0o755)
         self.assertEqual(stat.S_IMODE((app / "Contents" / "Info.plist").stat().st_mode), 0o644)
         sign = self.calls("codesign")[0]["args"]
@@ -366,6 +375,12 @@ if sys.argv[1:3] == ["notarytool", "submit"]:
                 self.assertNotEqual(result.returncode, 0)
                 self.assertFalse(self.calls("swift"))
                 self.log.unlink(missing_ok=True)
+
+    def test_missing_runtime_catalog_fails_packaging(self):
+        result = self.run_bundle(FAKE_MISSING_CATALOG="Perch_PerchUI.bundle")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("Perch_PerchUI.bundle", result.stderr)
+        self.assertFalse(self.calls("codesign"))
 
     def test_release_workflow_is_manual_capable_but_never_publishes(self):
         self.assertTrue(WORKFLOW.is_file(), "dedicated release workflow is missing")
