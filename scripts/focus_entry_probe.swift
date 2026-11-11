@@ -326,6 +326,12 @@ func verifyLastRowKeyboardUndo(store: PlannerStore, model: NotchModel, services:
         require(sameTaskContent(store.planner.tasks, beforeDeletion), "keyboard Undo restores exact last-row state")
         require(
             sameTaskContent(try! store.file.load().tasks, beforeDeletion), "last-row keyboard Undo persists exact task")
+        // Removing the last completed row selects To do; Undo restores content, not the selected filter.
+        if completed { press("Completed 1", in: root); await settle() }
+        recordAccessibility(root, "last-row-\(completed)-before-second-delete", into: output)
+        require(
+            control("task-delete-\(only.id)", attribute: "accessibilityIdentifier", in: root) != nil,
+            "restored task Delete control is visible before keyboard traversal")
         let deleteAgain = await focusByTab("task-delete-\(only.id)", in: panel, root: root, output: output)
         require(deleteAgain, "Tab reaches Delete again after Command-Z")
         key(" ", code: 49, in: panel); await settle()

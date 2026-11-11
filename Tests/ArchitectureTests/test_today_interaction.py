@@ -297,6 +297,22 @@ class TodayInteractionTests(unittest.TestCase):
                          'await verifyLastRowKeyboardUndo('):
             self.assertIn(expected, source)
 
+    def test_completed_keyboard_probe_reselects_restored_row_before_second_delete(self):
+        source = (ROOT / "scripts/focus_entry_probe.swift").read_text()
+        probe = source.split("func verifyLastRowKeyboardUndo(", 1)[1].split(
+            "func verifyRowCustomActions(", 1)[0]
+        restored = probe.split('"last-row keyboard Undo persists exact task")', 1)[1].split(
+            "let deleteAgain =", 1)[0]
+        self.assertIn('if completed { press("Completed 1", in: root); await settle() }', restored)
+        self.assertIn('control("task-delete-\\(only.id)", attribute: "accessibilityIdentifier", in: root)', restored)
+        self.assertIn('"restored task Delete control is visible before keyboard traversal"', restored)
+        self.assertIn('require(deleteAgain, "Tab reaches Delete again after Command-Z")', probe)
+        self.assertIn('"second keyboard deletion removes the same task"', probe)
+        self.assertIn('"Space activates visible Undo"', probe)
+        self.assertIn('"Space Undo persists exact task"', probe)
+        card = (WORKSPACE / "TasksCard.swift").read_text()
+        self.assertIn("tab = TodayTabs.resolved(tab, completedCount: count)", card)
+
     def test_native_row_order_and_space_undo_remain_mandatory(self):
         source = (ROOT / "scripts/focus_entry_probe.swift").read_text()
         for expected in ('let actionOrder = completed ? ["details", "delete"] : ["focus", "details", "delete"]',

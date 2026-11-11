@@ -54,6 +54,37 @@ final class TodayTaskNavigationTests: XCTestCase {
                 remaining: Array(ids.dropFirst())), ids[10])
     }
 
+    func testRestoredCompletedRowRequiresReselectingCompletedFilter() throws {
+        var engine = PlannerEngine(planner: Planner())
+        let task = try XCTUnwrap(engine.addTasks(["Inspect the porch light"]).first)
+        try engine.complete(task.id)
+        let saved = engine.planner
+        var selected = TodayTab.completed
+        func visibleIDs() -> [UUID] {
+            engine.tasks(on: .day(engine.today)).filter { selected == .completed ? $0.done : !$0.done }.map(\.id)
+        }
+        XCTAssertEqual(visibleIDs(), [task.id])
+
+        try engine.delete(task.id, on: .day(engine.today))
+        selected = TodayTabs.resolved(selected, completedCount: 0)
+        XCTAssertEqual(selected, .active)
+        XCTAssertTrue(visibleIDs().isEmpty)
+
+        // Content restoration does not restore the vanished filter's previous selection.
+        engine = PlannerEngine(planner: saved)
+        let completedCount = engine.tasks(on: .day(engine.today)).filter(\.done).count
+        selected = TodayTabs.resolved(selected, completedCount: completedCount)
+        XCTAssertEqual(completedCount, 1)
+        XCTAssertEqual(selected, .active)
+        XCTAssertTrue(visibleIDs().isEmpty)
+        XCTAssertNil(TodayTaskNavigation.neighbor(in: visibleIDs(), from: task.id, offset: 1))
+
+        selected = .completed
+        XCTAssertEqual(visibleIDs(), [task.id])
+        XCTAssertEqual(TodayTaskNavigation.neighbor(in: visibleIDs(), from: task.id, offset: 1), task.id)
+        XCTAssertEqual(engine.planner, saved)
+    }
+
     func testActualCompletionAndDeletionUseRemainingDisplayedOrder() throws {
         var engine = PlannerEngine(planner: Planner())
         let tasks = try engine.addTasks(["Inspect seedlings", "Wash seed trays", "Label new pots"])
