@@ -48,13 +48,14 @@ struct NotchGeometry: Equatable {
 
     /// The closed shape's bounds. Nothing to show: exactly the housing (tucked inside it), so the notch looks untouched.
     /// A running timer: that plus a detached capsule on its side. A nudge: a strip below.
-    func idle(timer: NotchTimerPlacement?, activity: Bool) -> NSRect {
+    func idle(timer: NotchTimerPlacement?, activity: Bool, glance: Bool = false) -> NSRect {
         if activity {
             return NotchLayout.idleFrame(
                 screen: screen, leftWing: Self.activityWing, rightWing: Self.activityWing,
                 below: Self.activityDepth, minWidth: Self.activityWidth)
         }
         if let side = timer { return tuckedNotch.union(pill(side: side)) }
+        if glance { return tuckedNotch.union(glanceRect) }
         return tuckedNotch
     }
 
@@ -74,6 +75,14 @@ struct NotchGeometry: Equatable {
         let top = n.maxY - ((visible.height - h) / 2 * scale).rounded(.down) / scale
         let x = side == .left ? n.minX - Self.pillGap - Self.pillWidth : n.maxX + Self.pillGap
         return NSRect(x: x, y: top - h, width: Self.pillWidth, height: h)
+    }
+
+    /// Keep the count readable even beside a short, synthetic housing.
+    var glanceRect: NSRect {
+        let base = pill(side: .right)
+        let height = max(20, base.height)
+        let top = ((base.midY + height / 2) * backingScaleFactor).rounded() / backingScaleFactor
+        return NSRect(x: base.minX, y: top - height, width: base.width, height: height)
     }
 
     /// The reminder surface is entirely below the menu bar, detached from the housing.
@@ -107,7 +116,7 @@ struct NotchGeometry: Equatable {
             screen: screen,
             containing: [
                 idle(timer: nil, activity: true), idle(timer: .left, activity: false),
-                idle(timer: .right, activity: false), workspace,
+                idle(timer: .right, activity: false), glanceRect, workspace,
             ])
     }
 
@@ -122,7 +131,9 @@ struct NotchGeometry: Equatable {
     }
 
     /// Exact hit test against the drawn shape (not its bounding box). Global coordinates, y up.
-    func shapeContains(_ p: NSPoint, expanded: Bool, timer: NotchTimerPlacement?, activity: Bool) -> Bool {
+    func shapeContains(
+        _ p: NSPoint, expanded: Bool, timer: NotchTimerPlacement?, activity: Bool, glance: Bool = false
+    ) -> Bool {
         // A built-in flat screen never has a synthetic closed notch to draw or hit, even when the external preference is on.
         if !expanded, !activity, screen.isBuiltIn, camera == nil { return false }
         if !expanded, activity {
@@ -136,6 +147,10 @@ struct NotchGeometry: Equatable {
         }
         if !expanded, let side = timer {
             return NotchLayout.capsuleContains(pill(side: side), pointer: p)
+                || NotchLayout.contains(tuckedNotch, pointer: p)
+        }
+        if !expanded, glance {
+            return NotchLayout.capsuleContains(glanceRect, pointer: p)
                 || NotchLayout.contains(tuckedNotch, pointer: p)
         }
         let r = shape(expanded: expanded, timer: timer, activity: activity)
