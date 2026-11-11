@@ -49,8 +49,22 @@ class TaskDetailsBoundaryTests(unittest.TestCase):
     def test_direct_host_still_requires_identifier_publication(self):
         native = (ROOT / "Tests/PerchAppTests/TaskDetailsViewTests.swift").read_text()
         test = native.split("func testDirectHostPublishesControlIdentifiers", 1)[1].split("\n    @MainActor", 1)[0]
-        for identifier in ("details-title", "details-save", "details-cancel", "details-close"):
+        for identifier in ("details-save", "details-cancel", "details-close"):
             self.assertIn(f'identifierControl("{identifier}"', test)
+        self.assertIn('Self.control("details-title", role: "AXTextField", in: window)', test)
+        self.assertIn("XCTUnwrap(title as? NSTextField)", test)
+        self.assertIn("XCTAssertTrue(field.isEditable)", test)
+        self.assertIn("XCTUnwrap(field.currentEditor() as? NSTextView)", test)
+        self.assertIn("XCTAssertTrue(window.firstResponder === editor,", test)
+
+    def test_native_escape_records_key_state_without_gating_dispatch(self):
+        native = (ROOT / "Tests/PerchAppTests/TaskDetailsViewTests.swift").read_text()
+        test = native.split("func testEscapeDiscardsNativeTitleEditAndDismissesWithoutWrites", 1)[1].split("\n    @MainActor", 1)[0]
+        self.assertIn('print("Escape dispatch: sheet.isKeyWindow=\\(sheet.isKeyWindow)")', test)
+        self.assertNotIn("XCTAssertTrue(sheet.isKeyWindow)", test)
+        self.assertIn("XCTAssertTrue(sheet.performKeyEquivalent(with: escape)", test)
+        self.assertIn("try await fixture.assertDismissed()", test)
+        self.assertIn("XCTAssertEqual(try fixture.snapshot(), before)", test)
 
     def test_native_footer_checks_effective_viewport_before_and_after_scrolling(self):
         native = (ROOT / "Tests/PerchAppTests/TaskDetailsViewTests.swift").read_text()

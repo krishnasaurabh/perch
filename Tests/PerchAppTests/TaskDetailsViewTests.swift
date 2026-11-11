@@ -70,7 +70,12 @@ final class TaskDetailsViewTests: XCTestCase {
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
         defer { window.close() }
-        _ = try await Self.identifierControl("details-title", role: "AXTextField", in: window)
+        // AppKit-backed fields expose their placeholder, not the SwiftUI identifier.
+        let title = try await Self.control("details-title", role: "AXTextField", in: window)
+        let field = try XCTUnwrap(title as? NSTextField)
+        XCTAssertTrue(field.isEditable)
+        let editor = try XCTUnwrap(field.currentEditor() as? NSTextView)
+        XCTAssertTrue(window.firstResponder === editor, "The title field holds focus when details open")
         _ = try await Self.identifierControl("details-save", in: window)
         _ = try await Self.identifierControl("details-cancel", in: window)
         XCTAssertNotNil(fixture.store.send(.delete(fixture.task.id)))
@@ -100,7 +105,8 @@ final class TaskDetailsViewTests: XCTestCase {
         // A native key-equivalent dispatch, not a call to the view's Cancel closure.
         // editTitle verifies the field editor identity before relinquishing focus.
         sheet.makeKeyAndOrderFront(nil)
-        XCTAssertTrue(sheet.isKeyWindow)
+        // Hosted runners may deny key-window activation; the shortcut must still work.
+        print("Escape dispatch: sheet.isKeyWindow=\(sheet.isKeyWindow)")
         let escape = try XCTUnwrap(
             NSEvent.keyEvent(
                 with: .keyDown, location: .zero, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
