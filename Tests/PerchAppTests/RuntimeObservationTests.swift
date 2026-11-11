@@ -1,6 +1,7 @@
 import AppKit
 import Combine
 import Foundation
+import os
 import XCTest
 @testable import PerchApp
 @testable import PlannerCore
@@ -39,12 +40,12 @@ private final class RuntimeScheduler: AppScheduling {
     }
 }
 
-@MainActor
-private final class RuntimeSubscription {
-    let value: AnyCancellable
-    init(_ value: AnyCancellable) { self.value = value }
-    func cancel() { value.cancel() }
-    isolated deinit { value.cancel() }
+private final class RuntimeSubscription: Sendable {
+    // Combine permits cancellation on any thread; only this lock owns the cancellable.
+    private let value: OSAllocatedUnfairLock<AnyCancellable>
+    init(_ value: AnyCancellable) { self.value = OSAllocatedUnfairLock(uncheckedState: value) }
+    func cancel() { value.withLockUnchecked { $0.cancel() } }
+    deinit { cancel() }
 }
 
 final class RuntimeObservationTests: XCTestCase {
@@ -231,7 +232,7 @@ final class RuntimeObservationTests: XCTestCase {
         }
         await MainActor.run { for _ in 0..<20 { store.recoverObservation() } }
         await fulfillment(of: [loaded], timeout: 3)
-        await subscription.cancel()
+        subscription.cancel()
         XCTAssertEqual(counters.value.0 - initial, 1)
         await MainActor.run { for _ in 0..<20 { store.recoverObservation() } }
         try await Task.sleep(nanoseconds: 300_000_000)
@@ -277,7 +278,7 @@ final class RuntimeObservationTests: XCTestCase {
                 })
         }
         await fulfillment(of: [checkpoint], timeout: 3)
-        await subscription.cancel()
+        subscription.cancel()
         XCTAssertGreaterThanOrEqual(try file.load().focus?.banked ?? 0, 30)
         let idle = await MainActor.run {
             RuntimeSubscription(
