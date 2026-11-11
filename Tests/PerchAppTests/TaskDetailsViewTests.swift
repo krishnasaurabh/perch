@@ -99,22 +99,24 @@ final class TaskDetailsViewTests: XCTestCase {
         let accessibilityEnabled = true
         for title in ["Clear", "Add date"] {
             for enabled in [true, false] {
-                // Match the production button's focus and accessibility modifiers;
-                // a plain drawn SwiftUI button need not have an NSButton backing it.
+                var presses = 0
+                let action = { presses += 1 }
+                let content = Button(title, action: action).buttonStyle(PillStyle()).fixedSize()
                 let reference = NSHostingView(
-                    rootView: NativeDateButtonFixture(title: title, wrapped: false)
-                        .disabled(!enabled).environment(\.accessibilityEnabled, accessibilityEnabled))
+                    rootView: content.disabled(!enabled).environment(\.accessibilityEnabled, accessibilityEnabled))
                 let host = NSHostingView(
-                    rootView: NativeDateButtonFixture(title: title, wrapped: true)
-                        .disabled(!enabled).fixedSize().environment(\.accessibilityEnabled, accessibilityEnabled))
+                    rootView: NativeDateButtonIdentity(
+                        identifier: "date-button", label: "Date action", action: action
+                    ) { content }
+                    .disabled(!enabled).fixedSize().environment(\.accessibilityEnabled, accessibilityEnabled))
                 window.contentView = host
                 window.makeKeyAndOrderFront(nil)
                 await Self.settle()
                 host.layoutSubtreeIfNeeded()
                 XCTAssertEqual(host.fittingSize.width, reference.fittingSize.width, accuracy: 1)
                 XCTAssertEqual(host.fittingSize.height, reference.fittingSize.height, accuracy: 1)
-                let nativeButtons = Self.nodes(host).compactMap { $0 as? NSButton }
-                let diagnostics = Self.nodes(host).map { node in
+                let candidates = Self.nodes(host)
+                let diagnostics = candidates.map { node in
                     "\(type(of: node)) role=\(Self.attribute(node, "accessibilityRole") ?? "?") "
                         + "id=\(Self.attribute(node, "accessibilityIdentifier") ?? "?") "
                         + "label=\(Self.attribute(node, "accessibilityLabel") ?? "?") "
@@ -122,12 +124,21 @@ final class TaskDetailsViewTests: XCTestCase {
                         + "enabled=\((node as? NSButton)?.isEnabled.description ?? "?")"
                 }.joined(separator: "\n")
                 print("Native date button: title=\(title), enabled=\(enabled)\n\(diagnostics)")
-                let buttons = nativeButtons.filter { $0.accessibilityLabel() == "Date action" }
-                XCTAssertEqual(buttons.count, 1, "Exactly one native owner receives the identity\n\(diagnostics)")
-                let button = try XCTUnwrap(buttons.first)
-                XCTAssertEqual(button.accessibilityRole(), .button)
-                XCTAssertEqual(button.accessibilityIdentifier(), "date-button")
-                XCTAssertEqual(button.isEnabled, enabled, "The enclosing form's disabled state is preserved")
+                let owners = candidates.filter {
+                    Self.attribute($0, "accessibilityIdentifier") as? String == "date-button"
+                        && Self.attribute($0, "accessibilityLabel") as? String == "Date action"
+                }
+                XCTAssertEqual(owners.count, 1, "Exactly one native owner receives the identity\n\(diagnostics)")
+                let owner = try XCTUnwrap(owners.first)
+                XCTAssertEqual(Self.attribute(owner, "accessibilityRole") as? String, "AXButton")
+                XCTAssertEqual(Self.attribute(owner, "accessibilityIdentifier") as? String, "date-button")
+                XCTAssertEqual(Self.attribute(owner, "accessibilityLabel") as? String, "Date action")
+                XCTAssertEqual(try Self.isEnabled(owner), enabled, "The enclosing form's disabled state is preserved")
+                let selector = NSSelectorFromString("accessibilityPerformPress")
+                let implementation = try XCTUnwrap(owner.responds(to: selector) ? owner.method(for: selector) : nil)
+                typealias Press = @convention(c) (AnyObject, Selector) -> Bool
+                XCTAssertEqual(unsafeBitCast(implementation, to: Press.self)(owner, selector), enabled)
+                XCTAssertEqual(presses, enabled ? 1 : 0)
             }
         }
     }
@@ -454,29 +465,6 @@ final class TaskDetailsViewTests: XCTestCase {
     }
 
     @MainActor private static func views(_ root: NSView) -> [NSView] { [root] + root.subviews.flatMap(views) }
-}
-
-@MainActor
-private struct NativeDateButtonFixture: View {
-    let title: String
-    let wrapped: Bool
-    @FocusState private var focused: Bool
-
-    @ViewBuilder var body: some View {
-        if wrapped {
-            NativeDateButtonIdentity(identifier: "date-button", label: "Date action") { button }
-                .fixedSize()
-        } else {
-            button
-        }
-    }
-
-    private var button: some View {
-        Button(title) {}.buttonStyle(PillStyle()).fixedSize()
-            .focused($focused)
-            .accessibilityLabel("Date action")
-            .accessibilityIdentifier("date-button")
-    }
 }
 
 private enum DetailsTestError: Error { case missingControl, missingSheet }

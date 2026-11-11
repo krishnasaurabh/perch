@@ -163,7 +163,8 @@ struct DateFieldEditor: View {
     ) -> some View {
         if control == .add || control == .clear {
             NativeDateButtonIdentity(
-                identifier: control.identifier(field: key), label: control.accessibilityLabel(field: field)
+                identifier: control.identifier(field: key), label: control.accessibilityLabel(field: field),
+                action: action
             ) {
                 styledButton(control, title: title, prominent: prominent, action: action)
             }
