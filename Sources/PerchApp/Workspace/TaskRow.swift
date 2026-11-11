@@ -109,6 +109,15 @@ struct TaskRow: View {
         .buttonStyle(.plain)
         .focusable(true)
         .focused(focusBinding, equals: .task(task.id, .complete))
+        .onKeyPress(.space, phases: [.down, .repeat, .up]) { press in
+            // This custom focus target must activate the same action as the button.
+            // Consume the rest of the gesture even if completion moves focus to another row.
+            guard focusBinding.wrappedValue == .task(task.id, .complete), press.modifiers.isEmpty else {
+                return .ignored
+            }
+            if press.phase == .down { toggle() }
+            return .handled
+        }
         .focusEffectDisabled()
         .overlay(
             ControlFocusRing(

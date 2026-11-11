@@ -93,13 +93,19 @@ func snapshot(_ root: NSView, _ name: String, into output: URL) {
     try! data.write(to: output.appendingPathComponent(name + ".png"))
 }
 @MainActor
+func sendKey(
+    _ type: NSEvent.EventType, _ character: String, code: UInt16, in window: NSWindow, isARepeat: Bool = false
+) {
+    let event = NSEvent.keyEvent(
+        with: type, location: .zero, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+        windowNumber: window.windowNumber, context: nil, characters: character,
+        charactersIgnoringModifiers: character, isARepeat: isARepeat, keyCode: code)!
+    NSApp.sendEvent(event)
+}
+@MainActor
 func key(_ character: String, code: UInt16, in window: NSWindow) {
     for type in [NSEvent.EventType.keyDown, .keyUp] {
-        let event = NSEvent.keyEvent(
-            with: type, location: .zero, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
-            windowNumber: window.windowNumber, context: nil, characters: character,
-            charactersIgnoringModifiers: character, isARepeat: false, keyCode: code)!
-        NSApp.sendEvent(event)
+        sendKey(type, character, code: code, in: window)
     }
 }
 
@@ -253,17 +259,24 @@ MainActor.assumeIsolated {
                 window.makeFirstResponder(nil)
                 var rowKeyboardReached = false
                 var keyboardTrace: [[String: Any]] = []
-                for step in 0..<60 {
-                    key("\t", code: 48, in: window)
-                    try? await Task.sleep(nanoseconds: 50_000_000)
+                @MainActor func recordKeyboardState(_ phase: String) {
                     keyboardTrace.append([
-                        "step": step, "keyWindow": window.isKeyWindow,
+                        "phase": phase, "keyWindow": window.isKeyWindow,
                         "firstResponder": String(describing: window.firstResponder),
                         "focusedIdentifiers": nodes(root).filter(isFocused).map {
                             attr($0, "accessibilityIdentifier") as? String
                                 ?? attr($0, "accessibilityLabel") as? String ?? "unnamed"
                         },
+                        "completedIDs": store.planner.tasks.filter(\.done).map { $0.id.uuidString },
+                        "storeError": String(describing: store.lastError),
                     ])
+                    let data = try! JSONSerialization.data(withJSONObject: keyboardTrace, options: [.prettyPrinted])
+                    try! data.write(to: output.appendingPathComponent("keyboard-trace-\(name).json"))
+                }
+                for step in 0..<60 {
+                    key("\t", code: 48, in: window)
+                    try? await Task.sleep(nanoseconds: 50_000_000)
+                    recordKeyboardState("tab-\(step)")
                     guard
                         let first = control(
                             "task-complete-\(added[0].id)", attribute: "accessibilityIdentifier", in: root),
@@ -287,17 +300,34 @@ MainActor.assumeIsolated {
                         previous.map(isFocused) == true,
                         "\(name): Up returns to the previous task")
                     snapshot(root, "\(name)-row-keyboard-focused", into: output)
-                    key(" ", code: 49, in: window); await settle()
+                    let completedBeforeSpace = Set(store.planner.tasks.filter(\.done).map(\.id))
+                    recordKeyboardState("before-space")
+                    sendKey(.keyDown, " ", code: 49, in: window); await settle()
+                    recordKeyboardState("after-space")
+                    let expectedCompleted = completedBeforeSpace.union([added[0].id])
                     require(
-                        store.planner.tasks.first { $0.id == added[0].id }?.done == true,
+                        Set(store.planner.tasks.filter(\.done).map(\.id)) == expectedCompleted,
                         "\(name): Space completes exactly the focused task")
+                    let persistedAfterSpace = try! store.file.load()
+                    require(
+                        Set(persistedAfterSpace.tasks.filter(\.done).map(\.id)) == expectedCompleted,
+                        "\(name): keyboard completion persists the exact task")
                     let nextAfterCompletion = control(
                         "task-complete-\(added[2].id)", attribute: "accessibilityIdentifier", in: root)
                     require(
                         nextAfterCompletion.map(isFocused) == true, "\(name): completion keeps focus on the next task")
+                    // Holding Space across focus recovery must not also complete the neighboring row.
+                    sendKey(.keyDown, " ", code: 49, in: window, isARepeat: true); await settle()
+                    require(
+                        Set(store.planner.tasks.filter(\.done).map(\.id)) == expectedCompleted,
+                        "\(name): keyDown - no repeated completion")
+                    sendKey(.keyUp, " ", code: 49, in: window); await settle()
+                    require(
+                        Set(store.planner.tasks.filter(\.done).map(\.id)) == expectedCompleted,
+                        "\(name): keyUp does not activate the next row")
                     press("Undo", in: root); await settle()
                     require(
-                        store.planner.tasks.first { $0.id == added[0].id }?.done == false,
+                        Set(store.planner.tasks.filter(\.done).map(\.id)) == completedBeforeSpace,
                         "\(name): visible Undo restores keyboard completion")
                     break
                 }
@@ -305,6 +335,35 @@ MainActor.assumeIsolated {
                 try! traceData.write(to: output.appendingPathComponent("keyboard-trace-\(name).json"))
                 if !rowKeyboardReached { print("Keyboard trace: " + String(decoding: traceData, as: UTF8.self)) }
                 require(rowKeyboardReached, "\(name): Tab reaches a real task completion button")
+                // The completed list uses the same focused action, not a separate global shortcut.
+                press("Completed 1", in: root); await settle()
+                window.makeFirstResponder(nil)
+                var completedRowReached = false
+                for step in 0..<60 {
+                    key("\t", code: 48, in: window)
+                    try? await Task.sleep(nanoseconds: 50_000_000)
+                    recordKeyboardState("completed-tab-\(step)")
+                    guard
+                        let completed = control(
+                            "task-complete-\(added[1].id)", attribute: "accessibilityIdentifier", in: root),
+                        isFocused(completed)
+                    else { continue }
+                    completedRowReached = true
+                    key(" ", code: 49, in: window); await settle()
+                    recordKeyboardState("after-reopen")
+                    require(
+                        store.planner.tasks.allSatisfy { !$0.done },
+                        "\(name): Space reopens exactly the focused completed task")
+                    require(
+                        try! store.file.load().tasks.allSatisfy { !$0.done },
+                        "\(name): keyboard reopening persists")
+                    press("Undo", in: root); await settle()
+                    require(
+                        Set(store.planner.tasks.filter(\.done).map(\.id)) == [added[1].id],
+                        "\(name): Undo restores keyboard reopening")
+                    break
+                }
+                require(completedRowReached, "\(name): Tab reaches the completed task action")
                 // Dense rows scroll independently of the still-visible entry and capture.
                 store.apply { try $0.addTasks((1...24).map { "Inspect inventory group \($0)" }, on: .day(store.today)) }
                 await settle()

@@ -105,6 +105,30 @@ class TodayInteractionTests(unittest.TestCase):
         self.assertIn('require(rowKeyboardReached,', source)
         self.assertIn('"keyboard-trace-\\(name).json"', source)
 
+    def test_completion_space_is_focus_scoped_and_activates_once(self):
+        source = (WORKSPACE / "TaskRow.swift").read_text()
+        completion = source.split("private var completion: some View {", 1)[1].split(
+            "private var actions: some View {", 1)[0]
+        self.assertIn("Button(action: toggle)", completion)
+        self.assertIn(".onKeyPress(.space, phases: [.down, .repeat, .up])", completion)
+        self.assertIn("focusBinding.wrappedValue == .task(task.id, .complete)", completion)
+        self.assertIn("press.modifiers.isEmpty", completion)
+        self.assertIn("if press.phase == .down { toggle() }", completion)
+        self.assertIn("return .handled", completion)
+        self.assertIn("return .ignored", completion)
+
+    def test_native_space_checks_exact_set_and_persisted_state(self):
+        source = (ROOT / "scripts/focus_entry_probe.swift").read_text()
+        self.assertIn("let completedBeforeSpace =", source)
+        self.assertIn("completedBeforeSpace.union([added[0].id])", source)
+        self.assertIn("let persistedAfterSpace = try! store.file.load()", source)
+        self.assertIn("persistedAfterSpace.tasks.filter(\\.done)", source)
+        self.assertIn('recordKeyboardState("before-space")', source)
+        self.assertIn('recordKeyboardState("after-space")', source)
+        self.assertIn("isARepeat: isARepeat", source)
+        self.assertIn("keyDown - no repeated completion", source)
+        self.assertIn("Space reopens exactly the focused completed task", source)
+
     def test_keyboard_probe_mode_is_process_local(self):
         wrapper = (ROOT / "scripts/check_focus_entry.sh").read_text()
         source = (ROOT / "scripts/focus_entry_probe.swift").read_text()
