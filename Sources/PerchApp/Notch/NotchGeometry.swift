@@ -81,9 +81,11 @@ struct NotchGeometry: Equatable {
     }
 
     /// Where hovering opens the notch (closed), or keeps it open (expanded: exactly the workspace).
+    /// An activity strip stays clickable without becoming an open target; only its housing can open the workspace.
     func hover(expanded: Bool, timer: NotchTimerPlacement?, activity: Bool) -> NSRect {
         NotchLayout.hoverFrame(
-            idle: idle(timer: timer, activity: activity), workspace: workspace, expanded: expanded, screen: screen)
+            idle: idle(timer: timer, activity: activity), workspace: workspace, expanded: expanded,
+            activity: activity, screen: screen)
     }
 
     /// Open on a flat screen: the strip of menu bar between the notch and the floating workspace. The pointer may

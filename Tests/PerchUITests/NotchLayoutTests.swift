@@ -380,6 +380,29 @@ final class NotchLayoutTests: XCTestCase {
         XCTAssertLessThanOrEqual(h.maxY, Screens.ultrawide.frame.minY)
     }
 
+    func testActivityStripBodyIsNotAnOpenTarget() {
+        let s = Screens.mbp14
+        let housing = NotchLayout.notch(screen: s)
+        let activity = NotchLayout.idleFrame(
+            screen: s, leftWing: 100, rightWing: 100, below: 62, minWidth: 400)
+        let w = NotchLayout.workspaceFrame(screen: s, size: workspaceSize)
+        let openTarget = NotchLayout.hoverFrame(
+            idle: activity, workspace: w, expanded: false, activity: true, screen: s)
+
+        XCTAssertEqual(openTarget, housing)
+        XCTAssertTrue(
+            NotchLayout.contains(openTarget, pointer: CGPoint(x: housing.midX, y: housing.midY)),
+            "The housing remains an open target while an activity is visible")
+        for x in [activity.minX + 40, activity.maxX - 22] {
+            XCTAssertFalse(
+                NotchLayout.contains(openTarget, pointer: CGPoint(x: x, y: activity.minY + 20)),
+                "Activity actions and dismiss must not open the workspace")
+        }
+        XCTAssertFalse(
+            NotchLayout.contains(openTarget, pointer: CGPoint(x: activity.midX, y: activity.minY - 1)),
+            "The transparent gap below the strip is not an open target")
+    }
+
     // MARK: Pointer
 
     func testPointerAtTheVeryTopOfAScreenIsInside() {

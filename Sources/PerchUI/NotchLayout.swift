@@ -136,12 +136,14 @@ public enum NotchLayout {
         return CGRect(x: x, y: f.maxY - top - h, width: w, height: h)
     }
 
-    /// Where the pointer counts as "on the notch". Open: exactly the workspace. Closed: the idle shape plus a little slop
-    /// to the sides and below (never above the screen's top edge, so it can't leak onto a screen stacked above).
-    public static func hoverFrame(idle: CGRect, workspace: CGRect, expanded: Bool, slop: CGFloat = 6, screen: Screen)
-        -> CGRect
-    {
+    /// Where the pointer opens the notch. Open: exactly the workspace. Closed with an activity: only the housing,
+    /// leaving the strip's controls to handle their own clicks. Otherwise: the idle shape plus a little slop to the
+    /// sides and below (never above the screen's top edge, so it can't leak onto a screen stacked above).
+    public static func hoverFrame(
+        idle: CGRect, workspace: CGRect, expanded: Bool, activity: Bool = false, slop: CGFloat = 6, screen: Screen
+    ) -> CGRect {
         if expanded { return workspace }
+        if activity { return notch(screen: screen) }
         let r = CGRect(
             x: idle.minX - slop, y: idle.minY - slop, width: idle.width + 2 * slop, height: idle.height + slop)
         return clamp(r, into: screen.frame)
