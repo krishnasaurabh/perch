@@ -8,6 +8,7 @@ private final class MemoryLedger: ReminderLedgerStorage {
     var value = ReminderSyncLedger()
     var writes = 0
     var failWriteAt: Int?
+    var failRetirement = false
     var locked = false
     func lock() throws {
         guard !locked else { throw ReminderSyncError.stopped("busy") }
@@ -17,7 +18,9 @@ private final class MemoryLedger: ReminderLedgerStorage {
     func load() throws -> ReminderSyncLedger { value }
     func save(_ ledger: ReminderSyncLedger) throws {
         writes += 1
-        if failWriteAt == writes { throw ReminderSyncError.stopped("disk full") }
+        if failWriteAt == writes || (failRetirement && ledger.links.values.contains(where: { $0.retired })) {
+            throw ReminderSyncError.stopped("disk full")
+        }
         value = ledger
     }
 }
@@ -32,13 +35,22 @@ private final class FakeRepository: ReminderRepository {
     var fetches = 0
     var failSaveAt: Int?
     var throwAfterSave = false
+    var throwAfterRemove = false
     var onFetch: (() async throws -> Void)?
     var beforeWrite: (() -> Void)?
     func createCalendar() throws -> String { lists += 1; return "owned-list" }
     func fetch(calendarID: String) async throws -> [ReminderSyncRecord] {
         fetches += 1
         try await onFetch?()
-        return records
+        return records.filter { $0.calendarID == calendarID }
+    }
+    func locate(owner: ReminderOwner) async throws -> [ReminderSyncRecord] {
+        guard hasAccess else { throw ReminderSyncError.stopped("denied") }
+        return records.filter { $0.owner == owner }
+    }
+    func lookup(id: String) throws -> ReminderSyncRecord? {
+        guard hasAccess else { throw ReminderSyncError.stopped("denied") }
+        return records.first { $0.id == id }
     }
     func save(fields: ReminderFields, owner: ReminderOwner, calendarID: String, replacing: ReminderSyncRecord?) throws
         -> ReminderSyncRecord
@@ -59,6 +71,7 @@ private final class FakeRepository: ReminderRepository {
         beforeWrite?()
         guard hasAccess, records.contains(expected) else { throw ReminderSyncError.stopped("revision conflict") }
         removes += 1; records.removeAll { $0.id == expected.id }
+        if throwAfterRemove { throw ReminderSyncError.stopped("uncertain removal") }
     }
     func change(_ transform: (inout ReminderFields) -> Void) {
         let old = records[0]; var fields = old.fields; transform(&fields)
@@ -101,6 +114,17 @@ final class ReminderReconcilerTests: XCTestCase {
         XCTAssertFalse(Preferences().remindersSync)
     }
 
+    @MainActor func testRetiredTaskCannotSilentlyResurrectItsReminder() async throws {
+        let f = Fixture(); try await f.run()
+        let task = f.planner.tasks[0]
+        f.planner.tasks = []; try await f.run()
+        let saves = f.repository.saves
+        f.planner.tasks = [task]
+        do { try await f.run(); XCTFail("retired identity needs explicit recovery") } catch {}
+        XCTAssertEqual(f.repository.saves, saves)
+        XCTAssertTrue(f.repository.records.isEmpty)
+    }
+
     @MainActor func testLocalEditsReuseIdentityOutsidePlanner() async throws {
         let f = Fixture(); try await f.run()
         let owner = f.repository.records[0].owner, id = f.repository.records[0].id
@@ -123,6 +147,193 @@ final class ReminderReconcilerTests: XCTestCase {
             try await f.run(); try await f.run()
             XCTAssertEqual(f.repository.records, [other]); XCTAssertEqual(f.repository.removes, 1)
         }
+    }
+
+    @MainActor func testScopeCleanupRecoversCommittedRemovalAfterRestart() async throws {
+        try await verifyCleanupRecovery(delete: false, checkpointFailure: false)
+    }
+
+    @MainActor func testScopeCleanupRecoversFailedRetirementCheckpointAfterRestart() async throws {
+        try await verifyCleanupRecovery(delete: false, checkpointFailure: true)
+    }
+
+    @MainActor func testDeletionCleanupRecoversCommittedRemovalAfterRestart() async throws {
+        try await verifyCleanupRecovery(delete: true, checkpointFailure: false)
+    }
+
+    @MainActor func testDeletionCleanupRecoversFailedRetirementCheckpointAfterRestart() async throws {
+        try await verifyCleanupRecovery(delete: true, checkpointFailure: true)
+    }
+
+    @MainActor private func verifyCleanupRecovery(delete: Bool, checkpointFailure: Bool, twoWay: Bool = false)
+        async throws
+    {
+        let f = Fixture(); try await f.run()
+        let task = f.planner.tasks[0]
+        let other = ReminderSyncRecord(
+            id: "unrelated", calendarID: "owned-list", owner: nil,
+            fields: f.repository.records[0].fields, revision: "user")
+        f.repository.records.append(other)
+        if delete { f.planner.tasks = [] } else { f.planner.tasks[0].day = nil }
+        f.repository.throwAfterRemove = !checkpointFailure
+        f.storage.failRetirement = checkpointFailure
+        do { try await f.run(); XCTFail("injected cleanup failure") } catch {}
+        XCTAssertEqual(f.repository.removes, 1)
+        XCTAssertEqual(f.repository.records, [other])
+        XCTAssertFalse(try XCTUnwrap(f.storage.value.links[task.id]).retired)
+        // A new reconciler and decoded metadata, not an in-memory retry.
+        f.storage.value = try JSONDecoder().decode(
+            ReminderSyncLedger.self, from: JSONEncoder().encode(f.storage.value))
+        f.repository.throwAfterRemove = false; f.storage.failRetirement = false
+        if twoWay { try f.engine.setTwoWayEnabled(true) }
+        try await f.run(); try await f.run()
+        let link = try XCTUnwrap(f.storage.value.links[task.id])
+        XCTAssertTrue(link.retired)
+        XCTAssertEqual(link.retirement, delete ? .deleted : .outOfScope)
+        XCTAssertEqual(f.repository.removes, 1)
+        XCTAssertEqual(f.repository.records, [other])
+        if delete {
+            XCTAssertNotNil(link.deletedAt)
+            f.planner.tasks = [task]
+            do { try await f.run(); XCTFail("deleted identity cannot resurrect") } catch {}
+            XCTAssertEqual(f.repository.saves, 1)
+        } else {
+            XCTAssertNil(link.deletedAt)
+            f.planner.tasks[0].day = f.today
+            try await f.run(); try await f.run()
+            XCTAssertEqual(f.repository.saves, 2)
+            XCTAssertEqual(f.repository.records.count, 2)
+        }
+    }
+
+    @MainActor func testCleanupRecoveryAlsoWorksAfterEnablingTwoWayMode() async throws {
+        for delete in [false, true] {
+            for checkpointFailure in [false, true] {
+                try await verifyCleanupRecovery(delete: delete, checkpointFailure: checkpointFailure, twoWay: true)
+            }
+        }
+    }
+
+    @MainActor func testCleanupIntentFailurePreventsRemoteRemoval() async throws {
+        let f = Fixture(); try await f.run(); f.planner.tasks = []
+        let original = f.repository.records
+        f.storage.failWriteAt = f.storage.writes + 1
+        do { try await f.run(); XCTFail("intent write must fail") } catch {}
+        XCTAssertEqual(f.repository.records, original); XCTAssertEqual(f.repository.removes, 0)
+        XCTAssertNil(f.storage.value.links.values.first?.cleanup)
+        f.storage.failWriteAt = nil; try await f.run()
+        XCTAssertEqual(f.repository.removes, 1)
+    }
+
+    @MainActor private func pendingCleanup(delete: Bool = false) async throws -> Fixture {
+        let f = Fixture(); try await f.run()
+        if delete { f.planner.tasks = [] } else { f.planner.tasks[0].day = nil }
+        f.repository.beforeWrite = { f.repository.hasAccess = false }
+        do { try await f.run(); XCTFail("permission revoked before removal") } catch {}
+        XCTAssertFalse(f.repository.hasAccess)
+        XCTAssertEqual(f.repository.removes, 0)
+        XCTAssertNotNil(f.storage.value.links.values.first?.cleanup)
+        f.repository.beforeWrite = nil; f.repository.hasAccess = true
+        f.storage.value = try JSONDecoder().decode(
+            ReminderSyncLedger.self, from: JSONEncoder().encode(f.storage.value))
+        return f
+    }
+
+    @MainActor func testPendingCleanupRejectsChangedMovedAndAmbiguousRecords() async throws {
+        for change in 0..<6 {
+            let f = try await pendingCleanup()
+            let record = f.repository.records[0]
+            if change == 0 {
+                f.repository.change { $0.notes = "Remote edit" }
+            } else {
+                let changed = ReminderSyncRecord(
+                    id: change == 4 ? "duplicate" : record.id,
+                    calendarID: change == 3 ? "another-list" : record.calendarID,
+                    owner: change == 2 ? nil : record.owner,
+                    fields: record.fields, revision: change == 1 ? "new-revision" : record.revision,
+                    unsupported: change == 5)
+                if change == 4 { f.repository.records.append(changed) } else { f.repository.records = [changed] }
+            }
+            let records = f.repository.records, ledger = f.storage.value
+            do { try await f.run(); XCTFail("changed pending removal must stop") } catch {}
+            XCTAssertEqual(f.repository.removes, 0)
+            XCTAssertEqual(f.repository.records, records); XCTAssertEqual(f.storage.value, ledger)
+        }
+    }
+
+    @MainActor func testPendingCleanupSurvivesPermissionLossOnRecovery() async throws {
+        let f = try await pendingCleanup()
+        let ledger = f.storage.value
+        f.repository.onFetch = { f.repository.hasAccess = false }
+        do { try await f.run(); XCTFail("permission must stop recovery") } catch {}
+        XCTAssertEqual(f.storage.value, ledger); XCTAssertEqual(f.repository.removes, 0)
+        f.repository.onFetch = nil; f.repository.hasAccess = true
+        try await f.run(); try await f.run()
+        XCTAssertEqual(f.repository.removes, 1)
+        XCTAssertNil(f.storage.value.links.values.first?.cleanup)
+    }
+
+    @MainActor func testUnexplainedDisappearanceDoesNotAuthorizeCleanup() async throws {
+        for delete in [false, true] {
+            let f = Fixture(); try await f.run(); f.repository.records = []
+            if delete { f.planner.tasks = [] } else { f.planner.tasks[0].day = nil }
+            let ledger = f.storage.value
+            for _ in 0..<2 {
+                do { try await f.run(); XCTFail("missing record has no durable cleanup authorization") } catch {}
+            }
+            XCTAssertEqual(f.storage.value, ledger); XCTAssertEqual(f.repository.removes, 0)
+            XCTAssertEqual(f.repository.saves, 1)
+        }
+    }
+
+    @MainActor func testPendingDeletionCannotBecomeScopeExitAfterLocalRestore() async throws {
+        let f = try await pendingCleanup(delete: true)
+        let id = try XCTUnwrap(f.storage.value.links.keys.first)
+        f.planner.tasks = [PlanTask(id: id, title: "Restored task", day: f.today)]
+        do { try await f.run(); XCTFail("restored deleted identity must remain retired") } catch {}
+        XCTAssertEqual(f.storage.value.links[id]?.retirement, .deleted)
+        XCTAssertNil(f.storage.value.links[id]?.cleanup)
+        XCTAssertTrue(f.repository.records.isEmpty); XCTAssertEqual(f.repository.saves, 1)
+    }
+
+    @MainActor func testCleanupMetadataRoundTripsAndRejectsInconsistency() async throws {
+        let f = try await pendingCleanup()
+        let original = f.storage.value, id = try XCTUnwrap(original.links.keys.first)
+        for damage in 0..<7 {
+            var ledger = original
+            switch damage {
+            case 0: ledger.links[id]?.retired = true
+            case 1: ledger.links[id]?.remoteID = nil
+            case 2: ledger.calendarID = nil
+            case 3: ledger.version = 3
+            case 4: ledger.links[id]?.retirement = .outOfScope
+            case 5: ledger.links[id]?.deletedAt = Date()
+            default:
+                let fields = try XCTUnwrap(ledger.links[id]?.local)
+                ledger.links[id]?.pending = ReminderSyncIntent(
+                    localBefore: fields, remoteBefore: nil, remoteRevision: nil, target: fields)
+            }
+            let data = try JSONEncoder().encode(ledger)
+            XCTAssertThrowsError(try JSONDecoder().decode(ReminderSyncLedger.self, from: data))
+        }
+        let intent = try XCTUnwrap(original.links[id]?.cleanup)
+        for key in ["reason", "remoteID", "fields", "revision"] {
+            var object = try XCTUnwrap(
+                JSONSerialization.jsonObject(with: JSONEncoder().encode(intent)) as? [String: Any])
+            object.removeValue(forKey: key)
+            let data = try JSONSerialization.data(withJSONObject: object)
+            XCTAssertThrowsError(try JSONDecoder().decode(ReminderCleanupIntent.self, from: data))
+        }
+    }
+
+    @MainActor func testVersionThreeScopeRetirementMigratesWithoutLosingReason() async throws {
+        let f = Fixture(); try await f.run(); f.planner.tasks[0].day = nil; try await f.run()
+        var old = f.storage.value; old.version = 3
+        let migrated = try JSONDecoder().decode(ReminderSyncLedger.self, from: JSONEncoder().encode(old))
+        XCTAssertEqual(migrated.version, 4); XCTAssertFalse(migrated.twoWayEnabled)
+        XCTAssertEqual(migrated.links.values.first?.retirement, .outOfScope)
+        f.storage.value = migrated; f.planner.tasks[0].day = f.today
+        try await f.run(); XCTAssertEqual(f.repository.saves, 2)
     }
 
     @MainActor func testCarryRetiresOriginalAndCreatesOneNewMirror() async throws {

@@ -10,6 +10,7 @@ final class RemindersSync: ObservableObject {
     private let reconciler: ReminderReconciler
     private let scheduler: any AppScheduling
     @Published private(set) var lastError: RemindersSyncFailure?
+    @Published private(set) var twoWayEnabled = false
     private var cancellable: AnyCancellable?
     private var dayCancellable: AnyCancellable?
     @MainActor
@@ -69,6 +70,7 @@ final class RemindersSync: ObservableObject {
             storage: storage ?? ReminderLedgerFile(url: store.file.url.appendingPathExtension("reminders.json")))
         self.scheduler = scheduler
         self.input = Input(store.planner)
+        do { twoWayEnabled = try reconciler.twoWayEnabled() } catch { lastError = .access(error.localizedDescription) }
         sawRedo = store.canRedo
         pausedForHistory = sawRedo
         if store.prefs.remindersSync {
@@ -102,6 +104,21 @@ final class RemindersSync: ObservableObject {
             pausedForHistory = false; sawRedo = false; retryCount = 0; lastError = nil
             return true
         } catch { lastError = .access(error.localizedDescription); return false }
+    }
+
+    /// Enabling is only called from the explicit destructive-sync confirmation in Settings.
+    func setTwoWayEnabled(_ enabled: Bool) {
+        do {
+            guard !running else { throw ReminderSyncError.stopped("Wait for the current sync to finish.") }
+            guard !enabled || (store.prefs.remindersSync && hasAccess) else {
+                throw ReminderSyncError.stopped("Enable Reminders mirroring and grant permission first.")
+            }
+            try reconciler.setTwoWayEnabled(enabled)
+            twoWayEnabled = enabled
+            lastError = nil
+            generation &+= 1
+            sync()
+        } catch { lastError = .sync(error.localizedDescription) }
     }
 
     func sync() { schedule(after: 0) }
@@ -185,6 +202,33 @@ final class RemindersSync: ObservableObject {
                     guard applied == true else {
                         throw ReminderSyncError.stopped(
                             self.store.lastError?.message ?? "Remote completion could not be saved. Retry sync.")
+                    }
+                    baseline = self.store.planner
+                    self.pending = true
+                },
+                prepareImport: { expected, fields in
+                    _ = try ReminderTaskImport.actions(
+                        task: expected, fields: fields, planner: baseline,
+                        now: self.store.engine.now(), calendar: self.store.engine.calendar)
+                },
+                applyImport: { expected, fields in
+                    self.applyingCompletion = true
+                    defer { self.applyingCompletion = false }
+                    let applied: Bool? = self.store.performMutation(origin: .background) { commands in
+                        guard Input(commands.planner) == Input(baseline),
+                            try commands.task(expected.id) == expected
+                        else {
+                            throw ReminderSyncError.stopped("Planner changed before the remote edit could be saved.")
+                        }
+                        let actions = try ReminderTaskImport.actions(
+                            task: expected, fields: fields, planner: commands.planner,
+                            now: commands.read.now(), calendar: commands.read.calendar)
+                        for action in actions { try commands.execute(action) }
+                        return true
+                    }
+                    guard applied == true else {
+                        throw ReminderSyncError.stopped(
+                            self.store.lastError?.message ?? "The remote edit could not be saved.")
                     }
                     baseline = self.store.planner
                     self.pending = true

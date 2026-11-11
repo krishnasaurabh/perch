@@ -93,6 +93,30 @@ final class SystemRemindersAccess: RemindersAccess {
         return Self.snapshot(reminder)
     }
 
+    func locate(owner: ReminderOwner) async throws -> [ReminderSyncRecord] {
+        try requireAccess()
+        let predicate = ek.predicateForReminders(in: nil)
+        let records: [ReminderSyncRecord] = try await withCheckedThrowingContinuation { continuation in
+            ek.fetchReminders(matching: predicate) { reminders in
+                guard let reminders else {
+                    continuation.resume(
+                        throwing: ReminderSyncError.stopped("Could not confirm the reminder's absence. Retry sync."))
+                    return
+                }
+                continuation.resume(returning: reminders.map(Self.snapshot).filter { $0.owner == owner })
+            }
+        }
+        try requireAccess()
+        return records
+    }
+
+    func lookup(id: String) throws -> ReminderSyncRecord? {
+        try requireAccess()
+        let reminder = ek.calendarItem(withIdentifier: id) as? EKReminder
+        try requireAccess()
+        return reminder.map(Self.snapshot)
+    }
+
     func remove(_ expected: ReminderSyncRecord) throws {
         try requireAccess()
         let reminder = try current(expected)
