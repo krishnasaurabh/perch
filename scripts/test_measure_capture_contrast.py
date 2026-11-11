@@ -112,6 +112,67 @@ class WeekTests(unittest.TestCase):
                     self.assertEqual(measured, round(ratio(ink, (0x29,) * 3), 3))
                     self.assertEqual(measured >= 4.5, level == 0xAE)
 
+    def test_shared_control_fill_and_single_visible_day(self):
+        for scale in (1, 2):
+            for level, passes in ((0x75, False), (0xF5, True)):
+                with self.subTest(scale=scale, ink=level):
+                    # One 70pt field in a 620pt page; a taller chip above shares its fill.
+                    rows: list[list[tuple[int, ...]]] = [[SHELL] * (620 * scale) for _ in range(200 * scale)]
+                    fill = mini_fills()["control"]
+                    for top, bottom in ((10, 100), (150, 182)):
+                        for y in range(top * scale, bottom * scale):
+                            for x in range(20 * scale, 90 * scale):
+                                rows[y][x] = fill
+                    for y in range(160 * scale, 172 * scale):
+                        for x in range(25 * scale, 70 * scale):
+                            rows[y][x] = (level,) * 3
+                    r = self.measure(rows)
+                    self.assertEqual(r["scale"], scale)
+                    self.assertEqual(len(r["fields"]), 1)
+                    self.assertEqual(r["fields"][0]["field_xyxy"][1::2], [150 * scale, 182 * scale])
+                    self.assertEqual(r["fields"][0]["ratio"] >= 4.5, passes)
+
+    def test_footer_fill_coloured_pixels_do_not_hide_the_composers(self):
+        for scale in (1, 2):
+            for level, passes in ((0x75, False), (0xF5, True)):
+                with self.subTest(scale=scale, ink=level):
+                    fill = mini_fills()["control"]
+                    rows: list[list[tuple[int, ...]]] = [[SHELL] * (620 * scale) for _ in range(240 * scale)]
+                    for y in range(150 * scale, 182 * scale):
+                        for x in range(20 * scale, 220 * scale):
+                            rows[y][x] = fill
+                    for y in range(160 * scale, 172 * scale):
+                        for x in range(25 * scale, 100 * scale):
+                            rows[y][x] = (level,) * 3
+                    # Antialiased footer glyphs can match the dark control fill.
+                    # Include a sustained run, not only isolated specks.
+                    for y in range(215 * scale, 219 * scale):
+                        for x in range(20 * scale, 120 * scale):
+                            rows[y][x] = fill
+                    measured = self.measure(rows)
+                    self.assertEqual(measured["scale"], scale)
+                    self.assertEqual(len(measured["fields"]), 1)
+                    self.assertEqual(measured["fields"][0]["field_xyxy"],
+                                     [20 * scale, 150 * scale, 220 * scale, 182 * scale])
+                    self.assertEqual(measured["fields"][0]["ratio"] >= 4.5, passes)
+
+    def test_missing_or_blank_composer_fails_closed(self):
+        for scale in (1, 2):
+            fill = mini_fills()["control"]
+            rows: list[list[tuple[int, ...]]] = [[SHELL] * (320 * scale) for _ in range(100 * scale)]
+            for y in range(80 * scale, 84 * scale):
+                for x in range(20 * scale, 120 * scale):
+                    rows[y][x] = fill
+            with self.subTest(scale=scale, state="missing"):
+                with self.assertRaisesRegex(AssertionError, "no Week composer"):
+                    self.measure(rows)
+            for y in range(20 * scale, 52 * scale):
+                for x in range(20 * scale, 220 * scale):
+                    rows[y][x] = fill
+            with self.subTest(scale=scale, state="blank"):
+                with self.assertRaisesRegex(AssertionError, "no prompt glyphs"):
+                    self.measure(rows)
+
     def test_secondary_token_passes(self):
         # Theme.secondary dark (white 62 %) over the field.
         r = self.measure(week(2, (0xAE, 0xAE, 0xAE)))

@@ -141,6 +141,12 @@ def ui_pixels(directory):
         assert len(matches) >= 30, ('Missing production boundary', foreground, background, len(matches))
         assert min(matches) >= 3, ('Low production boundary contrast', min(matches))
         return {'adjacent_samples': len(matches), 'minimum_ratio': round(min(matches), 4)}
+    palette = (ROOT / 'Sources/PerchUI/ThemeTokens.swift').read_text()
+    dark = re.search(r'static let dark = Palette\((.*?)\)\n', palette, re.S)
+    assert dark, 'Missing dark palette'
+    control = re.search(r'\bcontrol: 0x([A-Fa-f0-9]+)', dark[1])
+    assert control, 'Missing Week control fill'
+    week_fill = tuple(round(v * 255) for v in channels(int(control[1], 16)))
     evidence = {}
     for mode in ('light', 'dark'):
         home = Image.open(directory / f'{mode}-home.png').convert('RGB')
@@ -151,7 +157,7 @@ def ui_pixels(directory):
             'home_capture_resting': edge(home, (41,53,45), (124,145,130)),
             'home_capture_focused': edge(focused, (41,53,45), (119,139,124)),
             'week_card': edge(week, (133,133,133), (29,29,29)),
-            'week_capture': edge(week, (153,153,153), (40,40,40)),
+            'week_capture': edge(week, (153,153,153), week_fill),
         }
         # A 2 pt focused outline must contain appreciably more ink than the 1 pt resting edge.
         def count(image, color):
