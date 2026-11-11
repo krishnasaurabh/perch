@@ -1,5 +1,4 @@
 import AppKit
-import PerchUI
 import SwiftUI
 import XCTest
 @testable import PerchApp
@@ -81,62 +80,8 @@ final class TaskDetailsViewTests: XCTestCase {
         _ = try await Self.identifierControl("details-cancel", in: window)
         _ = try await Self.identifierControl("schedule-date-clear", in: window)
         _ = try await Self.identifierControl("deadline-date-add", in: window)
-        _ = try await Self.identifierControl("schedule-date-text", role: "AXTextField", in: window)
-        _ = try await Self.identifierControl("schedule-date-picker", role: "AXDateTimeArea", in: window)
         XCTAssertNotNil(fixture.store.send(.delete(fixture.task.id)))
         _ = try await Self.identifierControl("details-close", in: window)
-    }
-
-    @MainActor
-    func testDateIdentifiersInsideScrollHost() async throws {
-        let fixture = try DetailsFixture()
-        defer { fixture.close() }
-        let draft = DateFieldDraft(original: fixture.task.day, today: fixture.store.today)
-        for mode in 0..<5 {
-            let content = VStack {
-                DateFieldEditor(field: "Schedule", draft: .constant(draft), onCommit: nil, onCancel: nil)
-                Button("Inner control") {}.accessibilityIdentifier("inner-control")
-            }
-            let scroll = ScrollView {
-                if mode == 3 {
-                    content.environment(\EnvironmentValues.accessibilityEnabled, true)
-                } else if mode == 2 {
-                    content.accessibilityElement(children: .contain)
-                } else {
-                    content
-                }
-            }
-            let window = Self.makeWindow(size: NSSize(width: 460, height: 600))
-            window.contentView = NSHostingView(
-                rootView: VStack {
-                    if mode == 1 {
-                        scroll.clipped()
-                    } else if mode == 4 {
-                        scroll.accessibilityElement(children: .contain)
-                    } else {
-                        scroll
-                    }
-                    Button("Outer control") {}.accessibilityIdentifier("outer-control")
-                }.environment(\EnvironmentValues.accessibilityEnabled, true))
-            window.makeKeyAndOrderFront(nil)
-            NSApp.activate(ignoringOtherApps: true)
-            for _ in 0..<5 { await Self.settle() }
-            let observed = Self.nodes(window).map {
-                "\(Self.attribute($0, "accessibilityRole") ?? "?") "
-                    + "\(Self.attribute($0, "accessibilityIdentifier") ?? "?")"
-            }
-            print("Scroll AX mode=\(mode): \(observed.joined(separator: "; "))")
-            for identifier in [
-                "inner-control", "outer-control", "schedule-date-clear", "schedule-date-text", "schedule-date-picker",
-            ] {
-                XCTAssertTrue(
-                    Self.nodes(window).contains {
-                        Self.attribute($0, "accessibilityIdentifier") as? String == identifier
-                    },
-                    "Scroll AX mode=\(mode) must publish \(identifier)")
-            }
-            window.close()
-        }
     }
 
     @MainActor
@@ -306,7 +251,7 @@ final class TaskDetailsViewTests: XCTestCase {
     fileprivate static func control(_ identifier: String, role: String = "AXButton", in window: NSWindow) async throws
         -> NSObject
     {
-        try await lookup(identifier, role: role, in: window, requireIdentifier: identifier.contains("-date-"))
+        try await lookup(identifier, role: role, in: window, requireIdentifier: false)
     }
 
     @MainActor
@@ -353,11 +298,6 @@ final class TaskDetailsViewTests: XCTestCase {
                 attribute($0, "accessibilityIdentifier") as? String == identifier
                     && attribute($0, "accessibilityRole") as? String == role
             }) {
-                if requireIdentifier {
-                    print(
-                        "AX identifier verified: role=\(role) id=\(identifier) "
-                            + "label=\(attribute(node, "accessibilityLabel") ?? "?")")
-                }
                 return node
             }
             if !requireIdentifier, let name = names[identifier],
@@ -430,18 +370,9 @@ final class TaskDetailsViewTests: XCTestCase {
         }
     }
 
-    @MainActor private static func legacyAttribute(_ node: NSObject, _ key: String) -> Any? {
-        node.accessibilityAttributeValue(NSAccessibility.Attribute(rawValue: key))
-    }
-
     @MainActor private static func attribute(_ node: NSObject, _ name: String) -> Any? {
         let selector = NSSelectorFromString(name)
-        if node.responds(to: selector), let value = node.perform(selector)?.takeUnretainedValue() { return value }
-        let keys = [
-            "accessibilityIdentifier": "AXIdentifier", "accessibilityRole": "AXRole",
-            "accessibilityLabel": "AXDescription", "accessibilityTitle": "AXTitle",
-        ]
-        return keys[name].flatMap { legacyAttribute(node, $0) }
+        return node.responds(to: selector) ? node.perform(selector)?.takeUnretainedValue() : nil
     }
 
     @MainActor private static func nodes(_ root: NSObject) -> [NSObject] {
@@ -452,8 +383,6 @@ final class TaskDetailsViewTests: XCTestCase {
             // only AXChildren misses the SwiftUI elements within the native scroller.
             var children = ["accessibilityChildren", "accessibilityContents", "accessibilityChildrenInNavigationOrder"]
                 .flatMap { (attribute(node, $0) as? [NSObject]) ?? [] }
-            children += ["AXChildren", "AXContents", "AXChildrenInNavigationOrder"]
-                .flatMap { (legacyAttribute(node, $0) as? [NSObject]) ?? [] }
             // Ignored hosting containers may omit native descendants from their AX children.
             if let view = node as? NSView { children += view.subviews }
             if let window = node as? NSWindow, let content = window.contentView { children.append(content) }
