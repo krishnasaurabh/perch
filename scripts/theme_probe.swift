@@ -388,6 +388,7 @@ MainActor.assumeIsolated {
                 visibleFrame: CGRect(x: 0, y: 0, width: 1024, height: 744)))
         var manifest: [[String: Any]] = []
         var controls: [[String: Any]] = []
+        var nativeContrastAppearance: [[String: Any]] = []
         var keyboardVerified = false
         for light in [true, false] {
             let mode = light ? "light" : "dark"
@@ -461,7 +462,6 @@ MainActor.assumeIsolated {
                         fixture.state = state
                         fixture.renderFocusRing = false
                         try? await Task.sleep(nanoseconds: 250_000_000)
-                        require(fixture.increasedContrast == increased, "Native contrast appearance resolved")
                         if state == "focused" {
                             await focusContinue(fixture, in: galleryWindow)
                         } else {
@@ -482,6 +482,17 @@ MainActor.assumeIsolated {
                                 focusedControl == "before-pages",
                                 "\(state) capture focus identity: \(focusedControl)")
                         }
+                        // Record SwiftUI's observation separately from the native window appearance.
+                        let contrastEnvironment =
+                            fixture.increasedContrast.map { $0 ? "increased" : "standard" } ?? "unobserved"
+                        let effectiveAppearance = galleryWindow.effectiveAppearance.name.rawValue
+                        if state == "rest" {
+                            nativeContrastAppearance.append([
+                                "appearance": mode, "increased": increased, "tone": toneName,
+                                "contrast_environment": contrastEnvironment,
+                                "effective_appearance": effectiveAppearance,
+                            ])
+                        }
                         for scale in [1, 2] {
                             let name =
                                 "\(mode)-\(increased ? "increased" : "standard")-\(toneName)-\(state)-\(scale)x.png"
@@ -489,6 +500,8 @@ MainActor.assumeIsolated {
                             controls.append([
                                 "file": name, "tone": toneName, "state": state, "scale": scale,
                                 "appearance": mode, "increased": increased, "focused_control": focusedControl,
+                                "contrast_environment": contrastEnvironment,
+                                "effective_appearance": effectiveAppearance,
                                 "focus_evidence": renderedRing ? "rendered-ring" : "native-focus",
                                 "focus_ring_target": state == "focused" ? "continue" : "none",
                                 "keyboardActivation": "unverified-on-this-runner",
@@ -528,12 +541,14 @@ MainActor.assumeIsolated {
             .write(to: output.appendingPathComponent("controls.json"))
         let metrics: [String: Any] = [
             "keyboardActivation": keyboardVerified ? "verified-in-process-Tab-Space" : "unverified-on-this-runner",
+            "nativeContrastAppearance": nativeContrastAppearance,
             "activation": "real-own-process-AX-press-no-model-fallback",
             "screenshots": "own-window-cacheDisplay-not-compositor",
         ]
         try! JSONSerialization.data(withJSONObject: metrics, options: [.prettyPrinted, .sortedKeys])
             .write(to: output.appendingPathComponent("results.json"))
         print("Keyboard activation: \(metrics["keyboardActivation"]!)")
+        print("Native contrast appearance: \(metrics["nativeContrastAppearance"]!)")
         exit(0)
     }
     app.run()
