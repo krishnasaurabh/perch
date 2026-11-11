@@ -52,6 +52,33 @@ class ControlPixelTests(unittest.TestCase):
                     with self.assertRaisesRegex(AssertionError, 'focus identity'):
                         theme_contrast.control_pixels(directory)
 
+    def test_explicit_rendered_ring_does_not_claim_keyboard_focus(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            directory = Path(tmp)
+            rows = self.fixture(directory)
+            row = next(row for row in rows if row['state'] == 'focused')
+            row.update(focused_control='after-pages', focus_evidence='rendered-ring',
+                       focus_ring_target='continue', keyboardActivation='unverified-on-this-runner')
+            (directory / 'controls.json').write_text(json.dumps(rows))
+            self.assertEqual(len(theme_contrast.control_pixels(directory)), 72)
+            for field, invalid in [('focus_ring_target', 'segment-Today'),
+                                   ('keyboardActivation', 'verified-in-process-Tab-Space'),
+                                   ('focused_control', '')]:
+                with self.subTest(field=field):
+                    original = row[field]
+                    row[field] = invalid
+                    (directory / 'controls.json').write_text(json.dumps(rows))
+                    with self.assertRaises(AssertionError):
+                        theme_contrast.control_pixels(directory)
+                    row[field] = original
+            (directory / 'controls.json').write_text(json.dumps(rows))
+            target = directory / row['file']
+            image = Image.open(target)
+            ImageDraw.Draw(image).rectangle((36, 96, 144, 99), fill='#879E8D')
+            image.save(target)
+            with self.assertRaisesRegex(AssertionError, 'focus ring missing'):
+                theme_contrast.control_pixels(directory)
+
     def test_complete_matrix_and_negative_controls(self):
         with tempfile.TemporaryDirectory() as tmp:
             directory = Path(tmp)

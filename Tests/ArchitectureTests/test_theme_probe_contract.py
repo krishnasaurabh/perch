@@ -20,6 +20,22 @@ class ThemeProbeContractTests(unittest.TestCase):
         self.assertNotIn('var continueFocused', source)
         self.assertIn('focus-diagnostic', source)
 
+    def test_gallery_separates_rendered_ring_from_keyboard_verification(self):
+        source = (ROOT / 'scripts/theme_probe.swift').read_text()
+        self.assertIn('ControlFocusRing(shape: Capsule(), focused: true)', source)
+        self.assertIn('"focus_evidence"', source)
+        self.assertIn('"rendered-ring"', source)
+        self.assertIn('"keyboardActivation"', source)
+        self.assertIn('"unverified-on-this-runner"', source)
+        self.assertIn('"verified-in-process-Tab-Space"', source)
+        self.assertIn('accessibilityPerformPress', source)
+        self.assertIn('"AXButton"', source)
+        self.assertIn('"Continue"', source)
+        self.assertIn('"AX press invokes Continue exactly once"', source)
+        self.assertNotIn('Continue owns focus before keyboard activation', source)
+        self.assertNotIn('Space activates the focused button exactly once', source)
+        self.assertNotIn('Tab focuses the native field after the page-picker group', source)
+
     def test_chart_samples_tokens_and_compositor(self):
         source = (ROOT / 'scripts/empty_states_probe.swift').read_text()
         self.assertIn('ThemeTokens.chartPlanned', source)

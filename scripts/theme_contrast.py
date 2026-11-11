@@ -181,7 +181,14 @@ def control_pixels(directory):
     results = []
     for row in manifest:
         expected_focus = 'continue' if row['state'] == 'focused' else 'before-pages'
-        assert row.get('focused_control') == expected_focus, (row['file'], 'focus identity', row.get('focused_control'))
+        if row.get('focus_evidence') == 'rendered-ring':
+            # A rendered production ring proves its pixels, not native keyboard focus.
+            assert row['state'] == 'focused' and row.get('focus_ring_target') == 'continue', (row['file'], 'ring target')
+            assert row.get('focused_control'), (row['file'], 'missing observed focus identity')
+            assert row.get('keyboardActivation') == 'unverified-on-this-runner', (row['file'], 'keyboard claim')
+        else:
+            assert row.get('focus_evidence', 'native-focus') == 'native-focus', (row['file'], 'focus evidence')
+            assert row.get('focused_control') == expected_focus, (row['file'], 'focus identity', row.get('focused_control'))
         image = Image.open(directory / row['file']).convert('RGB')
         scale = row['scale']
         assert image.size == (528 * scale, 318 * scale), (row['file'], image.size)
