@@ -121,7 +121,8 @@ func checkInjected(_ store: PlannerStore, _ delegate: AppDelegate, _ clock: Prob
     var opened: [NotchPage] = []
     let observer = NotificationCenter.default.addObserver(forName: .perchOpenWorkspace, object: nil, queue: .main) {
         notification in
-        MainActor.assumeIsolated { if let page = notification.object as? NotchPage { opened.append(page) } }
+        let page = notification.object as? NotchPage
+        MainActor.assumeIsolated { if let page { opened.append(page) } }
     }
     defer { NotificationCenter.default.removeObserver(observer) }
     let beforeOpen = try files(under: directory)
