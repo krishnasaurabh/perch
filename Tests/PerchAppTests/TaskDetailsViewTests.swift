@@ -78,6 +78,8 @@ final class TaskDetailsViewTests: XCTestCase {
         XCTAssertTrue(window.firstResponder === editor, "The title field holds focus when details open")
         _ = try await Self.identifierControl("details-save", in: window)
         _ = try await Self.identifierControl("details-cancel", in: window)
+        _ = try await Self.identifierControl("schedule-date-clear", in: window)
+        _ = try await Self.identifierControl("deadline-date-add", in: window)
         XCTAssertNotNil(fixture.store.send(.delete(fixture.task.id)))
         _ = try await Self.identifierControl("details-close", in: window)
     }
@@ -150,6 +152,72 @@ final class TaskDetailsViewTests: XCTestCase {
     }
 
     @MainActor
+    func testPickerCancelDiscardsScheduleAndDeadlineChanges() async throws {
+        let fixture = try DetailsFixture()
+        defer { fixture.close() }
+        let before = try fixture.snapshot()
+        let sheet = try await fixture.present()
+        try Self.press(try await Self.control("schedule-date-clear", in: sheet))
+        try Self.press(try await Self.control("deadline-date-add", in: sheet))
+        XCTAssertEqual(try fixture.file.load().tasks[0], fixture.task)
+        try Self.press(try await Self.control("details-cancel", in: sheet))
+        try await fixture.assertDismissed()
+        XCTAssertEqual(try fixture.snapshot(), before)
+    }
+
+    @MainActor
+    func testPickerSaveCommitsScheduleAndDeadlineTogether() async throws {
+        let fixture = try DetailsFixture()
+        defer { fixture.close() }
+        let sheet = try await fixture.present()
+        try Self.press(try await Self.control("schedule-date-clear", in: sheet))
+        try Self.press(try await Self.control("deadline-date-add", in: sheet))
+        XCTAssertEqual(try fixture.file.load().tasks[0], fixture.task)
+        try Self.press(try await Self.control("details-save", in: sheet))
+        try await fixture.assertDismissed()
+        let saved = try fixture.file.load().tasks[0]
+        XCTAssertNil(saved.day)
+        XCTAssertEqual(saved.deadline, fixture.task.day)
+        XCTAssertEqual(saved.title, fixture.task.title)
+        fixture.store.undo()
+        XCTAssertEqual(try fixture.file.load().tasks[0], fixture.task)
+    }
+
+    @MainActor
+    func testInvalidTypedDateDisablesSaveUntilCorrected() async throws {
+        let fixture = try DetailsFixture()
+        defer { fixture.close() }
+        let before = try fixture.snapshot()
+        let sheet = try await fixture.present()
+        // Deadline has no date yet, so the schedule is the sole typed-date field.
+        let fieldNode = try await Self.control("schedule-date-text", role: "AXTextField", in: sheet)
+        let field = try XCTUnwrap(fieldNode as? NSTextField)
+        XCTAssertTrue(field.isEditable)
+        XCTAssertTrue(sheet.makeFirstResponder(field))
+        let editor = try XCTUnwrap(field.currentEditor() as? NSTextView)
+        XCTAssertTrue(sheet.firstResponder === editor)
+        editor.insertText("2028-02-30", replacementRange: NSRange(location: 0, length: editor.string.utf16.count))
+        XCTAssertTrue(sheet.makeFirstResponder(nil))
+        await Self.settle()
+        let disabledSave = try await Self.control("details-save", in: sheet)
+        XCTAssertFalse(try Self.isEnabled(disabledSave))
+        XCTAssertTrue(fixture.presentation.isPresented)
+        XCTAssertEqual(try fixture.snapshot(), before)
+        XCTAssertTrue(sheet.makeFirstResponder(field))
+        let correction = try XCTUnwrap(field.currentEditor() as? NSTextView)
+        let nextDay = try XCTUnwrap(fixture.task.day).adding(days: 1, calendar: fixture.store.engine.calendar)
+        correction.insertText(
+            nextDay.raw, replacementRange: NSRange(location: 0, length: correction.string.utf16.count))
+        XCTAssertTrue(sheet.makeFirstResponder(nil))
+        await Self.settle()
+        let enabledSave = try await Self.control("details-save", in: sheet)
+        XCTAssertTrue(try Self.isEnabled(enabledSave))
+        try Self.press(enabledSave)
+        try await fixture.assertDismissed()
+        XCTAssertEqual(try fixture.file.load().tasks[0].day, nextDay)
+    }
+
+    @MainActor
     private static func editTitle(_ title: String, in window: NSWindow) async throws {
         let node = try await control("details-title", role: "AXTextField", in: window)
         let field = try XCTUnwrap(node as? NSTextField)
@@ -201,6 +269,8 @@ final class TaskDetailsViewTests: XCTestCase {
     {
         let names = [
             "details-title": "Task title", "details-save": "Save", "details-cancel": "Cancel", "details-close": "Close",
+            "schedule-date-clear": "Clear schedule", "deadline-date-add": "Add deadline",
+            "schedule-date-text": "YYYY-MM-DD",
         ]
         for _ in 0..<20 {
             window.contentView?.layoutSubtreeIfNeeded()
@@ -256,6 +326,14 @@ final class TaskDetailsViewTests: XCTestCase {
         }.joined(separator: "\n")
         XCTFail("Missing \(identifier) (\(role), identifier required: \(requireIdentifier)); observed:\n\(observed)")
         throw DetailsTestError.missingControl
+    }
+
+    @MainActor private static func isEnabled(_ node: NSObject) throws -> Bool {
+        if let button = node as? NSButton { return button.isEnabled }
+        let selector = NSSelectorFromString("isAccessibilityEnabled")
+        let implementation = try XCTUnwrap(node.responds(to: selector) ? node.method(for: selector) : nil)
+        typealias Getter = @convention(c) (AnyObject, Selector) -> Bool
+        return unsafeBitCast(implementation, to: Getter.self)(node, selector)
     }
 
     @MainActor private static func press(_ node: NSObject) throws {

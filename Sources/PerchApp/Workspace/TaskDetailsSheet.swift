@@ -10,7 +10,7 @@ struct TaskDetailsSheet: View {
 
     var body: some View {
         if let task = store.planner.tasks.first(where: { $0.id == taskID }) {
-            TaskDetailsEditor(task: task).id(taskID)
+            TaskDetailsEditor(task: task, today: store.today, calendar: store.engine.calendar).id(taskID)
         } else {
             VStack(spacing: Theme.cardPadding) {
                 ContentUnavailableView(
@@ -29,18 +29,22 @@ struct TaskDetailsSheet: View {
 private struct TaskDetailsEditor: View {
     @EnvironmentObject private var store: PlannerStore
     @Environment(\.dismiss) private var dismiss
-    @State private var draft: TaskDetailsDraft
+    @State private var editor: TaskDetailsPickerDraft
     @State private var newStep = ""
     @State private var saveError: String?
     @State private var confirmDelete = false
     @FocusState private var focusedField: Field?
     private enum Field: Hashable { case title, notes, newStep }
 
-    init(task: PlanTask) { _draft = State(initialValue: TaskDetailsDraft(task: task)) }
+    @FocusState private var repeatFocus: RepeatPickerFields.Focus?
 
-    private var readOnly: Bool { draft.original.day.map { $0 < store.today } ?? false }
+    init(task: PlanTask, today: DayKey, calendar: Calendar) {
+        _editor = State(initialValue: TaskDetailsPickerDraft(task: task, today: today, calendar: calendar))
+    }
+
+    private var readOnly: Bool { editor.details.original.day.map { $0 < store.today } ?? false }
     private var errors: [TaskDetailsField: String] {
-        draft.errors(today: store.today, now: store.engine.now(), projects: store.planner.projects)
+        editor.errors(today: store.today, now: store.engine.now(), projects: store.planner.projects)
     }
     private var calendar: Calendar { store.engine.calendar }
 
@@ -53,11 +57,13 @@ private struct TaskDetailsEditor: View {
         }
         .font(Theme.body).foregroundStyle(Theme.text)
         .frame(minWidth: 280, idealWidth: 460, maxWidth: 600, minHeight: 220, idealHeight: 600, maxHeight: 760)
+        .environment(\.calendar, calendar)
         .onAppear { if !readOnly { focusedField = .title } }
     }
 
     private var form: some View {
-        ScrollView {
+        let draft = editor.details
+        return ScrollView {
             VStack(alignment: .leading, spacing: Theme.cardPadding) {
                 if readOnly {
                     Label(
@@ -67,7 +73,7 @@ private struct TaskDetailsEditor: View {
                     Text(draft.title).font(Theme.heading).textSelection(.enabled)
                 } else {
                     field("Title", error: errors[.title]) {
-                        TextField("Task title", text: $draft.title)
+                        TextField("Task title", text: $editor.details.title)
                             .textFieldStyle(.roundedBorder).focused($focusedField, equals: .title)
                             .accessibilityIdentifier("details-title")
                             .onSubmit { focusedField = nil }
@@ -78,40 +84,37 @@ private struct TaskDetailsEditor: View {
                     reminder
                     deadline
                     field("Priority") {
-                        Picker("Priority", selection: $draft.priority) {
+                        Picker("Priority", selection: $editor.details.priority) {
                             ForEach(TaskPriority.allCases.reversed(), id: \.self) { priority in
                                 Text(priority == .none ? "None" : priority.rawValue.capitalized).tag(priority)
                             }
                         }.labelsHidden().pickerStyle(.menu)
                     }
                     field("Project", error: errors[.project]) {
-                        Picker("Project", selection: $draft.projectID) {
+                        Picker("Project", selection: $editor.details.projectID) {
                             Text("None").tag(UUID?.none)
                             ForEach(store.planner.projects) { project in
                                 Text(project.name).tag(Optional(project.id))
                             }
-                            if let missing = draft.projectID,
+                            if let missing = editor.details.projectID,
                                 !store.planner.projects.contains(where: { $0.id == missing })
                             {
                                 Text("Unavailable project").tag(Optional(missing))
                             }
                         }.labelsHidden()
                     }
-                    field("Repeat", error: errors[.recurrence]) {
-                        TaskRecurrencePicker(draft: $draft.recurrence)
-                        if !draft.scheduled {
-                            Text("Choose a day before adding a repeat.").font(Theme.meta).foregroundStyle(
-                                Theme.secondary)
-                        }
+                    field("Repeat") {
+                        RepeatPickerFields(draft: $editor.repeatRule, focus: $repeatFocus)
                     }
                     field("Time limit", error: errors[.minutes]) {
-                        Stepper(value: $draft.minutes, in: 0...720, step: 5) {
-                            Text(draft.minutes == 0 ? "None" : "\(draft.minutes) min").monospacedDigit()
-                        }.disabled(draft.original.done)
+                        Stepper(value: $editor.details.minutes, in: 0...720, step: 5) {
+                            Text(editor.details.minutes == 0 ? "None" : "\(editor.details.minutes) min")
+                                .monospacedDigit()
+                        }.disabled(editor.details.original.done)
                     }
                     steps
                     field("Notes") {
-                        TextEditor(text: $draft.notes)
+                        TextEditor(text: $editor.details.notes)
                             .font(Theme.body).frame(minHeight: 90)
                             .focused($focusedField, equals: .notes)
                             .scrollContentBackground(.hidden).padding(6)
@@ -125,7 +128,8 @@ private struct TaskDetailsEditor: View {
                             .accessibilityLabel("Notes")
                     }
                 }.disabled(readOnly)
-                if let seconds = store.planner.tasks.first(where: { $0.id == draft.original.id })?.focusedSeconds,
+                if let seconds = store.planner.tasks.first(where: { $0.id == editor.details.original.id })?
+                    .focusedSeconds,
                     seconds > 0
                 {
                     Text("Focused \(TimerText.short(seconds))").font(Theme.meta).foregroundStyle(Theme.secondary)
@@ -152,7 +156,7 @@ private struct TaskDetailsEditor: View {
 
     private var footer: some View {
         HStack(spacing: Theme.gutter) {
-            Text(readOnly ? "History" : (draft.hasChanges ? "Unsaved changes" : "Task details"))
+            Text(readOnly ? "History" : (editor.hasChanges ? "Unsaved changes" : "Task details"))
                 .font(Theme.meta).foregroundStyle(Theme.secondary).lineLimit(1)
             Spacer(minLength: Theme.gutter)
             Button("Cancel") { dismiss() }
@@ -170,32 +174,14 @@ private struct TaskDetailsEditor: View {
     }
 
     private var schedule: some View {
-        field("Scheduled day", error: errors[.day]) {
-            Picker(
-                "Scheduled day",
-                selection: Binding(
-                    get: { draft.scheduled },
-                    set: { scheduled in
-                        if scheduled { selectDay(store.today) } else { draft.moveToInbox() }
-                    })
-            ) {
-                Text("Inbox").tag(false)
-                Text("Choose date").tag(true)
-            }.labelsHidden().pickerStyle(.segmented).disabled(draft.original.done)
-            if draft.scheduled {
-                DatePicker(
-                    "Day",
-                    selection: Binding(
-                        get: { (draft.day ?? store.today).date(calendar: calendar) },
-                        set: { selectDay(DayKey($0, calendar: calendar)) }),
-                    in: store.today.date(calendar: calendar)..., displayedComponents: .date
-                )
-                .datePickerStyle(.field).disabled(draft.original.done)
-                HStack {
-                    Button("Today") { selectDay(store.today) }
-                    Button("Tomorrow") { selectDay(store.today.adding(days: 1, calendar: calendar)) }
-                }.buttonStyle(PillStyle()).disabled(draft.original.done)
-            } else {
+        field("Scheduled day") {
+            DateFieldEditor(
+                field: "Schedule",
+                draft: Binding(get: { editor.scheduledDate }, set: { selectDate($0) }),
+                onCommit: nil, onCancel: nil
+            )
+            .disabled(editor.details.original.done)
+            if editor.scheduledDate.entry == .none {
                 Text("No scheduled day. Moving to Inbox also clears the reminder and stops repeating.")
                     .font(Theme.meta).foregroundStyle(Theme.secondary)
             }
@@ -207,30 +193,29 @@ private struct TaskDetailsEditor: View {
             Toggle(
                 "Set a reminder",
                 isOn: Binding(
-                    get: { draft.hasReminder },
+                    get: { editor.details.hasReminder },
                     set: { value in
-                        draft.hasReminder = value
                         if value {
                             let soon = store.engine.now().addingTimeInterval(3600)
                             let morning =
-                                (try? store.engine.parseReminder("9:00 am", on: draft.day ?? store.today)) ?? soon
-                            draft.remindAt = max(soon, morning)
-                            draft.day = store.dayKey(draft.remindAt!)
+                                (try? store.engine.parseReminder("9:00 am", on: editor.details.day ?? store.today))
+                                ?? soon
+                            editor.setReminder(max(soon, morning), using: store.engine)
                         } else {
-                            draft.remindAt = nil
+                            editor.setReminder(nil, using: store.engine)
                         }
                     })
-            ).disabled(!draft.scheduled || draft.original.done)
-            if draft.hasReminder {
+            ).disabled(!editor.details.scheduled || editor.details.original.done)
+            if editor.details.hasReminder {
                 DatePicker(
                     "Remind at",
                     selection: Binding(
-                        get: { draft.remindAt ?? store.engine.now().addingTimeInterval(3600) },
+                        get: { editor.details.remindAt ?? store.engine.now().addingTimeInterval(3600) },
                         set: {
-                            draft.remindAt = $0; draft.day = store.dayKey($0)
+                            editor.setReminder($0, using: store.engine)
                         }), displayedComponents: [.date, .hourAndMinute]
                 )
-                .datePickerStyle(.field).disabled(draft.original.done)
+                .datePickerStyle(.field).disabled(editor.details.original.done)
                 Text("Reminders use your planner’s day-reset hour. Moving the day keeps the reminder’s local time.")
                     .font(Theme.meta).foregroundStyle(Theme.secondary)
             } else {
@@ -240,37 +225,19 @@ private struct TaskDetailsEditor: View {
     }
 
     private var deadline: some View {
-        field("Deadline", error: errors[.deadline]) {
-            Toggle(
-                "Set a deadline",
-                isOn: Binding(
-                    get: { draft.hasDeadline },
-                    set: { value in
-                        draft.hasDeadline = value
-                        draft.deadline = value ? (draft.day ?? store.today) : nil
-                    }))
-            if draft.hasDeadline {
-                DatePicker(
-                    "Due",
-                    selection: Binding(
-                        get: { (draft.deadline ?? store.today).date(calendar: calendar) },
-                        set: { draft.deadline = DayKey($0, calendar: calendar) }), displayedComponents: .date
-                )
-                .datePickerStyle(.field)
-            } else {
-                Text("None").font(Theme.meta).foregroundStyle(Theme.secondary)
-            }
+        field("Deadline") {
+            DateFieldEditor(field: "Deadline", draft: $editor.deadline, onCommit: nil, onCancel: nil)
         }
     }
 
     private var steps: some View {
         field("Steps", error: errors[.steps]) {
-            ForEach($draft.steps) { $step in
+            ForEach($editor.details.steps) { $step in
                 HStack {
                     Toggle(step.title, isOn: $step.done)
                     Spacer(minLength: Theme.gutter)
                     Button {
-                        draft.steps.removeAll { $0.id == step.id }
+                        editor.details.steps.removeAll { $0.id == step.id }
                     } label: {
                         Image(systemName: "minus.circle")
                     }.buttonStyle(PillStyle()).accessibilityLabel("Remove step \(step.title)")
@@ -298,22 +265,25 @@ private struct TaskDetailsEditor: View {
         }.frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    private func selectDay(_ day: DayKey) {
-        do { try draft.selectDay(day, using: store.engine) } catch { saveError = error.localizedDescription }
+    private func selectDate(_ value: DateFieldDraft) {
+        do {
+            try editor.setScheduledDate(value, using: store.engine)
+            saveError = nil
+        } catch { saveError = error.localizedDescription }
     }
 
     private func addStep() {
         let title = newStep.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !title.isEmpty else { return }
-        draft.steps.append(Subtask(title: title)); newStep = ""
+        editor.details.steps.append(Subtask(title: title)); newStep = ""
     }
 
     private func save() {
         guard !readOnly, errors.isEmpty else { return }
         // Include a typed but not yet submitted step in the same transaction.
         if !newStep.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { addStep() }
-        guard draft.hasChanges else { dismiss(); return }
-        if store.apply({ try draft.apply(using: $0) }) != nil {
+        guard editor.hasChanges else { dismiss(); return }
+        if store.apply({ try editor.apply(using: $0) }) != nil {
             dismiss()
         } else {
             saveError = store.lastError?.localizedDescription ?? "Could not save. Your edits are still here; try again."
@@ -322,72 +292,10 @@ private struct TaskDetailsEditor: View {
 
     private func deleteTask() {
         guard !readOnly else { return }
-        if store.send(.delete(draft.original.id)) != nil {
+        if store.send(.delete(editor.details.original.id)) != nil {
             dismiss()
         } else {
             saveError = store.lastError?.localizedDescription ?? "Could not delete this task."
-        }
-    }
-}
-
-private struct TaskRecurrencePicker: View {
-    @Binding var draft: TaskRecurrenceDraft
-
-    private var usesWeekdays: Bool { draft.frequency == .weekly || (draft.frequency == .custom && draft.unit == .week) }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: Theme.gutter) {
-            Picker("Repeat frequency", selection: $draft.frequency) {
-                ForEach(TaskRecurrenceDraft.Frequency.allCases, id: \.self) { frequency in
-                    Text(frequency.rawValue).tag(frequency)
-                }
-            }.labelsHidden().accessibilityIdentifier("details-repeat")
-            if draft.frequency == .custom {
-                HStack {
-                    Text("Every")
-                    TextField("Interval", text: $draft.interval).textFieldStyle(.roundedBorder).frame(width: 58)
-                        .accessibilityLabel("Repeat interval")
-                    Picker("Unit", selection: $draft.unit) {
-                        Text("days").tag(TaskRepeat.Unit.day)
-                        Text("weeks").tag(TaskRepeat.Unit.week)
-                        Text("months").tag(TaskRepeat.Unit.month)
-                    }.labelsHidden()
-                }
-            }
-            if usesWeekdays {
-                Toggle("On specific weekdays", isOn: $draft.selectWeekdays)
-                if draft.selectWeekdays {
-                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 56))], alignment: .leading) {
-                        ForEach(1...7, id: \.self) { weekday in
-                            Toggle(
-                                Calendar.current.shortWeekdaySymbols[weekday - 1],
-                                isOn: Binding(
-                                    get: { draft.weekdays.contains(weekday) },
-                                    set: { selected in
-                                        if selected {
-                                            draft.weekdays.insert(weekday)
-                                        } else {
-                                            draft.weekdays.remove(weekday)
-                                        }
-                                    })
-                            )
-                            .toggleStyle(.button)
-                            .accessibilityLabel(Calendar.current.weekdaySymbols[weekday - 1])
-                        }
-                    }
-                }
-            }
-            if draft.frequency != .none {
-                Toggle("Count from completion", isOn: $draft.fromCompletion)
-                Text(
-                    draft.fromCompletion
-                        ? "The next copy is based on the day you finish." : "The next copy is based on the planned day."
-                )
-                .font(Theme.meta).foregroundStyle(Theme.secondary)
-            } else {
-                Text("No new copies. Existing planned copies stay in place.").font(Theme.meta).foregroundStyle(
-                    Theme.secondary)
-            }
         }
     }
 }

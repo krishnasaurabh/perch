@@ -141,7 +141,7 @@ public struct TaskDetailsDraft: Equatable, Sendable {
         }
         if hasDeadline && deadline == nil { errors[.deadline] = "Choose a deadline, or select None." }
         do {
-            if try recurrence.rule() != nil && !scheduled {
+            if try resolvedRepeatRule() != nil && !scheduled {
                 errors[.recurrence] = "Schedule this task before adding a repeat."
             }
         } catch { errors[.recurrence] = error.localizedDescription }
@@ -182,16 +182,28 @@ public struct TaskDetailsDraft: Equatable, Sendable {
         {
             throw PlannerError(error)
         }
-        let rule = try recurrence.rule()
+        for action in try actions() { try commands.execute(action) }
+    }
+
+    private func resolvedRepeatRule() throws -> TaskRepeat? {
+        // Existing schedules may predate the editor's limits. Unrelated edits keep them verbatim.
+        if recurrence == TaskRecurrenceDraft(original.repeatRule) { return original.repeatRule }
+        return try recurrence.rule()
+    }
+
+    /// Ordered typed edits for the details transaction; runtime accounting is never copied into them.
+    func actions() throws -> [PlannerAction] {
+        var actions: [PlannerAction] = []
+        let rule = try resolvedRepeatRule()
         // End the old series before moving into Inbox, where the move also clears its local rule.
-        if rule == nil && original.repeatRule != nil { try commands.execute(.endRepeat(original.id)) }
+        if rule == nil && original.repeatRule != nil { actions.append(.endRepeat(original.id)) }
         let destination = scheduled ? day : nil
         if destination != original.day {
-            try commands.execute(.move(original.id, destination.map(DayRef.day) ?? .inbox))
+            actions.append(.move(original.id, destination.map(DayRef.day) ?? .inbox))
         }
         if let rule, rule != original.repeatRule {
             var edit = TaskEdit(); edit.repeatRule = rule.description
-            try commands.execute(.update(original.id, edit))
+            actions.append(.update(original.id, edit))
         }
         var changes = TaskChanges()
         if title != original.title { changes.title = .set(title) }
@@ -205,7 +217,8 @@ public struct TaskDetailsDraft: Equatable, Sendable {
         }
         let deadline = hasDeadline ? deadline : nil
         if deadline != original.deadline { changes.deadline = .set(deadline) }
-        try commands.execute(.editTask(original.id, changes))
+        actions.append(.editTask(original.id, changes))
+        return actions
     }
 }
 
