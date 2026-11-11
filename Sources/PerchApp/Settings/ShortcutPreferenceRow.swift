@@ -17,23 +17,23 @@ struct ShortcutPreferenceRow: View {
                     if recording {
                         ShortcutRecorder(onRecord: choose, onCancel: { recording = false })
                             .frame(width: 104, height: 24)
-                        Text("Press the keys you want. Esc cancels.").font(.caption).foregroundStyle(.secondary)
+                        Text("Press the keys you want. Esc cancels.").font(Theme.meta).foregroundStyle(Theme.secondary)
                     } else {
                         Button {
                             problem = nil; recording = true
                         } label: {
                             Text(shortcut.display)
-                                .font(.system(size: 13, weight: .semibold, design: .rounded))
+                                .font(Theme.title)
                                 .frame(minWidth: 64)
                         }
                         .help("Click, then press the keys you want to use")
                         if shortcut != .default {
-                            Button("Use ⌥N") { choose(.default) }.buttonStyle(.link)
+                            Button("Use ⌥N") { choose(.default) }.buttonStyle(PillStyle())
                         }
                     }
                 }
                 if let problem {
-                    Text(problem).font(.caption).foregroundStyle(.orange)
+                    Text(problem).font(Theme.meta).foregroundStyle(Theme.warning)
                 }
             }
         }
