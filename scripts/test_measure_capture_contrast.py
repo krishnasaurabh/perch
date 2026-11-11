@@ -112,6 +112,26 @@ class WeekTests(unittest.TestCase):
                     self.assertEqual(measured, round(ratio(ink, (0x29,) * 3), 3))
                     self.assertEqual(measured >= 4.5, level == 0xAE)
 
+    def test_shared_control_fill_and_single_visible_day(self):
+        for scale in (1, 2):
+            for level, passes in ((0x75, False), (0xF5, True)):
+                with self.subTest(scale=scale, ink=level):
+                    # One 70pt field in a 620pt page; a taller chip above shares its fill.
+                    rows: list[list[tuple[int, ...]]] = [[SHELL] * (620 * scale) for _ in range(200 * scale)]
+                    fill = mini_fills()["control"]
+                    for top, bottom in ((10, 100), (150, 182)):
+                        for y in range(top * scale, bottom * scale):
+                            for x in range(20 * scale, 90 * scale):
+                                rows[y][x] = fill
+                    for y in range(160 * scale, 172 * scale):
+                        for x in range(25 * scale, 70 * scale):
+                            rows[y][x] = (level,) * 3
+                    r = self.measure(rows)
+                    self.assertEqual(r["scale"], scale)
+                    self.assertEqual(len(r["fields"]), 1)
+                    self.assertEqual(r["fields"][0]["field_xyxy"][1::2], [150 * scale, 182 * scale])
+                    self.assertEqual(r["fields"][0]["ratio"] >= 4.5, passes)
+
     def test_secondary_token_passes(self):
         # Theme.secondary dark (white 62 %) over the field.
         r = self.measure(week(2, (0xAE, 0xAE, 0xAE)))

@@ -1,0 +1,26 @@
+"""Week controls must use calendar boundaries and preserve visible task text."""
+from pathlib import Path
+import unittest
+
+ROOT = Path(__file__).resolve().parents[2]
+
+
+class WeekViewTests(unittest.TestCase):
+    def test_week_is_not_a_rolling_eight_column_list(self):
+        source = (ROOT / "Sources/PerchApp/Workspace/WeekPage.swift").read_text()
+        self.assertIn("WeekColumnLayout.days", source)
+        self.assertIn('Button(showInbox ? "Back to week"', source)
+        calendar = source.split('ScrollView(.horizontal)', 1)[1].split('private func label', 1)[0]
+        self.assertNotIn('column(title: "Inbox"', calendar)
+
+    def test_chips_have_real_completion_and_menu_controls(self):
+        source = (ROOT / "Sources/PerchApp/Workspace/WeekPage.swift").read_text()
+        self.assertIn("WeekTaskPolicy.completionAction", source)
+        self.assertIn(".contextMenu", source)
+        self.assertIn(".accessibilityIdentifier(\"week-check-", source)
+        self.assertNotIn(".lineLimit(2)", source)
+        self.assertIn(".fixedSize(horizontal: false, vertical: true)", source)
+
+
+if __name__ == "__main__":
+    unittest.main()

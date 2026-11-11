@@ -15,7 +15,9 @@ today = ["Outline the onboarding guide for new contributors covering setup, test
          "Fix flaky FocusSession test"]
 calls = [("add_tasks", {"titles": today}), ("complete_task", {"task": "Buy a USB-C charger"}),
          ("complete_task", {"task": "Return library books"}),
-         ("add_tasks", {"titles": ["Ship v1.1", "Standup notes"], "date": "tomorrow"})]
+         ("add_tasks", {"titles": ["Ship v1.1", "Standup notes"], "date": "tomorrow"}),
+         ("add_tasks", {"titles": ["Multiline heading\nA second line that must remain visible without squeezing the title"], "literal": True}),
+         ("add_tasks", {"titles": ["Unscheduled draft"], "date": "inbox"})]
 msgs = [{"jsonrpc": "2.0", "id": 0, "method": "initialize",
          "params": {"protocolVersion": "2025-06-18", "capabilities": {}, "clientInfo": {"name": "ci", "version": "1"}}},
         {"jsonrpc": "2.0", "method": "notifications/initialized"}]
@@ -59,12 +61,13 @@ for old, new in edits.items():
     assert week.count(old) == 1, f'Week measurement hook changed: {old}'
     week = week.replace(old, new)
 p.write_text(week)
-assert 'title(size: WeekColumnLayout.titleSize)' in week
-assert '.lineLimit(2).truncationMode(.tail)' in week
+assert '.font(Theme.body)' in week
+assert '.lineLimit(2)' not in week
 assert 'minimumScaleFactor' not in week and 'titleFit(' not in week
 PY
 cat > "$PROBE/Sources/Perch/main.swift" <<'SWIFT'
 import AppKit
+import ApplicationServices
 import SwiftUI
 import PlannerCore
 #if canImport(PerchApp)
@@ -130,16 +133,60 @@ func prefixCount(_ recognized: String, _ title: String) -> Int {
     let own = (root as? NSScrollView).map { [$0] } ?? []
     return own + root.subviews.flatMap { allScrolls($0) }
 }
+func XCTFreeUnwrap<T>(_ value: T?) throws -> T {
+    guard let value else { throw NSError(domain: "WeekProbe", code: 1) }
+    return value
+}
+func wakeAccessibility() async {
+    await Task.detached {
+        let app = AXUIElementCreateApplication(getpid())
+        var windows: CFTypeRef?
+        _ = AXUIElementCopyAttributeValue(app, kAXWindowsAttribute as CFString, &windows)
+        for window in (windows as? [AXUIElement]) ?? [] {
+            var children: CFTypeRef?
+            _ = AXUIElementCopyAttributeValue(window, kAXChildrenAttribute as CFString, &children)
+        }
+    }.value
+}
+@MainActor func attribute(_ node: NSObject, _ name: String) -> Any? {
+    let selector = NSSelectorFromString(name)
+    return node.responds(to: selector) ? node.perform(selector)?.takeUnretainedValue() : nil
+}
+@MainActor func nodes(_ root: NSObject) -> [NSObject] {
+    var seen = Set<ObjectIdentifier>()
+    @MainActor func walk(_ node: NSObject) -> [NSObject] {
+        guard seen.insert(ObjectIdentifier(node)).inserted else { return [] }
+        return [node] + ((attribute(node, "accessibilityChildren") as? [NSObject]) ?? []).flatMap { walk($0) }
+    }
+    return walk(root)
+}
+@MainActor func press(_ identifier: String, in host: NSView) {
+    guard let node = nodes(host).first(where: { attribute($0, "accessibilityIdentifier") as? String == identifier })
+    else { require(false, "Missing native control: \(identifier)"); return }
+    let selector = NSSelectorFromString("accessibilityPerformPress")
+    guard node.responds(to: selector), let implementation = node.method(for: selector) else {
+        require(false, "Control cannot press: \(identifier)"); return
+    }
+    typealias Press = @convention(c) (AnyObject, Selector) -> Bool
+    require(unsafeBitCast(implementation, to: Press.self)(node, selector), "Native press rejected")
+}
+@MainActor func contextMenu(in root: NSView) -> NSMenu? {
+    let event = NSEvent.mouseEvent(with: .rightMouseDown, location: .zero, modifierFlags: [], timestamp: 0,
+        windowNumber: root.window!.windowNumber, context: nil, eventNumber: 1, clickCount: 1, pressure: 1)!
+    if let menu = root.menu(for: event), menu.items.contains(where: { $0.title == "Details…" }) { return menu }
+    for child in root.subviews { if let menu = contextMenu(in: child) { return menu } }
+    return nil
+}
 MainActor.assumeIsolated {
     let app = NSApplication.shared
     app.setActivationPolicy(.accessory)
     let out = URL(fileURLWithPath: ProcessInfo.processInfo.environment["WEEK_OUTPUT"]!)
-    let store = PlannerStore(), model = NotchModel(motionPolicy: MotionPolicy(reduceMotion: true))
+    let store = PlannerStore(watching: false), model = NotchModel(motionPolicy: MotionPolicy(reduceMotion: true))
     let today = store.today.raw
     let tasks = store.engine.tasks(on: .day(store.today))
     require(tasks.count >= 10 && tasks.contains { $0.repeatRule != nil })
     let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 820, height: 300),
-                          styleMask: [.borderless], backing: .buffered, defer: false)
+                          styleMask: [.titled], backing: .buffered, defer: false)
     window.isReleasedWhenClosed = false
     window.appearance = NSAppearance(named: .darkAqua)
     window.backgroundColor = .black
@@ -167,7 +214,15 @@ MainActor.assumeIsolated {
                 require(normalized(addRead) == "addatask", "Unreadable Add: \(addRead)")
                 require(host.bounds.contains(addBefore), "Add is outside the page")
                 var titles: [[String: Any]] = [], scores: [Int] = []
-                for task in store.planner.tasks {
+                let listScroll = scrollParent("title:\(tasks[0].id)")
+                var seen = Set<UUID>()
+                let maximum = max(0, listScroll.documentView!.bounds.height - listScroll.contentView.bounds.height)
+                // Scan the actual scrolling viewport; short panels need not display five rows simultaneously.
+                for offset in stride(from: CGFloat(0), through: maximum + 1, by: CGFloat(40)) {
+                    listScroll.contentView.scroll(to: NSPoint(x: 0, y: min(offset, maximum)))
+                    listScroll.reflectScrolledClipView(listScroll.contentView)
+                    await settle()
+                for task in store.planner.tasks where !seen.contains(task.id) {
                     guard let marker = measurements["title:\(task.id)"], marker.window != nil else { continue }
                     let rect = frame("title:\(task.id)", in: host)
                     let list = frame("list:\(task.day?.raw ?? "inbox")", in: host)
@@ -175,10 +230,22 @@ MainActor.assumeIsolated {
                     guard host.bounds.intersection(list).contains(rect), rect.maxY <= list.maxY - 22 else { continue }
                     let read = try recognize(bitmap(host, rect: rect))
                     let chars = prefixCount(read, task.title), length = normalized(task.title).count
+                    seen.insert(task.id)
                     scores.append(chars + max(0, 12 - length))
                     titles.append(["title": task.title, "ocr": read, "visibleCharacters": chars,
                                    "required": min(12, length), "rect": [rect.minX, rect.minY, rect.width, rect.height]])
                 }
+                }
+                let multiline = try XCTFreeUnwrap(tasks.first { $0.title.contains("\n") })
+                let multilineRect = frame("title:\(multiline.id)", in: host)
+                let reference = NSHostingView(rootView: Text(multiline.title).font(Theme.body)
+                    .fixedSize(horizontal: false, vertical: true).frame(width: multilineRect.width))
+                reference.frame.size.width = multilineRect.width
+                require(reference.fittingSize.height > 40, "Multiline positive control must exceed two lines")
+                require(multilineRect.height >= reference.fittingSize.height - 1, "Multiline title clipped")
+                listScroll.contentView.scroll(to: .zero)
+                listScroll.reflectScrolledClipView(listScroll.contentView)
+                await settle()
                 scores.sort()
                 require(scores.count >= 5, "Missing title coverage: \(titles)")
                 let median = Double(scores[(scores.count - 1) / 2] + scores[scores.count / 2]) / 2
@@ -195,22 +262,43 @@ MainActor.assumeIsolated {
                 let afterRead = try recognize(bitmap(host, rect: addAfter))
                 require(normalized(afterRead) == "addatask")
                 try save(host, out.appendingPathComponent("heavy-\(width)-scrolled.png"))
-                let scrolls = allScrolls(host)
-                let diagnostic = scrolls.map { "horizontal=\($0.hasHorizontalScroller) vertical=\($0.hasVerticalScroller) document=\($0.documentView?.frame ?? .zero) clip=\($0.contentView.bounds)" }.joined(separator: "\n")
-                try diagnostic.write(to: out.appendingPathComponent("scrolls-\(width).txt"), atomically: true, encoding: .utf8)
-                guard let horizontal = scrolls.first(where: { $0.hasHorizontalScroller && !$0.hasVerticalScroller })
-                    ?? scrolls.first(where: { ($0.documentView?.frame.width ?? 0) > $0.contentView.bounds.width + 20 })
-                else { fputs("Missing horizontal Week viewport: \(diagnostic)\n", stderr); exit(1) }
-                let rightEdge = max(0, horizontal.documentView!.frame.width - horizontal.contentView.bounds.width)
-                horizontal.contentView.scroll(to: NSPoint(x: rightEdge, y: 0))
-                horizontal.reflectScrolledClipView(horizontal.contentView)
+                // The Inbox is a real button outside the seven-day scroll, never an eighth column.
+                await wakeAccessibility()
+                press("week-inbox", in: host)
                 await settle()
-                try save(host, out.appendingPathComponent("heavy-\(width)-inbox.png"))
                 let inboxFrame = frame("add:inbox", in: host)
-                require(host.bounds.insetBy(dx: -0.5, dy: -0.5).contains(inboxFrame),
-                             "Inbox unreachable: \(inboxFrame), host \(host.bounds), scroll \(horizontal.contentView.bounds)")
+                require(host.bounds.insetBy(dx: -0.5, dy: -0.5).contains(inboxFrame), "Inbox unreachable")
+                try save(host, out.appendingPathComponent("heavy-\(width)-inbox.png"))
+                press("week-inbox", in: host)
+                await settle()
+                await wakeAccessibility()
+                let checkID = "week-check-\(tasks[0].id)"
+                let wasDone = store.planner.tasks.first { $0.id == tasks[0].id }!.done
+                press(checkID, in: host)
+                await settle()
+                require(store.planner.tasks.first { $0.id == tasks[0].id }!.done != wasDone, "Check action did not publish")
+                let saved = try store.file.load()
+                require(saved.tasks.first { $0.id == tasks[0].id }!.done != wasDone, "Check action did not persist")
+                require(saved.tasks.count == store.planner.tasks.count, "Check changed task identity/count")
+                press(checkID, in: host)
+                await settle()
+                require(store.planner.tasks.first { $0.id == tasks[0].id }!.done == wasDone, "Uncheck did not persist")
+                // Invoke the real native context menu, not a substitute model mutation.
+                let menu = try XCTFreeUnwrap(contextMenu(in: host))
+                let detailsIndex = menu.items.firstIndex { $0.title == "Details…" }!
+                menu.performActionForItem(at: detailsIndex)
+                await settle()
+                require(store.planner.tasks.contains { $0.id == model.detailsTaskID }, "Native Details menu lost task identity")
+                model.detailsTaskID = nil
+                // Command-Option-I is the Week keyboard shortcut, including when a task list scrolled.
+                let event = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [.command, .option],
+                    timestamp: 0, windowNumber: window.windowNumber, context: nil, characters: "i",
+                    charactersIgnoringModifiers: "i", isARepeat: false, keyCode: 34)!
+                require(window.performKeyEquivalent(with: event), "Inbox keyboard shortcut not handled")
+                await settle()
+                require(measurements["add:inbox"]?.window != nil, "Shortcut did not reveal Inbox")
                 results.append(["width": width, "medianVisibleCharacters": median, "titles": titles,
-                                "countOCR": countRead, "addOCR": addRead, "addPinned": true, "inboxReachable": true])
+                                "countOCR": countRead, "addOCR": addRead, "addPinned": true, "inboxReachable": true, "nativeCheck": true, "nativeMenu": true, "inboxShortcut": true])
                 print("PASS Week \(width): median \(median), \(titles.count) title crops; count \(countRead); Add pinned; Inbox reachable")
             }
             try JSONSerialization.data(withJSONObject: results, options: [.prettyPrinted, .sortedKeys])
@@ -236,5 +324,5 @@ helper = source[start:end]
     'import AppKit\nimport SwiftUI\n\n' + helper)
 entry.write_text(source[:start] + source[end:])
 PY
-swift build -Xswiftc -DPERCH_TESTING -Xswiftc -enable-testing --package-path "$PROBE" -c release --product Perch
+swift build --jobs 2 -Xswiftc -DPERCH_TESTING -Xswiftc -enable-testing --package-path "$PROBE" -c release --product Perch
 PERCH_DATA="$DATA" WEEK_OUTPUT="$OUT" "$PROBE/.build/release/Perch"
