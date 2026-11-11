@@ -5,6 +5,15 @@ import PerchUI
 import QuickLookThumbnailing
 import SwiftUI
 
+protocol ScreenshotQuerying: AnyObject {
+    var predicate: NSPredicate? { get set }
+    var searchScopes: [Any] { get set }
+    func start() -> Bool
+    func stop()
+}
+
+extension NSMetadataQuery: ScreenshotQuerying {}
+
 /// Clips: new screenshots and screen recordings (and optionally anything copied) hang on a line in the notch.
 ///
 /// Screenshots arrive two ways, deduplicated by path: Spotlight (`NSMetadataQuery`, no permission needed but it can lag)
@@ -59,6 +68,9 @@ final class ClipsService: ObservableObject {
     }
 
     static let capacity = 12
+    typealias QueryFactory = () -> any ScreenshotQuerying
+    typealias WatcherFactory = (URL, DispatchQueue, @escaping FolderWatcher.Handler) -> any FolderWatching
+    typealias FolderEntries = @Sendable (URL) -> [FolderScan.Entry]
     @Published private(set) var clips: [Clip] = []
     @Published private(set) var letGoBanner: LetGoBanner?
     @Published private(set) var folderWatch: FolderWatch = .off
@@ -91,14 +103,18 @@ final class ClipsService: ObservableObject {
         set { lifetimeState.state.recheckTask = newValue }
     }
 
-    private var query: NSMetadataQuery?
+    private var query: (any ScreenshotQuerying)?
     private var queryObserver: NSObjectProtocol?
     private var startedAt = Date()
-    private var watcher: FolderWatcher?
+    private var watcher: (any FolderWatching)?
     private var folder: ScreenshotFolder.Resolved?
     private var scan: FolderScan?
     private var folderCheckTimer: Timer?
-    private let folderQueue = DispatchQueue(label: "perch.clips.folder", qos: .utility)
+    private let folderQueue: DispatchQueue
+    private let queryFactory: QueryFactory
+    private let watcherFactory: WatcherFactory
+    private let folderEntries: FolderEntries
+    private let folderProvider: (() -> ScreenshotFolder.Resolved)?
     private var watchGeneration = 0
     private var watchStarting = false
     /// Every path a capture source already reported, so Spotlight catching up later never hangs a clip twice.
@@ -111,12 +127,24 @@ final class ClipsService: ObservableObject {
     init(
         store: PlannerStore, now: @escaping () -> Date = Date.init,
         scheduler: any AppScheduling = MainQueueScheduler(),
-        pasteboard: any PasteboardAccess = NSPasteboard.general, monitoring: Bool = true
+        pasteboard: any PasteboardAccess = NSPasteboard.general, monitoring: Bool = true,
+        queryFactory: @escaping QueryFactory = { NSMetadataQuery() },
+        watcherFactory: @escaping WatcherFactory = { url, queue, handler in
+            FolderWatcher(url: url, queue: queue, handler: handler)
+        },
+        folderEntries: @escaping FolderEntries = FolderWatcher.entries,
+        folderProvider: (() -> ScreenshotFolder.Resolved)? = nil,
+        folderQueue: DispatchQueue = DispatchQueue(label: "perch.clips.folder", qos: .utility)
     ) {
         self.store = store
         self.now = now
         self.scheduler = scheduler
         self.pasteboard = pasteboard
+        self.queryFactory = queryFactory
+        self.watcherFactory = watcherFactory
+        self.folderEntries = folderEntries
+        self.folderProvider = folderProvider
+        self.folderQueue = folderQueue
         self.pasteboardCount = pasteboard.changeCount
         self.vault = store.file.url.deletingLastPathComponent().appendingPathComponent("Clips", isDirectory: true)
         guard monitoring else { return }
@@ -171,7 +199,7 @@ final class ClipsService: ObservableObject {
         guard query == nil else { return }
         startedAt = now()
         // Spotlight: no permission needed, but indexing can lag.
-        let q = NSMetadataQuery()
+        let q = queryFactory()
         q.predicate = NSPredicate(
             format: "kMDItemFSCreationDate >= %@ && (kMDItemIsScreenRecording == 1 || kMDItemIsScreenCapture == 1)",
             startedAt as NSDate)
@@ -214,7 +242,8 @@ final class ClipsService: ObservableObject {
     }
 
     private func currentFolder() -> ScreenshotFolder.Resolved {
-        ScreenshotFolder.resolve(
+        if let folderProvider { return folderProvider() }
+        return ScreenshotFolder.resolve(
             location: Self.screencaptureLocation(), home: FileManager.default.homeDirectoryForCurrentUser
         ) { path in
             var dir: ObjCBool = false
@@ -230,15 +259,16 @@ final class ClipsService: ObservableObject {
         watchGeneration += 1
         let generation = watchGeneration
         let since = now()
-        let w = FolderWatcher(url: resolved.url, queue: folderQueue) { [weak self] reason in
-            let entries = FolderWatcher.entries(in: resolved.url)
+        let entries = folderEntries
+        let w = watcherFactory(resolved.url, folderQueue) { [weak self] reason in
+            let entries = entries(resolved.url)
             Task { @MainActor in self?.folderChanged(entries, reason: reason, folder: resolved) }
         }
         watchStarting = true
         // Opening Desktop/Documents/Downloads can wait on the privacy prompt: never on the main thread.
         folderQueue.async { [weak self] in
             let ok = w.start()
-            let existing = ok ? Set(FolderWatcher.entries(in: resolved.url).map(\.name)) : []
+            let existing = ok ? Set(entries(resolved.url).map(\.name)) : []
             Task { @MainActor in
                 guard let self else { w.stop(); return }
                 if self.watchGeneration == generation { self.watchStarting = false }
@@ -273,7 +303,8 @@ final class ClipsService: ObservableObject {
             recheckTask = Task { @MainActor [weak self] in
                 guard let self else { return }
                 do { try await Task.sleep(nanoseconds: 1_000_000_000) } catch { return }
-                let later = await Task.detached { FolderWatcher.entries(in: resolved.url) }.value
+                let entries = self.folderEntries
+                let later = await Task.detached { entries(resolved.url) }.value
                 guard !Task.isCancelled else { return }
                 self.recheckTask = nil
                 self.folderChanged(later, reason: .recheck, folder: resolved)
