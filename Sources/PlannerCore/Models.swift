@@ -257,6 +257,8 @@ public struct Preferences: Codable, Equatable, Sendable {
     /// Digital reads at a glance; the dot-matrix face is opt-in.
     public var workspaceTimerStyle: WorkspaceTimerStyle = .digital
     public var notchOpenTrigger: NotchOpenTrigger = .hover
+    /// Device-local, explicit opt-in. Only counts, never task content, appear while closed.
+    public var notchTaskCount: Bool = false
     public var notchOnMonitors: Bool = false
     /// nil = automatic (screen under the pointer); otherwise a display name.
     public var showOnDisplay: String? = nil
@@ -291,6 +293,7 @@ public struct Preferences: Codable, Equatable, Sendable {
             WorkspaceTimerStyle.self, forKey: .workspaceTimerStyle, default: d.workspaceTimerStyle)
         notchOpenTrigger = try c.decodeMissing(
             NotchOpenTrigger.self, forKey: .notchOpenTrigger, default: d.notchOpenTrigger)
+        notchTaskCount = try c.decodeMissing(Bool.self, forKey: .notchTaskCount, default: d.notchTaskCount)
         notchOnMonitors = try c.decodeMissing(Bool.self, forKey: .notchOnMonitors, default: d.notchOnMonitors)
         showOnDisplay = try c.decodeIfPresent(String.self, forKey: .showOnDisplay)
         remindersSync = try c.decodeMissing(Bool.self, forKey: .remindersSync, default: d.remindersSync)
