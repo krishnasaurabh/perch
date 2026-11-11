@@ -128,7 +128,7 @@ struct InsightsPage: View {
     }
 }
 
-/// Seven days of bars. Completed (solid) stands in front of Planned (translucent).
+/// Seven days of bars. Completed stands in front of the contrasting Planned silhouette.
 ///
 /// Planned is a stable comparison silhouette: it is at its final height from the first frame and never animates.
 /// Only Completed grows from the baseline, left to right: spring R 0.30 ζ 1 with a 130 ms stagger
@@ -218,7 +218,7 @@ struct WeekBars: View {
             ZStack {
                 VStack(spacing: 0) {
                     // Only the top line the scale label names, plus the baseline. Unlabeled quarter lines
-                    // fell on fractional values and showed through the translucent Planned bars.
+                    // fell on fractional values and showed through the Planned bars.
                     // With no data only the baseline stays, so the hint never sits on a gridline.
                     // Both are one device pixel, so they guide the eye without framing the plot like a box.
                     let hairline = 1 / max(displayScale, 1)

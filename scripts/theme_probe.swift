@@ -134,11 +134,35 @@ extension Color {
     try! png.write(to: url)
 }
 
+@MainActor func require(_ condition: @autoclosure () -> Bool, _ message: String) {
+    guard condition() else { fputs("FAIL: \(message)\n", stderr); exit(1) }
+    print("PASS: \(message)")
+}
+
+@MainActor func click(_ point: CGPoint, in host: NSView, window: NSWindow) {
+    let location = host.convert(CGPoint(x: point.x, y: host.bounds.height - point.y), to: nil)
+    for type in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
+        let event = NSEvent.mouseEvent(
+            with: type, location: location, modifierFlags: [], timestamp: 0,
+            windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1)!
+        NSApp.sendEvent(event)
+    }
+}
+
+@MainActor func key(_ code: UInt16, _ character: String, in window: NSWindow, modifiers: NSEvent.ModifierFlags = []) {
+    let event = NSEvent.keyEvent(
+        with: .keyDown, location: .zero, modifierFlags: modifiers, timestamp: 0,
+        windowNumber: window.windowNumber, context: nil, characters: character,
+        charactersIgnoringModifiers: character, isARepeat: false, keyCode: code)!
+    NSApp.sendEvent(event)
+}
+
 @MainActor final class ControlFixture: ObservableObject {
     @Published var state = "rest"
     @Published var selection = 0
     var actions = 0
     var frames: [String: CGRect] = [:]
+    var increasedContrast: Bool?
 }
 
 struct ControlBounds: ViewModifier {
@@ -158,6 +182,7 @@ struct ControlGallery: View {
     @ObservedObject var fixture: ControlFixture
     let tone: CardTone
     @FocusState private var focus: Bool
+    @Environment(\.colorSchemeContrast) private var contrast
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -165,10 +190,10 @@ struct ControlGallery: View {
             Text("Secondary supporting label").font(Theme.body).foregroundStyle(Theme.secondary)
             Text("Tertiary hint stays readable").font(Theme.meta).foregroundStyle(Theme.tertiary)
             HStack(spacing: 14) {
-                Label("Done", systemImage: "checkmark.circle").foregroundStyle(Theme.success)
-                Label("Error", systemImage: "exclamationmark.circle").foregroundStyle(Theme.danger)
-                Label("High", systemImage: "flag.fill").foregroundStyle(Theme.warning)
-                Label("Info", systemImage: "info.circle").foregroundStyle(Theme.info)
+                StatusLabel(title: "Done", tone: .success)
+                StatusLabel(title: "Error", tone: .danger)
+                StatusLabel(title: "High", tone: .warning)
+                StatusLabel(title: "Info", tone: .info)
             }.font(Theme.meta)
             HStack(spacing: 24) {
                 Button("Continue") { fixture.actions += 1 }
@@ -183,6 +208,7 @@ struct ControlGallery: View {
                     .disabled(fixture.state == "disabled")
             }
             SegmentPills(items: [(0, "Today"), (1, "Week"), (2, "Insights")], selection: $fixture.selection)
+                .modifier(ControlBounds(fixture: fixture, name: "tabs"))
             Text("Choose a task first.").font(Theme.meta).foregroundStyle(Theme.secondary)
         }
         .frame(width: 480, height: 270, alignment: .topLeading)
@@ -190,6 +216,8 @@ struct ControlGallery: View {
         .padding(10)
         .background(Color.black)
         .coordinateSpace(name: "gallery")
+        .onAppear { fixture.increasedContrast = contrast == .increased }
+        .onChange(of: contrast) { _, value in fixture.increasedContrast = value == .increased }
         .task(id: fixture.state) {
             await Task.yield()
             focus = fixture.state == "focused"
@@ -281,14 +309,18 @@ MainActor.assumeIsolated {
                 for (toneName, tone) in [("sage", CardTone.tasks), ("lavender", .timer), ("tile", .tile)] {
                     let fixture = ControlFixture()
                     let gallery = ControlGallery(fixture: fixture, tone: tone)
-                        .environment(\.colorSchemeContrast, increased ? .increased : .standard)
+                    let contrastAppearance = NSAppearance(
+                        named: increased
+                            ? (light ? .accessibilityHighContrastAqua : .accessibilityHighContrastDarkAqua)
+                            : (light ? .aqua : .darkAqua))!
                     let (galleryWindow, galleryHost) = render(
-                        gallery, size: CGSize(width: 528, height: 318), appearance: appearance)
+                        gallery, size: CGSize(width: 528, height: 318), appearance: contrastAppearance)
                     galleryWindow.makeKeyAndOrderFront(nil)
                     app.activate(ignoringOtherApps: true)
                     for state in ["rest", "focused", "disabled"] {
                         fixture.state = state
                         try? await Task.sleep(nanoseconds: 250_000_000)
+                        require(fixture.increasedContrast == increased, "Native contrast appearance resolved")
                         for scale in [1, 2] {
                             let name =
                                 "\(mode)-\(increased ? "increased" : "standard")-\(toneName)-\(state)-\(scale)x.png"
@@ -299,6 +331,32 @@ MainActor.assumeIsolated {
                                 "frames": fixture.frames.mapValues { [$0.minX, $0.minY, $0.width, $0.height] },
                             ])
                         }
+                    }
+                    if light && !increased && toneName == "sage" {
+                        let button = fixture.frames["continue"]!
+                        click(CGPoint(x: button.midX, y: button.midY), in: galleryHost, window: galleryWindow)
+                        require(fixture.actions == 0, "disabled control ignores clicks")
+                        fixture.state = "rest"
+                        try? await Task.sleep(nanoseconds: 250_000_000)
+                        click(CGPoint(x: button.midX, y: button.midY), in: galleryHost, window: galleryWindow)
+                        require(fixture.actions == 1, "enabled control invokes its real action")
+                        let tabs = fixture.frames["tabs"]!
+                        click(CGPoint(x: tabs.minX + 24, y: tabs.midY), in: galleryHost, window: galleryWindow)
+                        try? await Task.sleep(nanoseconds: 250_000_000)
+                        key(124, "\u{F703}", in: galleryWindow)
+                        try? await Task.sleep(nanoseconds: 250_000_000)
+                        require(fixture.selection == 1, "Right Arrow selects next tab")
+                        key(119, "\u{F72B}", in: galleryWindow)
+                        try? await Task.sleep(nanoseconds: 250_000_000)
+                        require(fixture.selection == 2, "End selects last tab")
+                        key(115, "\u{F729}", in: galleryWindow)
+                        try? await Task.sleep(nanoseconds: 250_000_000)
+                        require(fixture.selection == 0, "Home selects first tab")
+                        key(48, "\t", in: galleryWindow)
+                        try? await Task.sleep(nanoseconds: 250_000_000)
+                        key(124, "\u{F703}", in: galleryWindow)
+                        try? await Task.sleep(nanoseconds: 250_000_000)
+                        require(fixture.selection == 0, "Tab leaves the page-picker group")
                     }
                     galleryWindow.close()
                 }

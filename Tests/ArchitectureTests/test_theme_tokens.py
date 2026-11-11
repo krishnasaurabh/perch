@@ -6,6 +6,7 @@ from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[2]
 SPEC = importlib.util.spec_from_file_location("theme_contrast", ROOT / "scripts/theme_contrast.py")
+assert SPEC is not None and SPEC.loader is not None
 THEME = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(THEME)
 

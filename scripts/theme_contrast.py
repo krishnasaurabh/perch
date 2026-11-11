@@ -54,7 +54,9 @@ def source_rows():
 
     # Retain original production-boundary coverage, but bind the ink to its shared values.
     for name in ('text', 'secondary', 'tertiary', 'danger', 'info'):
-        assert f'static let {name} = ink(\.{name})' in source
+        assert rf'static let {name} = ink(\.{name})' in source
+    for name in ('sage', 'lavender', 'tile', 'tileStrong', 'chartCompleted', 'chartPlanned'):
+        assert f'static let {name} = color(ThemeTokens.{name})' in source
     assert 'case .high: return warning' in source
     assert 'Theme.selectedPill' in pills and '.isSelected' in pills
     assert 'Theme.fill)' not in pills, 'Nested segment track fill returned'
@@ -181,7 +183,7 @@ def control_pixels(directory):
         x, y, w, h = row['frames']['unavailable']
         assert w >= 28 and h >= 32
         crop = image.crop((round((x+5)*scale), round((y+4)*scale), round((x+w-5)*scale), round((y+h-4)*scale)))
-        colors = Counter(crop.get_flattened_data())
+        colors = Counter(p for p in crop.get_flattened_data() if isinstance(p, tuple))
         background = colors.most_common(1)[0][0]
         candidates = [(n, c) for c, n in colors.items() if max(abs(a-b) for a, b in zip(c, ink)) <= 5]
         assert candidates and sum(n for n, c in candidates) >= 5 * scale, (row['file'], 'disabled glyphs missing')
@@ -228,7 +230,7 @@ def rendered_rows(directory, expected):
                 assert ratio >= want['minimum'], (mode, row['name'], ratio, want['minimum'])
                 # Require actual readable glyph interiors, not just two color swatches.
                 glyphs = image.crop((140*scale, i*30*scale, 340*scale, (i+1)*30*scale))
-                matches = sum(max(abs(a-b) for a,b in zip(p,fg)) <= 5 for p in glyphs.get_flattened_data())
+                matches = sum(max(abs(a-b) for a,b in zip(p,fg)) <= 5 for p in glyphs.get_flattened_data() if isinstance(p, tuple))
                 assert matches >= 8 * scale, (mode, row['name'], scale, 'missing glyphs', matches)
                 result.append(dict(appearance=mode, name=row['name'], scale=scale, foreground=hex_rgb(tuple(v/255 for v in fg)),
                                    background=hex_rgb(tuple(v/255 for v in bg)), ratio=round(ratio, 4), minimum=row['minimum']))
@@ -261,4 +263,4 @@ if __name__ == '__main__':
     if args.pixels:
         rows = rendered_rows(args.pixels, rows)
     print(table(rows))
-    print(f'PASS: {len(rows)} pairs; all boundary/priority and unchanged ink gates met.')
+    print(f'PASS: {len(rows)} pairs; all readable text and functional boundary gates met.')

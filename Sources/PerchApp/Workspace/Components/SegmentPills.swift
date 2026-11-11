@@ -25,6 +25,7 @@ struct SegmentPills<T: Hashable>: View {
                 .focusable(selected)
                 .focused($focused, equals: item.value)
                 .focusEffectDisabled()
+                .accessibilityLabel(item.label)
                 .accessibilityAddTraits(selected ? .isSelected : [])
                 .onKeyPress(.leftArrow) { move(from: i, by: -1) }
                 .onKeyPress(.rightArrow) { move(from: i, by: 1) }
@@ -33,6 +34,7 @@ struct SegmentPills<T: Hashable>: View {
             }
         }
         .padding(4)
+        .accessibilityElement(children: .contain)
         .transaction { $0.animation = nil }
     }
 

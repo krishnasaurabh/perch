@@ -8,11 +8,16 @@ import SwiftUI
     private static func ink(_ key: KeyPath<ThemeTokens.Palette, UInt32>) -> Color {
         Color.dynamic(light: (ThemeTokens.light[keyPath: key], 1), dark: (ThemeTokens.dark[keyPath: key], 1))
     }
+    private static func color(_ value: UInt32) -> Color {
+        Color(
+            .sRGB, red: Double((value >> 16) & 255) / 255,
+            green: Double((value >> 8) & 255) / 255, blue: Double(value & 255) / 255)
+    }
     static let notchBlack = Color.black
-    static let sage = Color(hex: "#879E8D")
-    static let lavender = Color(hex: "#938EAB")
-    static let tile = Color(hex: "#1D1D1D")
-    static let tileStrong = Color(hex: "#303030")
+    static let sage = color(ThemeTokens.sage)
+    static let lavender = color(ThemeTokens.lavender)
+    static let tile = color(ThemeTokens.tile)
+    static let tileStrong = color(ThemeTokens.tileStrong)
     static let card = tile
     static let cardStroke = ink(\.cardStroke)
     static let inputStroke = ink(\.inputStroke)
@@ -40,8 +45,8 @@ import SwiftUI
     static let inputFill = Color.dynamic(light: (0x000000, 0.08), dark: (0xFFFFFF, 0.08))
     static let inputFillFocused = Color.dynamic(light: (0x000000, 0.12), dark: (0xFFFFFF, 0.12))
     static let unlit = Color.dynamic(light: (0x000000, 0.07), dark: (0xFFFFFF, 0.05))
-    static let chartCompleted = Color(hex: "#1A1E20")
-    static let chartPlanned = Color(hex: "#423F50")
+    static let chartCompleted = color(ThemeTokens.chartCompleted)
+    static let chartPlanned = color(ThemeTokens.chartPlanned)
 
     static func priority(_ priority: TaskPriority) -> Color {
         switch priority {
