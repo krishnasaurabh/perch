@@ -60,6 +60,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         openItem = open
         menu.addItem(withTitle: "Dashboard", action: #selector(openDashboard), keyEquivalent: "").target = self
         menu.addItem(withTitle: "Settings…", action: #selector(openSettings), keyEquivalent: ",").target = self
+        menu.addItem(withTitle: "Hide task count", action: #selector(hideTaskCount), keyEquivalent: "").target = self
         menu.addItem(.separator())
         menu.addItem(withTitle: "Quit Perch", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         item.menu = menu
@@ -78,6 +79,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private static func openTitle() -> String { "Open Perch (\(ShortcutStore.load().display))" }
 
     @objc func openWorkspace() { NotificationCenter.default.post(name: .perchOpenWorkspace, object: NotchPage.home) }
+    @objc func hideTaskCount() { model.hideTaskCount(in: store) }
     @objc func openDashboard() { DashboardWindow.show(store: store, model: model, services: services) }
     @objc func openSettings() { SettingsWindow.show(store: store, services: services) }
 
