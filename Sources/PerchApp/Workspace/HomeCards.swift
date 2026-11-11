@@ -13,7 +13,9 @@ struct FocusCard: View {
         let task = f?.taskID.flatMap { id in store.planner.tasks.first { $0.id == id } }
 
         VStack(alignment: .leading, spacing: 10) {
-            CardHeading(active ? (task?.title ?? "Just focusing") : "Focus", trailing: AnyView(styleMenu))
+            CardHeading(
+                active ? (task?.title ?? AppL10n.text("Just focusing")) : AppL10n.text("Focus"),
+                trailing: AnyView(styleMenu))
             // When the timer is the only card beside the tasks it fills the column; the face centres in it.
             Spacer(minLength: 0)
             LocalClock(running: f?.state == .running) { now in
@@ -155,7 +157,7 @@ struct NotepadCard: View {
         let readOnly = d < store.today
         VStack(alignment: .leading, spacing: 8) {
             CardHeading(
-                "Notepad",
+                AppL10n.text("Notepad"),
                 trailing: AnyView(
                     Text(flash ?? "⌘↩ makes a task").font(Theme.meta).foregroundStyle(
                         flash == nil ? Theme.tertiary : Theme.accent)))
@@ -330,7 +332,7 @@ private struct AgendaBody: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            CardHeading("Today's agenda")
+            CardHeading(AppL10n.text("Today's agenda"))
             if !calendar.hasAccess {
                 Text("Allow calendar access to list today's events here.").font(Theme.meta).foregroundStyle(
                     Theme.secondary)

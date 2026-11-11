@@ -312,13 +312,13 @@ struct SettingsView: View {
         return d.formatted(date: .omitted, time: .shortened)
     }
 
-    func cardName(_ id: String) -> String {
-        let name =
-            [
-                "focus": "Focus timer (while running)", "notepad": "Notepad",
-                "events": "Today's agenda (when there are events)",
-            ][id] ?? id
-        return AppL10n.text(name)
+    func cardName(_ id: String, locale: Locale? = nil) -> String {
+        switch id {
+        case "focus": AppL10n.text("Focus timer (while running)", locale: locale)
+        case "notepad": AppL10n.text("Notepad", locale: locale)
+        case "events": AppL10n.text("Today's agenda (when there are events)", locale: locale)
+        default: id
+        }
     }
 
     func moveCard(_ id: String, _ delta: Int) {

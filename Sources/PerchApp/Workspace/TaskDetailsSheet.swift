@@ -86,10 +86,7 @@ private struct TaskDetailsEditor: View {
                     field("Priority") {
                         Picker("Priority", selection: $editor.details.priority) {
                             ForEach(TaskPriority.allCases.reversed(), id: \.self) { priority in
-                                Text(
-                                    priority == .none
-                                        ? AppL10n.text("None") : AppL10n.text(priority.rawValue.capitalized)
-                                ).tag(priority)
+                                Text(AppL10n.priority(priority)).tag(priority)
                             }
                         }.labelsHidden().pickerStyle(.menu)
                     }

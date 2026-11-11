@@ -2424,6 +2424,23 @@
         }
       }
     },
+    "Cursor loads Perch when it restarts.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cursor loads Perch when it restarts."
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Cürsör löàds Përch whën ït rëstàrts. ·~⟧"
+          }
+        }
+      }
+    },
     "Dashboard": {
       "extractionState": "manual",
       "localizations": {
@@ -3291,6 +3308,23 @@
         }
       }
     },
+    "Focus timer (while running)": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Focus timer (while running)"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Föcüs tïmër (whïlë rünnïng) ·~⟧"
+          }
+        }
+      }
+    },
     "Focused %@": {
       "extractionState": "manual",
       "localizations": {
@@ -3474,6 +3508,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "⟦Hïdë tàsk cöünt ·~⟧"
+          }
+        }
+      }
+    },
+    "High": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "High"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Hïgh ·~⟧"
           }
         }
       }
@@ -3818,6 +3869,23 @@
         }
       }
     },
+    "Just focusing": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Just focusing"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Jüst föcüsïng ·~⟧"
+          }
+        }
+      }
+    },
     "Keep task": {
       "extractionState": "manual",
       "localizations": {
@@ -3903,6 +3971,23 @@
         }
       }
     },
+    "Low": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Low"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Löw ·~⟧"
+          }
+        }
+      }
+    },
     "Mark all done": {
       "extractionState": "manual",
       "localizations": {
@@ -3954,6 +4039,23 @@
         }
       }
     },
+    "Medium": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Medium"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Mëdïüm ·~⟧"
+          }
+        }
+      }
+    },
     "Midnight": {
       "extractionState": "manual",
       "localizations": {
@@ -4001,6 +4103,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "⟦Mïnïmàl ·~⟧"
+          }
+        }
+      }
+    },
+    "Minutes focused": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Minutes focused"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Mïnütës föcüsëd ·~⟧"
           }
         }
       }
@@ -4719,6 +4838,23 @@
         }
       }
     },
+    "Open a fresh Claude Code session, then ask it something like:": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open a fresh Claude Code session, then ask it something like:"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Öpën à frësh Clàüdë Cödë sëssïön, thën àsk ït sömëthïng lïkë: ·~⟧"
+          }
+        }
+      }
+    },
     "Open at login": {
       "extractionState": "manual",
       "localizations": {
@@ -5021,6 +5157,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "⟦Përch hàs nö Rëmïndërs përmïssïön. Grànt ït ündër Systëm Sëttïngs › Prïvàcy & Sëcürïty › Rëmïndërs. ·~⟧"
+          }
+        }
+      }
+    },
+    "Perch is already connected to Claude Code.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Perch is already connected to Claude Code."
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Përch ïs àlrëàdy cönnëctëd tö Clàüdë Cödë. ·~⟧"
           }
         }
       }
@@ -5395,6 +5548,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "⟦Qüït Përch ·~⟧"
+          }
+        }
+      }
+    },
+    "Quit and reopen the Claude app, then ask it something like:": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quit and reopen the Claude app, then ask it something like:"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Qüït ànd rëöpën thë Clàüdë àpp, thën àsk ït sömëthïng lïkë: ·~⟧"
           }
         }
       }
@@ -6987,6 +7157,23 @@
         }
       }
     },
+    "Tasks": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tasks"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Tàsks ·~⟧"
+          }
+        }
+      }
+    },
     "Tasks with their own time budget use that instead.": {
       "extractionState": "manual",
       "localizations": {
@@ -7357,6 +7544,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "⟦Tödày's àgëndà ·~⟧"
+          }
+        }
+      }
+    },
+    "Today's agenda (when there are events)": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Today's agenda (when there are events)"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Tödày's àgëndà (whën thërë àrë ëvënts) ·~⟧"
           }
         }
       }

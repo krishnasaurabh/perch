@@ -22,6 +22,15 @@ enum AppL10n {
 
     static var parserLanguage: TaskParserLanguage? { TaskParserLanguage.current }
 
+    static func priority(_ priority: TaskPriority, locale: Locale? = nil) -> String {
+        switch priority {
+        case .none: AppL10n.text("None", locale: locale)
+        case .low: AppL10n.text("Low", locale: locale)
+        case .medium: AppL10n.text("Medium", locale: locale)
+        case .high: AppL10n.text("High", locale: locale)
+        }
+    }
+
     static func plannerMessage(_ error: PlannerError, locale: Locale? = nil) -> String {
         guard let key = error.presentationKey else { return text(error.message, locale: locale) }
         let template = text(key, locale: locale)

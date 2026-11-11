@@ -43,7 +43,7 @@ struct AgentsSettings: View {
                     }
                 }
             }
-            if let message { Text(AppL10n.text(message)).font(Theme.meta) }
+            if let message { Text(message).font(Theme.meta) }
         }
         Section("Or use Terminal") {
             HStack {

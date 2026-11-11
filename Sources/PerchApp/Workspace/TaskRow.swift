@@ -208,9 +208,9 @@ struct TaskRow: View {
 
     @ViewBuilder private var metadataLabels: some View {
         if task.priority != .none {
-            Label(AppL10n.text(task.priority.rawValue.capitalized), systemImage: "flag.fill")
+            Label(AppL10n.priority(task.priority), systemImage: "flag.fill")
                 .foregroundStyle(Theme.priority(task.priority))
-                .accessibilityLabel(AppL10n.format("%@ priority", task.priority.rawValue.capitalized))
+                .accessibilityLabel(AppL10n.format("%@ priority", AppL10n.priority(task.priority)))
         }
         if let r = task.remindAt {
             Label(r.formatted(date: .omitted, time: .shortened), systemImage: "bell")
@@ -250,7 +250,7 @@ struct TaskRow: View {
             Divider()
             Menu("Priority") {
                 ForEach(TaskPriority.allCases.reversed(), id: \.self) { p in
-                    Button(p == .none ? AppL10n.text("None") : AppL10n.text(p.rawValue.capitalized)) {
+                    Button(AppL10n.priority(p)) {
                         store.updateTask(task.id) { $0.priority = p }
                     }
                 }
@@ -267,7 +267,7 @@ struct TaskRow: View {
         let state = task.done || ticked ? AppL10n.text("Completed") : AppL10n.text("Not completed")
         return task.priority == .none
             ? state
-            : AppL10n.format("%@, %@ priority", state, task.priority.rawValue.capitalized)
+            : AppL10n.format("%@, %@ priority", state, AppL10n.priority(task.priority))
     }
 
     private func startFocus() {

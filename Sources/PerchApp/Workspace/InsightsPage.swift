@@ -6,7 +6,16 @@ import SwiftUI
 struct InsightsPage: View {
     @EnvironmentObject var store: PlannerStore
     @State private var metric: Metric = .tasks
-    enum Metric: Hashable { case tasks, focus }
+    enum Metric: Hashable, CaseIterable {
+        case tasks, focus
+
+        func title(locale: Locale? = nil) -> String {
+            switch self {
+            case .tasks: AppL10n.text("Tasks", locale: locale)
+            case .focus: AppL10n.text("Focus", locale: locale)
+            }
+        }
+    }
 
     var body: some View {
         let i = store.engine.insights()
@@ -42,7 +51,9 @@ struct InsightsPage: View {
         let first = days.first?.day.date() ?? Date(), last = days.last?.day.date() ?? Date()
         return VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 10) {
-                SegmentPills(items: [(Metric.tasks, "Tasks"), (Metric.focus, "Focus")], selection: $metric)
+                SegmentPills(
+                    items: [(Metric.tasks, Metric.tasks.title()), (Metric.focus, Metric.focus.title())],
+                    selection: $metric)
                 Spacer()
                 Text(
                     AppL10n.format(
@@ -56,10 +67,10 @@ struct InsightsPage: View {
                 .frame(maxHeight: .infinity)
             HStack(spacing: 14) {
                 if metric == .tasks {
-                    legend(Theme.chartCompleted, "Completed")
-                    legend(Theme.chartPlanned, "Planned")
+                    legend(Theme.chartCompleted, AppL10n.text("Completed"))
+                    legend(Theme.chartPlanned, AppL10n.text("Planned"))
                 } else {
-                    legend(Theme.chartCompleted, "Minutes focused")
+                    legend(Theme.chartCompleted, AppL10n.text("Minutes focused"))
                 }
                 Spacer()
             }
@@ -70,7 +81,7 @@ struct InsightsPage: View {
     private func legend(_ c: Color, _ label: String) -> some View {
         HStack(spacing: 5) {
             RoundedRectangle(cornerRadius: 2).fill(c).frame(width: 9, height: 9)
-            Text(AppL10n.text(label)).font(Theme.meta).foregroundStyle(Theme.secondary)
+            Text(label).font(Theme.meta).foregroundStyle(Theme.secondary)
         }
     }
 
@@ -130,7 +141,7 @@ struct InsightsPage: View {
     private func stat(_ value: String, _ label: String) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 6) {
             Text(value).font(.system(size: 15, weight: .bold).monospacedDigit())
-            Text(AppL10n.text(label)).font(Theme.meta).foregroundStyle(Theme.secondary)
+            Text(label).font(Theme.meta).foregroundStyle(Theme.secondary)
             Spacer(minLength: 0)
         }
         .accessibilityElement(children: .combine)

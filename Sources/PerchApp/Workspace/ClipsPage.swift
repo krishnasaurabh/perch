@@ -16,14 +16,14 @@ private struct ClipsBody: View {
         VStack(alignment: .leading, spacing: Theme.gutter) {
             ViewThatFits(in: .horizontal) {
                 HStack {
-                    CardHeading("Clips", symbol: "paperclip")
+                    CardHeading(AppL10n.text("Clips"), symbol: "paperclip")
                     Spacer(minLength: Theme.gutter)
                     captureControls
                     removeUnpinned
                 }
                 VStack(alignment: .leading, spacing: Theme.gutter) {
                     HStack {
-                        CardHeading("Clips", symbol: "paperclip"); Spacer(); removeUnpinned
+                        CardHeading(AppL10n.text("Clips"), symbol: "paperclip"); Spacer(); removeUnpinned
                     }
                     captureControls
                 }

@@ -10,7 +10,7 @@ struct CardHeading: View {
     }
     var body: some View {
         HStack(spacing: 6) {
-            Text(AppL10n.text(title)).font(Theme.heading).foregroundStyle(Theme.text)
+            Text(title).font(Theme.heading).foregroundStyle(Theme.text)
                 .fixedSize(horizontal: false, vertical: true)
                 .accessibilityAddTraits(.isHeader)
             Spacer(minLength: 0)

@@ -46,7 +46,13 @@ class LocalizationTests(unittest.TestCase):
         app = json.loads((ROOT / 'Sources/PerchApp/Resources/Localizable.xcstrings').read_text())['strings']
         self.assertIn('999+ tasks', ui)
         for key in ('General', 'Workspace', 'System', 'Already completed: %@.',
-                    'Removed %lld clips', '%lld more tasks below', 'A whole number from 1 to %lld'):
+                    'Removed %lld clips', '%lld more tasks below', 'A whole number from 1 to %lld',
+                    'High', 'Medium', 'Low', 'Just focusing', 'Minutes focused',
+                    'Focus timer (while running)', "Today's agenda (when there are events)",
+                    'Perch is already connected to Claude Code.',
+                    'Open a fresh Claude Code session, then ask it something like:',
+                    'Quit and reopen the Claude app, then ask it something like:',
+                    'Cursor loads Perch when it restarts.', 'Adding Perch to Claude Code failed. %@'):
             self.assertIn(key, app)
         for key in set(ui) | set(app):
             self.assertNotIn('\\(', key, key)

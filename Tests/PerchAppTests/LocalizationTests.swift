@@ -35,6 +35,28 @@ final class LocalizationTests: XCTestCase {
         XCTAssertTrue(error.message.contains("fr"))
     }
 
+    func testDynamicProducersResolveThroughCatalog() {
+        let pseudo = Locale(identifier: "zz")
+        for priority in TaskPriority.allCases {
+            XCTAssertTrue(AppL10n.priority(priority, locale: pseudo).hasPrefix("⟦"), "\(priority)")
+        }
+        for metric in InsightsPage.Metric.allCases {
+            XCTAssertTrue(metric.title(locale: pseudo).hasPrefix("⟦"), "\(metric)")
+        }
+        let settings = SettingsView()
+        for id in ["focus", "notepad", "events"] {
+            XCTAssertTrue(settings.cardName(id, locale: pseudo).hasPrefix("⟦"), id)
+        }
+        for message in AgentConnector.ConnectionMessage.allCases {
+            XCTAssertTrue(AgentConnector.connectionMessage(message, locale: pseudo).hasPrefix("⟦"), "\(message)")
+        }
+        let connectionError = AgentConnector.claudeCodeConnectionError(" Unavailable\n")
+        XCTAssertEqual(connectionError.message, "Adding Perch to Claude Code failed. Unavailable")
+        XCTAssertEqual(
+            AppL10n.plannerMessage(connectionError, locale: pseudo),
+            "⟦Åddïng Përch tö Clàüdë Cödë fàïlëd. Unavailable ·~⟧")
+    }
+
     func testPackagedCatalogCompilesNativeLookupResources() throws {
         let root = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
@@ -64,7 +86,7 @@ final class LocalizationTests: XCTestCase {
             "Perch has no Reminders permission. Grant it under System Settings › Privacy & Security › Reminders."
         let standard = try await measureStatus(title: title, locale: Locale(identifier: "en"), dynamicType: .large)
         let enlarged = try await measureStatus(title: title, locale: Locale(identifier: "en"), dynamicType: .xxxLarge)
-        XCTAssertGreaterThan(enlarged.height, standard.height)
+        XCTAssertGreaterThan(enlarged.size.height, standard.size.height)
 
         let pseudo = try await measureStatus(
             title: title, locale: Locale(identifier: "zz"), dynamicType: .xxxLarge, direction: .rightToLeft)
@@ -85,7 +107,7 @@ final class LocalizationTests: XCTestCase {
         var labels: [String]
         var hostFrame: NSRect?
         var labelFrame: NSRect?
-        var direction: UserInterfaceLayoutDirection
+        var direction: LayoutDirection
     }
 
     @MainActor
@@ -125,7 +147,7 @@ final class LocalizationTests: XCTestCase {
         }
         return StatusMeasurement(
             size: host.fittingSize, labels: labels, hostFrame: hostFrame, labelFrame: labelFrame,
-            direction: host.userInterfaceLayoutDirection)
+            direction: host.userInterfaceLayoutDirection == .rightToLeft ? .rightToLeft : .leftToRight)
     }
 
     private static func attribute(_ node: NSObject, _ name: String) -> Any? {

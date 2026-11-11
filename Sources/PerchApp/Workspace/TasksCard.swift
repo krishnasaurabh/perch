@@ -30,7 +30,7 @@ struct TasksCard: View {
         VStack(alignment: .leading, spacing: 8) {
             ViewThatFits(in: .horizontal) {
                 CardHeading(
-                    "Today's tasks",
+                    AppL10n.text("Today's tasks"),
                     trailing: AnyView(
                         HStack(spacing: 8) {
                             startFocus
@@ -40,7 +40,7 @@ struct TasksCard: View {
                 .fixedSize(horizontal: true, vertical: false)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 VStack(alignment: .leading, spacing: 4) {
-                    CardHeading("Today's tasks", trailing: AnyView(startFocus))
+                    CardHeading(AppL10n.text("Today's tasks"), trailing: AnyView(startFocus))
                     SegmentPills(items: pills, selection: selection)
                 }
             }
@@ -354,7 +354,7 @@ struct TaskComposer: View {
             bits.append(d.date().formatted(.dateTime.weekday(.abbreviated).month(.abbreviated).day()))
         }
         if let r = c.remindAt { bits.append(r.formatted(date: .omitted, time: .shortened)) }
-        if c.priority != .none { bits.append(AppL10n.text(c.priority.rawValue.capitalized)) }
+        if c.priority != .none { bits.append(AppL10n.priority(c.priority)) }
         if let p = c.projectName { bits.append("#" + p) }
         if let r = c.repeatRule {
             bits.append(RepeatPickerDraft(original: r, anchor: c.day).summary(locale: locale))
