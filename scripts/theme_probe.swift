@@ -1,5 +1,6 @@
 // CI-only entry point: render production views and color pairs, without changing system preferences.
 import AppKit
+import ApplicationServices
 import PlannerCore
 #if canImport(PerchApp)
     @testable import PerchApp
@@ -164,7 +165,6 @@ extension Color {
     var actions = 0
     var frames: [String: CGRect] = [:]
     var increasedContrast: Bool?
-    var continueFocused = false
     var destinations: [String: NSTextField] = [:]
 
     func destinationHasFocus(_ name: String, in window: NSWindow) -> Bool {
@@ -174,22 +174,54 @@ extension Color {
 
     func focusedControl(in window: NSWindow) -> String {
         guard window.isKeyWindow else { return "no-key-window" }
-        if continueFocused { return "continue" }
         for name in ["before-pages", "after-pages"] where destinationHasFocus(name, in: window) {
             return name
         }
-        return "other"
+        // Query native accessibility focus, not the value requested through FocusState.
+        let owners: [NSObject] = [NSApp, window, window.contentView, window.firstResponder].compactMap { $0 }
+        var observed = "other: \(String(describing: window.firstResponder))"
+        for owner in owners {
+            let selector = NSSelectorFromString("accessibilityFocusedUIElement")
+            guard owner.responds(to: selector),
+                let node = owner.perform(selector)?.takeUnretainedValue() as? NSObject
+            else { continue }
+            @MainActor func attribute(_ name: String) -> String? {
+                let selector = NSSelectorFromString(name)
+                guard node.responds(to: selector) else { return nil }
+                return node.perform(selector)?.takeUnretainedValue() as? String
+            }
+            let identifier = attribute("accessibilityIdentifier")
+            let label = attribute("accessibilityLabel")
+            let role = attribute("accessibilityRole")
+            if role == "AXButton" && (identifier == "theme-continue" || label == "Continue") {
+                return "continue"
+            }
+            observed = "other: \(role ?? "no-role") / \(label ?? "no-label") / \(identifier ?? "no-id")"
+        }
+        return observed
     }
 }
 
-// Observe focus granted by SwiftUI, independently of the FocusState request.
-struct FocusObservation: ViewModifier {
-    let fixture: ControlFixture
-    @Environment(\.isFocused) private var focused
+func wakeControlAccessibility() async {
+    await Task.detached {
+        let app = AXUIElementCreateApplication(getpid())
+        var value: CFTypeRef?
+        _ = AXUIElementCopyAttributeValue(app, kAXWindowsAttribute as CFString, &value)
+        for window in (value as? [AXUIElement]) ?? [] {
+            var children: CFTypeRef?
+            _ = AXUIElementCopyAttributeValue(window, kAXChildrenAttribute as CFString, &children)
+        }
+    }.value
+}
 
-    func body(content: Content) -> some View {
-        content.onChange(of: focused, initial: true) { _, value in fixture.continueFocused = value }
+@MainActor func focusContinue(_ fixture: ControlFixture, in window: NSWindow) async {
+    require(window.makeFirstResponder(fixture.destinations["before-pages"]!), "Native focus starts before pages")
+    for _ in 0..<8 {
+        key(48, "\t", in: window, modifiers: .shift)
+        try? await Task.sleep(nanoseconds: 100_000_000)
+        if fixture.focusedControl(in: window) == "continue" { return }
     }
+    // The caller saves a diagnostic frame before rejecting the missing target.
 }
 
 // Real text fields make both ends of the key-view loop testable even when
@@ -226,7 +258,6 @@ struct ControlBounds: ViewModifier {
 struct ControlGallery: View {
     @ObservedObject var fixture: ControlFixture
     let tone: CardTone
-    @FocusState private var focus: Bool
     @Environment(\.colorSchemeContrast) private var contrast
 
     var body: some View {
@@ -244,11 +275,10 @@ struct ControlGallery: View {
                 Button {
                     fixture.actions += 1
                 } label: {
-                    Text("Continue").modifier(FocusObservation(fixture: fixture))
+                    Text("Continue")
                 }
                 .buttonStyle(PillStyle(prominent: true))
-                .focusable(fixture.state != "disabled")
-                .focused($focus).focusEffectDisabled()
+                .accessibilityIdentifier("theme-continue")
                 .disabled(fixture.state == "disabled")
                 .modifier(ControlBounds(fixture: fixture, name: "continue"))
                 Button("Unavailable") { fixture.actions += 1 }
@@ -273,10 +303,6 @@ struct ControlGallery: View {
         .coordinateSpace(name: "gallery")
         .onAppear { fixture.increasedContrast = contrast == .increased }
         .onChange(of: contrast) { _, value in fixture.increasedContrast = value == .increased }
-        .task(id: fixture.state) {
-            await Task.yield()
-            focus = fixture.state == "focused"
-        }
     }
 }
 
@@ -375,17 +401,23 @@ MainActor.assumeIsolated {
                         gallery, size: CGSize(width: 528, height: 318), appearance: contrastAppearance)
                     galleryWindow.makeKeyAndOrderFront(nil)
                     app.activate(ignoringOtherApps: true)
+                    await wakeControlAccessibility()
                     for state in ["rest", "focused", "disabled"] {
                         fixture.state = state
                         try? await Task.sleep(nanoseconds: 250_000_000)
                         require(fixture.increasedContrast == increased, "Native contrast appearance resolved")
-                        if state != "focused" {
+                        if state == "focused" {
+                            await focusContinue(fixture, in: galleryWindow)
+                        } else {
                             require(
                                 galleryWindow.makeFirstResponder(fixture.destinations["before-pages"]!),
                                 "The before-pages field accepts native focus")
                             try? await Task.sleep(nanoseconds: 100_000_000)
                         }
                         let focusedControl = fixture.focusedControl(in: galleryWindow)
+                        save(
+                            galleryHost,
+                            output.appendingPathComponent("focus-diagnostic-\(mode)-\(toneName)-\(state).png"))
                         require(
                             focusedControl == (state == "focused" ? "continue" : "before-pages"),
                             "\(state) capture focus identity: \(focusedControl)")
@@ -410,6 +442,7 @@ MainActor.assumeIsolated {
                         require(fixture.actions == 1, "enabled control invokes its real action")
                         fixture.state = "focused"
                         try? await Task.sleep(nanoseconds: 250_000_000)
+                        await focusContinue(fixture, in: galleryWindow)
                         require(
                             fixture.focusedControl(in: galleryWindow) == "continue",
                             "Continue owns focus before keyboard activation")
@@ -418,8 +451,10 @@ MainActor.assumeIsolated {
                         require(fixture.actions == 2, "Space activates the focused button exactly once")
                         fixture.state = "rest"
                         try? await Task.sleep(nanoseconds: 250_000_000)
-                        let tabs = fixture.frames["tabs"]!
-                        click(CGPoint(x: tabs.minX + 24, y: tabs.midY), in: galleryHost, window: galleryWindow)
+                        require(
+                            galleryWindow.makeFirstResponder(fixture.destinations["after-pages"]!),
+                            "Native focus starts after pages")
+                        key(48, "\t", in: galleryWindow, modifiers: .shift)
                         try? await Task.sleep(nanoseconds: 250_000_000)
                         key(124, "\u{F703}", in: galleryWindow)
                         try? await Task.sleep(nanoseconds: 250_000_000)

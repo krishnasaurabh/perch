@@ -32,20 +32,47 @@ struct ControlFocusRing<S: InsettableShape>: View {
     }
 }
 
-struct PillStyle: ButtonStyle {
+struct PillStyle: PrimitiveButtonStyle {
     var prominent = false
     var disabledReason: String = "This action is currently unavailable."
 
     func makeBody(configuration: Configuration) -> some View {
-        PillLabel(configuration: configuration, prominent: prominent, disabledReason: disabledReason)
+        FocusablePill(configuration: configuration, prominent: prominent, disabledReason: disabledReason)
+    }
+
+    private struct FocusablePill: View {
+        let configuration: PrimitiveButtonStyleConfiguration
+        let prominent: Bool
+        let disabledReason: String
+        @FocusState private var focused: Bool
+
+        var body: some View {
+            // Bind to the native button itself. A label's isFocused environment
+            // need not describe the AppKit button that owns keyboard focus.
+            Button(configuration)
+                .buttonStyle(VisualStyle(prominent: prominent, disabledReason: disabledReason, focused: focused))
+                .focused($focused)
+                .focusEffectDisabled()
+        }
+    }
+
+    private struct VisualStyle: ButtonStyle {
+        let prominent: Bool
+        let disabledReason: String
+        let focused: Bool
+
+        func makeBody(configuration: Configuration) -> some View {
+            PillLabel(
+                configuration: configuration, prominent: prominent, disabledReason: disabledReason, focused: focused)
+        }
     }
 
     private struct PillLabel: View {
         let configuration: ButtonStyleConfiguration
         let prominent: Bool
         let disabledReason: String
+        let focused: Bool
         @Environment(\.isEnabled) private var enabled
-        @Environment(\.isFocused) private var focused
         @State private var hover = false
 
         var body: some View {
