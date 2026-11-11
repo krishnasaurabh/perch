@@ -123,7 +123,7 @@ jobs:
           if ! swift test; then
             mkdir -p "$RUNNER_TEMP/native-diagnostics"
             # Preserve an actual native backtrace, rather than hiding a runner crash behind retries.
-            lldb --batch -o 'settings set target.disable-aslr false' -o run -o 'thread backtrace all' -- \
+            lldb --batch -o 'settings set target.disable-aslr false' -o 'breakpoint set -n malloc_error_break' -o run -o 'thread backtrace all' -k 'thread backtrace all' -- \
               "$(xcrun --find xctest)" -XCTest 'PerchAppTests.RuntimeObservationTests/testStoreIdleDoesNotPublishOrDecodeEverySecond' \
               .build/debug/PerchPackageTests.xctest > "$RUNNER_TEMP/native-diagnostics/backtrace.txt" 2>&1 || true
             exit 1
