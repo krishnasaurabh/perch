@@ -547,62 +547,65 @@ final class NotchController {
         fullscreenWork.forEach { $0.cancel() }; startupWork.forEach { $0.cancel() }
     }
 
-    /// Frames for the closed and open shapes on every screen, for `--dump-layout`.
-    func layoutDump() -> [[String: Any]] {
-        slots.values.sorted { $0.state.id < $1.state.id }.map { s in
-            let g = s.state.geometry
-            func r(_ x: NSRect) -> [String: Double] { ["x": x.minX, "y": x.minY, "w": x.width, "h": x.height] }
-            var d: [String: Any] = [
-                "displayID": Int(s.state.id),
-                "name": NSScreen.screens.first { $0.displayID == s.state.id }?.localizedName ?? "",
-                "safeAreaTop": g.screen.safeAreaTop, "frame": r(g.screenFrame), "notch": r(g.notchRect),
-                "expanded": model.expanded && model.screenID == s.state.id, "ignoresMouse": s.panel.ignoresMouseEvents,
-                "idle": r(g.idle(timer: timerShowing(), activity: false)), "workspace": r(g.workspace),
-                "window": r(s.panel.frame), "hardwareNotch": g.hasHardwareNotch, "fullScreen": s.state.fullScreen,
-                "menuBarHeight": g.screen.menuBarHeight, "workspaceAttached": g.workspaceAttached,
-                "visible": s.panel.isVisible,
-            ]
-            if let c = g.camera { d["camera"] = r(c) }
-            // Mouse-routing probes: the decision `updateMouseRouting` makes at each point, from the live code path.
-            let expanded = model.expanded && model.screenID == s.state.id
-            let shape = expanded ? g.workspace : g.idle(timer: timerShowing(), activity: false)
-            let capsule = !expanded && model.activity == nil ? timerShowing().map { g.pill(side: $0) } : nil
-            // A detached capsule leaves the union's top midpoint/corners empty. Sample the individual components,
-            // retaining the original outline probes unchanged for the expanded workspace and timer-free notch.
-            let topOutside =
-                capsule.map { NSPoint(x: $0.midX, y: $0.maxY + 1) }
-                ?? NSPoint(x: shape.minX + 1.5, y: shape.maxY - 2)
-            let topInside =
-                capsule.map { _ in NSPoint(x: g.tuckedNotch.midX, y: g.tuckedNotch.maxY - 2) }
-                ?? NSPoint(x: shape.midX, y: shape.maxY - 2)
-            var probes: [(String, NSPoint)] = [
-                ("notchCenterTopEdge", NSPoint(x: g.notchRect.midX, y: g.screenFrame.maxY)),
-                ("leftWing", NSPoint(x: shape.minX + 14, y: shape.maxY - 10)),
-                ("shoulderCorner", NSPoint(x: shape.minX + 0.5, y: shape.minY + 1)),
-                ("justBelowShape", NSPoint(x: shape.midX, y: shape.minY - 2)),
-                ("leftOfShape", NSPoint(x: shape.minX - 3, y: shape.maxY - 5)),
-                ("workspaceCenter", NSPoint(x: g.workspace.midX, y: g.workspace.midY)),
-                ("windowCornerOutsideShape", NSPoint(x: s.panel.frame.minX + 2, y: s.panel.frame.minY + 2)),
-                // Where the clock and status items sit: must always click through to the menu bar.
-                ("menuBarRight", NSPoint(x: g.screenFrame.maxX - 40, y: g.screenFrame.maxY - 4)),
-                ("menuBarAboveWorkspaceEdge", NSPoint(x: g.workspace.maxX - 30, y: g.screenFrame.maxY - 4)),
-                // Transparent outside the component and inside its top edge, including a detached capsule's empty surround.
-                ("shapeTopCornerOutside", topOutside),
-                ("shapeTopInside", topInside),
-            ]
-            if let capsule {
-                let n = g.notchRect
-                let gapX = capsule.midX < n.midX ? (capsule.maxX + n.minX) / 2 : (n.maxX + capsule.minX) / 2
-                d["timerCapsule"] = r(capsule)
-                probes += [
-                    ("timerCapsuleCenter", NSPoint(x: capsule.midX, y: capsule.midY)),
-                    ("timerGap", NSPoint(x: gapX, y: capsule.midY)),
+    #if DEBUG || PERCH_TESTING
+        /// Frames for the closed and open shapes on every screen, for `--dump-layout`.
+        func layoutDump() -> [[String: Any]] {
+            slots.values.sorted { $0.state.id < $1.state.id }.map { s in
+                let g = s.state.geometry
+                func r(_ x: NSRect) -> [String: Double] { ["x": x.minX, "y": x.minY, "w": x.width, "h": x.height] }
+                var d: [String: Any] = [
+                    "displayID": Int(s.state.id),
+                    "name": NSScreen.screens.first { $0.displayID == s.state.id }?.localizedName ?? "",
+                    "safeAreaTop": g.screen.safeAreaTop, "frame": r(g.screenFrame), "notch": r(g.notchRect),
+                    "expanded": model.expanded && model.screenID == s.state.id,
+                    "ignoresMouse": s.panel.ignoresMouseEvents,
+                    "idle": r(g.idle(timer: timerShowing(), activity: false)), "workspace": r(g.workspace),
+                    "window": r(s.panel.frame), "hardwareNotch": g.hasHardwareNotch, "fullScreen": s.state.fullScreen,
+                    "menuBarHeight": g.screen.menuBarHeight, "workspaceAttached": g.workspaceAttached,
+                    "visible": s.panel.isVisible,
                 ]
+                if let c = g.camera { d["camera"] = r(c) }
+                // Mouse-routing probes: the decision `updateMouseRouting` makes at each point, from the live code path.
+                let expanded = model.expanded && model.screenID == s.state.id
+                let shape = expanded ? g.workspace : g.idle(timer: timerShowing(), activity: false)
+                let capsule = !expanded && model.activity == nil ? timerShowing().map { g.pill(side: $0) } : nil
+                // A detached capsule leaves the union's top midpoint/corners empty. Sample the individual components,
+                // retaining the original outline probes unchanged for the expanded workspace and timer-free notch.
+                let topOutside =
+                    capsule.map { NSPoint(x: $0.midX, y: $0.maxY + 1) }
+                    ?? NSPoint(x: shape.minX + 1.5, y: shape.maxY - 2)
+                let topInside =
+                    capsule.map { _ in NSPoint(x: g.tuckedNotch.midX, y: g.tuckedNotch.maxY - 2) }
+                    ?? NSPoint(x: shape.midX, y: shape.maxY - 2)
+                var probes: [(String, NSPoint)] = [
+                    ("notchCenterTopEdge", NSPoint(x: g.notchRect.midX, y: g.screenFrame.maxY)),
+                    ("leftWing", NSPoint(x: shape.minX + 14, y: shape.maxY - 10)),
+                    ("shoulderCorner", NSPoint(x: shape.minX + 0.5, y: shape.minY + 1)),
+                    ("justBelowShape", NSPoint(x: shape.midX, y: shape.minY - 2)),
+                    ("leftOfShape", NSPoint(x: shape.minX - 3, y: shape.maxY - 5)),
+                    ("workspaceCenter", NSPoint(x: g.workspace.midX, y: g.workspace.midY)),
+                    ("windowCornerOutsideShape", NSPoint(x: s.panel.frame.minX + 2, y: s.panel.frame.minY + 2)),
+                    // Where the clock and status items sit: must always click through to the menu bar.
+                    ("menuBarRight", NSPoint(x: g.screenFrame.maxX - 40, y: g.screenFrame.maxY - 4)),
+                    ("menuBarAboveWorkspaceEdge", NSPoint(x: g.workspace.maxX - 30, y: g.screenFrame.maxY - 4)),
+                    // Transparent outside the component and inside its top edge, including a detached capsule's empty surround.
+                    ("shapeTopCornerOutside", topOutside),
+                    ("shapeTopInside", topInside),
+                ]
+                if let capsule {
+                    let n = g.notchRect
+                    let gapX = capsule.midX < n.midX ? (capsule.maxX + n.minX) / 2 : (n.maxX + capsule.minX) / 2
+                    d["timerCapsule"] = r(capsule)
+                    probes += [
+                        ("timerCapsuleCenter", NSPoint(x: capsule.midX, y: capsule.midY)),
+                        ("timerGap", NSPoint(x: gapX, y: capsule.midY)),
+                    ]
+                }
+                d["routing"] = Dictionary(uniqueKeysWithValues: probes.map { ($0.0, drawn(s) && isOnShape($0.1, s)) })
+                return d
             }
-            d["routing"] = Dictionary(uniqueKeysWithValues: probes.map { ($0.0, drawn(s) && isOnShape($0.1, s)) })
-            return d
         }
-    }
+    #endif
 }
 
 extension NSScreen {

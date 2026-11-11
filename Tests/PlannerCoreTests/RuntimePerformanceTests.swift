@@ -1,5 +1,6 @@
 import Foundation
 import XCTest
+import PlannerTestSupport
 @testable import PlannerCore
 #if canImport(Glibc)
     import Glibc
@@ -14,15 +15,15 @@ final class RuntimePerformanceTests: XCTestCase {
             for scheduled in [false, true] {
                 let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
                 defer { try? FileManager.default.removeItem(at: root) }
-                var reads = 0, decodes = 0, writes = 0
+                let reads = LockedValue(0), decodes = LockedValue(0), writes = LockedValue(0)
                 var io = PlannerFile.IO()
                 io.read = { url in
-                    if url.lastPathComponent == "planner.json" { reads += 1 }
+                    if url.lastPathComponent == "planner.json" { reads.update { $0 += 1 } }
                     return try Data(contentsOf: url)
                 }
-                io.didDecode = { decodes += 1 }
+                io.didDecode = { decodes.update { $0 += 1 } }
                 io.write = { data, url in
-                    if url.lastPathComponent == "planner.json" { writes += 1 }
+                    if url.lastPathComponent == "planner.json" { writes.update { $0 += 1 } }
                     try data.write(to: url, options: .atomic)
                 }
                 let file = PlannerFile(
@@ -34,7 +35,7 @@ final class RuntimePerformanceTests: XCTestCase {
                 planner.tasks = (0..<count).map { PlanTask(title: "Synthetic task \($0)", day: "2027-01-15") }
                 planner.focus = FocusSession(taskID: planner.tasks[0].id, limit: 300, now: now)
                 try file.save(planner)
-                reads = 0; decodes = 0; writes = 0
+                reads.value = 0; decodes.value = 0; writes.value = 0
                 let started = Date()
                 var next = FocusUpdateSchedule.nextUpdate(for: planner.focus, now: now)
                 for _ in 0..<31 {
@@ -45,11 +46,11 @@ final class RuntimePerformanceTests: XCTestCase {
                     }
                 }
                 let seconds = Date().timeIntervalSince(started)
-                measurements.append((reads, decodes, writes, seconds))
+                measurements.append((reads.value, decodes.value, writes.value, seconds))
                 print(
                     "timer-workload scheduled=\(scheduled) tasks=\(count) reads=\(reads) decodes=\(decodes) writes=\(writes) seconds=\(seconds)"
                 )
-                XCTAssertEqual(writes, 1, "Keep the 30-second durable checkpoint")
+                XCTAssertEqual(writes.value, 1, "Keep the 30-second durable checkpoint")
                 let saved = try file.load()
                 XCTAssertEqual(saved.tasks[0].focusedSeconds, 30)
                 XCTAssertEqual(saved.focus?.banked, 30)

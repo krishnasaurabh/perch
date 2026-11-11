@@ -89,7 +89,7 @@ public struct PlannerRecoveryError: Error, LocalizedError, CustomStringConvertib
 
 /// planner.json on disk. Shared by the app and the MCP server process, so every
 /// read-modify-write holds an advisory file lock and writes atomically.
-public final class PlannerFile: @unchecked Sendable {
+public final class PlannerFile: Sendable {
     public let url: URL
     let lockURL: URL
     /// The five most recent pre-save revisions, newest first via `backupURLs()`.
@@ -97,12 +97,12 @@ public final class PlannerFile: @unchecked Sendable {
     public var backupDirectory: URL { url.appendingPathExtension("backups") }
 
     // Fault injection stays internal; production always uses atomic Foundation writes.
-    struct IO {
-        var read: (URL) throws -> Data = { try Data(contentsOf: $0) }
-        var write: (Data, URL) throws -> Void = { try $0.write(to: $1, options: .atomic) }
-        var copy: (URL, URL) throws -> Void = { try FileManager.default.copyItem(at: $0, to: $1) }
-        var remove: (URL) throws -> Void = { try FileManager.default.removeItem(at: $0) }
-        var didDecode: () -> Void = {}
+    struct IO: Sendable {
+        var read: @Sendable (URL) throws -> Data = { try Data(contentsOf: $0) }
+        var write: @Sendable (Data, URL) throws -> Void = { try $0.write(to: $1, options: .atomic) }
+        var copy: @Sendable (URL, URL) throws -> Void = { try FileManager.default.copyItem(at: $0, to: $1) }
+        var remove: @Sendable (URL) throws -> Void = { try FileManager.default.removeItem(at: $0) }
+        var didDecode: @Sendable () -> Void = {}
     }
     private let io: IO
     private let waitsForLock: Bool
