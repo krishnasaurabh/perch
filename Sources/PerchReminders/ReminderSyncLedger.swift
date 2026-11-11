@@ -12,6 +12,9 @@ public struct ReminderSyncLink: Codable, Equatable, Sendable {
     public var remote: ReminderFields?
     public var revision: String?
     public var retired: Bool = false
+    /// Missing on old retired links: the old format did not distinguish scope exit from deletion.
+    public enum Retirement: String, Codable, Sendable { case outOfScope, deleted }
+    public var retirement: Retirement?
     public var deletedAt: Date?
     public var pending: ReminderSyncIntent?
     public init(owner: ReminderOwner) { self.owner = owner }
@@ -19,7 +22,7 @@ public struct ReminderSyncLink: Codable, Equatable, Sendable {
 
 /// Sync metadata is deliberately outside the planner document and its undo history.
 public struct ReminderSyncLedger: Codable, Equatable, Sendable {
-    public var version = 2
+    public var version = 3
     public var twoWayEnabled = false
     public var installation = UUID()
     public var enabled = false
@@ -30,16 +33,37 @@ public struct ReminderSyncLedger: Codable, Equatable, Sendable {
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         let version = try c.decode(Int.self, forKey: .version)
-        guard version == 1 || version == 2 else {
+        guard (1...3).contains(version) else {
             throw ReminderSyncError.stopped("This Reminders metadata version is not supported.")
         }
-        self.version = 2
+        self.version = 3
         installation = try c.decode(UUID.self, forKey: .installation)
         enabled = try c.decode(Bool.self, forKey: .enabled)
         calendarID = try c.decodeIfPresent(String.self, forKey: .calendarID)
         links = try c.decode([UUID: ReminderSyncLink].self, forKey: .links)
+        if version < 3 {
+            // Old formats cannot certify a scope exit. Keep their retirement opaque and fail closed
+            // if that identity becomes active; dormant historical tasks do not block other syncing.
+            for id in links.keys { links[id]?.retirement = nil }
+        }
+        guard
+            links.values.allSatisfy({ link in
+                if link.retired && link.pending != nil { return false }
+                switch link.retirement {
+                case .outOfScope:
+                    return link.retired && link.deletedAt == nil && link.remoteID == nil
+                        && link.remote == nil && link.revision == nil
+                case .deleted:
+                    return link.retired && link.deletedAt != nil
+                case nil:
+                    return link.deletedAt == nil || link.retired
+                }
+            })
+        else {
+            throw ReminderSyncError.stopped("Inconsistent Reminders retirement metadata. No changes were applied.")
+        }
         // Upgrading metadata never opts the user into two-way writes.
-        twoWayEnabled = version == 2 ? try c.decodeIfPresent(Bool.self, forKey: .twoWayEnabled) ?? false : false
+        twoWayEnabled = version >= 2 ? try c.decodeIfPresent(Bool.self, forKey: .twoWayEnabled) ?? false : false
     }
 }
 
@@ -107,7 +131,7 @@ public final class ReminderLedgerFile: ReminderLedgerStorage {
     public func load() throws -> ReminderSyncLedger {
         guard FileManager.default.fileExists(atPath: url.path) else { return ReminderSyncLedger() }
         let ledger = try JSONDecoder().decode(ReminderSyncLedger.self, from: Data(contentsOf: url))
-        guard ledger.version == 2,
+        guard ledger.version == 3,
             ledger.links.allSatisfy({
                 $0.key == $0.value.owner.task && $0.value.owner.installation == ledger.installation
             })

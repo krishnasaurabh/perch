@@ -28,18 +28,22 @@ private final class TwoWayRepository: ReminderRepository {
     var records: [ReminderSyncRecord] = []
     var saves = 0
     var removals = 0
+    var ownerLookups = 0
     var failSave = false
     var uncertainSave = false
     var uncertainDelete = false
     var beforeWrite: (() -> Void)?
     var onLookup: (() -> Void)?
     var onFetch: (() async -> Void)?
+    var onLocate: (() async -> Void)?
     func createCalendar() throws -> String { "synthetic-list" }
     func fetch(calendarID: String) async throws -> [ReminderSyncRecord] {
         await onFetch?()
         return records.filter { $0.calendarID == calendarID }
     }
     func locate(owner: ReminderOwner) async throws -> [ReminderSyncRecord] {
+        ownerLookups += 1
+        await onLocate?()
         guard hasAccess else { throw ReminderSyncError.stopped("permission denied") }
         return records.filter { $0.owner == owner }
     }
@@ -120,6 +124,170 @@ private final class TwoWayFixture {
 }
 
 final class TwoWayReminderTests: XCTestCase {
+    @MainActor func testOneWayInboxRoundTripPreservesIdentity() async throws {
+        let f = TwoWayFixture(); f.ledger.value.twoWayEnabled = false
+        try await f.run()
+        let task = f.planner.tasks[0], owner = f.remote.records[0].owner
+        var commands = PlannerEngine(planner: f.planner, now: { f.now }, calendar: f.calendar)
+        try commands.execute(.move(task.id, .inbox)); f.planner = commands.planner
+        XCTAssertNil(f.planner.tasks[0].day)
+        try await f.run(); XCTAssertTrue(f.remote.records.isEmpty)
+        try commands.execute(.move(task.id, .day(f.today))); f.planner = commands.planner
+        XCTAssertEqual(f.planner.tasks[0].day, f.today)
+        try await f.run(); try await f.run()
+        XCTAssertEqual(f.remote.records.count, 1)
+        XCTAssertEqual(f.remote.records[0].owner, owner)
+        XCTAssertEqual(f.remote.saves, 2); XCTAssertEqual(f.remote.removals, 1)
+    }
+
+    @MainActor func testEnableTwoWayAfterOneWayRolloverKeepsHistory() async throws {
+        let f = TwoWayFixture(); f.ledger.value.twoWayEnabled = false
+        try await f.run()
+        let task = f.planner.tasks[0]
+        try await f.engine.reconcile(f.planner, today: f.today.adding(days: 1))
+        XCTAssertTrue(f.remote.records.isEmpty)
+        try f.engine.setTwoWayEnabled(true)
+        try await f.engine.reconcile(f.planner, today: f.today.adding(days: 1))
+        XCTAssertEqual(f.planner.tasks, [task]); XCTAssertEqual(f.remote.saves, 1)
+        XCTAssertEqual(f.remote.removals, 1)
+        // Rescheduling the same live task brings it back into the mirrored scope.
+        f.planner.tasks[0].day = f.today.adding(days: 1)
+        try await f.engine.reconcile(f.planner, today: f.today.adding(days: 1))
+        XCTAssertEqual(f.remote.records.count, 1); XCTAssertEqual(f.remote.saves, 2)
+    }
+
+    @MainActor func testUncertainCreateMovedBeforeRestartDoesNotDuplicate() async throws {
+        for twoWay in [false, true] {
+            for refreshedID in [false, true] {
+                let f = TwoWayFixture(); f.ledger.value.twoWayEnabled = twoWay
+                f.remote.uncertainSave = true; await f.expectStop()
+                let old = try XCTUnwrap(f.remote.records.first)
+                XCTAssertNil(f.ledger.value.links[f.planner.tasks[0].id]?.remoteID)
+                let moved = ReminderSyncRecord(
+                    id: refreshedID ? "refreshed-id" : old.id, calendarID: "other-list",
+                    owner: old.owner, fields: old.fields, revision: "moved")
+                f.remote.records = [moved]; f.remote.uncertainSave = false
+                let ledger = f.ledger.value
+                await f.expectStop(); await f.expectStop()
+                XCTAssertEqual(f.remote.records, [moved]); XCTAssertEqual(f.remote.saves, 1)
+                XCTAssertEqual(f.remote.removals, 0); XCTAssertEqual(f.applied, 0)
+                XCTAssertEqual(f.ledger.value, ledger); XCTAssertGreaterThanOrEqual(f.remote.ownerLookups, 2)
+                // Returning the committed copy to the selected list recovers the original intent.
+                f.remote.records = [old]
+                try await f.run(); XCTAssertEqual(f.remote.saves, 1)
+            }
+        }
+    }
+
+    @MainActor func testScopeExitMetadataSurvivesRestartAndModeChange() async throws {
+        for twoWay in [false, true] {
+            let f = TwoWayFixture(); f.ledger.value.twoWayEnabled = false
+            try await f.run(); let task = f.planner.tasks[0]
+            f.planner.tasks[0].day = nil; try await f.run()
+            let link = try XCTUnwrap(f.ledger.value.links[task.id])
+            XCTAssertEqual(link.retirement, .outOfScope); XCTAssertNil(link.deletedAt)
+            f.ledger.value = try JSONDecoder().decode(
+                ReminderSyncLedger.self, from: JSONEncoder().encode(f.ledger.value))
+            try f.engine.setTwoWayEnabled(twoWay); try await f.run()
+            XCTAssertEqual(f.planner.tasks.count, 1); XCTAssertTrue(f.remote.records.isEmpty)
+            f.planner.tasks[0].day = f.today; try await f.run(); try await f.run()
+            XCTAssertEqual(f.remote.saves, 2); XCTAssertEqual(f.remote.records.count, 1)
+            XCTAssertEqual(f.remote.records[0].owner, link.owner)
+            XCTAssertFalse(f.ledger.value.links[task.id]!.retired)
+            XCTAssertNil(f.ledger.value.links[task.id]!.retirement)
+        }
+    }
+
+    @MainActor func testDeletionWhileSuspendedNeverAllowsIdentityReuse() async throws {
+        for twoWay in [false, true] {
+            let f = TwoWayFixture(); f.ledger.value.twoWayEnabled = false
+            try await f.run(); let task = f.planner.tasks[0]
+            f.planner.tasks[0].day = nil; try await f.run()
+            try f.engine.setTwoWayEnabled(twoWay)
+            f.planner.tasks = []; try await f.run()
+            let link = try XCTUnwrap(f.ledger.value.links[task.id])
+            XCTAssertEqual(link.retirement, .deleted); XCTAssertNotNil(link.deletedAt)
+            f.ledger.value = try JSONDecoder().decode(
+                ReminderSyncLedger.self, from: JSONEncoder().encode(f.ledger.value))
+            f.planner.tasks = [task]; await f.expectStop()
+            XCTAssertTrue(f.remote.records.isEmpty); XCTAssertEqual(f.remote.saves, 1)
+        }
+    }
+
+    @MainActor func testScopeExitDoesNotForgetMissingOrReappearedReminder() async throws {
+        let f = TwoWayFixture(); f.ledger.value.twoWayEnabled = false
+        try await f.run(); let old = f.remote.records[0]
+        f.remote.records = []; f.planner.tasks[0].day = nil
+        await f.expectStop()
+        XCTAssertFalse(f.ledger.value.links[f.planner.tasks[0].id]!.retired)
+        f.remote.records = [old]; try await f.run()
+        f.remote.records = [old]
+        f.planner.tasks[0].day = f.today
+        await f.expectStop(); XCTAssertEqual(f.remote.records, [old])
+        try f.engine.setTwoWayEnabled(true)
+        await f.expectStop(); XCTAssertEqual(f.remote.records, [old])
+        XCTAssertEqual(f.remote.saves, 1); XCTAssertEqual(f.remote.removals, 1)
+    }
+
+    @MainActor func testOldRetiredMetadataPreservesHistoryButCannotResumeUnknownIdentity() async throws {
+        for version in [1, 2] {
+            let f = TwoWayFixture(); f.ledger.value.twoWayEnabled = false
+            try await f.run(); let id = f.planner.tasks[0].id
+            f.planner.tasks[0].day = f.today.adding(days: -1); try await f.run()
+            let bytes = try JSONEncoder().encode(f.ledger.value)
+            var object = try XCTUnwrap(JSONSerialization.jsonObject(with: bytes) as? [String: Any])
+            object["version"] = version
+            f.ledger.value = try JSONDecoder().decode(
+                ReminderSyncLedger.self, from: JSONSerialization.data(withJSONObject: object))
+            XCTAssertNil(f.ledger.value.links[id]!.retirement)
+            try f.engine.setTwoWayEnabled(true)
+            f.planner.tasks.append(PlanTask(title: "Another synthetic task", day: f.today, createdAt: f.now))
+            try await f.run()
+            XCTAssertEqual(f.planner.tasks.count, 2); XCTAssertEqual(f.remote.records.count, 1)
+            f.planner.tasks[0].day = f.today
+            await f.expectStop(); XCTAssertEqual(f.remote.records.count, 1)
+            XCTAssertEqual(f.remote.saves, 2)
+            XCTAssertTrue(f.ledger.value.links[id]!.retired)
+        }
+    }
+
+    @MainActor func testUncertainCreateAmbiguousOwnerOrRevocationPreservesIntent() async throws {
+        for twoWay in [false, true] {
+            for revoked in [false, true] {
+                let f = TwoWayFixture(); f.ledger.value.twoWayEnabled = twoWay
+                f.remote.uncertainSave = true; await f.expectStop()
+                let old = try XCTUnwrap(f.remote.records.first)
+                f.remote.records = ["first", "second"].map {
+                    ReminderSyncRecord(
+                        id: $0, calendarID: "other-list", owner: old.owner,
+                        fields: old.fields, revision: "moved")
+                }
+                f.remote.uncertainSave = false
+                if revoked { f.remote.onLocate = { f.remote.hasAccess = false } }
+                let records = f.remote.records, ledger = f.ledger.value
+                await f.expectStop()
+                XCTAssertEqual(f.remote.records, records); XCTAssertEqual(f.ledger.value, ledger)
+                XCTAssertEqual(f.remote.saves, 1); XCTAssertEqual(f.remote.removals, 0)
+                XCTAssertEqual(f.applied, 0); XCTAssertEqual(f.remote.ownerLookups, 1)
+            }
+        }
+    }
+
+    @MainActor func testInvalidScopeRetirementCannotDecodeAsPermissionToResume() async throws {
+        let f = TwoWayFixture(); f.ledger.value.twoWayEnabled = false
+        try await f.run(); f.planner.tasks[0].day = nil; try await f.run()
+        let id = f.planner.tasks[0].id
+        f.ledger.value.links[id]!.deletedAt = f.now
+        XCTAssertThrowsError(
+            try JSONDecoder().decode(
+                ReminderSyncLedger.self, from: JSONEncoder().encode(f.ledger.value)))
+        f.ledger.value.links[id]!.deletedAt = nil
+        f.ledger.value.links[id]!.retired = false
+        XCTAssertThrowsError(
+            try JSONDecoder().decode(
+                ReminderSyncLedger.self, from: JSONEncoder().encode(f.ledger.value)))
+    }
+
     @MainActor func testRemoteFieldsImportAndNoOp() async throws {
         let f = TwoWayFixture(); try await f.run()
         f.remote.edit {
@@ -356,7 +524,7 @@ final class TwoWayReminderTests: XCTestCase {
         object["version"] = 1; object.removeValue(forKey: "twoWayEnabled")
         let migrated = try JSONDecoder().decode(
             ReminderSyncLedger.self, from: JSONSerialization.data(withJSONObject: object))
-        XCTAssertEqual(migrated.version, 2); XCTAssertFalse(migrated.twoWayEnabled)
+        XCTAssertEqual(migrated.version, 3); XCTAssertFalse(migrated.twoWayEnabled)
         XCTAssertTrue(migrated.links[id]!.retired); XCTAssertEqual(migrated.installation, f.ledger.value.installation)
     }
     @MainActor func testDurableIntentSurvivesEncodeLoadAndRestart() async throws {

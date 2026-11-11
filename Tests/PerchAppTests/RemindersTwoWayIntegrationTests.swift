@@ -25,6 +25,30 @@ final class RemindersTwoWayIntegrationTests: XCTestCase {
             id: old.id, calendarID: old.calendarID, owner: old.owner, fields: fields, revision: old.revision + "-remote"
         )
     }
+    @MainActor func testInboxRoundTripAndModeChangePersistWithoutDeletingTask() async throws {
+        for twoWay in [false, true] {
+            try await exercise { store, source, ledger, sync in
+                await sync.reconcileNow(); XCTAssertNil(sync.lastError)
+                let id = store.planner.tasks[0].id
+                let owner = source.records[0].owner
+                _ = try XCTUnwrap(store.send(.move(id, .inbox)))
+                await sync.reconcileNow(); XCTAssertNil(sync.lastError)
+                XCTAssertNil(try store.file.load().tasks[0].day)
+                XCTAssertTrue(source.records.isEmpty)
+                XCTAssertEqual(ledger.ledger.links[id]?.retirement, .outOfScope)
+                sync.setTwoWayEnabled(twoWay)
+                let restarted = RemindersSync(store: store, source: source, storage: ledger, observing: false)
+                await restarted.reconcileNow(); XCTAssertNil(restarted.lastError)
+                _ = try XCTUnwrap(store.send(.move(id, .day(store.today))))
+                await restarted.reconcileNow(); XCTAssertNil(restarted.lastError)
+                await restarted.reconcileNow(); XCTAssertNil(restarted.lastError)
+                XCTAssertEqual(try store.file.load().tasks[0].id, id)
+                XCTAssertEqual(source.records.count, 1); XCTAssertEqual(source.records[0].owner, owner)
+                XCTAssertEqual(source.saves, 2); XCTAssertEqual(source.removals, 1)
+            }
+        }
+    }
+
     @MainActor func testModeRequiresSeparateConsentAndPersists() async throws {
         try await exercise { store, source, ledger, sync in
             XCTAssertFalse(sync.twoWayEnabled)

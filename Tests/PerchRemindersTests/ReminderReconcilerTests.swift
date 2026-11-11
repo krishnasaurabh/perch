@@ -40,6 +40,14 @@ private final class FakeRepository: ReminderRepository {
         try await onFetch?()
         return records
     }
+    func locate(owner: ReminderOwner) async throws -> [ReminderSyncRecord] {
+        guard hasAccess else { throw ReminderSyncError.stopped("denied") }
+        return records.filter { $0.owner == owner }
+    }
+    func lookup(id: String) throws -> ReminderSyncRecord? {
+        guard hasAccess else { throw ReminderSyncError.stopped("denied") }
+        return records.first { $0.id == id }
+    }
     func save(fields: ReminderFields, owner: ReminderOwner, calendarID: String, replacing: ReminderSyncRecord?) throws
         -> ReminderSyncRecord
     {

@@ -49,10 +49,11 @@ struct TwoWayReminderReconciler {
                 throw conflict("A linked reminder's ownership marker changed.")
             }
             var remote = byOwner[link.owner]
-            if remote == nil, let oldID = link.remoteID {
-                // A scoped fetch cannot prove deletion. A reminder moved to another list stays untouched.
+            if remote == nil, ledger.links[id] != nil {
+                // A persisted owner can have a committed create even when no ID was checkpointed.
+                // A scoped fetch alone cannot prove absence or authorize a second create.
                 try check(validate)
-                if try repository.lookup(id: oldID) != nil {
+                if let oldID = link.remoteID, try repository.lookup(id: oldID) != nil {
                     throw conflict("A linked reminder was moved outside its list. Move it back before retrying.")
                 }
                 guard try await repository.locate(owner: link.owner).isEmpty else {
@@ -62,12 +63,34 @@ struct TwoWayReminderReconciler {
                 try check(validate)
             }
             if link.retired {
-                guard task == nil, remote == nil else {
-                    throw conflict(
-                        "A deleted task or reminder reappeared. Create a new task instead of reusing its deleted identity."
-                    )
+                guard remote == nil else {
+                    throw conflict("A retired reminder reappeared. It was preserved; sync is stopped.")
                 }
-                continue
+                if link.retirement == .outOfScope, link.deletedAt == nil {
+                    if task == nil {
+                        checkpoint(&link, target: nil, remote: nil)
+                        ledger.links[id] = link; try storage.save(ledger)
+                        continue
+                    }
+                    guard task?.day.map({ $0 >= today }) == true else { continue }
+                    // Only an explicit scope-exit marker permits re-entry with the same live identity.
+                    link.retired = false; link.retirement = nil
+                    link.local = nil; link.remote = nil; link.remoteID = nil; link.revision = nil
+                } else {
+                    // Older metadata cannot prove why a link was retired. Preserve dormant history,
+                    // but never infer permission to resurrect its reminder when it is rescheduled.
+                    if link.retirement == nil, link.deletedAt == nil,
+                        task?.day.map({ $0 >= today }) != true
+                    {
+                        continue
+                    }
+                    guard task == nil else {
+                        throw conflict(
+                            "A deleted or legacy-retired task reappeared. Create a new task instead of reusing its retired identity."
+                        )
+                    }
+                    continue
+                }
             }
             guard remote?.unsupported != true else {
                 throw conflict("A linked reminder has unsupported recurrence, alarms or other fields.")
@@ -173,6 +196,7 @@ struct TwoWayReminderReconciler {
         // Retain the last identifier on a tombstone, so reappearance cannot be adopted.
         if let remote { link.remoteID = remote.id }
         link.retired = target == nil
+        link.retirement = link.retired ? .deleted : nil
         if link.retired, link.deletedAt == nil { link.deletedAt = Date() }
         link.pending = nil
     }
