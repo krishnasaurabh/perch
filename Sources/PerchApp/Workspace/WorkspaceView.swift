@@ -1,3 +1,4 @@
+import AppKit
 import PlannerCore
 import PerchUI
 import SwiftUI
@@ -10,7 +11,7 @@ struct WorkspaceView: View {
     @EnvironmentObject var services: Services
     @Environment(\.isEnabled) private var enabled
     @FocusState private var focusedPage: NotchPage?
-    @FocusState private var moreFocused: Bool
+    @State private var moreAnchor = WorkspaceMenuAnchorView()
 
     var body: some View {
         VStack(spacing: WorkspaceLayout.headerGap) {
@@ -142,25 +143,63 @@ struct WorkspaceView: View {
 
     /// Undo, Dashboard and Settings behind one button. ⌘Z still undoes directly.
     private var moreMenu: some View {
-        Menu {
-            Button("Undo") { store.undo() }.disabled(!store.canUndo)
-            Divider()
-            Button("Open Dashboard") { DashboardWindow.show(store: store, model: model, services: services) }
-            Button("Settings…") { SettingsWindow.show(store: store, services: services) }
+        // A native SwiftUI Menu does not apply our primitive button style to its
+        // AppKit launcher. Use a real shared-style button and anchor a native menu
+        // to it so its target, keyboard focus and accessibility identity agree.
+        Button {
+            moreAnchor.show(
+                canUndo: store.canUndo,
+                undo: { store.undo() },
+                dashboard: { DashboardWindow.show(store: store, model: model, services: services) },
+                settings: { SettingsWindow.show(store: store, services: services) })
         } label: {
             Image(systemName: "ellipsis")
-                .font(Theme.label)
-                .foregroundStyle(Theme.text)
         }
-        .menuStyle(.button)
         .buttonStyle(PillStyle())
-        .menuIndicator(.hidden).fixedSize()
-        .focused($moreFocused)
-        .focusEffectDisabled()
-        .overlay(ControlFocusRing(shape: Capsule(), focused: moreFocused && enabled))
+        .fixedSize()
+        .background(WorkspaceMenuAnchor(view: moreAnchor).allowsHitTesting(false))
         .help("More")
         .accessibilityLabel("More")
         .accessibilityIdentifier("workspace-more")
+    }
+}
+
+/// Geometry only: the shared SwiftUI button remains the sole accessible control.
+private struct WorkspaceMenuAnchor: NSViewRepresentable {
+    let view: WorkspaceMenuAnchorView
+    func makeNSView(context: Context) -> WorkspaceMenuAnchorView { view }
+    func updateNSView(_ nsView: WorkspaceMenuAnchorView, context: Context) {}
+}
+
+@MainActor
+private final class WorkspaceMenuAnchorView: NSView {
+    private var actions: [() -> Void] = []
+    override var isFlipped: Bool { true }
+    override func isAccessibilityElement() -> Bool { false }
+
+    func show(
+        canUndo: Bool, undo: @escaping () -> Void,
+        dashboard: @escaping () -> Void, settings: @escaping () -> Void
+    ) {
+        guard window != nil else { return }
+        actions = [undo, dashboard, settings]
+        defer { actions.removeAll() }
+        let menu = NSMenu(title: "More")
+        menu.autoenablesItems = false
+        for (index, title) in ["Undo", "Open Dashboard", "Settings…"].enumerated() {
+            if index == 1 { menu.addItem(.separator()) }
+            let item = NSMenuItem(title: title, action: #selector(performMenuAction(_:)), keyEquivalent: "")
+            item.target = self
+            item.tag = index
+            item.isEnabled = index != 0 || canUndo
+            menu.addItem(item)
+        }
+        menu.popUp(positioning: nil, at: NSPoint(x: bounds.minX, y: bounds.maxY), in: self)
+    }
+
+    @objc private func performMenuAction(_ sender: NSMenuItem) {
+        guard actions.indices.contains(sender.tag) else { return }
+        actions[sender.tag]()
     }
 }
 

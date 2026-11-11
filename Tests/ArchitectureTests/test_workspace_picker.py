@@ -19,6 +19,18 @@ class WorkspacePickerContractTests(unittest.TestCase):
         self.assertIn('accessibilityIdentifier("workspace-more")', source)
         self.assertIn('accessibilityIdentifier("workspace-pages")', source)
 
+    def test_more_launcher_uses_the_shared_button_and_native_menu(self):
+        source = (ROOT / "Sources/PerchApp/Workspace/WorkspaceView.swift").read_text()
+        launcher = source.split("private var moreMenu: some View {", 1)[1].split("private struct WorkspaceMenuAnchor", 1)[0]
+        self.assertIn("Button {", launcher)
+        self.assertIn(".buttonStyle(PillStyle())", launcher)
+        self.assertNotIn("Menu {", launcher, "A native Menu launcher does not consume the primitive pill style")
+        self.assertNotIn(".menuStyle(", launcher)
+        self.assertIn(".allowsHitTesting(false)", launcher)
+        self.assertIn("override func isAccessibilityElement() -> Bool { false }", source)
+        self.assertIn("menu.popUp(positioning:", source)
+        self.assertIn("item.isEnabled = index != 0 || canUndo", source)
+
     def test_page_crossfade_is_retained(self):
         source = (ROOT / "Sources/PerchApp/Workspace/WorkspaceView.swift").read_text()
         self.assertIn("page.id(model.page).transition(.opacity)", source)

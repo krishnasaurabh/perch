@@ -57,6 +57,88 @@ print("Workspace assertion positive and negative controls passed")
             result = subprocess.run([str(binary)], check=True, capture_output=True, text=True)
             self.assertIn("positive and negative controls passed", result.stdout)
 
+    def test_more_menu_routes_actions_and_clears_retained_callbacks(self):
+        source = (ROOT / "Sources/PerchApp/Workspace/WorkspaceView.swift").read_text()
+        anchor = source.split("@MainActor\nprivate final class WorkspaceMenuAnchorView", 1)[1].split("struct IDBox:", 1)[0]
+        # Adapt only Objective-C dispatch; this is not an AppKit runtime test.
+        anchor = anchor.replace("#selector(performMenuAction(_:))", '"performMenuAction:"').replace("@objc ", "")
+        program = """
+import Foundation
+@MainActor private class NSView {
+    var window: Int? = 1
+    var bounds = CGRect(x: 0, y: 0, width: 35, height: 30)
+    var isFlipped: Bool { false }
+    func isAccessibilityElement() -> Bool { true }
+}
+@MainActor private final class NSMenuItem {
+    let title: String
+    weak var target: AnyObject?
+    var tag = 0
+    var isEnabled = true
+    init(title: String, action: String?, keyEquivalent: String) { self.title = title }
+    static func separator() -> NSMenuItem { NSMenuItem(title: "", action: nil, keyEquivalent: "") }
+}
+@MainActor private final class NSMenu {
+    static var popup: ((NSMenu, CGPoint, NSView) -> Void)?
+    let title: String
+    var autoenablesItems = true
+    var items: [NSMenuItem] = []
+    init(title: String) { self.title = title }
+    func addItem(_ item: NSMenuItem) { items.append(item) }
+    func popUp(positioning: NSMenuItem?, at point: CGPoint, in view: NSView) {
+        precondition(positioning == nil)
+        Self.popup?(self, point, view)
+    }
+}
+@MainActor private final class WorkspaceMenuAnchorView""" + anchor + """
+extension WorkspaceMenuAnchorView {
+    func activate(_ item: NSMenuItem) { performMenuAction(item) }
+}
+private let view = WorkspaceMenuAnchorView()
+private var calls = [0, 0, 0]
+private var retained: [NSMenuItem] = []
+precondition(!view.isAccessibilityElement())
+precondition(view.isFlipped)
+for enabled in [false, true] {
+    NSMenu.popup = { menu, point, owner in
+        precondition(owner === view)
+        precondition(point == CGPoint(x: 0, y: 30))
+        precondition(menu.title == "More" && !menu.autoenablesItems)
+        precondition(menu.items.map(\\.title) == ["Undo", "", "Open Dashboard", "Settings…"])
+        precondition(menu.items[0].isEnabled == enabled)
+        precondition(menu.items[2].isEnabled && menu.items[3].isEnabled)
+        retained = menu.items
+        for item in menu.items where !item.title.isEmpty && item.isEnabled {
+            view.activate(item)
+        }
+    }
+    view.show(canUndo: enabled, undo: { calls[0] += 1 },
+              dashboard: { calls[1] += 1 }, settings: { calls[2] += 1 })
+}
+precondition(calls == [1, 2, 2])
+for item in retained { view.activate(item) }
+precondition(calls == [1, 2, 2], "Menu callbacks must not outlive tracking")
+view.window = nil
+NSMenu.popup = { _, _, _ in preconditionFailure("Unattached anchors cannot present") }
+view.show(canUndo: true, undo: { calls[0] += 1 },
+          dashboard: { calls[1] += 1 }, settings: { calls[2] += 1 })
+precondition(calls == [1, 2, 2])
+print("Menu routing and lifetime adapter checks passed")
+"""
+        with tempfile.TemporaryDirectory() as directory:
+            main = pathlib.Path(directory) / "main.swift"
+            main.write_text(program)
+            swift = shutil.which("swiftc")
+            if swift is None:
+                self.fail("Swift is required to verify menu routing")
+            binary = pathlib.Path(directory) / "menu-routing"
+            compiled = subprocess.run(
+                [swift, "-swift-version", "6", str(main), "-o", str(binary)], capture_output=True, text=True,
+            )
+            self.assertEqual(compiled.returncode, 0, compiled.stderr)
+            result = subprocess.run([str(binary)], check=True, capture_output=True, text=True)
+            self.assertIn("Menu routing and lifetime adapter checks passed", result.stdout)
+
     def test_runner_rejects_non_macos_before_building(self):
         with tempfile.TemporaryDirectory() as directory:
             uname = pathlib.Path(directory) / "uname"

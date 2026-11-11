@@ -25,6 +25,9 @@ private final class WorkspaceNavigationProbe {
             let initial = try fixture.pageFrames()
             let more = try fixture.control("workspace-more")
             let moreFrame = fixture.frame(more)
+            try requireEqual(fixture.attribute(more, "accessibilityRole") as? String, "AXButton")
+            try requireEqual(fixture.attribute(more, "accessibilityLabel") as? String, "More")
+            try require(try fixture.bool(more, "isAccessibilityEnabled"))
             try requireAtLeast(moreFrame.width, ThemeTokens.minimumTarget)
             try requireAtLeast(moreFrame.height, ThemeTokens.minimumTarget)
             try fixture.assertHeaderLayout()
@@ -55,6 +58,8 @@ private final class WorkspaceNavigationProbe {
             try await fixture.key(48, "\t")
             try fixture.assertFocused("workspace-more")
             try fixture.assertFocusRing(identifier: "workspace-more")
+            try await fixture.inspectMoreMenu(usingKeyboard: true, undoEnabled: false)
+            try fixture.assertFocused("workspace-more")
             try requireEqual(fixture.model.page, .home, "Tab does not activate another page")
             try await fixture.key(48, "\t", modifiers: .shift)
             try fixture.assertFocused("workspace-page-home")
@@ -74,6 +79,14 @@ private final class WorkspaceNavigationProbe {
             try requireNil(fixture.window.attachedSheet)
             try requireEqual(try fixture.file.load().tasks, [], "Navigation never edits planner tasks")
             try requireNil(fixture.model.captureFocusRequest)
+
+            // Activate the real native menu action, including its Undo enablement.
+            fixture.store.send(.addTasks(["Synthetic menu task"], day: nil, literal: true, agentID: nil))
+            try requireEqual(fixture.store.planner.tasks.count, 1)
+            try require(fixture.store.canUndo)
+            await fixture.settle()
+            try await fixture.inspectMoreMenu(usingKeyboard: false, undoEnabled: true, activateUndo: true)
+            try requireEqual(try fixture.file.load().tasks, [], "More menu Undo reaches persisted storage")
         }
     }
 
@@ -300,6 +313,26 @@ private final class WorkspaceNavigationFixture {
         try save("focus-\(identifier)")
     }
 
+    func inspectMoreMenu(usingKeyboard: Bool, undoEnabled: Bool, activateUndo: Bool = false) async throws {
+        let observation = WorkspaceMenuObservation(activateUndo: activateUndo)
+        observation.start()
+        defer { observation.stop() }
+        if usingKeyboard {
+            try await key(49, " ")
+        } else {
+            try press(control("workspace-more"))
+            await settle()
+        }
+        let menu = try unwrap(observation.menu)
+        try requireFalse(observation.timedOut, "Native More menu must begin tracking")
+        try requireEqual(menu.items.map(\.title), ["Undo", "", "Open Dashboard", "Settings…"])
+        try require(menu.items[1].isSeparatorItem)
+        try requireEqual(menu.items[0].isEnabled, undoEnabled)
+        try require(menu.items[2].isEnabled)
+        try require(menu.items[3].isEnabled)
+        try requireEqual(observation.activatedUndo, activateUndo)
+    }
+
     func snapshot() throws -> NSBitmapImageRep {
         let host = try unwrap(window.contentView)
         host.layoutSubtreeIfNeeded()
@@ -358,9 +391,11 @@ private final class WorkspaceNavigationFixture {
 
     func trace(_ context: String) {
         let lines = nodes(window).filter {
-            (attribute($0, "accessibilityIdentifier") as? String)?.hasPrefix("workspace-") == true
+            attribute($0, "accessibilityRole") != nil
         }.map {
-            "\(attribute($0, "accessibilityIdentifier") ?? "?") role=\(attribute($0, "accessibilityRole") ?? "?") "
+            "\(type(of: $0)) id=\(attribute($0, "accessibilityIdentifier") ?? "?") "
+                + "role=\(attribute($0, "accessibilityRole") ?? "?") "
+                + "label=\(attribute($0, "accessibilityLabel") ?? "?") "
                 + "value=\(attribute($0, "accessibilityValue") ?? "?") frame=\(frame($0)) "
                 + "focused=\((try? bool($0, "isAccessibilityFocused")) ?? false)"
         }
@@ -368,6 +403,53 @@ private final class WorkspaceNavigationFixture {
             Data(
                 ("Workspace \(width): \(context) key=\(window.isKeyWindow)\n"
                     + lines.joined(separator: "\n") + "\n").utf8))
+    }
+}
+
+/// Close the native tracking loop on its own run-loop mode, not a blocked task.
+@MainActor
+private final class WorkspaceMenuObservation: NSObject {
+    let activateUndo: Bool
+    private let deadline = ProcessInfo.processInfo.systemUptime + 5
+    private var timer: Timer?
+    private(set) var menu: NSMenu?
+    private(set) var timedOut = false
+    private(set) var activatedUndo = false
+
+    init(activateUndo: Bool) { self.activateUndo = activateUndo }
+
+    func start() {
+        NotificationCenter.default.addObserver(
+            self, selector: #selector(beganTracking(_:)), name: NSMenu.didBeginTrackingNotification, object: nil)
+        let timer = Timer(timeInterval: 0.05, target: self, selector: #selector(inspect), userInfo: nil, repeats: true)
+        self.timer = timer
+        RunLoop.main.add(timer, forMode: .default)
+        RunLoop.main.add(timer, forMode: .eventTracking)
+    }
+
+    func stop() {
+        timer?.invalidate()
+        timer = nil
+        NotificationCenter.default.removeObserver(self)
+    }
+
+    @objc private func beganTracking(_ notification: Notification) {
+        guard let tracked = notification.object as? NSMenu, tracked.title == "More" else { return }
+        menu = tracked
+    }
+
+    @objc private func inspect() {
+        if let menu {
+            if activateUndo, !activatedUndo, let first = menu.items.first, first.isEnabled {
+                menu.performActionForItem(at: 0)
+                activatedUndo = true
+            }
+            menu.cancelTracking()
+            timer?.invalidate()
+        } else if ProcessInfo.processInfo.systemUptime >= deadline {
+            timedOut = true
+            timer?.invalidate()
+        }
     }
 }
 
