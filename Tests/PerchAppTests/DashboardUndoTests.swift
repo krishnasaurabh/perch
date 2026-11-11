@@ -170,8 +170,6 @@ private final class DashboardFixture {
     let file: PlannerFile
     let store: PlannerStore
     private let activationPolicy = NSApplication.shared.activationPolicy()
-    private var model: NotchModel?
-    private var services: Services?
 
     init() throws {
         directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
@@ -194,11 +192,7 @@ private final class DashboardFixture {
     }
 
     func open(tab: String) async throws -> NSWindow {
-        let model = NotchModel()
-        let services = Services(store: store)
-        self.model = model
-        self.services = services
-        DashboardWindow.show(store: store, model: model, services: services)
+        DashboardWindow.show(store: store)
         let window = try XCTUnwrap(WindowHost.windows["dashboard"])
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)

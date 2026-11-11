@@ -1,6 +1,12 @@
 import SwiftUI
 
 enum DashboardWindow {
+    @MainActor static func show(store: PlannerStore) {
+        WindowHost.show("dashboard", title: "Perch", size: CGSize(width: 900, height: 640)) {
+            DashboardView().environmentObject(store)
+        }
+    }
+
     @MainActor static func show(store: PlannerStore, model: NotchModel, services: Services) {
         WindowHost.show("dashboard", title: "Perch", size: CGSize(width: 900, height: 640)) {
             DashboardView().environmentObject(store).environmentObject(model).environmentObject(services)
