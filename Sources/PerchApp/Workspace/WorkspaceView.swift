@@ -11,7 +11,7 @@ struct WorkspaceView: View {
     @EnvironmentObject var services: Services
     @Environment(\.isEnabled) private var enabled
     @FocusState private var focusedPage: NotchPage?
-    @FocusState private var moreFocused = false
+    @FocusState private var moreFocused: Bool
     @State private var pageGroupHasFocus = false
     @State private var moreAnchor = WorkspaceMenuAnchorView()
 
@@ -185,7 +185,7 @@ struct WorkspaceView: View {
             Image(systemName: "ellipsis")
         }
         .buttonStyle(PillStyle(focus: $moreFocused))
-        .onKeyPress(.space, phases: .down) {
+        .onKeyPress(.space, phases: .down) { _ in
             guard moreFocused, enabled else { return .ignored }
             showMoreMenu()
             return .handled

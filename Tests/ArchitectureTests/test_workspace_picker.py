@@ -52,12 +52,12 @@ class WorkspacePickerContractTests(unittest.TestCase):
     def test_more_has_an_explicit_keyboard_focus_owner(self):
         source = (ROOT / "Sources/PerchApp/Workspace/WorkspaceView.swift").read_text()
         launcher = source.split("private var moreMenu: some View {", 1)[1].split("private func showMoreMenu", 1)[0]
-        self.assertIn("@FocusState private var moreFocused = false", source)
+        self.assertIn("@FocusState private var moreFocused: Bool", source)
         self.assertIn(".buttonStyle(PillStyle(focus: $moreFocused))", launcher)
         self.assertNotIn(".focusable(", launcher, "The style's real Button, not its wrapper, owns focus")
         self.assertNotIn(".focused(", launcher)
         self.assertNotIn(".overlay(ControlFocusRing", launcher, "The shared style draws exactly one focus ring")
-        self.assertIn(".onKeyPress(.space, phases: .down)", launcher)
+        self.assertIn(".onKeyPress(.space, phases: .down) { _ in", launcher)
         self.assertIn("guard moreFocused, enabled else { return .ignored }", launcher)
         self.assertIn("showMoreMenu()", launcher)
 
