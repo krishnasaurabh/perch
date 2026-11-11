@@ -229,6 +229,42 @@ MainActor.assumeIsolated {
                     }
                 }
                 if store.planner.focus != nil { press("End focus session", in: root); await settle() }
+                window.makeFirstResponder(nil)
+                var rowKeyboardReached = false
+                for _ in 0..<60 {
+                    key("\t", code: 48, in: window); await Task.yield()
+                    guard let first = control("Complete \(added[0].title)", in: root),
+                        (attr(first, "accessibilityFocused") as? NSNumber)?.boolValue == true
+                    else { continue }
+                    rowKeyboardReached = true
+                    key("\u{F701}", code: 125, in: window); await settle()
+                    guard let next = control("Complete \(added[2].title)", in: root) else {
+                        require(false, "\(name): next row is accessible"); return
+                    }
+                    require(
+                        (attr(next, "accessibilityFocused") as? NSNumber)?.boolValue == true,
+                        "\(name): Down focuses the next displayed task")
+                    key("\u{F700}", code: 126, in: window); await settle()
+                    require(
+                        (attr(first, "accessibilityFocused") as? NSNumber)?.boolValue == true,
+                        "\(name): Up returns to the previous task")
+                    snapshot(root, "\(name)-row-keyboard-focused", into: output)
+                    key(" ", code: 49, in: window); await settle()
+                    require(
+                        store.planner.tasks.first { $0.id == added[0].id }?.done == true,
+                        "\(name): Space completes exactly the focused task")
+                    let nextAfterCompletion = control("Complete \(added[2].title)", in: root)
+                    require(
+                        nextAfterCompletion.map {
+                            (attr($0, "accessibilityFocused") as? NSNumber)?.boolValue == true
+                        } == true, "\(name): completion keeps focus on the next task")
+                    press("Undo", in: root); await settle()
+                    require(
+                        store.planner.tasks.first { $0.id == added[0].id }?.done == false,
+                        "\(name): visible Undo restores keyboard completion")
+                    break
+                }
+                require(rowKeyboardReached, "\(name): Tab reaches a real task completion button")
                 // Dense rows scroll independently of the still-visible entry and capture.
                 store.apply { try $0.addTasks((1...24).map { "Inspect inventory group \($0)" }, on: .day(store.today)) }
                 await settle()
@@ -255,7 +291,7 @@ MainActor.assumeIsolated {
             let linked = store.apply { try $0.addTasks(["Verify a single linked task"], on: .day(store.today)) }![0]
             store.updateTask(linked.id) { $0.minutes = 12 }
             let rowWindow = NSWindow(
-                contentRect: CGRect(x: 50, y: 100, width: 420, height: 80), styleMask: [.titled], backing: .buffered,
+                contentRect: CGRect(x: 50, y: 100, width: 420, height: 140), styleMask: [.titled], backing: .buffered,
                 defer: false)
             rowWindow.isReleasedWhenClosed = false
             let rowRoot = NSHostingView(
@@ -286,7 +322,44 @@ MainActor.assumeIsolated {
                 store.planner.tasks.count == 1 && store.planner.tasks[0].id == linked.id
                     && store.planner.tasks[0].minutes == 12,
                 "task action does not change task identity or estimate")
-            snapshot(rowRoot, "task-hover", into: output)
+            // Real visible controls must work without hover, a context menu, or a swipe.
+            for label in ["Complete \(linked.title)", "Details \(linked.title)", "Delete \(linked.title)"] {
+                guard let node = control(label, in: rowRoot) else {
+                    require(false, "visible row action exists: \(label)"); return
+                }
+                let bounds = frame(node)
+                require(bounds.width >= 28 && bounds.height >= 28, "row action has a 28pt target: \(label)")
+            }
+            press("Details \(linked.title)", in: rowRoot)
+            require(delegate.model.detailsTaskID == linked.id, "visible Details selects exact task")
+            delegate.model.detailsTaskID = nil
+            press("Delete \(linked.title)", in: rowRoot)
+            require(!store.planner.tasks.contains { $0.id == linked.id }, "visible Delete persists removal")
+            store.undo()
+            require(
+                store.planner.tasks.contains { $0.id == linked.id && $0.title == linked.title },
+                "Undo restores the exact deleted task")
+            require(store.planner.focus?.state != .running, "Undo deletion never restarts the timer")
+            snapshot(rowRoot, "task-actions", into: output)
+
+            // Textual priorities and multiline titles remain present at the narrow card width.
+            for priority in [TaskPriority.high, .medium, .low] {
+                var task = store.planner.tasks.first { $0.id == linked.id }!
+                task.priority = priority
+                task.title =
+                    "Inspect every seed tray\nCheck the labels and record which seedlings need water before closing the greenhouse"
+                rowWindow.setContentSize(NSSize(width: 280, height: 240))
+                rowRoot.rootView = TaskRow(task: task).environmentObject(store).environmentObject(delegate.model)
+                await settle(); await wakeAX(); await settle()
+                require(
+                    control("\(priority.rawValue.capitalized) priority", in: rowRoot) != nil,
+                    "\(priority): priority is text, not color alone")
+                guard let title = control(task.title, in: rowRoot) else {
+                    require(false, "\(priority): full multiline title exposed"); return
+                }
+                require(frame(title).height > 28, "\(priority): long title actually wraps")
+                snapshot(rowRoot, "task-\(priority.rawValue)-narrow", into: output)
+            }
             require(store.lastError == nil, "no store error during UI lifecycle")
             let report: [String: Any] = [
                 "metrics": metrics,
