@@ -90,7 +90,7 @@ agent, remove the `perch` entry from that agent's MCP settings too.
 | **Overdue carry-forward** | Ask, automatically carry, or leave unfinished tasks in history. Overdue tasks can also be completed on their original day. |
 | **Insights** | Streak, completed vs planned, focus minutes, the last 7 days against the 7 before, and peak hours. |
 | **AI sorting (optional)** | On-device Apple Intelligence (FoundationModels, macOS 26) sets a priority and project. Whatever you type yourself always wins. |
-| **MCP server for agents** | Local stdio server with 18 tools and one-click setup for Claude Code, Claude Desktop and Cursor. Task rows identify the client that created them; Dashboard history can filter by agent. External changes refresh in the app and are undoable. |
+| **MCP server for agents** | Local stdio server with 21 tools and one-click setup for Claude Code, Claude Desktop and Cursor. Task rows identify the client that created them; Dashboard history can filter by agent. External changes refresh in the app and are undoable. |
 | **URL scheme** | `perch://add?title=Buy%20milk&date=tomorrow`, `perch://open?page=week` |
 
 ## Verification and remaining limits
@@ -109,9 +109,21 @@ In Perch, open Settings › AI agents › Connect. Or from a terminal:
 claude mcp add --scope user perch -- "/Applications/Perch.app/Contents/MacOS/Perch" --mcp
 ```
 
-The tools are `add_tasks`, `list_tasks`, `get_task`, `complete_task`, `reopen_task`, `rename_task`, `delete_task`,
-`move_task`, `update_task`, `snooze_reminder`, `start_timer`, `pause_timer`, `resume_timer`, `stop_timer`,
-`read_notepad`, `write_notepad`, `get_insights` and `list_projects`.
+The tools are `add_tasks`, `list_tasks`, `list_inbox`, `list_overdue`, `update_overdue`, `get_task`,
+`complete_task`, `reopen_task`, `rename_task`, `delete_task`, `move_task`, `update_task`, `snooze_reminder`,
+`start_timer`, `pause_timer`, `resume_timer`, `stop_timer`, `read_notepad`, `write_notepad`, `get_insights`
+and `list_projects`.
+
+Use `list_inbox` for unscheduled tasks. `list_overdue` returns ids and original days without scanning past
+dates; pass those ids to `update_overdue` with `action: "complete"`, `"carry"` or `"dismiss"`. Carry accepts
+an optional destination `date` and defaults to today. The two list operations are read-only and do not create
+or modify planner files.
+
+With MCP protocol `2025-06-18`, every tool advertises an `outputSchema` and successful calls return both the
+original text content and typed `structuredContent`. Earlier supported protocol versions retain text-only
+responses. Stored titles, notes, steps, project names and notepad text are marked as untrusted data, never
+instructions. Input schemas reject unknown fields and invalid types before storage access. Limits include
+100 titles per capture, 2,000 characters per title, 20,000 characters per notes write and 100 steps.
 
 The app and the MCP process share `~/Library/Application Support/Perch/planner.json`. Writes use an
 `flock` and atomic file replacement; the app polls for external changes.

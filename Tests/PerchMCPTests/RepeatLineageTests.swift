@@ -165,9 +165,14 @@ final class RepeatLineageTests: XCTestCase {
         _ = server.handle([
             "id": 1, "method": "initialize", "params": ["clientInfo": ["name": "claude-code", "version": "1"]],
         ])
-        _ = server.handle([
+        let forged = server.handle([
             "id": 2, "method": "tools/call",
             "params": ["name": "add_tasks", "arguments": ["titles": ["agent task"], "agentID": "forged"]],
+        ])
+        XCTAssertEqual(forged?["result"]?["isError"]?.bool, true)
+        _ = server.handle([
+            "id": 3, "method": "tools/call",
+            "params": ["name": "add_tasks", "arguments": ["titles": ["agent task"]]],
         ])
         _ = try tools.call("add_tasks", ["titles": ["direct task"]])
         let other = MCPServer(tools: tools, version: "test")

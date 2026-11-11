@@ -8,6 +8,7 @@ public final class MCPServer {
     let tools: AgentTools
     let version: String
     private var clientName: String?
+    private var negotiatedProtocolVersion = MCPServer.protocolVersions[0]
     /// Called after every successful mutating tool call (the app uses this to refresh / notify).
     public var onChange: (() -> Void)?
 
@@ -31,9 +32,10 @@ public final class MCPServer {
 
         switch method {
         case "initialize":
-            clientName = params["clientInfo"]?["name"]?.string
+            clientName = params["clientInfo"]?["name"]?.string.map { String($0.prefix(128)) }
             let requested = params["protocolVersion"]?.string ?? Self.protocolVersions[0]
             let pv = Self.protocolVersions.contains(requested) ? requested : Self.protocolVersions[0]
+            negotiatedProtocolVersion = pv
             return result(
                 id!,
                 [
@@ -45,25 +47,43 @@ public final class MCPServer {
         case "ping":
             return result(id!, .object([:]))
         case "tools/list":
-            return result(id!, ["tools": .array(AgentTools.definitions)])
+            return result(id!, ["tools": .array(AgentTools.definitions(protocolVersion: negotiatedProtocolVersion))])
         case "tools/call":
             guard let name = params["name"]?.string else { return error(id!, -32602, "Missing tool name") }
             do {
-                let text = try tools.call(name, params["arguments"] ?? .object([:]), agentID: clientName)
+                let call = try tools.callResult(name, params["arguments"] ?? .object([:]), agentID: clientName)
                 let readOnly = AgentTools.isReadOnly(name)
                 if !readOnly { onChange?() }
-                return result(id!, ["content": [["type": "text", "text": .string(text)]], "isError": false])
+                var payload: JSON = ["content": [textContent(call.text)], "isError": false]
+                if negotiatedProtocolVersion == "2025-06-18" {
+                    payload = adding(["structuredContent": call.structuredContent], to: payload)
+                }
+                return result(id!, payload)
             } catch let e as MethodNotFound {
                 return error(id!, -32602, "Unknown tool: \(e.name)")
             } catch {
                 let message = (error as? PlannerError)?.message ?? "\(error)"
-                return result(id!, ["content": [["type": "text", "text": .string(message)]], "isError": true])
+                return result(id!, ["content": [textContent(message)], "isError": true])
             }
         case "resources/list": return result(id!, ["resources": []])
         case "prompts/list": return result(id!, ["prompts": []])
         default:
             return error(id!, -32601, "Method not found: \(method)")
         }
+    }
+
+    private func textContent(_ text: String) -> JSON {
+        var content: JSON = ["type": "text", "text": .string(text)]
+        if negotiatedProtocolVersion == "2025-06-18" {
+            content = adding(["_meta": ["perch/content_trust": "untrusted"]], to: content)
+        }
+        return content
+    }
+
+    private func adding(_ fields: [String: JSON], to object: JSON) -> JSON {
+        guard case .object(var existing) = object else { return object }
+        for (key, value) in fields { existing[key] = value }
+        return .object(existing)
     }
 
     func result(_ id: JSON, _ r: JSON) -> JSON { ["jsonrpc": "2.0", "id": id, "result": r] }
