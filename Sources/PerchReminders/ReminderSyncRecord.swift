@@ -1,7 +1,7 @@
 import Foundation
 import PlannerCore
 
-/// Only these fields are mirrored. Other remote edits stop reconciliation instead of being overwritten.
+/// Supported fields shared with Reminders; other remote features are preserved by stopping sync.
 public struct ReminderFields: Codable, Equatable, Sendable {
     public var title: String
     public var notes: String?
@@ -100,4 +100,17 @@ public protocol ReminderRepository: AnyObject {
     func save(fields: ReminderFields, owner: ReminderOwner, calendarID: String, replacing: ReminderSyncRecord?) throws
         -> ReminderSyncRecord
     func remove(_ expected: ReminderSyncRecord) throws
+    /// Global lookup distinguishes deletion from moving a linked reminder out of the selected list.
+    func lookup(id: String) throws -> ReminderSyncRecord?
+    /// Search all accessible lists by the stable marker before accepting a deletion.
+    func locate(owner: ReminderOwner) async throws -> [ReminderSyncRecord]
+}
+
+extension ReminderRepository {
+    public func locate(owner: ReminderOwner) async throws -> [ReminderSyncRecord] {
+        throw ReminderSyncError.stopped("This Reminders adapter cannot confirm ownership across lists.")
+    }
+    public func lookup(id: String) throws -> ReminderSyncRecord? {
+        throw ReminderSyncError.stopped("This Reminders adapter cannot confirm deletions safely.")
+    }
 }
