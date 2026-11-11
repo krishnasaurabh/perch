@@ -70,7 +70,7 @@ public enum PlannerLifecycle {
     case dayChanged
 }
 
-public struct PlannerActionResult {
+public struct PlannerActionResult: Sendable {
     public var tasks: [PlanTask] = []
     public var focus: FocusSession?
     public var flag = false

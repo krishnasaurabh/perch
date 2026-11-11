@@ -67,12 +67,12 @@ final class PlannerDirectoryObserver {
 }
 
 /// All unattended file locks, reads, decoding and checkpoint writes run off the UI thread.
-final class PlannerRuntimeIO: @unchecked Sendable {
+final class PlannerRuntimeIO: Sendable {
     private let queue = DispatchQueue(label: "app.perch.planner.runtime", qos: .utility)
 
     func load(
         _ file: PlannerFile, after revision: PlannerFileRevision?, force: Bool,
-        completion: @escaping @MainActor (PlannerFileRevision?, Result<Planner, Error>?) -> Void
+        completion: @escaping @MainActor @Sendable (PlannerFileRevision?, Result<Planner, Error>?) -> Void
     ) {
         queue.async {
             let before = PlannerFileRevision(url: file.url)
@@ -84,7 +84,7 @@ final class PlannerRuntimeIO: @unchecked Sendable {
 
     func tick(
         _ file: PlannerFile, at time: Date,
-        completion: @escaping @MainActor (Result<PlannerCommandResult<PlannerActionResult>, Error>) -> Void
+        completion: @escaping @MainActor @Sendable (Result<PlannerCommandResult<PlannerActionResult>, Error>) -> Void
     ) {
         queue.async {
             let result = Result {

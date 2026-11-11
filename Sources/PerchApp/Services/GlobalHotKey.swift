@@ -61,6 +61,7 @@ enum ShortcutStore {
 /// It owns the live registration, so a new choice in Settings re-registers the hot key in place instead of
 /// needing a relaunch. The initializer keeps the call site's key as the fallback: if the saved shortcut is
 /// unavailable at launch, Perch still gets a working hot key.
+@MainActor
 final class GlobalHotKey {
     private var ref: EventHotKeyRef?
     private var changeObserver: NSObjectProtocol?
@@ -90,14 +91,16 @@ final class GlobalHotKey {
             forName: ShortcutStore.didChange, object: nil, queue: .main
         ) { [weak self] note in
             guard let self, let key = note.userInfo?["key"] as? ShortcutKey else { return }
-            self.apply(key)
+            MainActor.assumeIsolated { self.apply(key) }
         }
     }
 
     deinit {
         if let changeObserver { NotificationCenter.default.removeObserver(changeObserver) }
-        unregister()
-        GlobalHotKey.handlers[id] = nil
+        MainActor.assumeIsolated {
+            unregister()
+            GlobalHotKey.handlers[id] = nil
+        }
     }
 
     /// Swaps the live hot key. On failure the previous chord is put back and Settings is told why.

@@ -3,7 +3,7 @@ import PlannerCore
 
 /// Where screenshots are saved: the `com.apple.screencapture` `location` default, else the Desktop.
 public enum ScreenshotFolder {
-    public struct Resolved: Equatable {
+    public struct Resolved: Equatable, Sendable {
         public let url: URL
         /// A folder used only for captures, so any image or movie there counts even without the capture tag.
         public let dedicated: Bool
@@ -25,7 +25,7 @@ public enum ScreenshotFolder {
 
 /// Decides which entries of a folder listing are new captures. Pure: the watcher feeds it listings.
 public struct FolderScan {
-    public struct Entry: Equatable {
+    public struct Entry: Equatable, Sendable {
         public init(name: String, created: Date, hidden: Bool, captureFlag: Bool) {
             self.name = name; self.created = created; self.hidden = hidden; self.captureFlag = captureFlag
         }
