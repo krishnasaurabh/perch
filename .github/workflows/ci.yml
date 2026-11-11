@@ -4,8 +4,8 @@ on:
   push:
     branches: [main]
     paths-ignore: ['docs/**', '**/*.md']
+  # No paths-ignore on pull requests: the required CI result check must always report.
   pull_request:
-    paths-ignore: ['docs/**', '**/*.md']
   workflow_dispatch:
     inputs:
       motion_isolation:
@@ -101,7 +101,7 @@ jobs:
                       macos = True  # Rewritten/unavailable base: fail open to all tests.
                   else:
                       paths = [p for p in paths if p]
-                      core_only = lambda p: p.startswith(('Sources/PlannerCore/', 'Sources/PerchMCP/', 'Tests/PlannerCoreTests/', 'Tests/PerchMCPTests/', 'Tests/PerchUITests/', 'Tests/PlannerTestSupport/')) or re.fullmatch(r'scripts/test_[^/]*\.py', p)
+                      core_only = lambda p: p.startswith(('Sources/PlannerCore/', 'Sources/PerchMCP/', 'Tests/PlannerCoreTests/', 'Tests/PerchMCPTests/', 'Tests/PerchUITests/', 'Tests/PlannerTestSupport/')) or re.fullmatch(r'scripts/test_[^/]*\.py', p) or p.startswith('docs/') or p.endswith('.md')
                       macos = not paths or not all(core_only(p) for p in paths)
           with open(os.environ['GITHUB_OUTPUT'], 'a') as out:
               out.write(f'macos={str(macos).lower()}\n')
@@ -433,6 +433,21 @@ jobs:
           name: perch-motion
           path: ${{ runner.temp }}/motion
           if-no-files-found: error
+
+  ci-result:
+    name: CI result
+    # One required check for auto-merge: fails if any gate failed or was cancelled.
+    # macOS jobs skipped by the path filter count as passing.
+    if: always()
+    needs: [swift-format, core-linux, changes, app-macos, probes-layout-macos, probes-behavior-macos, motion-macos]
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Require every gate to pass or be skipped
+        env:
+          RESULTS: ${{ toJSON(needs.*.result) }}
+        run: |
+          echo "$RESULTS"
+          python3 -c 'import json,os,sys; r=json.loads(os.environ["RESULTS"]); bad=[x for x in r if x not in ("success","skipped")]; sys.exit(1 if bad or "success" not in r else 0)'
 
   isolate-close:
     if: github.event_name == 'workflow_dispatch' && inputs.motion_isolation
