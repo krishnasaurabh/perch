@@ -1,8 +1,8 @@
 import Foundation
 import PlannerCore
 
-/// One-way field mirroring plus completion of today's tasks from Reminders.
-/// Unknown ownership, remote deletion/reopening and conflicting edits always stop, never guess.
+/// One-way mirroring by default; explicitly opted-in two-way reconciliation uses durable intents.
+/// Unknown ownership and conflicting edits always stop instead of guessing.
 @MainActor
 public final class ReminderReconciler {
     private let repository: any ReminderRepository
@@ -15,6 +15,22 @@ public final class ReminderReconciler {
     public func enabled() throws -> Bool {
         try storage.lock(); defer { storage.unlock() }
         return try storage.load().enabled
+    }
+
+    public func twoWayEnabled() throws -> Bool {
+        try storage.lock(); defer { storage.unlock() }
+        return try storage.load().twoWayEnabled
+    }
+
+    /// Call only after the user explicitly confirms experimental two-way synchronization.
+    public func setTwoWayEnabled(_ enabled: Bool) throws {
+        try storage.lock(); defer { storage.unlock() }
+        var ledger = try storage.load()
+        guard enabled || ledger.links.values.allSatisfy({ $0.pending == nil }) else {
+            throw ReminderSyncError.stopped("Finish or resolve the pending two-way sync before changing modes.")
+        }
+        ledger.twoWayEnabled = enabled
+        try storage.save(ledger)
     }
 
     public func disable() throws {
@@ -34,7 +50,13 @@ public final class ReminderReconciler {
 
     public func reconcile(
         _ planner: Planner, today: DayKey, validate: () throws -> Void = {},
-        complete: (PlanTask) throws -> Void = { _ in }
+        complete: (PlanTask) throws -> Void = { _ in },
+        prepareImport: (PlanTask, ReminderFields?) throws -> Void = { _, _ in
+            throw ReminderSyncError.stopped("Two-way sync requires a validated planner adapter.")
+        },
+        applyImport: (PlanTask, ReminderFields?) throws -> Void = { _, _ in
+            throw ReminderSyncError.stopped("Two-way sync requires a durable planner adapter.")
+        }
     ) async throws {
         guard !running else { throw ReminderSyncError.stopped("Reminders sync is already running.") }
         running = true; defer { running = false }
@@ -47,6 +69,15 @@ public final class ReminderReconciler {
         }
         try checkAccess()
         try validate()
+        if ledger.twoWayEnabled {
+            try await TwoWayReminderReconciler(repository: repository, storage: storage).reconcile(
+                &ledger, planner: planner, today: today, validate: validate,
+                prepareImport: prepareImport, applyImport: applyImport)
+            return
+        }
+        guard ledger.links.values.allSatisfy({ $0.pending == nil }) else {
+            throw ReminderSyncError.stopped("Pending two-way changes must be recovered before mirroring.")
+        }
         let active = planner.tasks.filter { $0.day.map { $0 >= today } ?? false }
         // Never create a list merely to process an empty or disabled planner.
         if ledger.calendarID == nil {
@@ -95,6 +126,9 @@ public final class ReminderReconciler {
             }
         }
         for task in active.sorted(by: { $0.id.uuidString < $1.id.uuidString }) {
+            if ledger.links[task.id]?.retired == true {
+                throw ReminderSyncError.stopped("This task's reminder was retired. Create a new task to sync it again.")
+            }
             var desired = ReminderFields(task: task, ringOnPhone: planner.preferences.ringOnPhone)
             var link =
                 ledger.links[task.id]

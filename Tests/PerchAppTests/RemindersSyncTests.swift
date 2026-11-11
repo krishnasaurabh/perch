@@ -32,6 +32,14 @@ final class FakeReminders: RemindersAccess {
         records.removeAll { $0.id == record.id }; records.append(record)
         return record
     }
+    func locate(owner: ReminderOwner) async throws -> [ReminderSyncRecord] {
+        guard hasAccess else { throw ReminderSyncError.stopped("permission denied") }
+        return records.filter { $0.owner == owner }
+    }
+    func lookup(id: String) throws -> ReminderSyncRecord? {
+        guard hasAccess else { throw ReminderSyncError.stopped("permission denied") }
+        return records.first { $0.id == id }
+    }
     func remove(_ expected: ReminderSyncRecord) throws { removals += 1; records.removeAll { $0.id == expected.id } }
     func completeFirst() {
         let old = records[0]; var fields = old.fields; fields.completed = true

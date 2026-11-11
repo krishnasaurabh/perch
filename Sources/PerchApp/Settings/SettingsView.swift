@@ -224,7 +224,7 @@ struct SettingsView: View {
                         }
                     }))
             Text(
-                "Perch creates a separate Reminders list and mirrors task details for today and upcoming days. Completing today's reminder also completes its task. Remote text edits, reopening, deletion and future-day completion are not imported; conflicting changes pause sync. Existing reminders and other lists are not adopted. Undo or Redo pauses sync until you turn it off and on again."
+                "Perch creates a separate Reminders list for today's and upcoming tasks. Standard mirroring imports only today's completion. Experimental two-way sync can also import text, priority, due dates, reopening and deletion for linked tasks. Conflicting edits pause sync rather than choose a winner. Existing reminders and other lists are never adopted. Undo or Redo pauses sync until you turn it off and on again."
             )
             .font(.caption).foregroundStyle(.secondary)
             Toggle("Alert on iPhone and Apple Watch too", isOn: pref(\.ringOnPhone)).disabled(

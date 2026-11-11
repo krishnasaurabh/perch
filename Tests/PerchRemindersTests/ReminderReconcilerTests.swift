@@ -101,6 +101,17 @@ final class ReminderReconcilerTests: XCTestCase {
         XCTAssertFalse(Preferences().remindersSync)
     }
 
+    @MainActor func testRetiredTaskCannotSilentlyResurrectItsReminder() async throws {
+        let f = Fixture(); try await f.run()
+        let task = f.planner.tasks[0]
+        f.planner.tasks = []; try await f.run()
+        let saves = f.repository.saves
+        f.planner.tasks = [task]
+        do { try await f.run(); XCTFail("retired identity needs explicit recovery") } catch {}
+        XCTAssertEqual(f.repository.saves, saves)
+        XCTAssertTrue(f.repository.records.isEmpty)
+    }
+
     @MainActor func testLocalEditsReuseIdentityOutsidePlanner() async throws {
         let f = Fixture(); try await f.run()
         let owner = f.repository.records[0].owner, id = f.repository.records[0].id
