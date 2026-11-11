@@ -21,6 +21,7 @@ struct NotchRootView: View {
         let g = screen.geometry
         let window = g.window
         let timer = NotchModel.timerShowing(store)
+        let glance = model.glance(in: store, expanded: expanded, activityVisible: activity != nil)
         let shell = expanded ? g.workspace : g.tuckedNotch
         let outline = g.outline(expanded: expanded)
 
@@ -58,6 +59,13 @@ struct NotchRootView: View {
                 } else if let side = timer {
                     TimerPillLayer(geometry: g, side: side, bounds: window, focus: store.planner.focus)
                         .transition(.opacity)
+                } else if let glance {
+                    let p = g.glanceRect
+                    NotchGlanceCapsule(glance: glance) {
+                        NotificationCenter.default.post(name: .perchOpenWorkspace, object: NotchPage.home)
+                    }
+                    .frame(width: p.width, height: p.height)
+                    .offset(x: p.minX - window.minX, y: window.maxY - p.maxY)
                 }
             }
         }
