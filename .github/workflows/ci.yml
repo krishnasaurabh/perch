@@ -434,6 +434,21 @@ jobs:
           path: ${{ runner.temp }}/motion
           if-no-files-found: error
 
+  ci-result:
+    name: CI result
+    # One required check for auto-merge: fails if any gate failed or was cancelled.
+    # macOS jobs skipped by the path filter count as passing.
+    if: always()
+    needs: [swift-format, core-linux, changes, app-macos, probes-layout-macos, probes-behavior-macos, motion-macos]
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Require every gate to pass or be skipped
+        env:
+          RESULTS: ${{ toJSON(needs.*.result) }}
+        run: |
+          echo "$RESULTS"
+          python3 -c 'import json,os,sys; r=json.loads(os.environ["RESULTS"]); bad=[x for x in r if x not in ("success","skipped")]; sys.exit(1 if bad or "success" not in r else 0)'
+
   isolate-close:
     if: github.event_name == 'workflow_dispatch' && inputs.motion_isolation
     runs-on: macos-15
