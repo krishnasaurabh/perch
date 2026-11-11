@@ -3,7 +3,6 @@ import PerchUI
 import SwiftUI
 import UniformTypeIdentifiers
 
-/// Clips: a clothesline of screenshots, recordings and copied things.
 struct ClipsPage: View {
     @EnvironmentObject var services: Services
     var body: some View { ClipsBody(clips: services.clips) }
@@ -12,43 +11,32 @@ struct ClipsPage: View {
 private struct ClipsBody: View {
     @ObservedObject var clips: ClipsService
     @EnvironmentObject var store: PlannerStore
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack {
-                CardHeading("Clips", symbol: "paperclip")
-                Spacer()
-                Toggle(
-                    "Catch screenshots",
-                    isOn: Binding(
-                        get: { store.prefs.catchScreenshots },
-                        set: { v in store.updatePrefs { $0.catchScreenshots = v } })
-                )
-                .toggleStyle(.switch).controlSize(.mini).font(.system(size: 10.5))
-                Toggle(
-                    "Catch copies",
-                    isOn: Binding(
-                        get: { store.prefs.catchCopies }, set: { v in store.updatePrefs { $0.catchCopies = v } })
-                )
-                .toggleStyle(.switch).controlSize(.mini).font(.system(size: 10.5))
-                Button("Let go of all") { clips.sweep() }.buttonStyle(PillStyle())
-                    .opacity(clips.clips.contains(where: { !$0.pinned }) ? 1 : 0)
-                    .disabled(!clips.clips.contains(where: { !$0.pinned }))
-                    .accessibilityHidden(!clips.clips.contains(where: { !$0.pinned }))
-                    .help("Remove unpinned clips. Undo is available for 5 seconds.")
+        VStack(alignment: .leading, spacing: Theme.gutter) {
+            ViewThatFits(in: .horizontal) {
+                HStack {
+                    CardHeading("Clips", symbol: "paperclip")
+                    Spacer(minLength: Theme.gutter)
+                    captureControls
+                    removeUnpinned
+                }
+                VStack(alignment: .leading, spacing: Theme.gutter) {
+                    HStack {
+                        CardHeading("Clips", symbol: "paperclip"); Spacer(); removeUnpinned
+                    }
+                    captureControls
+                }
             }
             ZStack(alignment: .top) {
-                // Keep the bounded rope geometry; its stroke uses the shared accessibility token below.
                 ClipsRope()
                 Group {
                     if clips.clips.isEmpty {
-                        // Sits just under the rope's lowest point, as if hanging from it.
                         EmptyStateView("Drop something here to keep it close.", symbol: "paperclip")
                             .padding(.top, ClipsLineLayout.emptyMessageTop)
                             .transition(.opacity)
                     } else {
-                        ScrollView(.horizontal) {
+                        ScrollView([.horizontal, .vertical]) {
                             HStack(alignment: .top, spacing: 14) {
                                 ForEach(Array(clips.clips.enumerated()), id: \.element.id) { i, c in
                                     ClipCard(clip: c, clips: clips).rotationEffect(
@@ -57,38 +45,63 @@ private struct ClipsBody: View {
                                     .transition(.opacity)
                                 }
                             }
-                            .padding(.horizontal, 16).padding(.top, 16)
+                            .padding(.horizontal, 16).padding(.top, 16).padding(.bottom, Theme.gutter)
                             .motion(Motion.row, value: clips.clips.map(\.id))
-                        }.scrollIndicators(.never)
+                        }.scrollIndicators(.automatic)
                             .transition(.opacity)
                     }
                 }
             }
             .frame(maxHeight: .infinity, alignment: .top)
-            .overlay(alignment: .bottom) {
-                if let banner = clips.letGoBanner {
-                    LetGoToast(banner: banner) { clips.undoLetGo() }
-                        .transition(.opacity)
-                        .padding(.bottom, 4)
-                }
+            // Reserve space rather than covering clips or their action targets.
+            if let banner = clips.letGoBanner {
+                LetGoToast(banner: banner) { clips.undoLetGo() }
+                    .transition(.opacity)
             }
-            HStack(spacing: 6) {
-                if ClipsLineLayout.showsGestureHints(clipCount: clips.clips.count) {
-                    Text("Click: copy · Double-click: open · Drag: move or share").font(.system(size: 10))
-                        .foregroundStyle(Theme.tertiary)
-                        .transition(.opacity)
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: Theme.gutter) {
+                    hints; Spacer(minLength: Theme.gutter); FolderWatchStatus(state: clips.folderWatch)
                 }
-                Spacer(minLength: 8)
-                FolderWatchStatus(state: clips.folderWatch)
+                VStack(alignment: .leading, spacing: Theme.gutter) {
+                    hints; FolderWatchStatus(state: clips.folderWatch)
+                }
             }
         }
-        // Populated <-> empty crossfades in place, with the page-switch timing (Reduce Motion aware).
         .motion(Motion.page, value: clips.clips.isEmpty)
         .card()
     }
+
+    private var captureControls: some View {
+        HStack(spacing: Theme.gutter) {
+            Toggle(
+                "Add screenshots",
+                isOn: Binding(
+                    get: { store.prefs.catchScreenshots },
+                    set: { value in store.updatePrefs { $0.catchScreenshots = value } }))
+            Toggle(
+                "Add copied items",
+                isOn: Binding(
+                    get: { store.prefs.catchCopies }, set: { value in store.updatePrefs { $0.catchCopies = value } }))
+        }
+        .toggleStyle(.switch).controlSize(.small).font(Theme.meta)
+        .frame(minHeight: Theme.minimumTarget)
+    }
+
+    private var removeUnpinned: some View {
+        Button("Remove unpinned") { clips.sweep() }
+            .buttonStyle(PillStyle(disabledReason: "There are no unpinned clips to remove."))
+            .disabled(!clips.clips.contains(where: { !$0.pinned }))
+            .help("Remove unpinned clips. Undo is available for 5 seconds. Original files are not deleted.")
+    }
+
+    @ViewBuilder private var hints: some View {
+        if ClipsLineLayout.showsGestureHints(clipCount: clips.clips.count) {
+            Text("Click to copy · Drag to share · More for clip actions")
+                .font(Theme.meta).foregroundStyle(Theme.secondary)
+        }
+    }
 }
 
-/// The line clips hang on. Its width comes from the space it is given (the card's content box), inset at both ends.
 private struct ClipsRope: View {
     var body: some View {
         GeometryReader { g in
@@ -99,48 +112,41 @@ private struct ClipsRope: View {
                         to: CGPoint(x: rope.end.x, y: rope.end.y),
                         control: CGPoint(x: rope.control.x, y: rope.control.y))
                 }
-                // Dedicated boundary ink: do not attenuate a text token a second time.
                 .stroke(Theme.rope, style: StrokeStyle(lineWidth: 1.5, lineCap: .round))
             }
         }
         .frame(height: ClipsLineLayout.bandHeight)
-        .clipped()
-        .allowsHitTesting(false)
-        .accessibilityHidden(true)
+        .clipped().allowsHitTesting(false).accessibilityHidden(true)
     }
 }
 
-/// "Let go of 2 clips · Undo", with the 5-second window draining underneath.
 private struct LetGoToast: View {
     let banner: ClipsService.LetGoBanner
     let undo: () -> Void
 
     var body: some View {
-        HStack(spacing: 10) {
-            Image(systemName: "arrow.uturn.backward.circle").font(.system(size: 13)).foregroundStyle(Theme.secondary)
-            Text(banner.count == 1 ? "Let go of 1 clip" : "Let go of \(banner.count) clips")
-                .font(.system(size: 11.5, weight: .medium)).foregroundStyle(Theme.text)
-            Button("Undo", action: undo).buttonStyle(PillStyle(prominent: true))
-                .accessibilityHint("Puts the clips back on the line")
-        }
-        .padding(.leading, 12).padding(.trailing, 6).padding(.vertical, 6)
-        .background(Capsule().fill(Color(white: 0.16)))
-        .overlay(Capsule().strokeBorder(Theme.cardStroke))
-        .overlay(alignment: .bottom) {
+        VStack(spacing: 4) {
+            HStack(spacing: Theme.gutter) {
+                Text(banner.count == 1 ? "Removed 1 clip" : "Removed \(banner.count) clips")
+                    .font(Theme.meta).foregroundStyle(Theme.text)
+                Spacer(minLength: Theme.gutter)
+                Button("Undo", action: undo).buttonStyle(PillStyle(prominent: true))
+                    .accessibilityHint("Restore the removed clips")
+            }
             TimelineView(.periodic(from: .now, by: 0.1)) { ctx in
                 let left = max(0, banner.deadline.timeIntervalSince(ctx.date)) / LetGoLedger<ClipsService.Clip>.window
                 GeometryReader { g in
-                    Capsule().fill(Theme.accent.opacity(0.7)).frame(width: g.size.width * left, height: 2)
-                }
-                .frame(height: 2).padding(.horizontal, 16).padding(.bottom, 3)
+                    Capsule().fill(Theme.accent).frame(width: g.size.width * min(1, left), height: 2)
+                }.frame(height: 2).accessibilityHidden(true)
             }
         }
-        .shadow(color: .black.opacity(0.35), radius: 8, y: 3)
+        .padding(Theme.gutter)
+        .background(RoundedRectangle(cornerRadius: Theme.controlRadius).fill(Theme.fill))
+        .overlay(RoundedRectangle(cornerRadius: Theme.controlRadius).strokeBorder(Theme.cardStroke))
         .id(banner.token)
     }
 }
 
-/// Whether the screenshot folder itself is watched, or only Spotlight is catching screenshots.
 private struct FolderWatchStatus: View {
     let state: ClipsService.FolderWatch
 
@@ -150,21 +156,18 @@ private struct FolderWatchStatus: View {
             EmptyView()
         case .watching(let url):
             Label("Watching \(url.lastPathComponent)", systemImage: "eye")
-                .font(.system(size: 10)).foregroundStyle(Theme.tertiary).lineLimit(1)
-                .help("New screenshots in \(url.path) hang here right away.")
+                .font(Theme.meta).foregroundStyle(Theme.secondary)
+                .help("New screenshots in \(url.path) appear here.")
         case .unreadable(let url):
             Button {
                 NSWorkspace.shared.open(
                     URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_FilesAndFolders")!)
             } label: {
-                Label(
-                    "Can't read \(url.lastPathComponent): using Spotlight only", systemImage: "exclamationmark.triangle"
-                )
-                .font(.system(size: 10)).foregroundStyle(Theme.accent).lineLimit(1)
+                Label("Folder access unavailable · Settings…", systemImage: "exclamationmark.triangle")
             }
-            .buttonStyle(.plain)
+            .buttonStyle(PillStyle())
             .help(
-                "Allow Perch to access \(url.path) in Privacy & Security › Files and Folders, so screenshots appear instantly."
+                "Allow Perch to access \(url.path) in Privacy & Security › Files and Folders. Only Spotlight is active until then."
             )
         }
     }
@@ -174,31 +177,51 @@ private struct ClipCard: View {
     let clip: ClipsService.Clip
     let clips: ClipsService
     @State private var copied = false
+    @FocusState private var copyFocused: Bool
 
     var body: some View {
         VStack(spacing: 0) {
-            // Clothespin.
             RoundedRectangle(cornerRadius: 2).fill(Theme.accent).frame(width: 8, height: 18).offset(y: 6).zIndex(1)
             VStack(alignment: .leading, spacing: 5) {
-                ClipPreview(content: clip.content, thumbnail: clip.thumbnail)
-                HStack(spacing: 4) {
-                    Text(copied ? "Copied" : clip.title).font(.system(size: 9.5, weight: .medium)).lineLimit(1)
-                        .foregroundStyle(copied ? Theme.accent : .black.opacity(0.7))
-                    Spacer(minLength: 0)
-                    if clip.pinned {
-                        Image(systemName: "pin.fill").font(.system(size: 8)).foregroundStyle(.black.opacity(0.6))
-                    }
+                Button {
+                    clips.copy(clip)
+                    copied = true
+                } label: {
+                    VStack(alignment: .leading, spacing: 5) {
+                        ClipPreview(content: clip.content, thumbnail: clip.thumbnail)
+                        Text(copied ? "Copied" : clip.title).font(Theme.meta).lineLimit(1)
+                            .foregroundStyle(Theme.text).frame(width: 132, alignment: .leading)
+                    }.contentShape(Rectangle())
                 }
-                .frame(width: 132, alignment: .leading)
+                .buttonStyle(.plain)
+                .focused($copyFocused)
+                .focusEffectDisabled()
+                .overlay(
+                    ControlFocusRing(shape: RoundedRectangle(cornerRadius: Theme.controlRadius), focused: copyFocused)
+                )
+                .accessibilityLabel("Copy \(clip.title)")
+                HStack {
+                    if clip.pinned {
+                        Label("Pinned", systemImage: "pin.fill").font(Theme.meta).foregroundStyle(Theme.secondary)
+                    }
+                    Spacer(minLength: 0)
+                    Menu {
+                        clipActions
+                    } label: {
+                        Label("More", systemImage: "ellipsis")
+                            .font(Theme.meta).frame(minHeight: Theme.minimumTarget)
+                    }
+                    .menuStyle(.borderlessButton)
+                    .fixedSize()
+                    .accessibilityLabel("Actions for \(clip.title)")
+                }.frame(width: 132)
             }
             .padding(6)
-            .background(RoundedRectangle(cornerRadius: 3).fill(Color.white))
-            .shadow(color: .black.opacity(0.4), radius: 6, y: 4)
-        }
-        .onTapGesture(count: 2) { clips.open(clip) }
-        .onTapGesture {
-            clips.copy(clip)
-            copied = true
+            .background(RoundedRectangle(cornerRadius: Theme.controlRadius).fill(Theme.fill))
+            .overlay(RoundedRectangle(cornerRadius: Theme.controlRadius).strokeBorder(Theme.cardStroke))
+            // These are intentionally paper tiles even in the dark notch, not dark-mode text on white.
+            .environment(\.colorScheme, .light)
+            .environment(\.controlSurface, Theme.fill)
         }
         .task(id: copied) {
             guard copied else { return }
@@ -212,15 +235,17 @@ private struct ClipCard: View {
             case .image(let d): return NSItemProvider(item: d as NSData, typeIdentifier: UTType.png.identifier)
             }
         }
-        .contextMenu {
-            Button(clip.pinned ? "Unpin" : "Keep this clip when the shelf fills up") { clips.togglePin(clip.id) }
-            Button("Copy") { clips.copy(clip) }
-            if clips.clipURL(clip) != nil {
-                Button("Open") { clips.open(clip) }
-                Button("Show in Finder") { NSWorkspace.shared.activateFileViewerSelecting([clips.clipURL(clip)!]) }
-            }
-            Divider()
-            Button("Let go", role: .destructive) { clips.letGo(clip.id) }
+        .contextMenu { clipActions }
+    }
+
+    @ViewBuilder private var clipActions: some View {
+        Button(clip.pinned ? "Unpin" : "Pin") { clips.togglePin(clip.id) }
+        Button("Copy") { clips.copy(clip) }
+        if let url = clips.clipURL(clip) {
+            Button("Open") { clips.open(clip) }
+            Button("Show in Finder") { NSWorkspace.shared.activateFileViewerSelecting([url]) }
         }
+        Divider()
+        Button("Remove", role: .destructive) { clips.letGo(clip.id) }
     }
 }

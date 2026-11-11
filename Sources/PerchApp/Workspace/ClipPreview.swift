@@ -13,21 +13,22 @@ struct ClipPreview: View {
             if let image = thumbnail, usableThumbnail(image) {
                 Image(nsImage: image).resizable().aspectRatio(contentMode: .fill)
             } else if let text = previewText {
-                Text(text).font(.system(size: 10.5)).foregroundStyle(.black.opacity(0.8))
+                Text(text).font(Theme.meta).foregroundStyle(Theme.text)
                     .lineLimit(6).padding(6)
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             } else {
                 VStack(spacing: 6) {
                     Image(systemName: fileSymbol).font(.system(size: 22))
-                    Text(filename).font(.system(size: 9.5, weight: .medium))
+                    Text(filename).font(Theme.meta)
                         .lineLimit(2).multilineTextAlignment(.center)
                 }
-                .foregroundStyle(.black.opacity(0.65)).padding(6)
+                .foregroundStyle(Theme.secondary).padding(6)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
         .frame(width: 132, height: 92).clipped()
         .background(Color.white.opacity(0.92))
+        .environment(\.colorScheme, .light)
         .task(id: content) {
             fileText = nil
             guard case .file(let url) = content else { return }
@@ -51,7 +52,8 @@ struct ClipPreview: View {
 
     private var filename: String {
         if case .file(let url) = content { return url.lastPathComponent }
-        return "Empty clip"
+        if case .image = content { return "Image preview unavailable" }
+        return "Empty text clip"
     }
 
     private var fileSymbol: String {
