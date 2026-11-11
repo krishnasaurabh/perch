@@ -25,8 +25,6 @@ struct DateFieldEditor: View {
             adaptiveLayout
             inlineIssue
         }
-        .accessibilityElement(children: .contain)
-        .accessibilityLabel(field)
         .onExitCommand(perform: exitAction)
         .onAppear {
             // An enclosing form chooses its own initial focus.

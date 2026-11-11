@@ -80,6 +80,8 @@ final class TaskDetailsViewTests: XCTestCase {
         _ = try await Self.identifierControl("details-cancel", in: window)
         _ = try await Self.identifierControl("schedule-date-clear", in: window)
         _ = try await Self.identifierControl("deadline-date-add", in: window)
+        _ = try await Self.identifierControl("schedule-date-text", role: "AXTextField", in: window)
+        _ = try await Self.identifierControl("schedule-date-picker", role: "AXDateTimeArea", in: window)
         XCTAssertNotNil(fixture.store.send(.delete(fixture.task.id)))
         _ = try await Self.identifierControl("details-close", in: window)
     }
@@ -251,7 +253,7 @@ final class TaskDetailsViewTests: XCTestCase {
     fileprivate static func control(_ identifier: String, role: String = "AXButton", in window: NSWindow) async throws
         -> NSObject
     {
-        try await lookup(identifier, role: role, in: window, requireIdentifier: false)
+        try await lookup(identifier, role: role, in: window, requireIdentifier: identifier.contains("-date-"))
     }
 
     @MainActor
@@ -298,6 +300,11 @@ final class TaskDetailsViewTests: XCTestCase {
                 attribute($0, "accessibilityIdentifier") as? String == identifier
                     && attribute($0, "accessibilityRole") as? String == role
             }) {
+                if requireIdentifier {
+                    print(
+                        "AX identifier verified: role=\(role) id=\(identifier) "
+                            + "label=\(attribute(node, "accessibilityLabel") ?? "?")")
+                }
                 return node
             }
             if !requireIdentifier, let name = names[identifier],
