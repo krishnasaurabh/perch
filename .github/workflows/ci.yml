@@ -47,14 +47,21 @@ jobs:
     if: always()
     # GitHub-hosted runner. Never use a self-hosted runner on a public repo (fork PRs run code on it).
     runs-on: ubuntu-24.04
+    # Official Swift 6.2 image; pin the linux/amd64 image as well as the version.
+    container:
+      image: swift:6.2-noble@sha256:22edf4bb29f6d43ad77bfdb1757666992d63a50ab124c41176f8c8c44ab69855
     steps:
       - name: Require successful Swift formatting
         env:
           FORMAT_RESULT: ${{ needs.swift-format.result }}
         run: test "$FORMAT_RESULT" = success
       - uses: actions/checkout@v4
-      - uses: swift-actions/setup-swift@v2
-        with: { swift-version: "6.2" }
+      - name: Install Python test dependencies
+        run: |
+          apt-get update
+          apt-get install --yes --no-install-recommends python3 python3-pip python3-venv
+          python3 -m venv "$RUNNER_TEMP/python"
+          echo "$RUNNER_TEMP/python/bin" >> "$GITHUB_PATH"
       - name: Release and testing configuration regression
         run: python3 -m unittest discover -s scripts -p test_launch_configuration.py
       - name: Motion evidence classification regression
