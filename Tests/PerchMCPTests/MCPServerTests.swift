@@ -43,7 +43,8 @@ final class MCPServerTests: XCTestCase {
         XCTAssertEqual(
             Set(names),
             [
-                "add_tasks", "list_tasks", "get_task", "complete_task", "reopen_task", "rename_task", "delete_task",
+                "add_tasks", "list_tasks", "list_inbox", "list_overdue", "update_overdue", "get_task",
+                "complete_task", "reopen_task", "rename_task", "delete_task",
                 "move_task", "update_task", "snooze_reminder", "start_timer", "pause_timer", "resume_timer",
                 "stop_timer",
                 "read_notepad", "write_notepad", "get_insights", "list_projects",

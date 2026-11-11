@@ -34,7 +34,7 @@ final class MigrationConcurrencyTests: XCTestCase {
                         "jsonrpc": "2.0", "id": .number(Double(index)), "method": "tools/call",
                         "params": [
                             "name": "add_tasks",
-                            "arguments": ["titles": [.string("MCP item \(index)")], "day": "inbox"],
+                            "arguments": ["titles": [.string("MCP item \(index)")], "date": "inbox"],
                         ],
                     ]
                     guard let response = server.handle(request), response["result"]?["isError"]?.bool == false else {
