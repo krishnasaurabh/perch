@@ -22,34 +22,60 @@ struct DateFieldEditor: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
-            // Each step down stacks more so the controls never clip in a narrow window.
-            // Every layout keeps the same keyboard order: text, picker, clear, cancel, apply.
-            ViewThatFits(in: .horizontal) {
-                HStack(spacing: Theme.gutter) {
-                    entryRow
-                    if hasActions { Spacer(minLength: 0); actions }
-                }
-                VStack(alignment: .leading, spacing: Theme.gutter) {
-                    entryRow
-                    if hasActions { actions }
-                }
-                VStack(alignment: .leading, spacing: Theme.gutter) {
-                    entryStacked
-                    if hasActions { actions }
-                }
-            }
-            if let issue = draft.visibleIssue {
-                StatusLabel(title: issue.message, tone: issue.severity == .error ? .danger : .warning)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .accessibilityIdentifier("\(key)-date-issue")
-            }
+            adaptiveLayout
+            inlineIssue
         }
         .accessibilityElement(children: .contain)
         .accessibilityLabel(field)
-        .onExitCommand(perform: onCancel == nil ? nil : cancel)
+        .onExitCommand(perform: exitAction)
         .onAppear {
             // An enclosing form chooses its own initial focus.
             if hasActions { focus = draft.entry == .none ? .add : .text }
+        }
+    }
+
+    private var exitAction: (() -> Void)? {
+        guard onCancel != nil else { return nil }
+        return cancel
+    }
+
+    private var adaptiveLayout: some View {
+        // Each step down stacks more so the controls never clip in a narrow window.
+        // Every layout keeps the same keyboard order: text, picker, clear, cancel, apply.
+        ViewThatFits(in: .horizontal) {
+            wideLayout
+            mediumLayout
+            compactLayout
+        }
+    }
+
+    @ViewBuilder private var wideLayout: some View {
+        HStack(spacing: Theme.gutter) {
+            entryRow
+            if hasActions { Spacer(minLength: 0); actions }
+        }
+    }
+
+    @ViewBuilder private var mediumLayout: some View {
+        VStack(alignment: .leading, spacing: Theme.gutter) {
+            entryRow
+            if hasActions { actions }
+        }
+    }
+
+    @ViewBuilder private var compactLayout: some View {
+        VStack(alignment: .leading, spacing: Theme.gutter) {
+            entryStacked
+            if hasActions { actions }
+        }
+    }
+
+    @ViewBuilder private var inlineIssue: some View {
+        if let issue = draft.visibleIssue {
+            let tone: StatusLabel.Tone = issue.severity == .error ? .danger : .warning
+            StatusLabel(title: issue.message, tone: tone)
+                .fixedSize(horizontal: false, vertical: true)
+                .accessibilityIdentifier("\(key)-date-issue")
         }
     }
 
