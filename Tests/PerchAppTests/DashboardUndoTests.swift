@@ -124,11 +124,12 @@ fileprivate extension DashboardUndoTests {
         for _ in 0..<30 {
             window.contentView?.layoutSubtreeIfNeeded()
             await settle()
-            if let segment = nodes(window).first(where: {
-                attribute($0, "accessibilityRole") as? String == "AXRadioButton"
-                    && attribute($0, "accessibilityLabel") as? String == tab
+            if let picker = nodes(window).compactMap({ $0 as? NSSegmentedControl }).first(where: { control in
+                (0..<control.segmentCount).contains { index in control.label(forSegment: index) == tab }
             }) {
-                try press(segment)
+                picker.selectedSegment = try XCTUnwrap(
+                    (0..<picker.segmentCount).first { picker.label(forSegment: $0) == tab })
+                picker.performClick(nil)
                 await settle()
                 return
             }
@@ -164,6 +165,7 @@ private final class DashboardFixture {
     let file: PlannerFile
     let store: PlannerStore
     private let activationPolicy = NSApplication.shared.activationPolicy()
+    private let previousMainMenu = NSApplication.shared.mainMenu
 
     init() throws {
         directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
@@ -183,6 +185,13 @@ private final class DashboardFixture {
         // Leave an earlier Undo entry. A double invocation would revert this edit as well.
         store.updateTask(planner.tasks[0].id) { $0.notes = "Earlier planner edit" }
         NSApp.setActivationPolicy(.accessory)
+        let mainMenu = NSMenu()
+        let editRoot = NSMenuItem()
+        let editMenu = NSMenu(title: "Edit")
+        editMenu.addItem(withTitle: "Undo", action: NSSelectorFromString("undo:"), keyEquivalent: "z")
+        mainMenu.addItem(editRoot)
+        mainMenu.setSubmenu(editMenu, for: editRoot)
+        NSApp.mainMenu = mainMenu
     }
 
     func open(tab: String) async throws -> NSWindow {
@@ -197,6 +206,7 @@ private final class DashboardFixture {
     func close() {
         WindowHost.windows["dashboard"]?.close()
         WindowHost.windows.removeValue(forKey: "dashboard")
+        NSApp.mainMenu = previousMainMenu
         NSApp.setActivationPolicy(activationPolicy)
         try? FileManager.default.removeItem(at: directory)
     }
