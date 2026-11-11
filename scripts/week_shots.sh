@@ -5,33 +5,50 @@ OUT=${1:?usage: week_shots.sh OUTPUT_DIRECTORY}; mkdir -p "$OUT"
 OUT=$(cd "$OUT" && pwd)
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 APP="$ROOT/dist/Perch.app/Contents/MacOS/Perch"
+# Use one civil day throughout seeding and the isolated probe, even across midnight.
+export TZ=UTC
+export WEEK_DAY=$(date +%F)
 DATA="$OUT/week-heavy.json"; rm -f "$DATA"
-python3 - <<'EOF' | PERCH_DATA="$DATA" "$APP" --mcp > "$OUT/week-seed.log" 2>&1
-import json
+python3 - "$OUT" <<'EOF' | PERCH_DATA="$DATA" "$APP" --mcp > "$OUT/week-seed.log" 2>&1
+import datetime, json, os, sys
+from pathlib import Path
+day = datetime.date.fromisoformat(os.environ["WEEK_DAY"])
+tomorrow = (day + datetime.timedelta(days=1)).isoformat()
 today = ["Outline the onboarding guide for new contributors covering setup, testing and the release checklist #work",
          "Refill the bird feeder every 3 days", "Text Sam about Saturday at 4pm", "Pay the water bill !high",
          "Return library books", "Phone the landlord at 6pm", "Buy a USB-C charger", "Prep 1:1 agenda",
          "Update insurance card !high", "Read chapter 6 for book club", "Schedule car service",
          "Fix flaky FocusSession test"]
-calls = [("add_tasks", {"titles": today}), ("complete_task", {"task": "Buy a USB-C charger"}),
+# An API date alone does not override a parsed clock time. Put the date in each
+# parsed line too, so 4pm/6pm stay on the fixture day even after those times pass.
+calls = [("add_tasks", {"titles": [f"{title} on {day}" for title in today], "date": str(day)}),
+         ("complete_task", {"task": "Buy a USB-C charger"}),
          ("complete_task", {"task": "Return library books"}),
-         ("add_tasks", {"titles": ["Ship v1.1", "Standup notes"], "date": "tomorrow"}),
-         ("add_tasks", {"titles": ["Multiline heading\nA second line that must remain visible without squeezing the title"], "literal": True}),
+         ("add_tasks", {"titles": ["Ship v1.1", "Standup notes"], "date": tomorrow}),
+         ("add_tasks", {"titles": ["Multiline heading\nA second line that must remain visible without squeezing the title"],
+                        "date": str(day), "literal": True}),
          ("add_tasks", {"titles": ["Unscheduled draft"], "date": "inbox"})]
 msgs = [{"jsonrpc": "2.0", "id": 0, "method": "initialize",
          "params": {"protocolVersion": "2025-06-18", "capabilities": {}, "clientInfo": {"name": "ci", "version": "1"}}},
         {"jsonrpc": "2.0", "method": "notifications/initialized"}]
 msgs += [{"jsonrpc": "2.0", "id": i, "method": "tools/call", "params": {"name": n, "arguments": a}} for i, (n, a) in enumerate(calls, 1)]
+Path(sys.argv[1], "week-seed-requests.json").write_text(json.dumps(msgs))
 print("\n".join(json.dumps(m) for m in msgs))
 EOF
 python3 - "$DATA" <<'EOF'
-import json, sys, datetime
+import json, os, sys, datetime
 p = json.load(open(sys.argv[1])); p.setdefault("preferences", {}).update(
     welcomeCompleted=True, catchCopies=False, catchScreenshots=False)
 json.dump(p, open(sys.argv[1], "w"))
-on = [t for t in p["tasks"] if t.get("day") == datetime.date.today().isoformat()]
+on = [t for t in p["tasks"] if t.get("day") == os.environ["WEEK_DAY"]]
 print(f"seeded {len(p['tasks'])} tasks, {len(on)} today, {sum(bool(t.get('repeatRule')) for t in on)} repeating")
 assert len(on) >= 10, "need at least 10 tasks today"
+assert len(on) == 13, f"expected exactly 13 tasks today, got {len(on)}"
+assert len(p["tasks"]) == 16, "unexpected fixture task count"
+reminders = [t for t in on if t.get("remindAt")]
+assert len(reminders) == 2, "both reminder-bearing rows must remain on today"
+assert all(datetime.datetime.fromisoformat(t["remindAt"].replace("Z", "+00:00")).date().isoformat()
+           == os.environ["WEEK_DAY"] for t in reminders), "reminder rolled off today"
 multiline = [t for t in on if "\n" in t["title"]]
 assert len(multiline) == 1, "multiline fixture missing or split"
 EOF
@@ -57,6 +74,8 @@ edits = {
     '.coordinateSpace(.named(Self.space))': '.coordinateSpace(.named(Self.space))\n            .background(WeekMeasure(key: "list:\\(ref.key?.raw ?? "inbox")"))',
     '.accessibilityLabel("\\(tasks.filter(\\.done).count) of \\(tasks.count) tasks complete")':
         '.accessibilityLabel("\\(tasks.filter(\\.done).count) of \\(tasks.count) tasks complete")\n                    .background(WeekMeasure(key: "count:\\(key)"))',
+    '.accessibilityLabel("\\(hidden) more \\(hidden == 1 ? "task" : "tasks") below")':
+        '.accessibilityLabel("\\(hidden) more \\(hidden == 1 ? "task" : "tasks") below")\n                    .accessibilityIdentifier("week-overflow-\\(ref.key?.raw ?? "inbox")")',
     '            .onSubmit {': '            .background(WeekMeasure(key: "add:\\(ref.key?.raw ?? "inbox")"))\n            .onSubmit {'
 }
 for old, new in edits.items():
@@ -258,6 +277,39 @@ func wakeAccessibility() async {
     tracker.finishWaiting()
     return try XCTFreeUnwrap(tracker.menu, "tracked Week context menu")
 }
+func verifySeedDay(_ out: URL, day: DayKey) throws {
+    let requests = try JSONSerialization.jsonObject(with: Data(contentsOf:
+        out.appendingPathComponent("week-seed-requests.json"))) as! [[String: Any]]
+    for seconds in [5 * 60, 23 * 60 * 60 + 55 * 60] {
+        let now = day.date().addingTimeInterval(Double(seconds))
+        var engine = PlannerEngine(planner: Planner(), now: { now })
+        for request in requests {
+            guard let params = request["params"] as? [String: Any],
+                  let name = params["name"] as? String,
+                  let args = params["arguments"] as? [String: Any] else { continue }
+            switch name {
+            case "add_tasks":
+                let target = try DayRef.parse(args["date"] as? String, now: now, resetHour: 0)
+                _ = try engine.addTasks(args["titles"] as! [String], on: target,
+                                        literal: args["literal"] as? Bool ?? false)
+            case "complete_task":
+                let task = try XCTFreeUnwrap(engine.planner.tasks.first { $0.title == args["task"] as? String },
+                                             "boundary completion fixture")
+                _ = try engine.complete(task.id)
+            default:
+                require(false, "Unhandled fixture command: \(name)")
+            }
+        }
+        let today = engine.tasks(on: .day(day))
+        require(today.count == 13 && engine.planner.tasks.count == 16,
+                "Seed day counts drifted at \(seconds) seconds after midnight")
+        require(today.filter { $0.remindAt != nil }.count == 2,
+                "Reminder rows moved off today at \(seconds) seconds after midnight")
+        require(today.filter(\.done).count == 2 && today.filter { $0.title.contains("\n") }.count == 1,
+                "Boundary fixture lost completion or multiline coverage")
+        report("PASS Week seed: \(seconds == 300 ? "00:05Z" : "23:55Z"), 13 today, 2 reminders")
+    }
+}
 @MainActor func verifyCalendarRollover(window: NSWindow, out: URL, model: NotchModel,
                                        seedDay: DayKey, whileInInbox: Bool) async throws -> [String: Any] {
     let calendar = Calendar.current
@@ -334,10 +386,15 @@ MainActor.assumeIsolated {
     let app = NSApplication.shared
     app.setActivationPolicy(.accessory)
     let out = URL(fileURLWithPath: ProcessInfo.processInfo.environment["WEEK_OUTPUT"]!)
-    let store = PlannerStore(watching: false), model = NotchModel(motionPolicy: MotionPolicy(reduceMotion: true))
+    let seedDay = DayKey(ProcessInfo.processInfo.environment["WEEK_DAY"]!)!
+    let fixtureNow = seedDay.date().addingTimeInterval(12 * 60 * 60)
+    let store = PlannerStore(now: { fixtureNow }, watching: false)
+    let model = NotchModel(motionPolicy: MotionPolicy(reduceMotion: true))
     let today = store.today.raw
     let tasks = store.engine.tasks(on: .day(store.today))
     require(tasks.count >= 10 && tasks.contains { $0.repeatRule != nil })
+    require(tasks.count == 13, "Expected exactly 13 tasks on the fixture day")
+    require(tasks.filter { $0.remindAt != nil }.count == 2, "Missing today's reminder rows")
     let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 820, height: 300),
                           styleMask: [.titled], backing: .buffered, defer: false)
     window.isReleasedWhenClosed = false
@@ -347,6 +404,7 @@ MainActor.assumeIsolated {
     app.activate(ignoringOtherApps: true)
     Task { @MainActor in
         do {
+            try verifySeedDay(out, day: seedDay)
             var results: [[String: Any]] = []
             for width in [820, 620] {
                 measurements.removeAll()
@@ -367,29 +425,65 @@ MainActor.assumeIsolated {
                 let addRead = try recognize(bitmap(host, rect: addBefore))
                 require(normalized(addRead) == "addatask", "Unreadable Add: \(addRead)")
                 require(host.bounds.contains(addBefore), "Add is outside the page")
+                await wakeAccessibility()
+                let overflowID = "week-overflow-\(today)"
+                if let overflow = nodes(host).first(where: {
+                    attribute($0, "accessibilityIdentifier") as? String == overflowID
+                }) {
+                    if attribute(overflow, "accessibilityRole") as? String == "AXButton" {
+                        press(overflowID, in: host)
+                        await settle()
+                        report("Week \(width): expanded today's overflow control")
+                    } else {
+                        // Week currently renders +N more as text, not a button.
+                        // Reveal its rows through the actual day scroll view instead.
+                        report("Week \(width): +N more is a label; scanning today's scroll view")
+                    }
+                }
                 var titles: [[String: Any]] = [], scores: [Int] = []
                 let listScroll = scrollParent("title:\(tasks[0].id)")
+                let document = try XCTFreeUnwrap(listScroll.documentView, "today's scroll document")
                 var seen = Set<UUID>()
-                let maximum = max(0, listScroll.documentView!.bounds.height - listScroll.contentView.bounds.height)
-                // Scan the actual scrolling viewport; short panels need not display five rows simultaneously.
-                for offset in stride(from: CGFloat(0), through: maximum + 1, by: CGFloat(40)) {
-                    listScroll.contentView.scroll(to: NSPoint(x: 0, y: min(offset, maximum)))
+                let maximum = max(0, document.frame.height - listScroll.contentView.bounds.height)
+                report("Week \(width): document \(document.frame), viewport \(listScroll.contentView.bounds), max offset \(maximum)")
+                require(maximum > 20, "Busy-day list has no vertical scroll range")
+                // Align each measured title to the viewport, rather than stepping past
+                // short rows or trusting an unrelated (horizontal) scroll container.
+                for task in tasks {
+                    let marker = try XCTFreeUnwrap(measurements["title:\(task.id)"], "today title marker")
+                    require(marker.window != nil, "Today's title is not rendered: \(task.title)")
+                    let inDocument = document.convert(marker.bounds, from: marker)
+                    let target = document.isFlipped ? inDocument.minY - 2
+                        : inDocument.maxY + 2 - listScroll.contentView.bounds.height
+                    let offset = min(maximum, max(0, target))
+                    let before = listScroll.contentView.bounds.origin.y
+                    listScroll.contentView.scroll(to: NSPoint(x: 0, y: offset))
                     listScroll.reflectScrolledClipView(listScroll.contentView)
                     await settle()
-                for task in store.planner.tasks where !seen.contains(task.id) {
-                    guard let marker = measurements["title:\(task.id)"], marker.window != nil else { continue }
-                    let rect = frame("title:\(task.id)", in: host)
-                    let list = frame("list:\(task.day?.raw ?? "inbox")", in: host)
-                    // Exclude partially clipped titles and the bottom 22pt fade, not failed OCR.
-                    guard host.bounds.intersection(list).contains(rect), rect.maxY <= list.maxY - 22 else { continue }
-                    let read = try recognize(bitmap(host, rect: rect))
-                    let chars = prefixCount(read, task.title), length = normalized(task.title).count
-                    seen.insert(task.id)
-                    scores.append(chars + max(0, 12 - length))
-                    titles.append(["title": task.title, "ocr": read, "visibleCharacters": chars,
-                                   "required": min(12, length), "rect": [rect.minX, rect.minY, rect.width, rect.height]])
+                    let after = listScroll.contentView.bounds.origin.y
+                    if abs(offset - before) > 0.5 {
+                        require(abs(after - before) > 0.5,
+                                "Title scan did not scroll: requested \(offset), stayed at \(before)")
+                    }
+                    let viewport = host.convert(listScroll.contentView.bounds, from: listScroll.contentView)
+                    let list = frame("list:\(today)", in: host).intersection(viewport).intersection(host.bounds)
+                    for visibleTask in tasks where !seen.contains(visibleTask.id) {
+                        guard let marker = measurements["title:\(visibleTask.id)"], marker.window != nil else { continue }
+                        let rect = frame("title:\(visibleTask.id)", in: host)
+                        // Exclude partially clipped titles and the bottom 22pt fade, not failed OCR.
+                        guard list.contains(rect), rect.maxY <= list.maxY - 22 else { continue }
+                        let read = try recognize(bitmap(host, rect: rect))
+                        let chars = prefixCount(read, visibleTask.title), length = normalized(visibleTask.title).count
+                        seen.insert(visibleTask.id)
+                        scores.append(chars + max(0, 12 - length))
+                        titles.append(["title": visibleTask.title, "ocr": read, "visibleCharacters": chars,
+                                       "required": min(12, length), "rect": [rect.minX, rect.minY, rect.width, rect.height],
+                                       "scrollOffset": after])
+                    }
                 }
-                }
+                require(scores.count >= 5, "Missing title coverage: \(titles)")
+                require(tasks.contains { $0.remindAt != nil && seen.contains($0.id) },
+                        "No reminder-bearing today row was captured")
                 report("PASS Week \(width): OCR viewport scan, \(titles.count) title crops")
                 let multiline = try XCTFreeUnwrap(tasks.first { $0.title.contains("\n") }, "multiline fixture")
                 let multilineRect = frame("title:\(multiline.id)", in: host)
