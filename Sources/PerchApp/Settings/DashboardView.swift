@@ -1,9 +1,9 @@
 import SwiftUI
 
 enum DashboardWindow {
-    @MainActor static func show(store: PlannerStore) {
+    @MainActor static func show(store: PlannerStore, tab: DashboardView.Tab = .insights) {
         WindowHost.show("dashboard", title: "Perch", size: CGSize(width: 900, height: 640)) {
-            DashboardView().environmentObject(store)
+            DashboardView(tab: tab).environmentObject(store)
         }
     }
 
@@ -18,10 +18,12 @@ enum DashboardWindow {
 
 struct DashboardView: View {
     @EnvironmentObject var store: PlannerStore
-    @State private var tab: Tab = .insights
+    @State private var tab: Tab
     enum Tab: String, CaseIterable {
         case upcoming = "Upcoming", history = "History", insights = "Insights", projects = "Projects"
     }
+
+    init(tab: Tab = .insights) { _tab = State(initialValue: tab) }
 
     var body: some View {
         VStack(spacing: 0) {

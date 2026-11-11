@@ -40,6 +40,7 @@ final class DashboardUndoTests: XCTestCase {
         let field = try XCTUnwrap(fieldNode as? NSTextField)
         XCTAssertTrue(window.makeFirstResponder(field))
         let editor = try XCTUnwrap(field.currentEditor() as? NSTextView)
+        fixture.undoTarget.editor = editor
         XCTAssertTrue(window.firstResponder === editor)
         XCTAssertTrue(editor.allowsUndo)
 
@@ -120,24 +121,6 @@ fileprivate extension DashboardUndoTests {
         XCTAssertTrue(unsafeBitCast(implementation, to: Press.self)(node, selector))
     }
 
-    static func select(tab: String, in window: NSWindow) async throws {
-        for _ in 0..<30 {
-            window.contentView?.layoutSubtreeIfNeeded()
-            await settle()
-            if let picker = nodes(window).compactMap({ $0 as? NSSegmentedControl }).first(where: { control in
-                (0..<control.segmentCount).contains { index in control.label(forSegment: index) == tab }
-            }) {
-                picker.selectedSegment = try XCTUnwrap(
-                    (0..<picker.segmentCount).first { picker.label(forSegment: $0) == tab })
-                picker.performClick(nil)
-                await settle()
-                return
-            }
-        }
-        XCTFail("Missing Dashboard tab \(tab)")
-        throw DashboardTestError.missingControl
-    }
-
     static func attribute(_ node: NSObject, _ name: String) -> Any? {
         let selector = NSSelectorFromString(name)
         return node.responds(to: selector) ? node.perform(selector)?.takeUnretainedValue() : nil
@@ -160,12 +143,19 @@ fileprivate extension DashboardUndoTests {
 private enum DashboardTestError: Error { case missingControl }
 
 @MainActor
+private final class DashboardUndoTarget: NSObject {
+    weak var editor: NSTextView?
+    @objc func undo(_ sender: Any?) { editor?.undoManager?.undo() }
+}
+
+@MainActor
 private final class DashboardFixture {
     let directory: URL
     let file: PlannerFile
     let store: PlannerStore
     private let activationPolicy = NSApplication.shared.activationPolicy()
     private let previousMainMenu = NSApplication.shared.mainMenu
+    let undoTarget = DashboardUndoTarget()
 
     init() throws {
         directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
@@ -188,18 +178,20 @@ private final class DashboardFixture {
         let mainMenu = NSMenu()
         let editRoot = NSMenuItem()
         let editMenu = NSMenu(title: "Edit")
-        editMenu.addItem(withTitle: "Undo", action: NSSelectorFromString("undo:"), keyEquivalent: "z")
+        let undoItem = editMenu.addItem(
+            withTitle: "Undo", action: #selector(DashboardUndoTarget.undo(_:)), keyEquivalent: "z")
+        undoItem.target = undoTarget
         mainMenu.addItem(editRoot)
         mainMenu.setSubmenu(editMenu, for: editRoot)
         NSApp.mainMenu = mainMenu
     }
 
     func open(tab: String) async throws -> NSWindow {
-        DashboardWindow.show(store: store)
+        DashboardWindow.show(store: store, tab: try XCTUnwrap(DashboardView.Tab(rawValue: tab)))
         let window = try XCTUnwrap(WindowHost.windows["dashboard"])
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
-        try await DashboardUndoTests.select(tab: tab, in: window)
+        await DashboardUndoTests.settle()
         return window
     }
 
