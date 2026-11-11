@@ -19,7 +19,7 @@ final class VoiceCapture: ObservableObject {
 
     init(scheduler: any AppScheduling = MainQueueScheduler()) { self.scheduler = scheduler }
 
-    deinit {
+    isolated deinit {
         timeoutWork?.cancel()
         finishWork?.cancel()
     }

@@ -20,7 +20,7 @@ final class DragPointerObservation {
         self.scheduler = scheduler; self.now = now; self.pressed = pressed; self.sample = sample
     }
 
-    deinit { work?.cancel() }
+    isolated deinit { work?.cancel() }
 
     func begin() {
         deadline = now().addingTimeInterval(Self.maximumSilence)

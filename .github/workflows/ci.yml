@@ -52,7 +52,7 @@ jobs:
         run: test "$FORMAT_RESULT" = success
       - uses: actions/checkout@v4
       - uses: swift-actions/setup-swift@v2
-        with: { swift-version: "6.1" }
+        with: { swift-version: "6.2" }
       - name: Release and testing configuration regression
         run: python3 -m unittest discover -s scripts -p test_launch_configuration.py
       - name: Motion evidence classification regression

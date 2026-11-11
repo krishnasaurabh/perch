@@ -77,7 +77,7 @@ final class RemindersSync: ObservableObject {
         }
     }
 
-    deinit {
+    isolated deinit {
         if let observer { NotificationCenter.default.removeObserver(observer) }
         scheduled?.cancel()
     }

@@ -43,17 +43,28 @@ final class NotchModel: ObservableObject {
     /// Explicit opening intent, not passive hover/drag. A new ID also refocuses an already-open page.
     @Published var captureFocusRequest: UUID?
 
-    /// Nil in production (live system preference); deterministic override for in-process probes.
-    let motionPolicyOverride: MotionPolicy?
+    #if DEBUG || PERCH_TESTING
+        /// Deterministic override in the test product only.
+        let motionPolicyOverride: MotionPolicy?
+    #endif
     private let scheduler: any AppScheduling
     private var activityWork: (any AppScheduledAction)?
-    var motionPolicy: MotionPolicy { motionPolicyOverride ?? .system }
-    init(motionPolicy: MotionPolicy? = nil, scheduler: any AppScheduling = MainQueueScheduler()) {
-        self.motionPolicyOverride = motionPolicy
-        self.scheduler = scheduler
+    var motionPolicy: MotionPolicy {
+        #if DEBUG || PERCH_TESTING
+            if let motionPolicyOverride { return motionPolicyOverride }
+        #endif
+        return .system
     }
+    #if DEBUG || PERCH_TESTING
+        init(motionPolicy: MotionPolicy? = nil, scheduler: any AppScheduling = MainQueueScheduler()) {
+            self.motionPolicyOverride = motionPolicy
+            self.scheduler = scheduler
+        }
+    #else
+        init(scheduler: any AppScheduling = MainQueueScheduler()) { self.scheduler = scheduler }
+    #endif
 
-    deinit { activityWork?.cancel() }
+    isolated deinit { activityWork?.cancel() }
 
     func open(page: NotchPage? = nil, pinned: Bool = false) {
         if let page { self.page = page }
@@ -194,10 +205,11 @@ final class NotchController {
         fullscreenObservation = FullscreenObservation { [weak self] in self?.checkFullScreenSoon() }
         NotificationCenter.default.addObserver(forName: .perchOpenWorkspace, object: nil, queue: .main) {
             [weak self] n in
+            let page = n.object as? NotchPage
             Task { @MainActor in
                 guard let self else { return }
                 self.open(
-                    on: self.slotUnderPointer() ?? self.preferredID(), page: n.object as? NotchPage, pinned: true,
+                    on: self.slotUnderPointer() ?? self.preferredID(), page: page, pinned: true,
                     activate: true)
             }
         }
@@ -320,8 +332,7 @@ final class NotchController {
         let state = NotchScreenState(id: id, geometry: g)
         let panel = NotchPanel(frame: g.window)
         let root = NotchRootView()
-            .motionDiagnostics()
-            .environment(\.motionPolicyOverride, model.motionPolicyOverride)
+            .motionDiagnostics(model: model)
             .environmentObject(store).environmentObject(model).environmentObject(services).environmentObject(state)
         let host = NotchHostingView(rootView: root)
         host.frame = NSRect(origin: .zero, size: g.window.size)
@@ -530,7 +541,7 @@ final class NotchController {
         }
     }
 
-    deinit {
+    isolated deinit {
         for monitor in monitors { NSEvent.removeMonitor(monitor) }
         closeWork?.cancel(); openWork?.cancel()
         fullscreenWork.forEach { $0.cancel() }; startupWork.forEach { $0.cancel() }

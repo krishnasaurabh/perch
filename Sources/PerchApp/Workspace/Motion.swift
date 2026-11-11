@@ -45,7 +45,7 @@ enum Motion {
 /// One policy for explicit updates, implicit view animations and notch choreography.
 /// Reduced mode intentionally omits the optional 150 ms opacity fade: no layout, scale,
 /// travel or repeating effects may ride on a transaction intended only for opacity.
-struct MotionPolicy: Equatable {
+struct MotionPolicy: Equatable, Sendable {
     let reduceMotion: Bool
     static var system: Self {
         #if DEBUG || PERCH_TESTING
@@ -76,24 +76,34 @@ struct MotionPolicy: Equatable {
     }
 }
 
-private struct MotionPolicyOverrideKey: EnvironmentKey {
-    static let defaultValue: MotionPolicy? = nil
-}
+#if DEBUG || PERCH_TESTING
+    private struct MotionPolicyOverrideKey: EnvironmentKey {
+        static let defaultValue: MotionPolicy? = nil
+    }
+
+    extension EnvironmentValues {
+        /// Injection seam for in-process tests; production follows live SwiftUI accessibility changes.
+        var motionPolicyOverride: MotionPolicy? {
+            get { self[MotionPolicyOverrideKey.self] }
+            set { self[MotionPolicyOverrideKey.self] = newValue }
+        }
+    }
+#endif
 
 extension EnvironmentValues {
-    /// Injection seam for in-process tests; production follows live SwiftUI accessibility changes.
-    var motionPolicyOverride: MotionPolicy? {
-        get { self[MotionPolicyOverrideKey.self] }
-        set { self[MotionPolicyOverrideKey.self] = newValue }
+    var motionPolicy: MotionPolicy {
+        #if DEBUG || PERCH_TESTING
+            if let motionPolicyOverride { return motionPolicyOverride }
+        #endif
+        return MotionPolicy(reduceMotion: accessibilityReduceMotion)
     }
-    var motionPolicy: MotionPolicy { motionPolicyOverride ?? MotionPolicy(reduceMotion: accessibilityReduceMotion) }
 }
 
 extension View {
     @ViewBuilder
-    func motionDiagnostics() -> some View {
+    func motionDiagnostics(model: NotchModel) -> some View {
         #if DEBUG || PERCH_TESTING
-            modifier(MotionScript.PolicyProbe())
+            modifier(MotionScript.PolicyProbe()).environment(\.motionPolicyOverride, model.motionPolicyOverride)
         #else
             self
         #endif

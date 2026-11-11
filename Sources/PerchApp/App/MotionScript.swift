@@ -34,12 +34,14 @@
         static var transactions: [[String: Any]] = []
         nonisolated static func recordTransaction(_ transaction: Transaction, stage: String) {
             guard CommandLine.arguments.contains("--motion-script") else { return }
+            let animation = String(describing: transaction.animation)
+            let disablesAnimations = transaction.disablesAnimations
             MainActor.assumeIsolated {
                 guard transactions.count < 2000 else { return }
                 transactions.append([
                     "t": Date().timeIntervalSince1970, "stage": stage,
-                    "animation": String(describing: transaction.animation),
-                    "disables_animations": transaction.disablesAnimations,
+                    "animation": animation,
+                    "disables_animations": disablesAnimations,
                 ])
             }
         }

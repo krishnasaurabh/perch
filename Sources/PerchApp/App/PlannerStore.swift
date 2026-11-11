@@ -294,7 +294,7 @@ final class PlannerStore: ObservableObject {
         observationTokens.append((center, token))
     }
 
-    deinit {
+    isolated deinit {
         recoveryTimer?.invalidate()
         for (center, token) in observationTokens { center.removeObserver(token) }
         reloadWork?.cancel(); focusWork?.cancel(); dayWork?.cancel(); saveWork?.cancel()

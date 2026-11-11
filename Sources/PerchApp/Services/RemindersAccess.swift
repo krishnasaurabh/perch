@@ -47,10 +47,10 @@ final class SystemRemindersAccess: RemindersAccess {
                 "The Perch Reminders list was removed or moved. Sync is stopped; no replacement list was created.")
         }
         let predicate = ek.predicateForReminders(in: [calendar])
-        let reminders: [EKReminder] = try await withCheckedThrowingContinuation { continuation in
+        let reminders: [ReminderSyncRecord] = try await withCheckedThrowingContinuation { continuation in
             ek.fetchReminders(matching: predicate) { reminders in
                 if let reminders {
-                    continuation.resume(returning: reminders)
+                    continuation.resume(returning: reminders.map(Self.snapshot))
                 } else {
                     continuation.resume(
                         throwing: ReminderSyncError.stopped(
@@ -60,7 +60,7 @@ final class SystemRemindersAccess: RemindersAccess {
         }
         try requireAccess()
         PlatformLog.reminders.debug("fetch completed count=\(reminders.count, privacy: .public)")
-        return reminders.map(snapshot)
+        return reminders
     }
 
     func save(fields: ReminderFields, owner: ReminderOwner, calendarID: String, replacing expected: ReminderSyncRecord?)
@@ -90,7 +90,7 @@ final class SystemRemindersAccess: RemindersAccess {
             ek.reset(); throw error
         }
         PlatformLog.reminders.debug("save completed replacing=\(expected != nil, privacy: .public)")
-        return snapshot(reminder)
+        return Self.snapshot(reminder)
     }
 
     func remove(_ expected: ReminderSyncRecord) throws {
@@ -106,7 +106,7 @@ final class SystemRemindersAccess: RemindersAccess {
 
     private func current(_ expected: ReminderSyncRecord) throws -> EKReminder {
         guard let reminder = ek.calendarItem(withIdentifier: expected.id) as? EKReminder,
-            snapshot(reminder) == expected
+            Self.snapshot(reminder) == expected
         else { throw conflict() }
         return reminder
     }
@@ -123,7 +123,7 @@ final class SystemRemindersAccess: RemindersAccess {
         return .stopped(
             "A reminder changed during sync. Nothing else was overwritten; retry to review the latest version.")
     }
-    private func snapshot(_ reminder: EKReminder) -> ReminderSyncRecord {
+    private nonisolated static func snapshot(_ reminder: EKReminder) -> ReminderSyncRecord {
         let alarms = reminder.alarms ?? []
         let unsupported =
             !(reminder.recurrenceRules ?? []).isEmpty || alarms.count > 1

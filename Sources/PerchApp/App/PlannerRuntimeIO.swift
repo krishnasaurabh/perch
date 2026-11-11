@@ -22,7 +22,7 @@ final class PlannerDirectoryObserver {
         repair()
     }
 
-    deinit {
+    isolated deinit {
         delivery?.cancel()
         for watch in watches.values { watch.source.cancel() }
     }

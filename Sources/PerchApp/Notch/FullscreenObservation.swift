@@ -30,7 +30,7 @@ final class FullscreenObservation {
         refreshApplication()
     }
 
-    deinit {
+    isolated deinit {
         timer?.invalidate(); delivery?.cancel()
         for token in tokens { NSWorkspace.shared.notificationCenter.removeObserver(token) }
         if let observer {

@@ -95,7 +95,7 @@ final class GlobalHotKey {
         }
     }
 
-    deinit {
+    isolated deinit {
         if let changeObserver { NotificationCenter.default.removeObserver(changeObserver) }
         MainActor.assumeIsolated {
             unregister()

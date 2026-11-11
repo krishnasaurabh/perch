@@ -121,7 +121,7 @@ final class ClipsService: ObservableObject {
         #endif
     }
 
-    deinit {
+    isolated deinit {
         demoWork?.cancel()
         recheckTask?.cancel()
         letGoWork?.cancel()
