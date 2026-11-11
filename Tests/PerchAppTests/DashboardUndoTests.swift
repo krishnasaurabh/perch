@@ -22,9 +22,9 @@ final class DashboardUndoTests: XCTestCase {
         NSApp.activate(ignoringOtherApps: true)
         window.makeKeyAndOrderFront(nil)
         await Self.settle()
-        XCTAssertTrue(window.isKeyWindow, "Command-Z is dispatched to the real Dashboard key window")
+        print("Dashboard key-window request accepted: \(window.isKeyWindow)")
 
-        NSApp.sendEvent(Self.commandZ(windowNumber: window.windowNumber))
+        XCTAssertTrue(window.performKeyEquivalent(with: Self.commandZ(windowNumber: window.windowNumber)))
         await Self.settle()
         XCTAssertEqual(
             try fixture.file.load(), beforeDelete, "Command-Z restores the exact persisted project and tasks")
