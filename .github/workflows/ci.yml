@@ -53,8 +53,15 @@ jobs:
           FORMAT_RESULT: ${{ needs.swift-format.result }}
         run: test "$FORMAT_RESULT" = success
       - uses: actions/checkout@v4
-      - uses: swift-actions/setup-swift@v2
-        with: { swift-version: "6.2" }
+      - name: Install Swift 6.2
+        run: |
+          # Swift 6.2 RELEASE for Ubuntu 24.04; verify the pinned SHA-256 before extraction.
+          curl --fail --location --silent --show-error --output "$RUNNER_TEMP/swift.tar.gz" \
+            https://download.swift.org/swift-6.2-release/ubuntu2404/swift-6.2-RELEASE/swift-6.2-RELEASE-ubuntu24.04.tar.gz
+          echo "8e3d63a3371caad495e694414b9b9a22c5f68c6473077406c7296472a41bc077  $RUNNER_TEMP/swift.tar.gz" | sha256sum --check
+          sudo mkdir -p /opt/swift
+          sudo tar -xzf "$RUNNER_TEMP/swift.tar.gz" --strip-components=1 -C /opt/swift
+          echo "/opt/swift/usr/bin" >> "$GITHUB_PATH"
       - name: Release and testing configuration regression
         run: python3 -m unittest discover -s scripts -p test_launch_configuration.py
       - name: Motion evidence classification regression
