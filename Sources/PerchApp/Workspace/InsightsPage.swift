@@ -120,7 +120,7 @@ struct InsightsPage: View {
 
     private func stat(_ value: String, _ label: String) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 6) {
-            Text(value).font(Theme.heading.monospacedDigit())
+            Text(value).font(.system(size: 15, weight: .bold).monospacedDigit())
             Text(label).font(Theme.meta).foregroundStyle(Theme.secondary)
             Spacer(minLength: 0)
         }
@@ -128,7 +128,7 @@ struct InsightsPage: View {
     }
 }
 
-/// Seven days of bars. Completed stands in front of the contrasting Planned silhouette.
+/// Seven days of bars. Completed (solid) stands in front of Planned (translucent).
 ///
 /// Planned is a stable comparison silhouette: it is at its final height from the first frame and never animates.
 /// Only Completed grows from the baseline, left to right: spring R 0.30 ζ 1 with a 130 ms stagger
@@ -197,9 +197,9 @@ struct WeekBars: View {
                     let isToday = d.day == today
                     VStack(spacing: 1) {
                         Text(d.day.date().formatted(.dateTime.weekday(.abbreviated)))
-                            .font(Theme.meta.weight(isToday ? .semibold : .medium))
+                            .font(.system(size: 10.5, weight: isToday ? .bold : .medium))
                         Text(d.day.date().formatted(.dateTime.day()))
-                            .font(Theme.meta.weight(isToday ? .semibold : .regular).monospacedDigit())
+                            .font(.system(size: 10, weight: isToday ? .bold : .regular).monospacedDigit())
                             .foregroundStyle(Theme.secondary)
                     }
                     .frame(maxWidth: .infinity)
@@ -218,7 +218,7 @@ struct WeekBars: View {
             ZStack {
                 VStack(spacing: 0) {
                     // Only the top line the scale label names, plus the baseline. Unlabeled quarter lines
-                    // fell on fractional values and showed through the Planned bars.
+                    // fell on fractional values and showed through the translucent Planned bars.
                     // With no data only the baseline stays, so the hint never sits on a gridline.
                     // Both are one device pixel, so they guide the eye without framing the plot like a box.
                     let hairline = 1 / max(displayScale, 1)
