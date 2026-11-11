@@ -48,7 +48,17 @@ final class NotchModel: ObservableObject {
         let motionPolicyOverride: MotionPolicy?
     #endif
     private let scheduler: any AppScheduling
-    private var activityWork: (any AppScheduledAction)?
+    @MainActor
+    private final class ActivityLifetime {
+        var activityWork: (any AppScheduledAction)?
+    }
+    private let activityLifetime = MainActorLifetime(ActivityLifetime()) { state in
+        state.activityWork?.cancel()
+    }
+    private var activityWork: (any AppScheduledAction)? {
+        get { activityLifetime.state.activityWork }
+        set { activityLifetime.state.activityWork = newValue }
+    }
     var motionPolicy: MotionPolicy {
         #if DEBUG || PERCH_TESTING
             if let motionPolicyOverride { return motionPolicyOverride }
@@ -63,8 +73,6 @@ final class NotchModel: ObservableObject {
     #else
         init(scheduler: any AppScheduling = MainQueueScheduler()) { self.scheduler = scheduler }
     #endif
-
-    isolated deinit { activityWork?.cancel() }
 
     func open(page: NotchPage? = nil, pinned: Bool = false) {
         if let page { self.page = page }
@@ -126,12 +134,40 @@ final class NotchController {
 
     private struct Slot { let panel: NotchPanel; let state: NotchScreenState }
     private var slots: [CGDirectDisplayID: Slot] = [:]
-    private var monitors: [Any] = []
+    @MainActor
+    private final class ControllerLifetime {
+        var monitors: [Any] = []
+        var closeWork: (any AppScheduledAction)?
+        var openWork: (any AppScheduledAction)?
+        var fullscreenWork: [any AppScheduledAction] = []
+        var startupWork: [any AppScheduledAction] = []
+    }
+    private let controllerLifetime = MainActorLifetime(ControllerLifetime()) { state in
+        for monitor in state.monitors { NSEvent.removeMonitor(monitor) }
+        state.closeWork?.cancel(); state.openWork?.cancel()
+        state.fullscreenWork.forEach { $0.cancel() }; state.startupWork.forEach { $0.cancel() }
+    }
+    private var monitors: [Any] {
+        get { controllerLifetime.state.monitors }
+        set { controllerLifetime.state.monitors = newValue }
+    }
     private let scheduler: any AppScheduling
-    private var closeWork: (any AppScheduledAction)?
-    private var openWork: (any AppScheduledAction)?
-    private var fullscreenWork: [any AppScheduledAction] = []
-    private var startupWork: [any AppScheduledAction] = []
+    private var closeWork: (any AppScheduledAction)? {
+        get { controllerLifetime.state.closeWork }
+        set { controllerLifetime.state.closeWork = newValue }
+    }
+    private var openWork: (any AppScheduledAction)? {
+        get { controllerLifetime.state.openWork }
+        set { controllerLifetime.state.openWork = newValue }
+    }
+    private var fullscreenWork: [any AppScheduledAction] {
+        get { controllerLifetime.state.fullscreenWork }
+        set { controllerLifetime.state.fullscreenWork = newValue }
+    }
+    private var startupWork: [any AppScheduledAction] {
+        get { controllerLifetime.state.startupWork }
+        set { controllerLifetime.state.startupWork = newValue }
+    }
     private lazy var dragObservation = DragPointerObservation { [weak self] in self?.trackPointer() }
     private var fullscreenObservation: FullscreenObservation?
     private var cancellables = Set<AnyCancellable>()
@@ -539,12 +575,6 @@ final class NotchController {
         return NSApp.windows.contains {
             $0.isVisible && !ours.contains(ObjectIdentifier($0)) && $0.className.contains("Popover")
         }
-    }
-
-    isolated deinit {
-        for monitor in monitors { NSEvent.removeMonitor(monitor) }
-        closeWork?.cancel(); openWork?.cancel()
-        fullscreenWork.forEach { $0.cancel() }; startupWork.forEach { $0.cancel() }
     }
 
     #if DEBUG || PERCH_TESTING

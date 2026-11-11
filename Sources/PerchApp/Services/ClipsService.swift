@@ -69,9 +69,27 @@ final class ClipsService: ObservableObject {
     private let now: () -> Date
     private let scheduler: any AppScheduling
     private let pasteboard: any PasteboardAccess
-    private var letGoWork: (any AppScheduledAction)?
-    private var demoWork: (any AppScheduledAction)?
-    private var recheckTask: Task<Void, Never>?
+    @MainActor
+    private final class LifetimeState {
+        var letGoWork: (any AppScheduledAction)?
+        var demoWork: (any AppScheduledAction)?
+        var recheckTask: Task<Void, Never>?
+    }
+    private let lifetimeState = MainActorLifetime(LifetimeState()) { state in
+        state.demoWork?.cancel(); state.recheckTask?.cancel(); state.letGoWork?.cancel()
+    }
+    private var letGoWork: (any AppScheduledAction)? {
+        get { lifetimeState.state.letGoWork }
+        set { lifetimeState.state.letGoWork = newValue }
+    }
+    private var demoWork: (any AppScheduledAction)? {
+        get { lifetimeState.state.demoWork }
+        set { lifetimeState.state.demoWork = newValue }
+    }
+    private var recheckTask: Task<Void, Never>? {
+        get { lifetimeState.state.recheckTask }
+        set { lifetimeState.state.recheckTask = newValue }
+    }
 
     private var query: NSMetadataQuery?
     private var queryObserver: NSObjectProtocol?
@@ -119,12 +137,6 @@ final class ClipsService: ObservableObject {
                 demoWork = scheduler.schedule(after: 0.8) { [weak self] in self?.seedDemo() }
             }
         #endif
-    }
-
-    isolated deinit {
-        demoWork?.cancel()
-        recheckTask?.cancel()
-        letGoWork?.cancel()
     }
 
     #if DEBUG || PERCH_TESTING

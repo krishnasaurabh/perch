@@ -12,8 +12,23 @@ final class RemindersSync: ObservableObject {
     @Published private(set) var lastError: RemindersSyncFailure?
     private var cancellable: AnyCancellable?
     private var dayCancellable: AnyCancellable?
-    private var observer: NSObjectProtocol?
-    private var scheduled: (any AppScheduledAction)?
+    @MainActor
+    private final class LifetimeState {
+        var observer: NSObjectProtocol?
+        var scheduled: (any AppScheduledAction)?
+    }
+    private let lifetimeState = MainActorLifetime(LifetimeState()) { state in
+        if let observer = state.observer { NotificationCenter.default.removeObserver(observer) }
+        state.scheduled?.cancel()
+    }
+    private var observer: NSObjectProtocol? {
+        get { lifetimeState.state.observer }
+        set { lifetimeState.state.observer = newValue }
+    }
+    private var scheduled: (any AppScheduledAction)? {
+        get { lifetimeState.state.scheduled }
+        set { lifetimeState.state.scheduled = newValue }
+    }
     private var running = false
     private var pending = false
     private var applyingCompletion = false
@@ -75,11 +90,6 @@ final class RemindersSync: ObservableObject {
             }
             schedule()
         }
-    }
-
-    isolated deinit {
-        if let observer { NotificationCenter.default.removeObserver(observer) }
-        scheduled?.cancel()
     }
 
     var hasAccess: Bool { source.hasAccess }

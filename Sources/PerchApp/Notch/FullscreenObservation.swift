@@ -6,11 +6,42 @@ import ApplicationServices
 @MainActor
 final class FullscreenObservation {
     private let changed: @MainActor () -> Void
-    private var tokens: [NSObjectProtocol] = []
-    private var observer: AXObserver?
-    private var registrations: [(AXUIElement, CFString)] = []
-    private var timer: Timer?
-    private var delivery: DispatchWorkItem?
+    @MainActor
+    private final class LifetimeState {
+        var tokens: [NSObjectProtocol] = []
+        var observer: AXObserver?
+        var registrations: [(AXUIElement, CFString)] = []
+        var timer: Timer?
+        var delivery: DispatchWorkItem?
+    }
+    private let lifetimeState = MainActorLifetime(LifetimeState()) { state in
+        state.timer?.invalidate(); state.delivery?.cancel()
+        for token in state.tokens { NSWorkspace.shared.notificationCenter.removeObserver(token) }
+        if let observer = state.observer {
+            CFRunLoopRemoveSource(CFRunLoopGetMain(), AXObserverGetRunLoopSource(observer), .commonModes)
+            for (element, name) in state.registrations { AXObserverRemoveNotification(observer, element, name) }
+        }
+    }
+    private var tokens: [NSObjectProtocol] {
+        get { lifetimeState.state.tokens }
+        set { lifetimeState.state.tokens = newValue }
+    }
+    private var observer: AXObserver? {
+        get { lifetimeState.state.observer }
+        set { lifetimeState.state.observer = newValue }
+    }
+    private var registrations: [(AXUIElement, CFString)] {
+        get { lifetimeState.state.registrations }
+        set { lifetimeState.state.registrations = newValue }
+    }
+    private var timer: Timer? {
+        get { lifetimeState.state.timer }
+        set { lifetimeState.state.timer = newValue }
+    }
+    private var delivery: DispatchWorkItem? {
+        get { lifetimeState.state.delivery }
+        set { lifetimeState.state.delivery = newValue }
+    }
     private(set) var recoveryInterval: TimeInterval = 5
 
     init(changed: @escaping @MainActor () -> Void) {
@@ -28,15 +59,6 @@ final class FullscreenObservation {
                 })
         }
         refreshApplication()
-    }
-
-    isolated deinit {
-        timer?.invalidate(); delivery?.cancel()
-        for token in tokens { NSWorkspace.shared.notificationCenter.removeObserver(token) }
-        if let observer {
-            CFRunLoopRemoveSource(CFRunLoopGetMain(), AXObserverGetRunLoopSource(observer), .commonModes)
-            for (element, name) in registrations { AXObserverRemoveNotification(observer, element, name) }
-        }
     }
 
     func refreshApplication() {
