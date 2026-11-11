@@ -264,7 +264,8 @@ final class MCPEdgeTests: XCTestCase {
             AgentTools.definitions.filter { $0["annotations"]?["readOnlyHint"]?.bool == true }.compactMap {
                 $0["name"]?.string
             })
-        XCTAssertEqual(names, ["get_task", "read_notepad", "get_insights", "list_projects"])
+        XCTAssertEqual(
+            names, ["get_task", "list_inbox", "list_overdue", "read_notepad", "get_insights", "list_projects"])
         func snapshot() throws -> [String: Data] {
             var result: [String: Data] = [:]
             func walk(_ base: URL, _ prefix: String) throws {
@@ -297,7 +298,8 @@ final class MCPEdgeTests: XCTestCase {
             }
             let before = try snapshot()
             for name in names {
-                let (text, error) = call(name, ["task": "readonly probe"])
+                let args: JSON = name == "get_task" ? ["task": "readonly probe"] : [:]
+                let (text, error) = call(name, args)
                 XCTAssertEqual(
                     error, state == "corrupt" || (state == "missing" && name == "get_task"), "\(name): \(text)")
                 XCTAssertEqual(try snapshot(), before, "\(name) changed \(state) storage")
@@ -387,12 +389,16 @@ final class MCPEdgeTests: XCTestCase {
     func testToolSchemasAreWellFormed() {
         let tools = AgentTools.definitions
         let names = tools.compactMap { $0["name"]?.string }
-        XCTAssertEqual(names.count, 18)
-        XCTAssertEqual(Set(names).count, 18)
+        XCTAssertEqual(names.count, 21)
+        XCTAssertEqual(Set(names).count, 21)
         for tool in tools {
             let name = tool["name"]?.string ?? "?"
             XCTAssertFalse(tool["description"]?.string?.isEmpty ?? true, "\(name) has no description")
             XCTAssertEqual(tool["inputSchema"]?["type"]?.string, "object", name)
+            XCTAssertEqual(tool["inputSchema"]?["additionalProperties"]?.bool, false, name)
+            XCTAssertEqual(tool["outputSchema"]?["type"]?.string, "object", name)
+            XCTAssertEqual(tool["outputSchema"]?["additionalProperties"]?.bool, false, name)
+            XCTAssertEqual(tool["outputSchema"]?["properties"]?["content_trust"]?["const"]?.string, "untrusted", name)
             let props: [String: JSON]
             if case .object(let declared)? = tool["inputSchema"]?["properties"] {
                 props = declared
@@ -410,6 +416,9 @@ final class MCPEdgeTests: XCTestCase {
                 ($0["name"]!.string!, $0["inputSchema"]!["required"]!.array!.compactMap(\.string))
             })
         XCTAssertEqual(requiredByTool["add_tasks"], ["titles"])
+        XCTAssertEqual(requiredByTool["list_inbox"], [])
+        XCTAssertEqual(requiredByTool["list_overdue"], [])
+        XCTAssertEqual(requiredByTool["update_overdue"], ["action", "tasks"])
         XCTAssertEqual(requiredByTool["get_task"], ["task"])
         XCTAssertEqual(requiredByTool["rename_task"], ["task", "title"])
         XCTAssertEqual(requiredByTool["move_task"], ["task", "to"])
@@ -424,6 +433,8 @@ final class MCPEdgeTests: XCTestCase {
         XCTAssertEqual(changes, 1)
 
         _ = call("get_task", ["task": "probe task"])
+        _ = call("list_inbox")
+        _ = call("list_overdue")
         _ = call("read_notepad")
         _ = call("get_insights")
         _ = call("list_projects")
@@ -540,24 +551,78 @@ final class MCPEdgeTests: XCTestCase {
         XCTAssertTrue(out[0].contains("\"id\":7"))
     }
 
-    // MARK: Huge inputs
+    // MARK: Published schema boundaries
 
-    func testHugeSingleTitle() {
-        let title = String(repeating: "x", count: 100_000)
-        let (text, isError) = call("add_tasks", ["titles": JSON.array([JSON.string(title)])])
-        XCTAssertFalse(isError, text)
-        XCTAssertEqual(try storedPlanner().tasks.first?.title.count, 100_000)
+    func testNumericStringMinutesMatchPublishedStringSchemaAndRejectWithoutMutation() throws {
+        let definition = try XCTUnwrap(AgentTools.definitions.first { $0["name"]?.string == "start_timer" })
+        let choices = try XCTUnwrap(
+            definition["inputSchema"]?["properties"]?["minutes"]?["anyOf"]?.array)
+        let stringSchema = try XCTUnwrap(choices.first { $0["type"]?.string == "string" })
+        let maximum = try XCTUnwrap(stringSchema["maxLength"]?.int)
+
+        let exact = String(repeating: "0", count: maximum - 2) + "25"
+        XCTAssertEqual(exact.unicodeScalars.count, maximum)
+        let accepted = call("start_timer", ["minutes": .string(exact)])
+        XCTAssertFalse(accepted.isError, accepted.text)
+        XCTAssertEqual(try storedPlanner().focus?.limit, 1_500)
+
+        let before = try storageSnapshot()
+        let oversized = String(repeating: "0", count: maximum - 1) + "25"
+        XCTAssertEqual(oversized.unicodeScalars.count, maximum + 1)
+        XCTAssertEqual(JSON.string(oversized).int, 25)
+        let rejected = call("start_timer", ["minutes": .string(oversized)])
+        XCTAssertTrue(rejected.isError, rejected.text)
+        XCTAssertTrue(rejected.text.contains("Invalid argument 'minutes'"), rejected.text)
+        XCTAssertEqual(try storageSnapshot(), before)
     }
 
-    func testHugeTitlesArray() throws {
+    func testTitleLengthMatchesPublishedUnicodeCodePointSchemaAndRejectsWithoutMutation() throws {
+        let definition = try XCTUnwrap(AgentTools.definitions.first { $0["name"]?.string == "add_tasks" })
+        let maximum = try XCTUnwrap(
+            definition["inputSchema"]?["properties"]?["titles"]?["items"]?["maxLength"]?.int)
+        let decomposedCharacter = "e\u{301}"
+        XCTAssertEqual(decomposedCharacter.count, 1)
+        XCTAssertEqual(decomposedCharacter.unicodeScalars.count, 2)
+
+        let exact = String(repeating: decomposedCharacter, count: maximum / 2)
+        XCTAssertEqual(exact.unicodeScalars.count, maximum)
+        let accepted = call("add_tasks", ["titles": [.string(exact)], "literal": true])
+        XCTAssertFalse(accepted.isError, accepted.text)
+        XCTAssertEqual(try storedPlanner().tasks.map(\.title), [exact])
+
+        let before = try storageSnapshot()
+        let oversized = String(repeating: decomposedCharacter, count: maximum / 2 + 1)
+        XCTAssertEqual(oversized.unicodeScalars.count, maximum + 2)
+        let rejected = call("add_tasks", ["titles": [.string(oversized)], "literal": true])
+        XCTAssertTrue(rejected.isError, rejected.text)
+        XCTAssertTrue(rejected.text.contains("2000"), rejected.text)
+        XCTAssertEqual(try storageSnapshot(), before)
+        XCTAssertEqual(try storedPlanner().tasks.map(\.title), [exact])
+    }
+
+    // MARK: Huge inputs
+
+    func testOversizedSingleTitleIsRejectedWithoutMutation() throws {
+        _ = call("add_tasks", ["titles": ["size sentinel"]])
+        let before = try Data(contentsOf: url)
+        let title = String(repeating: "x", count: 100_000)
+        let (text, isError) = call("add_tasks", ["titles": JSON.array([JSON.string(title)])])
+        XCTAssertTrue(isError)
+        XCTAssertTrue(text.contains("2000"), text)
+        XCTAssertEqual(try Data(contentsOf: url), before)
+        XCTAssertEqual(try storedPlanner().tasks.map(\.title), ["size sentinel"])
+    }
+
+    func testOversizedTitlesArrayIsRejectedWithoutMutation() throws {
+        _ = call("add_tasks", ["titles": ["size sentinel"]])
+        let before = try Data(contentsOf: url)
         let count = 500
         let titles = JSON.array((0..<count).map { JSON.string("bulk \($0)") })
         let (text, isError) = call("add_tasks", ["titles": titles])
-        XCTAssertFalse(isError, text)
-        XCTAssertTrue(text.contains("Added 500 tasks"), String(text.prefix(200)))
-        let planner = try storedPlanner()
-        XCTAssertEqual(planner.tasks.count, count)
-        XCTAssertEqual(Set(planner.tasks.map(\.title)).count, count)
+        XCTAssertTrue(isError)
+        XCTAssertTrue(text.contains("100"), text)
+        XCTAssertEqual(try Data(contentsOf: url), before)
+        XCTAssertEqual(try storedPlanner().tasks.map(\.title), ["size sentinel"])
     }
 
     func testNotepadSizeBoundary() throws {
@@ -573,16 +638,18 @@ final class MCPEdgeTests: XCTestCase {
         XCTAssertEqual(try storedPlanner().notes.first?.text.count, 20_000, "the rejected write must not land")
     }
 
-    func testNotesHaveNoArtificialLimit() {
-        let notes = String(repeating: "n", count: 50_000)
-        let (text, isError) = call("update_task", ["task": "probe", "notes": .string(notes)])
-        // No task yet, so this is an error, but it must be the missing-task error,
-        // not a size error. Then retry with a real task.
-        XCTAssertTrue(isError, text)
+    func testTaskNotesSizeBoundary() throws {
         _ = call("add_tasks", ["titles": ["probe"]])
+        let notes = String(repeating: "n", count: 20_000)
         let (ok, okError) = call("update_task", ["task": "probe", "notes": .string(notes)])
         XCTAssertFalse(okError, ok)
         XCTAssertEqual(notesOfTheOnlyTask(), notes)
+
+        let (text, isError) = call(
+            "update_task", ["task": "probe", "notes": .string(String(repeating: "n", count: 20_001))])
+        XCTAssertTrue(isError)
+        XCTAssertTrue(text.contains("20000"), text)
+        XCTAssertEqual(notesOfTheOnlyTask(), notes, "the rejected write must not land")
     }
 
     private func notesOfTheOnlyTask() -> String? {
@@ -596,6 +663,11 @@ final class MCPEdgeTests: XCTestCase {
         let cases: [(String, JSON, String)] = [
             ("add_tasks", ["titles": .array([])], "at least one task title"),
             ("list_tasks", ["date": "02/03/2026"], "Enter a yyyy-MM-dd date"),
+            (
+                "update_overdue",
+                ["action": "complete", "tasks": [.string("00000000-0000-4000-8000-000000000001")]],
+                "unique task id from list_overdue"
+            ),
             ("get_task", .object([:]), "Identify the task by id"),
             ("complete_task", ["task": "ghost"], "No task found"),
             ("reopen_task", ["task": "probe task"], "still open"),
@@ -662,7 +734,7 @@ final class MCPEdgeTests: XCTestCase {
 
     func testCorruptPlannerSurfacesAToolErrorAndBacksUpTheFile() throws {
         try Data("{not json".utf8).write(to: url)
-        for tool in ["get_insights", "list_projects", "list_tasks", "add_tasks"] {
+        for tool in ["get_insights", "list_projects", "list_inbox", "list_overdue", "list_tasks", "add_tasks"] {
             let args: JSON = tool == "add_tasks" ? ["titles": ["x"]] : .object([:])
             let (text, isError) = call(tool, args)
             XCTAssertTrue(isError, "\(tool): \(text)")
@@ -672,7 +744,7 @@ final class MCPEdgeTests: XCTestCase {
         XCTAssertTrue(siblings.contains { $0.contains("corrupt") }, siblings.joined(separator: ", "))
     }
 
-    func testWrongArgumentTypesAreRejectedOrIgnoredSafely() {
+    func testWrongArgumentTypesAreRejectedWithoutMutation() throws {
         var (text, isError) = call("add_tasks", ["titles": 5])
         XCTAssertTrue(isError, text)
         XCTAssertTrue(text.contains("at least one task title"), text)
@@ -680,10 +752,10 @@ final class MCPEdgeTests: XCTestCase {
         XCTAssertTrue(isError, text)
         (text, isError) = call("add_tasks", ["titles": .array([JSON.string("   ")])])
         XCTAssertTrue(isError, text)
-        // A numeric date is ignored rather than echoed as a day.
         (text, isError) = call("list_tasks", ["date": 5])
-        XCTAssertFalse(isError, text)
-        XCTAssertTrue(text.contains("Today"), text)
+        XCTAssertTrue(isError, text)
+        XCTAssertTrue(text.contains("Invalid argument 'date'"), text)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: url.path))
     }
 
     func testLiteralTitlesKeepMetadata() throws {
