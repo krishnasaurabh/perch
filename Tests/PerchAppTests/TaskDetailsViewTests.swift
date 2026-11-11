@@ -99,12 +99,13 @@ final class TaskDetailsViewTests: XCTestCase {
         let accessibilityEnabled = true
         for title in ["Clear", "Add date"] {
             for enabled in [true, false] {
-                let content = Button(title) {}.buttonStyle(PillStyle()).fixedSize()
-                // Match the explicit AX environment of the native details fixtures.
+                // Match the production button's focus and accessibility modifiers;
+                // a plain drawn SwiftUI button need not have an NSButton backing it.
                 let reference = NSHostingView(
-                    rootView: content.disabled(!enabled).environment(\.accessibilityEnabled, accessibilityEnabled))
+                    rootView: NativeDateButtonFixture(title: title, wrapped: false)
+                        .disabled(!enabled).environment(\.accessibilityEnabled, accessibilityEnabled))
                 let host = NSHostingView(
-                    rootView: NativeDateButtonIdentity(identifier: "date-button", label: "Date action") { content }
+                    rootView: NativeDateButtonFixture(title: title, wrapped: true)
                         .disabled(!enabled).fixedSize().environment(\.accessibilityEnabled, accessibilityEnabled))
                 window.contentView = host
                 window.makeKeyAndOrderFront(nil)
@@ -453,6 +454,29 @@ final class TaskDetailsViewTests: XCTestCase {
     }
 
     @MainActor private static func views(_ root: NSView) -> [NSView] { [root] + root.subviews.flatMap(views) }
+}
+
+@MainActor
+private struct NativeDateButtonFixture: View {
+    let title: String
+    let wrapped: Bool
+    @FocusState private var focused: Bool
+
+    @ViewBuilder var body: some View {
+        if wrapped {
+            NativeDateButtonIdentity(identifier: "date-button", label: "Date action") { button }
+                .fixedSize()
+        } else {
+            button
+        }
+    }
+
+    private var button: some View {
+        Button(title) {}.buttonStyle(PillStyle()).fixedSize()
+            .focused($focused)
+            .accessibilityLabel("Date action")
+            .accessibilityIdentifier("date-button")
+    }
 }
 
 private enum DetailsTestError: Error { case missingControl, missingSheet }
