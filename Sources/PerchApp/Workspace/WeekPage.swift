@@ -37,10 +37,15 @@ struct WeekPage: View {
                 .buttonStyle(PillStyle())
                 .keyboardShortcut("i", modifiers: [.command, .option])
                 .accessibilityIdentifier("week-inbox")
-                .help(showInbox ? "Drag here to reveal the week, then drop onto a day." : "Open Inbox, or drop a task here to unschedule it.")
+                .help(
+                    showInbox
+                        ? "Drag here to reveal the week, then drop onto a day."
+                        : "Open Inbox, or drop a task here to unschedule it."
+                )
                 .dropDestination(for: String.self) { items, _ in
-                    guard let payload = items.first, let action = WeekTaskPolicy.moveAction(
-                        payload: payload, to: .inbox, tasks: store.planner.tasks, today: store.today)
+                    guard let payload = items.first,
+                        let action = WeekTaskPolicy.moveAction(
+                            payload: payload, to: .inbox, tasks: store.planner.tasks, today: store.today)
                     else { return false }
                     return store.send(action) != nil
                 } isTargeted: { active in
@@ -56,17 +61,21 @@ struct WeekPage: View {
                         ScrollView(.horizontal) {
                             HStack(alignment: .top, spacing: Theme.gutter) {
                                 ForEach(days, id: \.self) { day in
-                                    column(title: label(day, format: "EEE"), subtitle: label(day, format: "MMM d"),
-                                           ref: .day(day), isToday: day == store.today, past: day < store.today)
-                                        .frame(width: WeekColumnLayout.columnWidth(available: geometry.size.width))
-                                        .id(day)
+                                    column(
+                                        title: label(day, format: "EEE"), subtitle: label(day, format: "MMM d"),
+                                        ref: .day(day), isToday: day == store.today, past: day < store.today
+                                    )
+                                    .frame(width: WeekColumnLayout.columnWidth(available: geometry.size.width))
+                                    .id(day)
                                 }
                             }
                             .padding(4)
                             .frame(height: max(0, geometry.size.height - 12))
                         }
                         .scrollIndicators(.visible)
-                        .onAppear { proxy.scrollTo(days.contains(store.today) ? store.today : days[0], anchor: .leading) }
+                        .onAppear {
+                            proxy.scrollTo(days.contains(store.today) ? store.today : days[0], anchor: .leading)
+                        }
                         .onChange(of: days) { _, value in
                             proxy.scrollTo(value.contains(store.today) ? store.today : value[0], anchor: .leading)
                         }
@@ -89,9 +98,13 @@ struct WeekPage: View {
     }
 
     private func go(_ week: Int) {
-        store.materializeRepeats(on: WeekColumnLayout.days(today: store.today, weekOffset: week,
-                                                         calendar: store.engine.calendar))
-        Motion.animate(Motion.page) { anchor = week; showInbox = false }
+        store.materializeRepeats(
+            on: WeekColumnLayout.days(
+                today: store.today, weekOffset: week,
+                calendar: store.engine.calendar))
+        Motion.animate(Motion.page) {
+            anchor = week; showInbox = false
+        }
     }
 
     func column(title: String, subtitle: String, ref: DayRef, isToday: Bool, past: Bool) -> some View {
@@ -114,12 +127,15 @@ struct WeekPage: View {
         }
         .padding(Theme.cardPadding)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        .background(RoundedRectangle(cornerRadius: Theme.cardRadius).fill(target == key ? Theme.selectedPill : Theme.card))
+        .background(
+            RoundedRectangle(cornerRadius: Theme.cardRadius).fill(target == key ? Theme.selectedPill : Theme.card)
+        )
         .overlay(RoundedRectangle(cornerRadius: Theme.cardRadius).strokeBorder(Theme.cardStroke))
         .environment(\.controlSurface, Theme.card)
         .dropDestination(for: String.self) { items, _ in
-            guard let payload = items.first, let action = WeekTaskPolicy.moveAction(
-                payload: payload, to: ref, tasks: store.planner.tasks, today: store.today)
+            guard let payload = items.first,
+                let action = WeekTaskPolicy.moveAction(
+                    payload: payload, to: ref, tasks: store.planner.tasks, today: store.today)
             else { return false }
             return store.send(action) != nil
         } isTargeted: { active in
@@ -214,10 +230,13 @@ struct WeekChip: View {
 
     var body: some View {
         HStack(alignment: .top, spacing: Theme.gutter) {
-            GlassButton(symbol: task.done ? "checkmark.circle.fill" : "circle",
-                        help: task.done ? "Uncheck task" : "Check off task",
-                        tint: task.done ? Theme.success : task.priority == .none ? Theme.secondary : Theme.priority(task.priority),
-                        disabledReason: checkHint) {
+            GlassButton(
+                symbol: task.done ? "checkmark.circle.fill" : "circle",
+                help: task.done ? "Uncheck task" : "Check off task",
+                tint: task.done
+                    ? Theme.success : task.priority == .none ? Theme.secondary : Theme.priority(task.priority),
+                disabledReason: checkHint
+            ) {
                 if let completion { Motion.animate(Motion.row) { _ = store.send(completion) } }
             }
             .disabled(completion == nil)
@@ -229,7 +248,9 @@ struct WeekChip: View {
                 .layoutPriority(1)
                 .padding(.vertical, 5)
                 .onTapGesture(count: 2) { model.detailsTaskID = task.id }
-            Menu { actions } label: {
+            Menu {
+                actions
+            } label: {
                 Image(systemName: "ellipsis").font(Theme.body)
                     .frame(width: Theme.minimumTarget, height: Theme.minimumTarget)
                     .background(RoundedRectangle(cornerRadius: Theme.controlRadius).fill(Theme.fill))
@@ -272,8 +293,10 @@ struct WeekChip: View {
     }
 
     private func move(_ destination: DayRef) {
-        if let action = WeekTaskPolicy.moveAction(payload: task.id.uuidString, to: destination,
-                                                  tasks: store.planner.tasks, today: store.today) {
+        if let action = WeekTaskPolicy.moveAction(
+            payload: task.id.uuidString, to: destination,
+            tasks: store.planner.tasks, today: store.today)
+        {
             store.send(action)
         }
     }

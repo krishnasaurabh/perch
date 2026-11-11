@@ -22,8 +22,12 @@ final class WeekPresentationTests: XCTestCase {
     func testSundayFirstAndYearBoundaryWithAdjacentWeeks() {
         let cal = calendar(firstWeekday: 1)
         let days = WeekColumnLayout.days(today: "2026-01-01", calendar: cal)
-        XCTAssertEqual(days.map(\.raw), ["2025-12-28", "2025-12-29", "2025-12-30", "2025-12-31",
-                                       "2026-01-01", "2026-01-02", "2026-01-03"])
+        XCTAssertEqual(
+            days.map(\.raw),
+            [
+                "2025-12-28", "2025-12-29", "2025-12-30", "2025-12-31",
+                "2026-01-01", "2026-01-02", "2026-01-03",
+            ])
         XCTAssertEqual(WeekColumnLayout.days(today: "2026-01-01", weekOffset: 1, calendar: cal).first, "2026-01-04")
         XCTAssertEqual(WeekColumnLayout.days(today: "2026-01-01", weekOffset: -1, calendar: cal).last, "2025-12-27")
     }
@@ -35,8 +39,9 @@ final class WeekPresentationTests: XCTestCase {
             let reset = monday.start(resetHour: 4, calendar: cal)
             let before = DayKey(reset.addingTimeInterval(-1), resetHour: 4, calendar: cal)
             let after = DayKey(reset, resetHour: 4, calendar: cal)
-            XCTAssertEqual(WeekColumnLayout.days(today: before, calendar: cal).last,
-                           monday.adding(days: -1, calendar: cal))
+            XCTAssertEqual(
+                WeekColumnLayout.days(today: before, calendar: cal).last,
+                monday.adding(days: -1, calendar: cal))
             XCTAssertEqual(WeekColumnLayout.days(today: after, calendar: cal).first, monday)
             XCTAssertEqual(Set(WeekColumnLayout.days(today: before, calendar: cal)).count, 7)
         }
@@ -86,11 +91,14 @@ final class WeekPresentationTests: XCTestCase {
         let past = PlanTask(title: "Past", day: "2026-11-10")
         var done = PlanTask(title: "Done", day: today); done.done = true
         let tasks = [open, past, done]
-        for payload in ["Plan", String(open.id.uuidString.prefix(8)), UUID().uuidString, past.id.uuidString, done.id.uuidString] {
+        for payload in [
+            "Plan", String(open.id.uuidString.prefix(8)), UUID().uuidString, past.id.uuidString, done.id.uuidString,
+        ] {
             XCTAssertNil(WeekTaskPolicy.moveAction(payload: payload, to: .inbox, tasks: tasks, today: today))
         }
         for destination in [DayRef.day(today), .day("2026-11-10")] {
-            XCTAssertNil(WeekTaskPolicy.moveAction(payload: open.id.uuidString, to: destination, tasks: tasks, today: today))
+            XCTAssertNil(
+                WeekTaskPolicy.moveAction(payload: open.id.uuidString, to: destination, tasks: tasks, today: today))
         }
     }
 
@@ -102,8 +110,10 @@ final class WeekPresentationTests: XCTestCase {
         var planner = Planner(); planner.tasks = [task, PlanTask(title: task.title, day: today)]
         var engine = PlannerEngine(planner: planner, now: { today.start(resetHour: 0, calendar: cal) }, calendar: cal)
         for destination in [DayRef.inbox, .day("2026-11-13"), .day(today)] {
-            let action = try XCTUnwrap(WeekTaskPolicy.moveAction(payload: task.id.uuidString, to: destination,
-                                                                tasks: engine.planner.tasks, today: today))
+            let action = try XCTUnwrap(
+                WeekTaskPolicy.moveAction(
+                    payload: task.id.uuidString, to: destination,
+                    tasks: engine.planner.tasks, today: today))
             try engine.execute(action)
             let moved = try engine.task(task.id)
             XCTAssertEqual(moved.day, destination.key)
@@ -124,8 +134,10 @@ final class WeekPresentationTests: XCTestCase {
         try engine.execute(.move(task.id, .day("2026-11-12")))
         XCTAssertThrowsError(try engine.execute(check))
         XCTAssertFalse(try engine.task(task.id).done)
-        let drop = try XCTUnwrap(WeekTaskPolicy.moveAction(payload: task.id.uuidString, to: .inbox,
-                                                           tasks: engine.planner.tasks, today: today))
+        let drop = try XCTUnwrap(
+            WeekTaskPolicy.moveAction(
+                payload: task.id.uuidString, to: .inbox,
+                tasks: engine.planner.tasks, today: today))
         try engine.execute(.delete(task.id))
         XCTAssertThrowsError(try engine.execute(drop))
         XCTAssertTrue(engine.planner.tasks.isEmpty)
