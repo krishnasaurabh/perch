@@ -96,23 +96,33 @@ final class TaskDetailsViewTests: XCTestCase {
     func testNativeDateButtonIdentityPreservesSizeAndEnabledState() async throws {
         let window = Self.makeWindow(size: NSSize(width: 320, height: 180))
         defer { window.close() }
+        let accessibilityEnabled = true
         for title in ["Clear", "Add date"] {
             for enabled in [true, false] {
                 let content = Button(title) {}.buttonStyle(PillStyle()).fixedSize()
-                let reference = NSHostingView(rootView: content.disabled(!enabled))
+                // Match the explicit AX environment of the native details fixtures.
+                let reference = NSHostingView(
+                    rootView: content.disabled(!enabled).environment(\.accessibilityEnabled, accessibilityEnabled))
                 let host = NSHostingView(
                     rootView: NativeDateButtonIdentity(identifier: "date-button", label: "Date action") { content }
-                        .disabled(!enabled).fixedSize())
+                        .disabled(!enabled).fixedSize().environment(\.accessibilityEnabled, accessibilityEnabled))
                 window.contentView = host
                 window.makeKeyAndOrderFront(nil)
                 await Self.settle()
                 host.layoutSubtreeIfNeeded()
                 XCTAssertEqual(host.fittingSize.width, reference.fittingSize.width, accuracy: 1)
                 XCTAssertEqual(host.fittingSize.height, reference.fittingSize.height, accuracy: 1)
-                let buttons = Self.nodes(host).compactMap { $0 as? NSButton }.filter {
-                    $0.accessibilityLabel() == "Date action"
-                }
-                XCTAssertEqual(buttons.count, 1, "Exactly one native owner receives the identity")
+                let nativeButtons = Self.nodes(host).compactMap { $0 as? NSButton }
+                let diagnostics = Self.nodes(host).map { node in
+                    "\(type(of: node)) role=\(Self.attribute(node, "accessibilityRole") ?? "?") "
+                        + "id=\(Self.attribute(node, "accessibilityIdentifier") ?? "?") "
+                        + "label=\(Self.attribute(node, "accessibilityLabel") ?? "?") "
+                        + "title=\((node as? NSButton)?.title ?? "?") "
+                        + "enabled=\((node as? NSButton)?.isEnabled.description ?? "?")"
+                }.joined(separator: "\n")
+                print("Native date button: title=\(title), enabled=\(enabled)\n\(diagnostics)")
+                let buttons = nativeButtons.filter { $0.accessibilityLabel() == "Date action" }
+                XCTAssertEqual(buttons.count, 1, "Exactly one native owner receives the identity\n\(diagnostics)")
                 let button = try XCTUnwrap(buttons.first)
                 XCTAssertEqual(button.accessibilityRole(), .button)
                 XCTAssertEqual(button.accessibilityIdentifier(), "date-button")
