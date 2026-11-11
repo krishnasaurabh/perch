@@ -47,13 +47,57 @@ func clipsNodes(_ root: NSObject) -> [NSObject] {
 }
 
 @MainActor
+func clipsNames(_ node: NSObject) -> [String] {
+    let attributes = ["accessibilityLabel", "accessibilityTitle", "accessibilityValue"]
+    let direct = attributes.compactMap { clipsAttribute(node, $0) as? String }
+    // Native switches may associate a separate static-text label instead of
+    // returning it from the control's own title/label getters.
+    guard let label = clipsAttribute(node, "accessibilityTitleUIElement") as? NSObject else { return direct }
+    return direct + attributes.compactMap { clipsAttribute(label, $0) as? String }
+}
+
+@MainActor
+func writeClipsAccessibility(_ host: NSView, to url: URL) throws {
+    let rows: [[String: Any]] = clipsNodes(host).map { node in
+        var row: [String: Any] = ["class": NSStringFromClass(type(of: node)), "names": clipsNames(node)]
+        for attribute in ["accessibilityRole", "accessibilityIdentifier"] {
+            row[attribute] = clipsAttribute(node, attribute) as? String ?? ""
+        }
+        if let frame = try? clipsFrame(node, in: host) { row["frame"] = NSStringFromRect(frame) }
+        return row
+    }
+    try JSONSerialization.data(withJSONObject: rows, options: [.prettyPrinted, .sortedKeys]).write(to: url)
+}
+
+func matchesClipsControl(role: String?, names: [String], title: String) -> Bool {
+    ["AXButton", "AXCheckBox", "AXSwitch", "AXPopUpButton", "AXMenuButton"].contains(role ?? "")
+        && names.contains(title)
+}
+
+func checkClipsControlMatching() throws {
+    for role in ["AXButton", "AXCheckBox", "AXSwitch", "AXPopUpButton", "AXMenuButton"] {
+        try requireClips(
+            matchesClipsControl(role: role, names: ["Add screenshots"], title: "Add screenshots"),
+            "Control matching rejected \(role)")
+    }
+    let nonControlRoles: [String?] = [nil, "AXStaticText", "AXGroup"]
+    for role in nonControlRoles {
+        try requireClips(
+            !matchesClipsControl(role: role, names: ["Add screenshots"], title: "Add screenshots"),
+            "Control matching accepted a non-control")
+    }
+    for names in [[], ["Add screenshot"], ["Add screenshots elsewhere"]] {
+        try requireClips(
+            !matchesClipsControl(role: "AXSwitch", names: names, title: "Add screenshots"),
+            "Control matching accepted a missing or partial label")
+    }
+}
+
+@MainActor
 func clipsControl(_ title: String, in host: NSView) throws -> NSObject {
     let matches = clipsNodes(host).filter { node in
-        let role = clipsAttribute(node, "accessibilityRole") as? String
-        return ["AXButton", "AXCheckBox", "AXSwitch", "AXPopUpButton", "AXMenuButton"].contains(role ?? "")
-            && ["accessibilityLabel", "accessibilityTitle", "accessibilityValue"].contains {
-                clipsAttribute(node, $0) as? String == title
-            }
+        matchesClipsControl(
+            role: clipsAttribute(node, "accessibilityRole") as? String, names: clipsNames(node), title: title)
     }
     try requireClips(matches.count == 1, "Expected one control named \(title), got \(matches.count)")
     return matches[0]
@@ -132,17 +176,13 @@ func checkClipsScrolling(host: NSView) async throws {
 @MainActor
 func checkClipsToolbar(_ url: URL, host: NSView) throws -> [String: Any] {
     let names = ["Add screenshots", "Add copied items", "Remove unpinned"]
-    var frames: [NSRect] = []
-    for name in names {
-        frames.append(try clipsFrame(clipsControl(name, in: host), in: host))
-    }
     let bitmap = NSBitmapImageRep(data: try Data(contentsOf: url))!
     let scale = CGFloat(bitmap.pixelsWide) / host.bounds.width
-    // NSHostingView uses flipped coordinates; image coordinates are always top-down.
-    let bottom = frames.map { host.isFlipped ? $0.maxY : host.bounds.height - $0.minY }.max()!
+    // Read pixels before consulting AX. Otherwise a missing native label can
+    // hide the whole-label regression behind an unrelated selector failure.
     let box = CGRect(
         x: 24 * scale, y: 24 * scale,
-        width: (host.bounds.width - 48) * scale, height: (bottom - 24) * scale)
+        width: (host.bounds.width - 48) * scale, height: (host.bounds.height - 48) * scale)
     let image = bitmap.cgImage!.cropping(to: box)!
     let request = VNRecognizeTextRequest()
     request.recognitionLevel = .accurate
@@ -151,9 +191,17 @@ func checkClipsToolbar(_ url: URL, host: NSView) throws -> [String: Any] {
     request.minimumTextHeight = 0.01
     try VNImageRequestHandler(cgImage: image, options: [:]).perform([request])
     let lines = (request.results ?? []).compactMap { $0.topCandidates(1).first?.string }
+    try JSONSerialization.data(withJSONObject: lines, options: [.prettyPrinted])
+        .write(to: url.deletingPathExtension().appendingPathExtension("ocr.json"))
     try requireClips(
         names.allSatisfy { name in lines.contains { $0.contains(name) } },
         "Toolbar labels must be whole single lines at \(Int(host.bounds.width))pt; OCR: \(lines)")
+    var frames: [NSRect] = []
+    for name in names {
+        frames.append(try clipsFrame(clipsControl(name, in: host), in: host))
+    }
+    // NSHostingView uses flipped coordinates; image coordinates are always top-down.
+    let bottom = frames.map { host.isFlipped ? $0.maxY : host.bounds.height - $0.minY }.max()!
     for (name, frame) in zip(names, frames) {
         try requireClips(host.bounds.insetBy(dx: 24, dy: 24).contains(frame), "Control outside card: \(name)")
         try requireClips(frame.height >= 28, "Control target below 28pt: \(name), \(frame)")
@@ -410,6 +458,7 @@ MainActor.assumeIsolated {
     DispatchQueue.main.async {
         Task { @MainActor in
             do {
+                try checkClipsControlMatching()
                 var captures: [[String: Any]] = []
                 // Start with the regression width; both widths retain all four states.
                 for width in [640, 820] {
@@ -456,6 +505,8 @@ MainActor.assumeIsolated {
                             let name = "\(appearance)-\(width)-\(state).png"
                             let url = out.appendingPathComponent(name)
                             try capture(view, to: url)
+                            try writeClipsAccessibility(
+                                view, to: url.deletingPathExtension().appendingPathExtension("ax.json"))
                             let toolbar = try checkClipsToolbar(url, host: view)
                             if state == "populated" { try await checkClipsScrolling(host: view) }
                             captures.append([
