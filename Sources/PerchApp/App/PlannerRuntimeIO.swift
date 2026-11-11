@@ -9,7 +9,7 @@ private final class DirectoryWatchLifetime: Sendable {
         var sources: [URL: DispatchSourceFileSystemObject] = [:]
         var delivery: DispatchWorkItem?
     }
-    private let state = OSAllocatedUnfairLock(initialState: State())
+    private let state = OSAllocatedUnfairLock(uncheckedState: State())
     func replace(_ source: DispatchSourceFileSystemObject?, at url: URL) {
         // The closure is synchronous and never escapes the lock; Dispatch handles stay private.
         state.withLockUnchecked { state in
