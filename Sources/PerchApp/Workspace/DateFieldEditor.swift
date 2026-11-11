@@ -158,8 +158,24 @@ struct DateFieldEditor: View {
         }
     }
 
-    private func button(
+    @ViewBuilder private func button(
         _ control: DateFieldControl, title: String, prominent: Bool = false, action: @escaping () -> Void
+    ) -> some View {
+        if control == .add || control == .clear {
+            NativeDateButtonIdentity(
+                identifier: control.identifier(field: key), label: control.accessibilityLabel(field: field),
+                action: action
+            ) {
+                styledButton(control, title: title, prominent: prominent, action: action)
+            }
+            .fixedSize()
+        } else {
+            styledButton(control, title: title, prominent: prominent, action: action)
+        }
+    }
+
+    private func styledButton(
+        _ control: DateFieldControl, title: String, prominent: Bool, action: @escaping () -> Void
     ) -> some View {
         Button(title, action: action)
             .buttonStyle(
