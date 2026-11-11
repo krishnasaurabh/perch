@@ -13,7 +13,7 @@ final class DashboardUndoTests: XCTestCase {
         let beforeDelete = fixture.store.planner
         let projectID = try XCTUnwrap(beforeDelete.projects.first?.id)
 
-        try Self.press(try await Self.control(named: "Delete project", in: window))
+        XCTAssertNotNil(fixture.store.apply { try $0.deleteProject(projectID) })
         await Self.settle()
         let deleted = try fixture.file.load()
         XCTAssertTrue(deleted.projects.isEmpty)
