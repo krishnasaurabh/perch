@@ -247,17 +247,3 @@ struct OverdueBanner: View {
     }
 
 }
-
-struct PillStyle: ButtonStyle {
-    var prominent = false
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .font(.system(size: 11, weight: .semibold))
-            .padding(.horizontal, 10).padding(.vertical, 5)
-            .background(
-                Capsule().fill(prominent ? Theme.prominent : (configuration.isPressed ? Theme.fillStrong : Theme.fill))
-            )
-            .opacity(prominent && configuration.isPressed ? 0.8 : 1)
-            .foregroundStyle(prominent ? Theme.onAccent : Theme.text)
-    }
-}

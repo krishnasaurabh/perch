@@ -76,46 +76,80 @@ func probeWeekBars(_ focusOnly: Insights, output: URL) async {
     window.contentView = NSHostingView(
         rootView:
             WeekBars(days: insights.lastSeven, metric: .tasks, today: engine.today)
-            .padding(10).frame(width: size.width, height: size.height).background(Color.white))
+            .padding(10).frame(width: size.width, height: size.height).background(Theme.lavender)
+            .environment(\.colorScheme, .light))
     window.orderFrontRegardless()
 
-    // Top edge (in points from the top) of planned-grey and completed-dark pixels in today's column.
-    func frame(_ name: String) -> (planned: CGFloat?, completed: CGFloat?) {
-        guard let view = window.contentView, let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds) else {
+    // Top edge (in points from the top) of planned-light and completed-dark pixels in today's column.
+    @MainActor func frame(_ name: String) -> (planned: CGFloat?, completed: CGFloat?) {
+        guard let view = window.contentView else { return (nil, nil) }
+        let directory = output.appendingPathComponent("insights-bars")
+        try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let path = directory.appendingPathComponent("\(name).png")
+        // cacheDisplay draws the model's final values, not the compositor's animated frame.
+        // Capture only this synthetic borderless window, never the user's desktop.
+        let capture = Process()
+        capture.executableURL = URL(fileURLWithPath: "/usr/sbin/screencapture")
+        capture.arguments = ["-x", "-o", "-l", String(window.windowNumber), path.path]
+        do { try capture.run() } catch { require(false, "Chart window capture starts: \(error)") }
+        capture.waitUntilExit()
+        require(capture.terminationStatus == 0, "Chart window capture succeeds")
+        guard let data = try? Data(contentsOf: path), let rep = NSBitmapImageRep(data: data) else {
+            require(false, "Chart window capture decodes")
             return (nil, nil)
-        }
-        view.cacheDisplay(in: view.bounds, to: rep)
-        if let png = rep.representation(using: .png, properties: [:]) {
-            try? FileManager.default.createDirectory(
-                at: output.appendingPathComponent("insights-bars"), withIntermediateDirectories: true)
-            try? png.write(to: output.appendingPathComponent("insights-bars/\(name).png"))
         }
         let scale = CGFloat(rep.pixelsWide) / view.bounds.width
         let inner = size.width - 20, col = (inner - 6 * 14) / 7
         let x = Int((10 + 6 * (col + 14) + col / 2) * scale)
         var planned: Int?, completed: Int?
+        func rgb(_ value: UInt32) -> [Int] {
+            [Int((value >> 16) & 255), Int((value >> 8) & 255), Int(value & 255)]
+        }
+        let plannedColor = rgb(ThemeTokens.chartPlanned)
+        let completedColor = rgb(ThemeTokens.chartCompleted)
+        func matches(_ pixel: [Int], _ target: [Int]) -> Bool {
+            zip(pixel.prefix(3), target).allSatisfy { abs($0 - $1) < 5 }
+        }
+        require(rep.samplesPerPixel >= 3 && rep.bitsPerSample == 8, "Chart capture uses 8-bit RGB pixels")
+        var pixel = [Int](repeating: 0, count: rep.samplesPerPixel)
+        print("chart scan \(name): x=\(x), scale=\(scale), planned=\(plannedColor), completed=\(completedColor)")
+        var plannedRun = 0, completedRun = 0
         // Scan only the plot: the day labels below the baseline are dark text too.
         for y in 0..<Int((size.height - 48) * scale) {
-            guard let c = rep.colorAt(x: x, y: y)?.usingColorSpace(.deviceRGB) else { continue }
-            let v = (c.redComponent + c.greenComponent + c.blueComponent) / 3
-            if completed == nil, v < 0.3 { completed = y }
-            if planned == nil, v > 0.6, v < 0.9 { planned = y }
+            rep.getPixel(&pixel, atX: x, y: y)
+            plannedRun = matches(pixel, plannedColor) ? plannedRun + 1 : 0
+            completedRun = matches(pixel, completedColor) ? completedRun + 1 : 0
+            if completed == nil, completedRun >= 3 { completed = y - 2 }
+            if planned == nil, plannedRun >= 3 { planned = y - 2 }
         }
         return (planned.map { CGFloat($0) / scale }, completed.map { CGFloat($0) / scale })
     }
-    // Today is column 6: 780 ms of stagger before it starts, so ~100 ms in it must still be on the baseline.
+    // Today is column 6 (780 ms stagger). Find the first compositor frame
+    // containing BOTH series, rather than treating a missing series as growth.
     try? await Task.sleep(nanoseconds: 100_000_000)
-    let early = frame("t0100ms")
-    try? await Task.sleep(nanoseconds: 2_400_000_000)
-    let late = frame("t2500ms")
+    let initial = frame("initial")
+    require(initial.planned != nil, "Planned is visible before completed growth")
+    var early = initial
+    let deadline = Date().addingTimeInterval(1.5)
+    var sample = 0
+    while early.completed == nil && Date() < deadline {
+        try? await Task.sleep(nanoseconds: 25_000_000)
+        sample += 1
+        early = frame("growth-\(sample)")
+    }
+    require(early.completed != nil, "Completed is visible in the early frame")
+    try? await Task.sleep(nanoseconds: 1_500_000_000)
+    let late = frame("settled")
     print(
         "bars frames: early planned \(early.planned as Any) completed \(early.completed as Any); late planned \(late.planned as Any) completed \(late.completed as Any)"
     )
     require(early.planned != nil && late.planned != nil, "Planned silhouette is visible in both frames")
     require(
-        abs((early.planned ?? 0) - (late.planned ?? 1)) <= 1, "Planned stands at final height from the first frames")
+        abs((initial.planned ?? 0) - (late.planned ?? 1)) <= 1
+            && abs((early.planned ?? 0) - (late.planned ?? 1)) <= 1,
+        "Planned stands at final height from the first frames")
     require(late.completed != nil, "Completed bar is drawn once grown")
-    // y grows downward: an absent or lower top edge early means Completed had not grown yet.
+    // y grows downward: both series must be present, with a lower Completed top edge early.
     if NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
         print("note: Reduce Motion is on for this runner; Completed is expected at final height immediately")
     } else {
