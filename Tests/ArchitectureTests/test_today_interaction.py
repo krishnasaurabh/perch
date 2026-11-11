@@ -228,6 +228,20 @@ class TodayInteractionTests(unittest.TestCase):
         self.assertIn('static-text selector rejects an action with matching text', source)
         self.assertIn('static-text selector rejects different and missing text', source)
 
+    def test_priority_probe_resolves_exact_static_text_not_label_only(self):
+        source = (ROOT / "scripts/focus_entry_probe.swift").read_text()
+        probe = source.split("// Textual priorities and multiline titles", 1)[1].split(
+            'require(store.lastError == nil', 1)[0]
+        self.assertIn('for priority in [TaskPriority.high, .medium, .low]', probe)
+        self.assertIn('staticText("\\(priority.rawValue.capitalized) priority", in: rowRoot) != nil', probe)
+        self.assertNotIn('control("\\(priority.rawValue.capitalized) priority", in: rowRoot)', probe)
+        self.assertIn('"\\(priority): priority is text, not color alone"', probe)
+        self.assertIn('staticText(task.title, in: rowRoot)', probe)
+        self.assertIn('"\\(priority): long title actually wraps"', probe)
+        selector = source.split('func staticText(', 1)[1].split('final class StaticTextProbeElement', 1)[0]
+        self.assertIn('isStaticText($0, matching: text)', selector)
+        self.assertIn('matches.count == 1', selector)
+
     def test_standalone_row_explicitly_enables_accessibility(self):
         source = (ROOT / "scripts/focus_entry_probe.swift").read_text()
         initial = source.split('let rowRoot = NSHostingView(', 1)[1].split('rowWindow.contentView', 1)[0]

@@ -1012,7 +1012,7 @@ MainActor.assumeIsolated {
                 snapshot(rowRoot, "task-\(priority.rawValue)-narrow", into: output)
                 recordAccessibility(rowRoot, "task-\(priority.rawValue)-narrow", into: output)
                 require(
-                    control("\(priority.rawValue.capitalized) priority", in: rowRoot) != nil,
+                    staticText("\(priority.rawValue.capitalized) priority", in: rowRoot) != nil,
                     "\(priority): priority is text, not color alone")
                 guard let title = staticText(task.title, in: rowRoot) else {
                     require(false, "\(priority): full multiline title exposed"); return
