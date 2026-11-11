@@ -48,7 +48,7 @@ final class RuntimePerformanceTests: XCTestCase {
                 let seconds = Date().timeIntervalSince(started)
                 measurements.append((reads.value, decodes.value, writes.value, seconds))
                 print(
-                    "timer-workload scheduled=\(scheduled) tasks=\(count) reads=\(reads) decodes=\(decodes) writes=\(writes) seconds=\(seconds)"
+                    "timer-workload scheduled=\(scheduled) tasks=\(count) reads=\(reads.value) decodes=\(decodes.value) writes=\(writes.value) seconds=\(seconds)"
                 )
                 XCTAssertEqual(writes.value, 1, "Keep the 30-second durable checkpoint")
                 let saved = try file.load()

@@ -163,10 +163,11 @@ SIGN_ID="Developer ID Application: Your Name (TEAMID)" scripts/bundle.sh
 ```sh
 swift test                                   # domain, MCP and portable UI tests (macOS or Linux)
 swift run perch-cli add "text dad tomorrow 6pm"   # headless CLI on any platform
-PERCH_DATA=/tmp/perch-dev.json dist/Perch.app/Contents/MacOS/Perch --demo   # sample data, real planner untouched
+PERCH_BUILD_VARIANT=testing scripts/bundle.sh     # instrumented macOS app, never the distribution bundle
+PERCH_DATA=/tmp/perch-dev.json dist/testing/Perch.app/Contents/MacOS/Perch --demo   # sample data, real planner untouched
 ```
 
-PlannerCore tests and the CLI also run on Linux with Swift 5.10 or later; Linux CI uses Swift 6.1.
+PlannerCore tests and the CLI also run on Linux with Swift 6.2 or later; Linux CI uses Swift 6.2.
 See [CONTRIBUTING.md](CONTRIBUTING.md) before opening a pull request.
 
 ## Layout

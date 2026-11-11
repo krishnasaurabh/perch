@@ -18,8 +18,8 @@ If the bug depends on data, describe the steps that recreate it with sample task
 You need:
 
 - **macOS 14 or later with Xcode 26** to build and run the app;
-- **or any Linux machine with Swift 5.10 or later** for the domain, MCP and CLI code
-  (CI uses Swift 6.1 there).
+- **or any Linux machine with Swift 6.2 or later** for the domain, MCP and CLI code
+  (CI uses Swift 6.2 there).
 
 ```sh
 git clone https://github.com/krishnasaurabh/perch.git
@@ -31,12 +31,18 @@ swift build
 Run the app from a local build with a throwaway data file so you never touch your real planner:
 
 ```sh
-scripts/bundle.sh
-PERCH_DATA=/tmp/perch-dev.json dist/Perch.app/Contents/MacOS/Perch --demo
+PERCH_BUILD_VARIANT=testing scripts/bundle.sh
+PERCH_DATA=/tmp/perch-dev.json dist/testing/Perch.app/Contents/MacOS/Perch --demo
 ```
 
 `--demo` fills an empty planner with sample tasks. `PERCH_DATA` works for `perch-cli` and the
-`--mcp` server as well.
+`--mcp` server as well. Diagnostic flags require an explicit absolute `PERCH_DATA` path.
+
+`scripts/bundle.sh` without a variant builds the distribution Release app in `dist/Perch.app`.
+It excludes sample scenarios, screenshots and motion drivers, and rejects diagnostic flags.
+Debug builds and `PERCH_BUILD_VARIANT=testing` builds include these hooks; do not distribute them.
+Swift 6 actor isolation applies to UI state and teardown. Background I/O returns Sendable values;
+keep platform objects on their owning actor rather than adding unchecked conformances.
 
 ## Where code goes
 
