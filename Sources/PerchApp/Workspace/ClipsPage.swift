@@ -16,10 +16,10 @@ private struct ClipsBody: View {
         VStack(alignment: .leading, spacing: Theme.gutter) {
             ViewThatFits(in: .horizontal) {
                 HStack {
-                    CardHeading("Clips", symbol: "paperclip")
+                    CardHeading("Clips", symbol: "paperclip").fixedSize()
                     Spacer(minLength: Theme.gutter)
                     captureControls
-                    removeUnpinned
+                    removeUnpinned.fixedSize()
                 }
                 VStack(alignment: .leading, spacing: Theme.gutter) {
                     HStack {
@@ -78,12 +78,17 @@ private struct ClipsBody: View {
                 isOn: Binding(
                     get: { store.prefs.catchScreenshots },
                     set: { value in store.updatePrefs { $0.catchScreenshots = value } }))
+                .fixedSize().frame(minHeight: Theme.minimumTarget)
             Toggle(
                 "Add copied items",
                 isOn: Binding(
                     get: { store.prefs.catchCopies }, set: { value in store.updatePrefs { $0.catchCopies = value } }))
+                .fixedSize().frame(minHeight: Theme.minimumTarget)
         }
         .toggleStyle(.switch).controlSize(.small).font(Theme.meta)
+        // Refuse label compression so ViewThatFits moves these whole controls
+        // below the heading instead of fitting a row of broken-up words.
+        .fixedSize(horizontal: true, vertical: false)
         .frame(minHeight: Theme.minimumTarget)
     }
 
