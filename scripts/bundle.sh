@@ -192,6 +192,12 @@ normalize_tree "$STAGE"
 hdiutil create -volname Perch -srcfolder "$STAGE" -ov -format UDZO "$DMG" >/dev/null
 hdiutil verify "$DMG"
 rm -rf "$STAGE"
+if [[ "$ID" != - ]]; then
+  dmg_sign_args=(--force --timestamp)
+  if [[ -n "${SIGN_KEYCHAIN:-}" ]]; then dmg_sign_args+=(--keychain "$SIGN_KEYCHAIN"); fi
+  codesign "${dmg_sign_args[@]}" -s "$ID" "$DMG"
+  codesign --verify --strict --verbose=2 "$DMG"
+fi
 if [[ "$NOTARIZE" == 1 ]]; then
   notarize_artifact "$DMG"
   xcrun stapler staple "$DMG"

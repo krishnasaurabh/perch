@@ -1,18 +1,5 @@
 name: Release packaging
 on:
-  pull_request:
-    paths:
-      - '.github/workflows/release.yml'
-      - 'Resources/**'
-      - 'scripts/bundle.sh'
-      - 'scripts/test_packaging.py'
-  push:
-    branches: [main]
-    paths:
-      - '.github/workflows/release.yml'
-      - 'Resources/**'
-      - 'scripts/bundle.sh'
-      - 'scripts/test_packaging.py'
   workflow_dispatch:
     inputs:
       signing:

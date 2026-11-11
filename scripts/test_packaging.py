@@ -4,6 +4,7 @@ import json
 import os
 from pathlib import Path
 import plistlib
+import re
 import shutil
 import stat
 import subprocess
@@ -106,14 +107,29 @@ for name in ''' + repr(ICON_FILES) + ''':
 from fake_common import record
 record("codesign", sys.argv[1:])
 if "--verify" not in sys.argv:
-    app = pathlib.Path(sys.argv[-1])
-    signature = app / "Contents" / "_CodeSignature"
-    signature.mkdir(parents=True, exist_ok=True)
-    (signature / "CodeResources").write_bytes(b"synthetic-code-resources")
+    target = pathlib.Path(sys.argv[-1])
+    if target.suffix == ".app":
+        signature = target / "Contents" / "_CodeSignature"
+        signature.mkdir(parents=True, exist_ok=True)
+        (signature / "CodeResources").write_bytes(b"synthetic-code-resources")
 ''')
-        self._write("spctl", '''import os, sys
+        self._write("spctl", '''import json, os, pathlib, sys
 from fake_common import record
 record("spctl", sys.argv[1:])
+target = sys.argv[-1]
+if target.endswith(".dmg"):
+    log = pathlib.Path(os.environ["FAKE_LOG"])
+    rows = [json.loads(line) for line in log.read_text().splitlines()] if log.exists() else []
+    signed = any(
+        row["tool"] == "codesign" and "--verify" not in row["args"]
+        and row["args"][-1] == target and "-s" in row["args"]
+        and row["args"][row["args"].index("-s") + 1] != "-"
+        and "--timestamp" in row["args"]
+        for row in rows
+    )
+    if not signed:
+        print("rejected: unsigned disk image", file=sys.stderr)
+        raise SystemExit(1)
 if os.environ.get("FAKE_GATEKEEPER") != "accept":
     print("rejected", file=sys.stderr)
     raise SystemExit(1)
@@ -255,10 +271,16 @@ if sys.argv[1:3] == ["notarytool", "submit"]:
             SIGN_ID="Developer ID Application: Synthetic Test", SIGN_KEYCHAIN=keychain,
         )
         self.assertEqual(result.returncode, 0, result.stderr)
-        sign = self.calls("codesign")[0]["args"]
-        self.assertIn("--timestamp", sign)
-        self.assertNotIn("--timestamp=none", sign)
-        self.assertEqual(sign[sign.index("--keychain") + 1], str(keychain))
+        signed = [row["args"] for row in self.calls("codesign") if "--verify" not in row["args"]]
+        self.assertEqual([Path(args[-1]).name for args in signed],
+                         ["Perch.app", "Perch-1.1.1.dmg"])
+        for sign in signed:
+            self.assertIn("--timestamp", sign)
+            self.assertNotIn("--timestamp=none", sign)
+            self.assertEqual(sign[sign.index("--keychain") + 1], str(keychain))
+            self.assertEqual(sign[sign.index("-s") + 1], "Developer ID Application: Synthetic Test")
+        self.assertTrue(any("--verify" in row["args"] and "--strict" in row["args"]
+                            and row["args"][-1].endswith(".dmg") for row in self.calls("codesign")))
         self.assertFalse(self.calls("xcrun"))
         report = json.loads((self.root / "dist" / "release-metadata.json").read_text())
         self.assertEqual(report["signature"], "developer-id")
@@ -290,6 +312,23 @@ if sys.argv[1:3] == ["notarytool", "submit"]:
         staples = [row for row in self.calls("xcrun") if row["args"][:2] == ["stapler", "staple"]]
         self.assertEqual(len(staples), 2)
         self.assertTrue(any(row["args"][:2] == ["stapler", "validate"] for row in self.calls("xcrun")))
+        events = self.calls()
+        def event_index(predicate):
+            return next(index for index, row in enumerate(events) if predicate(row))
+        dmg_sign = event_index(lambda row: row["tool"] == "codesign" and "--verify" not in row["args"]
+                               and row["args"][-1].endswith(".dmg"))
+        dmg_verify = event_index(lambda row: row["tool"] == "codesign" and "--verify" in row["args"]
+                                 and "--strict" in row["args"] and row["args"][-1].endswith(".dmg"))
+        dmg_submit = event_index(lambda row: row["tool"] == "xcrun"
+                                 and row["args"][:2] == ["notarytool", "submit"]
+                                 and row["args"][2].endswith(".dmg"))
+        dmg_assess = event_index(lambda row: row["tool"] == "spctl" and row["args"][-1].endswith(".dmg"))
+        self.assertLess(dmg_sign, dmg_verify)
+        self.assertLess(dmg_verify, dmg_submit)
+        self.assertLess(dmg_submit, dmg_assess)
+        sign = events[dmg_sign]["args"]
+        self.assertIn("--timestamp", sign)
+        self.assertEqual(sign[sign.index("-s") + 1], "Developer ID Application: Synthetic Test")
         self.assertFalse(list((self.root / "dist").glob("*-app.zip")),
                          "the unstapled submission ZIP must not be distributed")
         report = json.loads((self.root / "dist" / "release-metadata.json").read_text())
@@ -314,6 +353,9 @@ if sys.argv[1:3] == ["notarytool", "submit"]:
         self.assertTrue(WORKFLOW.is_file(), "dedicated release workflow is missing")
         text = WORKFLOW.read_text()
         self.assertIn("workflow_dispatch:", text)
+        triggers = text.split("on:\n", 1)[1].split("\npermissions:", 1)[0]
+        self.assertIsNone(re.search(r"(?m)^  (pull_request|push|schedule|workflow_run):", triggers),
+                          "release packaging must not run on ordinary repository activity")
         self.assertIn("APPLE_CERTIFICATE", text)
         self.assertIn("ASC_KEY_P8", text)
         self.assertIn("actions/upload-artifact", text)
