@@ -100,7 +100,7 @@ def find_field(img):
     best = None
     for state, alpha in FILLS.items():
         fill = over_black(alpha)
-        good = [sum(near(p, fill, 3) for p in row) >= 0.3 * len(row) for row in img]
+        good = [sum(near(p, fill, 3) for p in row) >= 30 for row in img]
         y = 0
         while y < len(img):
             if not good[y]:
@@ -186,10 +186,15 @@ def measure(path):
 
 
 def mini_fills():
-    """Week MiniComposer fills (dark scheme): white 5 % over the day tile #1D1D1D and over Today's column
-    (white 8 % over the black shell). Rounded to 8-bit as the compositor does."""
-    over = lambda base, a: tuple(round(v + (255 - v) * a) for v in base)
-    return {"tile": over((0x1D,) * 3, 0.05), "today": over(over((0,) * 3, 0.08), 0.05)}
+    """Week uses the opaque dark control token; retain historical fixture fills."""
+    import re
+    tokens = (Path(__file__).resolve().parents[1] / 'Sources/PerchUI/ThemeTokens.swift').read_text()
+    dark = tokens.split('public static let dark = Palette(', 1)[1].split(')', 1)[0]
+    match = re.search(r'control: 0x([0-9A-Fa-f]+)', dark)
+    assert match, 'Missing Week control fill token'
+    value = int(match.group(1), 16)
+    return {"control": ((value >> 16) & 255, (value >> 8) & 255, value & 255),
+            "tile": (40, 40, 40), "today": (32, 32, 32)}
 
 
 def measure_week(path):
@@ -197,7 +202,7 @@ def measure_week(path):
     times in the field ROI versus the field's modal colour."""
     img = read_png(path)
     fills = mini_fills()
-    good = [sum(any(near(p, f, 2) for f in fills.values()) for p in row) >= 0.3 * len(row) for row in img]
+    good = [sum(any(near(p, f, 2) for f in fills.values()) for p in row) >= 10 for row in img]
     bands, y = [], 0
     while y < len(img):
         if not good[y]:
@@ -211,30 +216,44 @@ def measure_week(path):
     # Text plus the accessible outline can interrupt the background-majority
     # scan for a couple of rows. Join those small gaps before choosing the
     # field, otherwise the blank strip above the glyphs wins as a false ROI.
-    gap = 3 * max(1, round((bands[-1][1] - bands[0][0]) / 22))
+    gap = 4  # Cover glyph/outline gaps at 1x/2x, never merge across the 8pt capture gutter.
     joined = []
     for start, end in bands:
         if joined and start - joined[-1][1] <= gap:
             joined[-1] = (joined[-1][0], end)
         else:
             joined.append((start, end))
-    fy0, fy1 = max(joined, key=lambda b: b[1] - b[0])
-    k = max(1, round((fy1 - fy0) / 22))
-    band = img[fy0:fy1]
-    fields = []
-    for name, fill in fills.items():
-        col = [sum(near(row[x], fill, 2) for row in band) >= 0.3 * len(band) for x in range(len(band[0]))]
-        x = 0
-        while x < len(col):
-            if not col[x]:
-                x += 1
-                continue
-            s = x
-            while x < len(col) and col[x]:
-                x += 1
-            if x - s >= 30 * k:
-                fields.append((s, x, name))
-    assert fields, f"{path}: no Week composer fields found"
+    # Inspect bottom-up, but reject glyph-sized bands before estimating scale.
+    # Antialiased footer text can match the fill; it is not a 22/32pt input.
+    # Require sustained field-width columns too, so scattered glyphs cannot
+    # displace the actual composer band. Only one day may be editable.
+    fields, selected = [], None
+    for fy0, fy1 in reversed(joined):
+        if fy1 - fy0 < 18:
+            continue
+        band = img[fy0:fy1]
+        band_pixels = Counter(p for row in band for p in row)
+        control_count = sum(n for p, n in band_pixels.items() if near(p, fills["control"], 2))
+        legacy_count = sum(n for p, n in band_pixels.items() if near(p, fills["tile"], 2))
+        height = 32 if control_count > legacy_count else 22
+        k = max(1, round((fy1 - fy0) / height))
+        for name, fill in fills.items():
+            col = [sum(near(row[x], fill, 2) for row in band) >= 0.3 * len(band) for x in range(len(band[0]))]
+            x = 0
+            while x < len(col):
+                if not col[x]:
+                    x += 1
+                    continue
+                s = x
+                while x < len(col) and col[x]:
+                    x += 1
+                if x - s >= 30 * k:
+                    fields.append((s, x, name))
+        if fields:
+            selected = (fy0, fy1, k)
+            break
+    assert selected is not None, f"{path}: no Week composer fields found"
+    fy0, fy1, k = selected
     out = []
     for fx0, fx1, under in sorted(fields):
         x0, x1, y0, y1 = fx0 + 4 * k, fx1 - 4 * k, fy0 + 2 * k, fy1 - 2 * k

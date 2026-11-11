@@ -2,114 +2,145 @@ import AppKit
 import PerchUI
 import PlannerCore
 import SwiftUI
-import UniformTypeIdentifiers
 
-/// The week ahead, plus the Inbox. Drag a task to any day.
+/// A calendar week. Inbox has its own full-width view, not an eighth day.
 struct WeekPage: View {
     @EnvironmentObject var store: PlannerStore
-    @State private var anchor = 0  // weeks from this one
+    @State private var anchor = 0
+    @State private var showInbox = false
     @State private var target: String?
 
+    private var days: [DayKey] {
+        WeekColumnLayout.days(today: store.today, weekOffset: anchor, calendar: store.engine.calendar)
+    }
+
     var body: some View {
-        let start = store.today.adding(days: anchor * 7)
-        let days = (0..<7).map { start.adding(days: $0) }
-        VStack(spacing: 8) {
-            HStack {
-                GlassButton(symbol: "chevron.left", help: "Previous week", size: 22) { go(anchor - 1) }
-                Text(anchor == 0 ? "This week" : start.date().formatted(.dateTime.month(.wide).day()))
-                    .font(.system(size: 12, weight: .semibold))
-                GlassButton(symbol: "chevron.right", help: "Next week", size: 22) { go(anchor + 1) }
-                if anchor != 0 { Button("Today") { go(0) }.buttonStyle(PillStyle()) }
-                Spacer()
-                Text("Drop tasks onto a day, or park them in the Inbox.").font(.system(size: 10.5)).foregroundStyle(
-                    Theme.tertiary)
+        VStack(spacing: Theme.gutter) {
+            HStack(spacing: Theme.gutter) {
+                GlassButton(symbol: "chevron.left", help: "Previous week") { go(anchor - 1) }
+                    .keyboardShortcut(.leftArrow, modifiers: [.command, .option])
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(anchor == 0 ? "This week" : "Week").font(Theme.heading)
+                    Text("\(label(days[0], format: "MMM d")) – \(label(days[6], format: "MMM d, yyyy"))")
+                        .font(Theme.meta).foregroundStyle(Theme.secondary).fixedSize()
+                }
+                GlassButton(symbol: "chevron.right", help: "Next week") { go(anchor + 1) }
+                    .keyboardShortcut(.rightArrow, modifiers: [.command, .option])
+                if anchor != 0 {
+                    Button("Today") { go(0) }.buttonStyle(PillStyle())
+                        .keyboardShortcut("t", modifiers: [.command, .option])
+                }
+                Spacer(minLength: 0)
+                Button(showInbox ? "Back to week" : "Inbox (\(store.engine.tasks(on: .inbox).count))") {
+                    Motion.animate(Motion.page) { showInbox.toggle() }
+                }
+                .buttonStyle(PillStyle())
+                .keyboardShortcut("i", modifiers: [.command, .option])
+                .accessibilityIdentifier("week-inbox")
+                .help(
+                    showInbox
+                        ? "Drag here to reveal the week, then drop onto a day."
+                        : "Open Inbox, or drop a task here to unschedule it."
+                )
+                .dropDestination(for: String.self) { items, _ in
+                    guard let payload = items.first,
+                        let action = WeekTaskPolicy.moveAction(
+                            payload: payload, to: .inbox, tasks: store.planner.tasks, today: store.today)
+                    else { return false }
+                    return store.send(action) != nil
+                } isTargeted: { active in
+                    // Reveal the calendar while an Inbox task remains on the drag pasteboard.
+                    if active && showInbox { showInbox = false }
+                }
             }
-            // Changing weeks crossfades the day columns in place, like a page switch (`Motion.page`).
-            GeometryReader { geometry in
-                // Give a busy day room for ordinary titles. Below the useful minimum, pan the week
-                // horizontally instead of compressing every title; each day's Add stays outside its list.
-                let widths = days.map { day -> CGFloat in
-                    let count = store.engine.tasks(on: .day(day)).count
-                    return count > 4 ? 180 : (count > 0 ? 104 : 88)
-                }
-                let minimum = widths.reduce(118 + 7 * 6, +)
-                let extra = max(0, geometry.size.width - minimum) / 8
-                ScrollView(.horizontal) {
-                    HStack(alignment: .top, spacing: 6) {
-                        ForEach(Array(days.enumerated()), id: \.element) { index, d in
-                            column(
-                                title: d.date().formatted(.dateTime.weekday(.abbreviated)),
-                                subtitle: d.date().formatted(.dateTime.day()),
-                                ref: .day(d), isToday: d == store.today, past: d < store.today
-                            )
-                            .frame(width: widths[index] + extra)
+            if showInbox {
+                column(title: "Inbox", subtitle: "Unscheduled", ref: .inbox, isToday: false, past: false)
+            } else {
+                GeometryReader { geometry in
+                    ScrollViewReader { proxy in
+                        ScrollView(.horizontal) {
+                            HStack(alignment: .top, spacing: Theme.gutter) {
+                                ForEach(days, id: \.self) { day in
+                                    column(
+                                        title: label(day, format: "EEE"), subtitle: label(day, format: "MMM d"),
+                                        ref: .day(day), isToday: day == store.today, past: day < store.today
+                                    )
+                                    .frame(width: WeekColumnLayout.columnWidth(available: geometry.size.width))
+                                    .id(day)
+                                }
+                            }
+                            .padding(4)
+                            .frame(height: max(0, geometry.size.height - 12))
                         }
-                        column(title: "Inbox", subtitle: "", ref: .inbox, isToday: false, past: false)
-                            .frame(width: 118 + extra)
+                        .scrollIndicators(.visible)
+                        .onAppear {
+                            proxy.scrollTo(days.contains(store.today) ? store.today : days[0], anchor: .leading)
+                        }
+                        .onChange(of: days) { _, value in
+                            proxy.scrollTo(value.contains(store.today) ? store.today : value[0], anchor: .leading)
+                        }
                     }
-                    .frame(height: geometry.size.height - 12)
-                    .id(anchor)
-                    .transition(.opacity)
                 }
-                .scrollIndicators(.visible)
+                Text("Scroll across seven days · Drag to reschedule · Only today’s tasks can be checked")
+                    .font(Theme.meta).foregroundStyle(Theme.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
+        // Register the selected dates, not stale offsets from a previous logical week.
+        // Observe only the range so task edits cannot reapply lifecycle mutations after Undo.
+        .onChange(of: days, initial: true) { _, value in
+            store.materializeRepeats(on: value)
+        }
+    }
 
+    private func label(_ day: DayKey, format: String) -> String {
+        let formatter = DateFormatter()
+        formatter.locale = .autoupdatingCurrent
+        formatter.calendar = store.engine.calendar
+        formatter.timeZone = store.engine.calendar.timeZone
+        formatter.dateFormat = format
+        return formatter.string(from: day.date(calendar: store.engine.calendar))
     }
 
     private func go(_ week: Int) {
-        let start = store.today.adding(days: week * 7)
-        store.materializeRepeats(on: (0..<7).map { start.adding(days: $0) })
-        Motion.animate(Motion.page) { anchor = week }
+        Motion.animate(Motion.page) {
+            anchor = week; showInbox = false
+        }
     }
 
     func column(title: String, subtitle: String, ref: DayRef, isToday: Bool, past: Bool) -> some View {
         let tasks = store.engine.tasks(on: ref)
         let key = ref.key?.raw ?? "inbox"
-        return VStack(alignment: .leading, spacing: 5) {
-            // Day, date and count each keep one line at their natural width; a Spacer would otherwise be offered
-            // a share of the row and squeeze the day name into two lines ("MO" / "N").
-            VStack(alignment: .leading, spacing: 3) {
-                HStack(spacing: 4) {
-                    Text(title.uppercased()).font(.system(size: 10, weight: .bold)).tracking(0.6)
-                        .foregroundStyle(isToday ? Theme.accent : Theme.secondary)
-                        .lineLimit(1).fixedSize()
-                    Text(subtitle).font(.system(size: 10, weight: .semibold)).foregroundStyle(
-                        isToday ? Theme.accent : Theme.tertiary
-                    )
-                    .lineLimit(1).fixedSize()
-                }
-                // A dedicated line prevents the day label from squeezing or scaling the count.
-                Text("\(tasks.filter(\.done).count)/\(tasks.count) done")
-                    .font(.system(size: 11, weight: .medium).monospacedDigit()).foregroundStyle(Theme.secondary)
-                    .lineLimit(1).fixedSize(horizontal: true, vertical: false)
-                    .accessibilityLabel("\(tasks.filter(\.done).count) of \(tasks.count) tasks complete")
+        return VStack(alignment: .leading, spacing: Theme.gutter) {
+            HStack(alignment: .firstTextBaseline) {
+                Text(title).font(Theme.heading).foregroundStyle(isToday ? Theme.accent : Theme.text)
+                Text(subtitle).font(Theme.meta).foregroundStyle(Theme.secondary)
+                Spacer(minLength: 0)
+                if isToday { Text("Today").font(Theme.label).foregroundStyle(Theme.accent) }
+                if past { Text("Past").font(Theme.label).foregroundStyle(Theme.secondary) }
             }
+            Text("\(tasks.filter(\.done).count)/\(tasks.count) done")
+                .font(Theme.meta.monospacedDigit()).foregroundStyle(Theme.secondary)
+                .fixedSize(horizontal: true, vertical: false)
+                .accessibilityLabel("\(tasks.filter(\.done).count) of \(tasks.count) tasks complete")
             WeekDayList(tasks: tasks, ref: ref, past: past)
-            // Pinned under the list, so a busy day never scrolls its Add away.
             if !past { MiniComposer(ref: ref) }
         }
-        .padding(8)
+        .padding(Theme.cardPadding)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .background(
-            RoundedRectangle(cornerRadius: 12).fill(
-                target == key ? Theme.accent.opacity(0.16) : (isToday ? Color.white.opacity(0.08) : Theme.card))
+            RoundedRectangle(cornerRadius: Theme.cardRadius).fill(target == key ? Theme.selectedPill : Theme.card)
         )
-        .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(Theme.cardStroke))
-        .opacity(past ? 0.6 : 1)
-        .onDrop(
-            of: [.plainText],
-            isTargeted: Binding(get: { target == key }, set: { target = $0 ? key : (target == key ? nil : target) })
-        ) { items in
-            guard !past else { return false }
-            items.first?.loadObject(ofClass: NSString.self) { s, _ in
-                guard let s = s as? String, let id = UUID(uuidString: s) else { return }
-                Task { @MainActor in
-                    guard let t = store.planner.tasks.first(where: { $0.id == id }) else { return }
-                    store.apply { try $0.move(id, from: t.day.map { .day($0) } ?? .inbox, to: ref) }
-                }
-            }
-            return true
+        .overlay(RoundedRectangle(cornerRadius: Theme.cardRadius).strokeBorder(Theme.cardStroke))
+        .environment(\.controlSurface, Theme.card)
+        .dropDestination(for: String.self) { items, _ in
+            guard let payload = items.first,
+                let action = WeekTaskPolicy.moveAction(
+                    payload: payload, to: ref, tasks: store.planner.tasks, today: store.today)
+            else { return false }
+            return store.send(action) != nil
+        } isTargeted: { active in
+            target = active && !past ? key : (target == key ? nil : target)
         }
     }
 }
@@ -169,7 +200,7 @@ private struct WeekDayList: View {
                 }
             }
             if let more = WeekColumnLayout.overflowLabel(hidden: hidden) {
-                Text(more).font(.system(size: 11, weight: .semibold)).foregroundStyle(Theme.tertiary)
+                Text(more).font(Theme.label).foregroundStyle(Theme.tertiary)
                     .frame(maxWidth: .infinity, alignment: .center)
                     .accessibilityLabel("\(hidden) more \(hidden == 1 ? "task" : "tasks") below")
                     .transition(.opacity)
@@ -191,63 +222,118 @@ struct WeekChip: View {
     let past: Bool
     @EnvironmentObject var store: PlannerStore
     @EnvironmentObject var model: NotchModel
+    @FocusState private var menuFocused: Bool
+
+    private var completion: PlannerAction? { WeekTaskPolicy.completionAction(for: task, today: store.today) }
+    private var checkHint: String {
+        past ? WeekColumnLayout.pastHint : "Move this task to today before checking it."
+    }
 
     var body: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 5) {
-            Circle().fill(
-                task.done ? Theme.done : (task.priority == .none ? Theme.tertiary : Theme.priority(task.priority))
-            ).frame(width: 6, height: 6)
-                .alignmentGuide(.firstTextBaseline) { $0[.bottom] - 0.5 }
-            title(size: WeekColumnLayout.titleSize)
-                .lineLimit(2).truncationMode(.tail)
-                // Never shrink text to make a day fit. Width belongs to the column, not the font.
+        HStack(alignment: .top, spacing: Theme.gutter) {
+            GlassButton(
+                symbol: task.done ? "checkmark.circle.fill" : "circle",
+                help: task.done ? "Uncheck task: \(task.title)" : "Check off task: \(task.title)",
+                tint: task.done
+                    ? Theme.success : task.priority == .none ? Theme.secondary : Theme.priority(task.priority),
+                disabledReason: checkHint
+            ) {
+                if let completion { Motion.animate(Motion.row) { _ = store.send(completion) } }
+            }
+            .disabled(completion == nil)
+            .accessibilityValue(task.done ? "Complete" : "Incomplete")
+            .accessibilityIdentifier("week-check-\(task.id)")
+            title
                 .fixedSize(horizontal: false, vertical: true)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .layoutPriority(1)
+                .padding(.vertical, 5)
+                .onTapGesture(count: 2) { model.detailsTaskID = task.id }
+            Menu {
+                actions
+            } label: {
+                Image(systemName: "ellipsis").font(Theme.body)
+                    .frame(width: Theme.minimumTarget, height: Theme.minimumTarget)
+                    .background(RoundedRectangle(cornerRadius: Theme.controlRadius).fill(Theme.fill))
+                    .overlay(RoundedRectangle(cornerRadius: Theme.controlRadius).strokeBorder(Theme.inputStroke))
+            }
+            .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
+            .focused($menuFocused).focusEffectDisabled()
+            .overlay(ControlFocusRing(shape: RoundedRectangle(cornerRadius: Theme.controlRadius), focused: menuFocused))
+            .accessibilityLabel("Task actions: \(task.title)")
+            .accessibilityIdentifier("week-menu-\(task.id)")
         }
-        .padding(.horizontal, 6).padding(.vertical, 5)
-        .background(RoundedRectangle(cornerRadius: 7).fill(Color.white.opacity(0.06)))
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel(task.repeatRule.map { "\(task.title), repeats \($0.description)" } ?? task.title)
-        .onTapGesture(count: 2) { model.detailsTaskID = task.id }
+        .padding(4)
+        .background(RoundedRectangle(cornerRadius: Theme.controlRadius).fill(Theme.fill))
+        .contextMenu { actions }
         .help(WeekColumnLayout.chipHelp(title: task.title, past: past))
     }
 
-    /// The title, led by the small repeat glyph the Today row uses. Inline, the glyph flows with the first line
-    /// instead of holding a column of its own beside every line of the title.
-    private func title(size: Double) -> Text {
-        let words = Text(task.title).font(.system(size: CGFloat(size)))
-            .strikethrough(task.done).foregroundStyle(task.done ? Theme.tertiary : Theme.text)
-        guard task.repeatRule != nil else { return words }
-        let glyph = Text(Image(systemName: "repeat")).font(.system(size: CGFloat(size) - 2, weight: .semibold))
-            .foregroundStyle(Theme.secondary)
-        return glyph + Text(" ") + words
+    @ViewBuilder private var actions: some View {
+        Button("Details…") { model.detailsTaskID = task.id }
+        if let completion {
+            Button(task.done ? "Uncheck task" : "Check off task") { store.send(completion) }
+        }
+        if !past && !task.done {
+            if task.day == store.today {
+                Button("Start focusing") { store.send(.startTimer(task.id, minutes: nil)) }
+            }
+            Menu("Move to day") {
+                ForEach(WeekColumnLayout.days(today: store.today, calendar: store.engine.calendar), id: \.self) { day in
+                    if day >= store.today && day != task.day {
+                        Button(day == store.today ? "Today" : day.raw) { move(.day(day)) }
+                    }
+                }
+                Button("Tomorrow") { move(.day(store.today.adding(days: 1, calendar: store.engine.calendar))) }
+                    .disabled(task.day == store.today.adding(days: 1, calendar: store.engine.calendar))
+            }
+            if task.day != nil { Button("Move to Inbox") { move(.inbox) } }
+            Divider()
+            Button("Delete", role: .destructive) { store.send(.delete(task.id)) }
+        }
     }
 
+    private func move(_ destination: DayRef) {
+        if let action = WeekTaskPolicy.moveAction(
+            payload: task.id.uuidString, to: destination,
+            tasks: store.planner.tasks, today: store.today)
+        {
+            store.send(action)
+        }
+    }
+
+    private var title: Text {
+        let words = Text(task.title).font(Theme.body)
+            .strikethrough(task.done).foregroundStyle(task.done ? Theme.secondary : Theme.text)
+        guard task.repeatRule != nil else { return words }
+        return Text(Image(systemName: "repeat")).font(Theme.meta).foregroundStyle(Theme.secondary) + Text(" ") + words
+    }
 }
 
 struct MiniComposer: View {
     let ref: DayRef
     @EnvironmentObject var store: PlannerStore
     @State private var text = ""
+    @FocusState private var focused: Bool
     var body: some View {
         let prompt = ref == .inbox ? "Add to Inbox" : "Add a task"
-        // Prompt drawn by us, as in TaskComposer (review F02): AppKit's own placeholder colour measures 3.9:1 on
-        // the dark tile. `Theme.secondary` (dark: white 62 %) clears 4.5:1 there and stays dimmer than real text.
         TextField("", text: $text)
-            .textFieldStyle(.plain).font(.system(size: 10.5))
+            .textFieldStyle(.plain).font(Theme.body)
             .background(alignment: .leading) {
                 if text.isEmpty {
-                    Text(prompt).font(.system(size: 10.5)).foregroundStyle(Theme.secondary).lineLimit(1)
+                    Text(prompt).font(Theme.body).foregroundStyle(Theme.text).lineLimit(1)
                         .allowsHitTesting(false).accessibilityHidden(true)
                 }
             }
             .accessibilityLabel(prompt)
-            .padding(.horizontal, 6).padding(.vertical, 5)
-            .background(RoundedRectangle(cornerRadius: 7).fill(Color.white.opacity(0.05)))
-            .overlay(RoundedRectangle(cornerRadius: 7).strokeBorder(Theme.inputStroke, lineWidth: 1))
+            .padding(.horizontal, Theme.gutter)
+            .frame(minHeight: Theme.primaryHeight)
+            .background(RoundedRectangle(cornerRadius: Theme.controlRadius).fill(Theme.fill))
+            .overlay(RoundedRectangle(cornerRadius: Theme.controlRadius).strokeBorder(Theme.inputStroke, lineWidth: 1))
+            .focused($focused).focusEffectDisabled()
+            .overlay(ControlFocusRing(shape: RoundedRectangle(cornerRadius: Theme.controlRadius), focused: focused))
             .onSubmit {
-                guard !text.isEmpty else { return }
+                guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
                 if store.apply({ try $0.addTasks([text], on: ref) }) != nil { text = "" }
             }
     }
