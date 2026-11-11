@@ -4,8 +4,14 @@ import PerchUI
 import Darwin
 import os
 
+protocol FolderWatching: Sendable {
+    func start() -> Bool
+    func stop()
+}
+
 /// Watches one folder with a vnode `DispatchSource` on an `O_EVTONLY` descriptor.
-final class FolderWatcher: Sendable {
+final class FolderWatcher: FolderWatching {
+    typealias Handler = @Sendable (Event) -> Void
     enum Event { case contents, folderMoved, recheck }
     static let captureAttribute = "com.apple.metadata:kMDItemIsScreenCapture"
     static let recordingAttribute = "com.apple.metadata:kMDItemIsScreenRecording"

@@ -100,4 +100,44 @@ final class SettingsClipsTests: XCTestCase {
         XCTAssertEqual(clips.clips.map(\.id), originalIDs)
         XCTAssertTrue(FileManager.default.fileExists(atPath: textURL.path))
     }
+
+    @MainActor func testTemporaryCopyAndOpenFailuresStayVisibleAndRetryable() async throws {
+        enum SyntheticOpenError: Error { case failed }
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let file = PlannerFile(
+            url: root.appendingPathComponent("planner.json"), preferences: MemoryPlannerPreferences())
+        let store = PlannerStore(file: file, watching: false)
+        var failOpen = true
+        let clips = ClipsService(
+            store: store,
+            pasteboard: ClipsPasteboardFake(),
+            monitoring: false,
+            clipOpener: { _, completion in
+                completion(failOpen ? SyntheticOpenError.failed : nil)
+            })
+        let source = root.appendingPathComponent("Retry.txt")
+        clips.add(.file(source), source: "dropped")
+        XCTAssertNotNil(store.lastError)
+        XCTAssertTrue(clips.clips.isEmpty, "A failed temporary copy must not leave a dead clip")
+
+        try Data("Synthetic retry".utf8).write(to: source)
+        clips.add(.file(source), source: "dropped")
+        XCTAssertNil(store.lastError)
+        let clip = try XCTUnwrap(clips.clips.first)
+        let kept = try XCTUnwrap(clips.clipURL(clip))
+        XCTAssertTrue(ClipVault.owns(kept, vault: clips.vault))
+
+        clips.open(clip)
+        for _ in 0..<20 where store.lastError == nil { await Task.yield() }
+        XCTAssertNotNil(store.lastError)
+        XCTAssertEqual(clips.clips.map(\.id), [clip.id])
+
+        failOpen = false
+        clips.open(clip)
+        for _ in 0..<20 where store.lastError != nil { await Task.yield() }
+        XCTAssertNil(store.lastError)
+        XCTAssertEqual(clips.clips.map(\.id), [clip.id])
+    }
 }
