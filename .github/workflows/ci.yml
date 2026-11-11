@@ -1,6 +1,8 @@
 name: CI
 on:
+  # Branch pushes are covered by their pull request; only main runs on push.
   push:
+    branches: [main]
     paths-ignore: ['docs/**', '**/*.md']
   pull_request:
     paths-ignore: ['docs/**', '**/*.md']
