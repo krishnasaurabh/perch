@@ -208,6 +208,33 @@ func key(_ character: String, code: UInt16, in window: NSWindow) {
     }
 }
 
+// Use the application event queue for typing so AppKit sees separate key events,
+// rather than two programmatic edits inside one event/undo transaction.
+@MainActor
+func typeCaptureText(_ text: String, in window: NSWindow) async {
+    let keyCodes: [String: UInt16] = [
+        "a": 0, "s": 1, "d": 2, "f": 3, "h": 4, "g": 5, "z": 6, "x": 7, "c": 8, "v": 9,
+        "b": 11, "q": 12, "w": 13, "e": 14, "r": 15, "y": 16, "t": 17, "o": 31, "u": 32,
+        "i": 34, "p": 35, "l": 37, "j": 38, "k": 40, "n": 45, "m": 46, " ": 49,
+    ]
+    for character in text {
+        let value = String(character)
+        let lower = value.lowercased()
+        guard let code = keyCodes[lower] else {
+            require(false, "capture typing fixture uses supported keys"); return
+        }
+        let modifiers: NSEvent.ModifierFlags = value == lower ? [] : [.shift]
+        for type in [NSEvent.EventType.keyDown, .keyUp] {
+            let event = NSEvent.keyEvent(
+                with: type, location: .zero, modifierFlags: modifiers, timestamp: ProcessInfo.processInfo.systemUptime,
+                windowNumber: window.windowNumber, context: nil, characters: value,
+                charactersIgnoringModifiers: lower, isARepeat: false, keyCode: code)!
+            NSApp.postEvent(event, atStart: false)
+        }
+    }
+    await settle()
+}
+
 // Edits, including Undo, legitimately advance updatedAt. Every other task field
 // and the displayed ordering must still match, and timestamps must not regress.
 func sameTaskContent(_ actual: [PlanTask], _ expected: [PlanTask]) -> Bool {
@@ -273,6 +300,10 @@ func recordTextUndo(_ editor: NSTextView, in panel: NSWindow, phase: String, sce
     let field = editor.delegate as? NSTextField
     let state: [String: Any] = [
         "phase": phase, "text": editor.string,
+        "selection": NSStringFromRange(editor.selectedRange()),
+        "hasMarkedText": editor.hasMarkedText(),
+        "currentEditorText": (panel.firstResponder as? NSTextView)?.string ?? "none",
+        "fieldValue": field?.stringValue ?? "none",
         "keyWindow": panel.isKeyWindow,
         "isFieldEditor": editor.isFieldEditor,
         "isCurrentEditor": field?.currentEditor() === editor && panel.firstResponder === editor,
@@ -458,23 +489,39 @@ func verifyCaptureUndoSubmission(store: PlannerStore, model: NotchModel, service
     require(plannerUndoCount == 0 && store.planner == before, "empty text Undo never consumes planner history")
     let draft = "Sort the seed packets"
     let replacement = "Label the seed packets"
-    editor.insertText(draft, replacementRange: NSRange(location: NSNotFound, length: 0))
-    editor.breakUndoCoalescing(); await settle()
-    editor.insertText(replacement, replacementRange: NSRange(location: 0, length: editor.string.utf16.count))
-    editor.breakUndoCoalescing(); await settle()
+    await typeCaptureText(draft, in: panel)
+    recordTextUndo(editor, in: panel, phase: "typed", scenario: "submission", output: output)
+    require(editor.string == draft, "capture receives the original draft through keyboard events")
+    require(panel.firstResponder === editor, "typing retains the capture editor")
+    editor.breakUndoCoalescing()
+    let selected = NSRange(location: 0, length: editor.string.utf16.count)
+    editor.setSelectedRange(selected)
+    recordTextUndo(editor, in: panel, phase: "selected", scenario: "submission", output: output)
+    require(editor.selectedRange() == selected, "capture selects the entire original draft")
+    await typeCaptureText(replacement, in: panel)
+    editor.breakUndoCoalescing()
+    recordTextUndo(editor, in: panel, phase: "replaced", scenario: "submission", output: output)
+    require(editor.string == replacement, "capture replaces exactly the selected draft")
+    require(panel.firstResponder === editor, "replacement retains the capture editor")
+    require(editor.undoManager?.canUndo == true, "selection replacement registers native Undo")
     sendKey(.keyDown, "z", code: 6, in: panel, modifiers: [.command])
     sendKey(.keyUp, "z", code: 6, in: panel, modifiers: [.command])
     await settle()
+    recordTextUndo(editor, in: panel, phase: "undo-replacement", scenario: "submission", output: output)
     require(editor.string == draft, "capture Undo restores the replaced selection")
+    require(panel.firstResponder === editor, "replacement Undo retains the capture editor")
     sendKey(.keyDown, "z", code: 6, in: panel, modifiers: [.command, .shift])
     sendKey(.keyUp, "z", code: 6, in: panel, modifiers: [.command, .shift])
     await settle()
+    recordTextUndo(editor, in: panel, phase: "redo-replacement", scenario: "submission", output: output)
     require(editor.string == replacement, "capture Redo restores the replacement")
+    require(panel.firstResponder === editor, "replacement Redo retains the capture editor")
     require(plannerUndoCount == 0 && store.planner == before, "text Redo never consumes planner history")
     require(try! Data(contentsOf: store.file.url) == persistedBefore, "draft Undo and Redo leave storage unchanged")
     sendKey(.keyDown, "z", code: 6, in: panel, modifiers: [.command])
     sendKey(.keyUp, "z", code: 6, in: panel, modifiers: [.command])
     await settle()
+    recordTextUndo(editor, in: panel, phase: "restored-draft", scenario: "submission", output: output)
     require(editor.string == draft, "capture returns to the draft before submission")
     key("\r", code: 36, in: panel); await settle()
     require(

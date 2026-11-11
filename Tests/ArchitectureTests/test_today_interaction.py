@@ -342,6 +342,43 @@ class TodayInteractionTests(unittest.TestCase):
                          '"capture submission persists the exact draft"'):
             self.assertIn(expected, source)
 
+    def test_capture_selection_replacement_uses_native_selection_and_queued_typing(self):
+        source = (ROOT / "scripts/focus_entry_probe.swift").read_text()
+        probe = source.split("func verifyCaptureUndoSubmission(", 1)[1].split(
+            "func verifyRowCustomActions(", 1)[0]
+        self.assertNotIn("editor.insertText(", probe)
+        self.assertIn("await typeCaptureText(draft, in: panel)", probe)
+        self.assertIn("await typeCaptureText(replacement, in: panel)", probe)
+        self.assertIn("editor.setSelectedRange(selected)", probe)
+        self.assertIn("editor.selectedRange() == selected", probe)
+        self.assertIn('"capture receives the original draft through keyboard events"', probe)
+        self.assertIn('"capture replaces exactly the selected draft"', probe)
+        typing = source.split("func typeCaptureText(", 1)[1].split("// Edits, including Undo", 1)[0]
+        self.assertIn("NSApp.postEvent(event, atStart: false)", typing)
+        self.assertIn("NSEvent.EventType.keyDown, .keyUp", typing)
+        self.assertNotIn("insertText", typing)
+        self.assertNotIn("undoManager", typing)
+
+    def test_capture_replacement_records_state_before_every_undo_assertion(self):
+        source = (ROOT / "scripts/focus_entry_probe.swift").read_text()
+        probe = source.split("func verifyCaptureUndoSubmission(", 1)[1].split(
+            "func verifyRowCustomActions(", 1)[0]
+        for phase, assertion in (
+            ("typed", "capture receives the original draft through keyboard events"),
+            ("selected", "capture selects the entire original draft"),
+            ("replaced", "capture replaces exactly the selected draft"),
+            ("undo-replacement", "capture Undo restores the replaced selection"),
+            ("redo-replacement", "capture Redo restores the replacement"),
+            ("restored-draft", "capture returns to the draft before submission"),
+        ):
+            self.assertIn(f'phase: "{phase}"', probe)
+            self.assertIn(f'"{assertion}"', probe)
+            self.assertLess(probe.index(f'phase: "{phase}"'), probe.index(f'"{assertion}"'))
+        record = source.split("func recordTextUndo(", 1)[1].split("func verifyLastRowKeyboardUndo(", 1)[0]
+        self.assertIn('"selection": NSStringFromRange(editor.selectedRange())', record)
+        self.assertIn('"hasMarkedText": editor.hasMarkedText()', record)
+        self.assertIn('"currentEditorText":', record)
+
     def test_completed_keyboard_probe_reselects_restored_row_before_second_delete(self):
         source = (ROOT / "scripts/focus_entry_probe.swift").read_text()
         probe = source.split("func verifyLastRowKeyboardUndo(", 1)[1].split(
