@@ -32,6 +32,20 @@ func attr(_ node: NSObject, _ name: String) -> Any? {
     let selector = NSSelectorFromString(name)
     return node.responds(to: selector) ? node.perform(selector)?.takeUnretainedValue() : nil
 }
+// Focus is a BOOL-returning Objective-C getter, not an object attribute.
+@MainActor
+func isFocused(_ node: NSObject) -> Bool {
+    let selector = NSSelectorFromString("isAccessibilityFocused")
+    guard node.responds(to: selector), let impl = node.method(for: selector) else { return false }
+    typealias Focused = @convention(c) (AnyObject, Selector) -> Bool
+    return unsafeBitCast(impl, to: Focused.self)(node, selector)
+}
+@MainActor
+final class FocusProbeElement: NSObject {
+    let focused: Bool
+    init(_ focused: Bool) { self.focused = focused }
+    @objc func isAccessibilityFocused() -> Bool { focused }
+}
 @MainActor
 func nodes(_ root: NSObject) -> [NSObject] {
     var seen = Set<ObjectIdentifier>()
@@ -42,8 +56,8 @@ func nodes(_ root: NSObject) -> [NSObject] {
     return walk(root, 0)
 }
 @MainActor
-func control(_ label: String, in root: NSView) -> NSObject? {
-    nodes(root).first { attr($0, "accessibilityLabel") as? String == label }
+func control(_ value: String, attribute: String = "accessibilityLabel", in root: NSView) -> NSObject? {
+    nodes(root).first { attr($0, attribute) as? String == value }
 }
 @MainActor
 func press(_ node: NSObject, _ label: String) {
@@ -90,6 +104,12 @@ func key(_ character: String, code: UInt16, in window: NSWindow) {
 }
 
 MainActor.assumeIsolated {
+    require(
+        UserDefaults.standard.integer(forKey: "AppleKeyboardUIMode") == 3,
+        "probe process enables keyboard navigation without changing system preferences")
+    require(isFocused(FocusProbeElement(true)), "native focus getter recognizes true")
+    require(!isFocused(FocusProbeElement(false)), "native focus getter recognizes false")
+    require(!isFocused(NSObject()), "missing native focus getter is not treated as focused")
     let app = NSApplication.shared
     let delegate = AppDelegate()
     app.delegate = delegate
@@ -219,9 +239,10 @@ MainActor.assumeIsolated {
                 // Keyboard navigation uses real AppKit key dispatch. No AX press or model fallback.
                 window.makeFirstResponder(nil)
                 for _ in 0..<35 {
-                    key("\t", code: 48, in: window); await Task.yield()
+                    key("\t", code: 48, in: window)
+                    try? await Task.sleep(nanoseconds: 50_000_000)
                     if let focus = control("Start focus", in: root),
-                        (attr(focus, "accessibilityFocused") as? NSNumber)?.boolValue == true
+                        isFocused(focus)
                     {
                         key(" ", code: 49, in: window); await settle()
                         keyboardVerified = store.planner.focus?.state == .running
@@ -231,39 +252,58 @@ MainActor.assumeIsolated {
                 if store.planner.focus != nil { press("End focus session", in: root); await settle() }
                 window.makeFirstResponder(nil)
                 var rowKeyboardReached = false
-                for _ in 0..<60 {
-                    key("\t", code: 48, in: window); await Task.yield()
-                    guard let first = control("Complete \(added[0].title)", in: root),
-                        (attr(first, "accessibilityFocused") as? NSNumber)?.boolValue == true
+                var keyboardTrace: [[String: Any]] = []
+                for step in 0..<60 {
+                    key("\t", code: 48, in: window)
+                    try? await Task.sleep(nanoseconds: 50_000_000)
+                    keyboardTrace.append([
+                        "step": step, "keyWindow": window.isKeyWindow,
+                        "firstResponder": String(describing: window.firstResponder),
+                        "focusedIdentifiers": nodes(root).filter(isFocused).map {
+                            attr($0, "accessibilityIdentifier") as? String
+                                ?? attr($0, "accessibilityLabel") as? String ?? "unnamed"
+                        },
+                    ])
+                    guard
+                        let first = control(
+                            "task-complete-\(added[0].id)", attribute: "accessibilityIdentifier", in: root),
+                        isFocused(first)
                     else { continue }
                     rowKeyboardReached = true
                     key("\u{F701}", code: 125, in: window); await settle()
-                    guard let next = control("Complete \(added[2].title)", in: root) else {
+                    guard
+                        let next = control(
+                            "task-complete-\(added[2].id)", attribute: "accessibilityIdentifier", in: root)
+                    else {
                         require(false, "\(name): next row is accessible"); return
                     }
                     require(
-                        (attr(next, "accessibilityFocused") as? NSNumber)?.boolValue == true,
+                        isFocused(next),
                         "\(name): Down focuses the next displayed task")
                     key("\u{F700}", code: 126, in: window); await settle()
+                    let previous = control(
+                        "task-complete-\(added[0].id)", attribute: "accessibilityIdentifier", in: root)
                     require(
-                        (attr(first, "accessibilityFocused") as? NSNumber)?.boolValue == true,
+                        previous.map(isFocused) == true,
                         "\(name): Up returns to the previous task")
                     snapshot(root, "\(name)-row-keyboard-focused", into: output)
                     key(" ", code: 49, in: window); await settle()
                     require(
                         store.planner.tasks.first { $0.id == added[0].id }?.done == true,
                         "\(name): Space completes exactly the focused task")
-                    let nextAfterCompletion = control("Complete \(added[2].title)", in: root)
+                    let nextAfterCompletion = control(
+                        "task-complete-\(added[2].id)", attribute: "accessibilityIdentifier", in: root)
                     require(
-                        nextAfterCompletion.map {
-                            (attr($0, "accessibilityFocused") as? NSNumber)?.boolValue == true
-                        } == true, "\(name): completion keeps focus on the next task")
+                        nextAfterCompletion.map(isFocused) == true, "\(name): completion keeps focus on the next task")
                     press("Undo", in: root); await settle()
                     require(
                         store.planner.tasks.first { $0.id == added[0].id }?.done == false,
                         "\(name): visible Undo restores keyboard completion")
                     break
                 }
+                let traceData = try! JSONSerialization.data(withJSONObject: keyboardTrace, options: [.prettyPrinted])
+                try! traceData.write(to: output.appendingPathComponent("keyboard-trace-\(name).json"))
+                if !rowKeyboardReached { print("Keyboard trace: " + String(decoding: traceData, as: UTF8.self)) }
                 require(rowKeyboardReached, "\(name): Tab reaches a real task completion button")
                 // Dense rows scroll independently of the still-visible entry and capture.
                 store.apply { try $0.addTasks((1...24).map { "Inspect inventory group \($0)" }, on: .day(store.today)) }
@@ -322,6 +362,8 @@ MainActor.assumeIsolated {
                 store.planner.tasks.count == 1 && store.planner.tasks[0].id == linked.id
                     && store.planner.tasks[0].minutes == 12,
                 "task action does not change task identity or estimate")
+            // Preserve the on-disk running session before the later deletion intentionally stops it.
+            try! Data(contentsOf: store.file.url).write(to: output.appendingPathComponent("linked-focus.json"))
             // Real visible controls must work without hover, a context menu, or a swipe.
             for label in ["Complete \(linked.title)", "Details \(linked.title)", "Delete \(linked.title)"] {
                 guard let node = control(label, in: rowRoot) else {

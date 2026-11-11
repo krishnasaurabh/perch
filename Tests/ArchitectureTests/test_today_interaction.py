@@ -90,6 +90,38 @@ class TodayInteractionTests(unittest.TestCase):
         self.assertFalse(result["qualified"])
         self.assertIn("tick-target-not-observed", result["reasons"])
 
+    def test_keyboard_probe_reads_native_boolean_focus(self):
+        source = (ROOT / "scripts/focus_entry_probe.swift").read_text()
+        self.assertNotIn('attr(focus, "accessibilityFocused")', source)
+        self.assertNotIn('attr(first, "accessibilityFocused")', source)
+        self.assertIn('NSSelectorFromString("isAccessibilityFocused")', source)
+        self.assertIn('@convention(c) (AnyObject, Selector) -> Bool', source)
+        self.assertIn('isFocused(FocusProbeElement(true))', source)
+        self.assertIn('!isFocused(FocusProbeElement(false))', source)
+        self.assertIn('isFocused(first)', source)
+        self.assertIn('isFocused(next)', source)
+        self.assertIn('"task-complete-\\(added[0].id)"', source)
+        self.assertIn('"task-complete-\\(added[2].id)"', source)
+        self.assertIn('require(rowKeyboardReached,', source)
+        self.assertIn('"keyboard-trace-\\(name).json"', source)
+
+    def test_keyboard_probe_mode_is_process_local(self):
+        wrapper = (ROOT / "scripts/check_focus_entry.sh").read_text()
+        source = (ROOT / "scripts/focus_entry_probe.swift").read_text()
+        self.assertIn("[binary, '-AppleKeyboardUIMode', '3']", wrapper)
+        self.assertNotIn("defaults write", wrapper)
+        self.assertIn('UserDefaults.standard.integer(forKey: "AppleKeyboardUIMode") == 3', source)
+
+    def test_focus_probe_preserves_persisted_start_and_deletion_assertions(self):
+        wrapper = (ROOT / "scripts/check_focus_entry.sh").read_text()
+        source = (ROOT / "scripts/focus_entry_probe.swift").read_text()
+        self.assertIn('Data(contentsOf: store.file.url)', source)
+        self.assertIn('output.appendingPathComponent("linked-focus.json")', source)
+        self.assertIn("root / 'linked-focus.json'", wrapper)
+        self.assertIn("saved['focus']['state'] == 'running'", wrapper)
+        self.assertIn("final['focus']['state'] != 'running'", wrapper)
+        self.assertIn("final['tasks'][0]['id'] == saved['tasks'][0]['id']", wrapper)
+
     def test_overdue_policy_is_not_a_persistent_home_banner(self):
         source = "\n".join(p.read_text() for p in WORKSPACE.glob("*.swift"))
         self.assertNotIn("OverdueBanner()", source)
