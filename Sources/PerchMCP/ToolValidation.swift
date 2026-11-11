@@ -53,8 +53,19 @@ extension AgentTools {
 
     private static func validate(_ value: JSON, schema: JSON, tool: String, key: String) throws {
         if schema["anyOf"] != nil {
-            guard key == "minutes", let integer = value.int else { throw invalid(value, schema, tool, key) }
+            guard key == "minutes" else { throw invalid(value, schema, tool, key) }
             let choices = schema["anyOf"]?.array ?? []
+            let branchType = value.string == nil ? "integer" : "string"
+            guard let branch = choices.first(where: { $0["type"]?.string == branchType }) else {
+                throw invalid(value, schema, tool, key)
+            }
+            do {
+                try validate(value, schema: branch, tool: tool, key: key)
+            } catch {
+                // Keep the established minutes error while enforcing the selected branch.
+                throw invalid(value, schema, tool, key)
+            }
+            guard let integer = value.int else { throw invalid(value, schema, tool, key) }
             let range = choices.first { $0["type"]?.string == "integer" }
             let lower = range?["minimum"]?.int ?? Int.min
             let upper = range?["maximum"]?.int ?? Int.max
@@ -65,14 +76,21 @@ extension AgentTools {
         switch schema["type"]?.string {
         case "string":
             guard let string = value.string else { throw invalid(value, schema, tool, key) }
-            if let maximum = schema["maxLength"]?.int, string.count > maximum {
+            // JSON Schema measures string length in Unicode code points, not grapheme clusters.
+            let length = string.unicodeScalars.count
+            if let maximum = schema["maxLength"]?.int, length > maximum {
                 if tool == "add_tasks", key == "titles" {
                     throw PlannerError(
                         "Invalid argument 'titles': use 1 to 100 titles, each with 2000 characters or fewer.")
                 }
                 throw PlannerError("Invalid argument '\(key)': enter \(maximum) characters or fewer.")
             }
-            if let minimum = schema["minLength"]?.int, string.count < minimum {
+            if let minimum = schema["minLength"]?.int, length < minimum {
+                throw invalid(value, schema, tool, key)
+            }
+            if let pattern = schema["pattern"]?.string,
+                string.range(of: pattern, options: .regularExpression) == nil
+            {
                 throw invalid(value, schema, tool, key)
             }
             if let allowed = schema["enum"]?.array?.compactMap(\.string), !allowed.contains(string) {

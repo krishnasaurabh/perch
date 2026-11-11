@@ -551,6 +551,55 @@ final class MCPEdgeTests: XCTestCase {
         XCTAssertTrue(out[0].contains("\"id\":7"))
     }
 
+    // MARK: Published schema boundaries
+
+    func testNumericStringMinutesMatchPublishedStringSchemaAndRejectWithoutMutation() throws {
+        let definition = try XCTUnwrap(AgentTools.definitions.first { $0["name"]?.string == "start_timer" })
+        let choices = try XCTUnwrap(
+            definition["inputSchema"]?["properties"]?["minutes"]?["anyOf"]?.array)
+        let stringSchema = try XCTUnwrap(choices.first { $0["type"]?.string == "string" })
+        let maximum = try XCTUnwrap(stringSchema["maxLength"]?.int)
+
+        let exact = String(repeating: "0", count: maximum - 2) + "25"
+        XCTAssertEqual(exact.unicodeScalars.count, maximum)
+        let accepted = call("start_timer", ["minutes": .string(exact)])
+        XCTAssertFalse(accepted.isError, accepted.text)
+        XCTAssertEqual(try storedPlanner().focus?.limit, 1_500)
+
+        let before = try storageSnapshot()
+        let oversized = String(repeating: "0", count: maximum - 1) + "25"
+        XCTAssertEqual(oversized.unicodeScalars.count, maximum + 1)
+        XCTAssertEqual(JSON.string(oversized).int, 25)
+        let rejected = call("start_timer", ["minutes": .string(oversized)])
+        XCTAssertTrue(rejected.isError, rejected.text)
+        XCTAssertTrue(rejected.text.contains("Invalid argument 'minutes'"), rejected.text)
+        XCTAssertEqual(try storageSnapshot(), before)
+    }
+
+    func testTitleLengthMatchesPublishedUnicodeCodePointSchemaAndRejectsWithoutMutation() throws {
+        let definition = try XCTUnwrap(AgentTools.definitions.first { $0["name"]?.string == "add_tasks" })
+        let maximum = try XCTUnwrap(
+            definition["inputSchema"]?["properties"]?["titles"]?["items"]?["maxLength"]?.int)
+        let decomposedCharacter = "e\u{301}"
+        XCTAssertEqual(decomposedCharacter.count, 1)
+        XCTAssertEqual(decomposedCharacter.unicodeScalars.count, 2)
+
+        let exact = String(repeating: decomposedCharacter, count: maximum / 2)
+        XCTAssertEqual(exact.unicodeScalars.count, maximum)
+        let accepted = call("add_tasks", ["titles": [.string(exact)], "literal": true])
+        XCTAssertFalse(accepted.isError, accepted.text)
+        XCTAssertEqual(try storedPlanner().tasks.map(\.title), [exact])
+
+        let before = try storageSnapshot()
+        let oversized = String(repeating: decomposedCharacter, count: maximum / 2 + 1)
+        XCTAssertEqual(oversized.unicodeScalars.count, maximum + 2)
+        let rejected = call("add_tasks", ["titles": [.string(oversized)], "literal": true])
+        XCTAssertTrue(rejected.isError, rejected.text)
+        XCTAssertTrue(rejected.text.contains("2000"), rejected.text)
+        XCTAssertEqual(try storageSnapshot(), before)
+        XCTAssertEqual(try storedPlanner().tasks.map(\.title), [exact])
+    }
+
     // MARK: Huge inputs
 
     func testOversizedSingleTitleIsRejectedWithoutMutation() throws {
