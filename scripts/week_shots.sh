@@ -7,9 +7,12 @@ ROOT=$(cd "$(dirname "$0")/.." && pwd)
 APP="$ROOT/dist/Perch.app/Contents/MacOS/Perch"
 # Use one civil day throughout seeding and the isolated probe, even across midnight.
 export TZ=UTC
-export WEEK_DAY=$(date +%F)
 DATA="$OUT/week-heavy.json"; rm -f "$DATA"
-python3 - "$OUT" <<'EOF' | PERCH_DATA="$DATA" "$APP" --mcp > "$OUT/week-seed.log" 2>&1
+seeded=false
+for attempt in 1 2 3; do
+export WEEK_DAY=$(date +%F)
+SEED=$(mktemp -d "$OUT/seed.XXXXXX")
+if python3 - "$OUT" <<'EOF' | PERCH_DATA="$SEED/week-heavy.json" "$APP" --mcp > "$OUT/week-seed.log" 2>&1
 import datetime, json, os, sys
 from pathlib import Path
 day = datetime.date.fromisoformat(os.environ["WEEK_DAY"])
@@ -35,6 +38,23 @@ msgs += [{"jsonrpc": "2.0", "id": i, "method": "tools/call", "params": {"name": 
 Path(sys.argv[1], "week-seed-requests.json").write_text(json.dumps(msgs))
 print("\n".join(json.dumps(m) for m in msgs))
 EOF
+then
+    seed_status=0
+else
+    seed_status=$?
+fi
+if [[ $(date +%F) == "$WEEK_DAY" ]]; then
+    # A same-day failure is real; only a midnight crossing warrants a retry.
+    [[ $seed_status == 0 ]] || exit "$seed_status"
+    cp "$SEED/week-heavy.json" "$DATA"
+    rm -rf "$SEED"
+    seeded=true
+    break
+fi
+rm -rf "$SEED"
+echo "Week seed crossed midnight; retrying with the new explicit day (attempt $attempt)"
+done
+[[ $seeded == true ]] || { echo "Week seed could not stabilize its civil day"; exit 1; }
 python3 - "$DATA" <<'EOF'
 import json, os, sys, datetime
 p = json.load(open(sys.argv[1])); p.setdefault("preferences", {}).update(
