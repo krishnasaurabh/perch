@@ -137,10 +137,24 @@ final class DateFieldDraftTests: XCTestCase {
     func testRequiredDateWithNoSelectionBlocksCommitWithAnInlineError() {
         var d = draft(nil, required: true)
         XCTAssertEqual(d.issue, .required)
-        XCTAssertNil(d.visibleIssue, "An untouched field does not open with an error")
-        XCTAssertNil(d.commit())
-        XCTAssertEqual(d.visibleIssue, .required, "A blocked commit reveals the reason inline")
+        XCTAssertFalse(d.attempted)
+        XCTAssertFalse(d.canCommit)
+        XCTAssertEqual(d.visibleIssue, .required, "A disabled Apply must explain the missing required date")
         XCTAssertEqual(d.visibleIssue?.message, "Choose a date.")
+        XCTAssertNil(d.commit())
+        XCTAssertEqual(d.visibleIssue, .required)
+    }
+
+    func testRevertingToRequiredNoneKeepsTheDisabledCommitExplained() {
+        var d = draft(nil, required: true)
+        d.addSuggested()
+        XCTAssertNil(d.visibleIssue)
+        XCTAssertTrue(d.canCommit)
+        d.revert()
+        XCTAssertEqual(d.entry, .none)
+        XCTAssertFalse(d.attempted)
+        XCTAssertFalse(d.canCommit)
+        XCTAssertEqual(d.visibleIssue, .required)
     }
 
     func testClearingARequiredDateShowsTheErrorImmediately() {

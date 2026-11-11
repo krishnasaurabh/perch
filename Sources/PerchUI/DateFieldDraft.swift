@@ -69,7 +69,8 @@ public struct DateFieldDraft: Equatable, Sendable {
     public private(set) var entry: Entry
     /// The text shown in the typed-entry field.
     public private(set) var text: String
-    /// Set once the user edits or a commit is attempted, so a fresh field does not open with an error.
+    /// Set once the user edits or a commit is attempted.
+    /// Required/no-selection errors remain visible even before an attempt.
     public private(set) var attempted = false
     private var lastValidDay: DayKey?
 
@@ -169,6 +170,8 @@ public struct DateFieldDraft: Equatable, Sendable {
     /// The issue to show beside the field right now.
     public var visibleIssue: Issue? {
         guard let issue else { return nil }
+        // Explain an empty required field even before editing: Apply is already disabled.
+        if case .required = issue { return issue }
         // Past-day notes describe the stored value, so they are shown from the start.
         if case .pastDay = issue { return issue }
         return attempted ? issue : nil
