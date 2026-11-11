@@ -32,18 +32,77 @@ func attr(_ node: NSObject, _ name: String) -> Any? {
     let selector = NSSelectorFromString(name)
     return node.responds(to: selector) ? node.perform(selector)?.takeUnretainedValue() : nil
 }
+// Focus is a BOOL-returning Objective-C getter, not an object attribute.
+@MainActor
+func isFocused(_ node: NSObject) -> Bool {
+    let selector = NSSelectorFromString("isAccessibilityFocused")
+    guard node.responds(to: selector), let impl = node.method(for: selector) else { return false }
+    typealias Focused = @convention(c) (AnyObject, Selector) -> Bool
+    return unsafeBitCast(impl, to: Focused.self)(node, selector)
+}
+@MainActor
+final class FocusProbeElement: NSObject {
+    let focused: Bool
+    init(_ focused: Bool) { self.focused = focused }
+    @objc func isAccessibilityFocused() -> Bool { focused }
+}
 @MainActor
 func nodes(_ root: NSObject) -> [NSObject] {
     var seen = Set<ObjectIdentifier>()
     func walk(_ node: NSObject, _ depth: Int) -> [NSObject] {
         guard depth < 60, seen.insert(ObjectIdentifier(node)).inserted else { return [] }
-        return [node] + ((attr(node, "accessibilityChildren") as? [NSObject]) ?? []).flatMap { walk($0, depth + 1) }
+        let children = ["accessibilityChildren", "accessibilityContents", "accessibilityChildrenInNavigationOrder"]
+            .flatMap { (attr(node, $0) as? [NSObject]) ?? [] }
+        return [node] + children.flatMap { walk($0, depth + 1) }
     }
     return walk(root, 0)
 }
 @MainActor
-func control(_ label: String, in root: NSView) -> NSObject? {
-    nodes(root).first { attr($0, "accessibilityLabel") as? String == label }
+func control(_ value: String, attribute: String = "accessibilityLabel", in root: NSView) -> NSObject? {
+    nodes(root).first { attr($0, attribute) as? String == value }
+}
+// Unlabelled Text may publish its string as AXValue rather than AXDescription.
+// Require the static-text role so a button with the same title is never a match.
+@MainActor
+func isStaticText(_ node: NSObject, matching text: String) -> Bool {
+    attr(node, "accessibilityRole") as? String == "AXStaticText"
+        && (attr(node, "accessibilityLabel") as? String == text
+            || attr(node, "accessibilityValue") as? String == text)
+}
+@MainActor
+func staticText(_ text: String, in root: NSView) -> NSObject? {
+    let matches = nodes(root).filter { isStaticText($0, matching: text) }
+    return matches.count == 1 ? matches[0] : nil
+}
+@MainActor
+final class StaticTextProbeElement: NSObject {
+    let role: String
+    let label: String?
+    let value: String?
+    init(role: String = "AXStaticText", label: String? = nil, value: String? = nil) {
+        self.role = role; self.label = label; self.value = value
+    }
+    @objc func accessibilityRole() -> String { role }
+    @objc func accessibilityLabel() -> String? { label }
+    @objc func accessibilityValue() -> String? { value }
+}
+@MainActor
+func recordAccessibility(_ root: NSView, _ name: String, into output: URL) {
+    let tree = nodes(root).map { node in
+        [
+            "class": String(describing: type(of: node)),
+            "role": attr(node, "accessibilityRole") as? String ?? "",
+            "label": attr(node, "accessibilityLabel") as? String ?? "",
+            "value": attr(node, "accessibilityValue") as? String ?? "",
+            "identifier": attr(node, "accessibilityIdentifier") as? String ?? "",
+            "frame": NSStringFromRect(frame(node)),
+            "hint": attr(node, "accessibilityHelp") as? String ?? "",
+            "focused": isFocused(node) ? "true" : "false",
+            "actions": customActions(node).map(\.name).joined(separator: ", "),
+        ]
+    }
+    try! JSONSerialization.data(withJSONObject: tree, options: [.prettyPrinted, .sortedKeys]).write(
+        to: output.appendingPathComponent(name + "-ax.json"))
 }
 @MainActor
 func press(_ node: NSObject, _ label: String) {
@@ -68,6 +127,59 @@ func frame(_ node: NSObject) -> CGRect {
 }
 @MainActor
 func views(_ root: NSView) -> [NSView] { [root] + root.subviews.flatMap(views) }
+// Observe only menus opened by real event dispatch. Menu tracking runs a nested
+// event loop, so a selector timer in that mode must close it before sendEvent returns.
+@MainActor
+final class ContextMenuObservation: NSObject {
+    private var menus: [NSMenu] = []
+    private var timer: Timer?
+    private let deadline = ProcessInfo.processInfo.systemUptime + 5
+    private(set) var matchedMenu: NSMenu?
+    private(set) var timedOut = false
+    private(set) var observedTitles: [[String]] = []
+
+    func start() {
+        NotificationCenter.default.addObserver(
+            self, selector: #selector(menuBeganTracking(_:)), name: NSMenu.didBeginTrackingNotification, object: nil)
+        let timer = Timer(
+            timeInterval: 0.05, target: self, selector: #selector(inspectMenus), userInfo: nil, repeats: true)
+        self.timer = timer
+        RunLoop.main.add(timer, forMode: .default)
+        RunLoop.main.add(timer, forMode: .eventTracking)
+    }
+
+    func stop() {
+        timer?.invalidate()
+        timer = nil
+        NotificationCenter.default.removeObserver(self)
+    }
+
+    @objc private func menuBeganTracking(_ notification: Notification) {
+        guard let menu = notification.object as? NSMenu else { return }
+        menus.append(menu)
+    }
+
+    @objc private func inspectMenus() {
+        guard matchedMenu == nil else { return }
+        for menu in menus {
+            let titles = menu.items.map(\.title)
+            if !observedTitles.contains(titles) { observedTitles.append(titles) }
+            if let index = menu.items.firstIndex(where: { $0.title == "Start focusing" }) {
+                matchedMenu = menu
+                require(menu.items[index].isEnabled, "existing task menu item enabled")
+                // Invoke while tracking still retains SwiftUI's action target; cancellation
+                // may tear it down. This is the actual menu action, not a model fallback.
+                menu.performActionForItem(at: index)
+                menu.cancelTracking()
+                return
+            }
+        }
+        if ProcessInfo.processInfo.systemUptime >= deadline {
+            timedOut = true
+            for menu in menus { menu.cancelTracking() }
+        }
+    }
+}
 @MainActor
 func snapshot(_ root: NSView, _ name: String, into output: URL) {
     root.layoutSubtreeIfNeeded()
@@ -79,17 +191,457 @@ func snapshot(_ root: NSView, _ name: String, into output: URL) {
     try! data.write(to: output.appendingPathComponent(name + ".png"))
 }
 @MainActor
+func sendKey(
+    _ type: NSEvent.EventType, _ character: String, code: UInt16, in window: NSWindow, isARepeat: Bool = false,
+    modifiers: NSEvent.ModifierFlags = []
+) {
+    let event = NSEvent.keyEvent(
+        with: type, location: .zero, modifierFlags: modifiers, timestamp: ProcessInfo.processInfo.systemUptime,
+        windowNumber: window.windowNumber, context: nil, characters: character,
+        charactersIgnoringModifiers: character, isARepeat: isARepeat, keyCode: code)!
+    NSApp.sendEvent(event)
+}
+@MainActor
 func key(_ character: String, code: UInt16, in window: NSWindow) {
     for type in [NSEvent.EventType.keyDown, .keyUp] {
-        let event = NSEvent.keyEvent(
-            with: type, location: .zero, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
-            windowNumber: window.windowNumber, context: nil, characters: character,
-            charactersIgnoringModifiers: character, isARepeat: false, keyCode: code)!
-        NSApp.sendEvent(event)
+        sendKey(type, character, code: code, in: window)
     }
 }
 
+// Use the application event queue for typing so AppKit sees separate key events,
+// rather than two programmatic edits inside one event/undo transaction.
+@MainActor
+func typeCaptureText(_ text: String, in window: NSWindow) async {
+    let keyCodes: [String: UInt16] = [
+        "a": 0, "s": 1, "d": 2, "f": 3, "h": 4, "g": 5, "z": 6, "x": 7, "c": 8, "v": 9,
+        "b": 11, "q": 12, "w": 13, "e": 14, "r": 15, "y": 16, "t": 17, "o": 31, "u": 32,
+        "i": 34, "p": 35, "l": 37, "j": 38, "k": 40, "n": 45, "m": 46, " ": 49,
+    ]
+    for character in text {
+        let value = String(character)
+        let lower = value.lowercased()
+        guard let code = keyCodes[lower] else {
+            require(false, "capture typing fixture uses supported keys"); return
+        }
+        let modifiers: NSEvent.ModifierFlags = value == lower ? [] : [.shift]
+        for type in [NSEvent.EventType.keyDown, .keyUp] {
+            let event = NSEvent.keyEvent(
+                with: type, location: .zero, modifierFlags: modifiers, timestamp: ProcessInfo.processInfo.systemUptime,
+                windowNumber: window.windowNumber, context: nil, characters: value,
+                charactersIgnoringModifiers: lower, isARepeat: false, keyCode: code)!
+            NSApp.postEvent(event, atStart: false)
+        }
+    }
+    await settle()
+}
+
+// Edits, including Undo, legitimately advance updatedAt. Every other task field
+// and the displayed ordering must still match, and timestamps must not regress.
+func sameTaskContent(_ actual: [PlanTask], _ expected: [PlanTask]) -> Bool {
+    guard actual.count == expected.count else { return false }
+    return zip(actual, expected).allSatisfy { current, prior in
+        guard current.updatedAt >= prior.updatedAt else { return false }
+        var content = current
+        content.updatedAt = prior.updatedAt
+        return content == prior
+    }
+}
+
+@MainActor
+func customActions(_ node: NSObject) -> [NSAccessibilityCustomAction] {
+    (attr(node, "accessibilityCustomActions") as? [NSAccessibilityCustomAction]) ?? []
+}
+
+@MainActor
+func performCustomAction(_ name: String, taskID: UUID, in root: NSView) {
+    guard let row = control("task-row-\(taskID)", attribute: "accessibilityIdentifier", in: root) else {
+        require(false, "custom action row exists: \(taskID)"); return
+    }
+    let matches = customActions(row).filter { $0.name == name }
+    require(matches.count == 1, "exactly one native row action: \(name)")
+    let action = matches[0]
+    if let handler = action.handler {
+        require(handler(), "native custom action handled: \(name)")
+    } else if let target = action.target, let selector = action.selector {
+        require(NSApp.sendAction(selector, to: target, from: action), "native custom action dispatched: \(name)")
+    } else {
+        require(false, "native custom action has a handler or target: \(name)")
+    }
+}
+
+@MainActor
+func focusByTab(_ identifier: String, in window: NSWindow, root: NSView, output: URL) async -> Bool {
+    window.makeFirstResponder(nil)
+    var trace: [[String: Any]] = []
+    for step in 0..<60 {
+        key("\t", code: 48, in: window)
+        try? await Task.sleep(nanoseconds: 50_000_000)
+        trace.append([
+            "step": step, "target": identifier, "keyWindow": window.isKeyWindow,
+            "firstResponder": String(describing: window.firstResponder),
+            "focusedIdentifiers": nodes(root).filter(isFocused).map {
+                attr($0, "accessibilityIdentifier") as? String
+                    ?? attr($0, "accessibilityLabel") as? String ?? "unnamed"
+            },
+        ])
+        try! JSONSerialization.data(withJSONObject: trace, options: [.prettyPrinted]).write(
+            to: output.appendingPathComponent("tab-trace-\(identifier).json"))
+        if let node = control(identifier, attribute: "accessibilityIdentifier", in: root), isFocused(node) {
+            return true
+        }
+    }
+    snapshot(root, "tab-failed-\(identifier)", into: output)
+    return false
+}
+
+@MainActor
+func recordTextUndo(_ editor: NSTextView, in panel: NSWindow, phase: String, scenario: String, output: URL) {
+    let manager = editor.undoManager
+    let field = editor.delegate as? NSTextField
+    let state: [String: Any] = [
+        "phase": phase, "text": editor.string,
+        "selection": NSStringFromRange(editor.selectedRange()),
+        "hasMarkedText": editor.hasMarkedText(),
+        "currentEditorText": (panel.firstResponder as? NSTextView)?.string ?? "none",
+        "fieldValue": field?.stringValue ?? "none",
+        "keyWindow": panel.isKeyWindow,
+        "isFieldEditor": editor.isFieldEditor,
+        "isCurrentEditor": field?.currentEditor() === editor && panel.firstResponder === editor,
+        "allowsUndo": editor.allowsUndo,
+        "registrationEnabled": manager?.isUndoRegistrationEnabled ?? false,
+        "canUndo": manager?.canUndo ?? false, "canRedo": manager?.canRedo ?? false,
+        "groupingLevel": manager?.groupingLevel ?? -1,
+        "mainMenuPresent": NSApp.mainMenu != nil,
+        "delegateClass": field.map { String(describing: type(of: $0)) } ?? "none",
+    ]
+    try! JSONSerialization.data(withJSONObject: state, options: [.prettyPrinted, .sortedKeys]).write(
+        to: output.appendingPathComponent("text-undo-\(scenario)-\(phase).json"))
+}
+
+@MainActor
+func verifyLastRowKeyboardUndo(store: PlannerStore, model: NotchModel, services: Services, output: URL) async {
+    for completed in [false, true] {
+        store.seedFixture { engine in
+            engine.planner.tasks = []; engine.planner.focus = nil
+        }
+        let only = store.apply { try $0.addTasks(["Inspect the porch light"], on: .day(store.today)) }![0]
+        if completed { _ = store.send(.complete(only.id)) }
+        let beforeDeletion = store.planner.tasks
+        let panel = NotchPanel(frame: CGRect(x: 50, y: 100, width: 420, height: 400))
+        panel.isReleasedWhenClosed = false
+        panel.ignoresMouseEvents = false
+        var undoCount = 0
+        panel.onUndo = { redo in
+            undoCount += 1
+            if redo { store.redo() } else { store.undo() }
+        }
+        let root = NSHostingView(
+            rootView: TasksCard().environmentObject(store).environmentObject(model).environmentObject(services)
+                .environment(\.accessibilityEnabled, true))
+        panel.contentView = root
+        panel.makeKeyAndOrderFront(nil); NSApp.activate(ignoringOtherApps: true)
+        await settle(); await wakeAX(); await settle()
+        require(panel.isKeyWindow, "last-row keyboard test owns the key NotchPanel")
+        if completed { press("Completed 1", in: root); await settle() }
+        let reachedCompletion = await focusByTab("task-complete-\(only.id)", in: panel, root: root, output: output)
+        require(reachedCompletion, "Tab reaches the last row completion control")
+        let actionOrder = completed ? ["details", "delete"] : ["focus", "details", "delete"]
+        for action in actionOrder {
+            key("\t", code: 48, in: panel); await settle()
+            recordAccessibility(root, "last-row-\(completed)-tab-\(action)", into: output)
+            let node = control("task-\(action)-\(only.id)", attribute: "accessibilityIdentifier", in: root)
+            require(node.map(isFocused) == true, "Tab reaches row \(action) in visible order")
+            if action == "details" {
+                key(" ", code: 49, in: panel); await settle()
+                require(model.detailsTaskID == only.id, "row Details keyboard action targets the exact task")
+                require(store.planner.tasks == beforeDeletion, "row Details keyboard action does not mutate tasks")
+                model.detailsTaskID = nil
+            }
+        }
+        let reachedDelete =
+            control("task-delete-\(only.id)", attribute: "accessibilityIdentifier", in: root)
+            .map(isFocused) == true
+        recordAccessibility(root, "last-row-\(completed)-before-delete", into: output)
+        require(reachedDelete, "Tab reaches the last row Delete control")
+        key(" ", code: 49, in: panel); await settle()
+        require(store.planner.tasks.isEmpty, "keyboard Delete removes the last displayed task")
+        require(try! store.file.load().tasks.isEmpty, "last-row keyboard deletion persists")
+        recordAccessibility(root, "last-row-\(completed)-after-delete", into: output)
+        let undo = control("today-undo", attribute: "accessibilityIdentifier", in: root)
+        require(undo.map(isFocused) == true, "last-row removal focuses Undo")
+        require(!(panel.firstResponder is NSTextView), "task Undo does not have a text first responder")
+        sendKey(.keyDown, "z", code: 6, in: panel, modifiers: [.command])
+        sendKey(.keyUp, "z", code: 6, in: panel, modifiers: [.command])
+        await settle()
+        require(undoCount == 1, "NotchPanel routes Command-Z to planner Undo once")
+        require(sameTaskContent(store.planner.tasks, beforeDeletion), "keyboard Undo restores exact last-row state")
+        require(
+            sameTaskContent(try! store.file.load().tasks, beforeDeletion), "last-row keyboard Undo persists exact task")
+        // Removing the last completed row selects To do; Undo restores content, not the selected filter.
+        if completed { press("Completed 1", in: root); await settle() }
+        recordAccessibility(root, "last-row-\(completed)-before-second-delete", into: output)
+        require(
+            control("task-delete-\(only.id)", attribute: "accessibilityIdentifier", in: root) != nil,
+            "restored task Delete control is visible before keyboard traversal")
+        let deleteAgain = await focusByTab("task-delete-\(only.id)", in: panel, root: root, output: output)
+        require(deleteAgain, "Tab reaches Delete again after Command-Z")
+        key(" ", code: 49, in: panel); await settle()
+        require(store.planner.tasks.isEmpty, "second keyboard deletion removes the same task")
+        let undoAgain = control("today-undo", attribute: "accessibilityIdentifier", in: root)
+        require(undoAgain.map(isFocused) == true, "second last-row removal focuses Undo")
+        sendKey(.keyDown, " ", code: 49, in: panel); await settle()
+        require(sameTaskContent(store.planner.tasks, beforeDeletion), "Space activates visible Undo")
+        require(sameTaskContent(try! store.file.load().tasks, beforeDeletion), "Space Undo persists exact task")
+        let afterUndo = store.planner.tasks
+        sendKey(.keyDown, " ", code: 49, in: panel, isARepeat: true)
+        sendKey(.keyUp, " ", code: 49, in: panel); await settle()
+        require(store.planner.tasks == afterUndo, "held Space does not consume another Undo")
+
+        // Text editing still owns Command-Z when the user intentionally returns to capture.
+        panel.makeFirstResponder(nil)
+        for _ in 0..<60 {
+            key("\t", code: 48, in: panel)
+            try? await Task.sleep(nanoseconds: 50_000_000)
+            if panel.firstResponder is NSTextView { break }
+        }
+        guard let editor = panel.firstResponder as? NSTextView else {
+            require(false, "Tab reaches the real capture text editor"); return
+        }
+        let oldText = editor.string
+        editor.insertText("temporary draft", replacementRange: NSRange(location: NSNotFound, length: 0))
+        require(editor.string != oldText, "capture receives draft text")
+        editor.breakUndoCoalescing()
+        recordTextUndo(editor, in: panel, phase: "before-command-z", scenario: "last-row-\(completed)", output: output)
+        require(editor.undoManager?.canUndo == true, "capture edit registers native Undo")
+        sendKey(.keyDown, "z", code: 6, in: panel, modifiers: [.command])
+        sendKey(.keyUp, "z", code: 6, in: panel, modifiers: [.command])
+        await settle()
+        recordTextUndo(editor, in: panel, phase: "after-command-z", scenario: "last-row-\(completed)", output: output)
+        require(undoCount == 1 && store.planner.tasks == afterUndo, "capture Command-Z preserves planner history")
+        require(editor.string == oldText, "capture Command-Z undoes only draft text")
+        require(panel.firstResponder === editor, "capture Undo keeps the current editor")
+        sendKey(.keyDown, "z", code: 6, in: panel, modifiers: [.command, .shift])
+        sendKey(.keyUp, "z", code: 6, in: panel, modifiers: [.command, .shift])
+        await settle()
+        require(editor.string == oldText + "temporary draft", "capture Command-Shift-Z restores only draft text")
+        require(undoCount == 1 && store.planner.tasks == afterUndo, "capture Redo preserves planner history")
+        sendKey(.keyDown, "z", code: 6, in: panel, modifiers: [.command])
+        sendKey(.keyUp, "z", code: 6, in: panel, modifiers: [.command])
+        await settle()
+        require(editor.string == oldText, "capture draft can be undone again")
+        if !completed {
+            let reachedFocus = await focusByTab("task-focus-\(only.id)", in: panel, root: root, output: output)
+            require(reachedFocus, "Tab reaches the row Focus control")
+            sendKey(.keyDown, " ", code: 49, in: panel); await settle()
+            let session = store.planner.focus
+            require(
+                session?.state == .running && session?.taskID == only.id
+                    && session?.limit == TimeInterval(store.planner.preferences.defaultFocusMinutes * 60),
+                "Space starts one focus session for the exact task")
+            require(try! store.file.load().focus == session, "row keyboard focus session persists")
+            sendKey(.keyDown, " ", code: 49, in: panel, isARepeat: true)
+            sendKey(.keyUp, " ", code: 49, in: panel); await settle()
+            require(
+                store.planner.focus?.startedAt == session?.startedAt, "held Space does not start another focus session")
+            require(store.planner.tasks == afterUndo, "keyboard focus leaves task content unchanged")
+        }
+        snapshot(root, "last-row-\(completed)-restored", into: output)
+        panel.orderOut(nil)
+    }
+}
+
+@MainActor
+func verifyCaptureUndoSubmission(store: PlannerStore, model: NotchModel, services: Services, output: URL) async {
+    store.seedFixture { engine in
+        engine.planner.tasks = []; engine.planner.focus = nil
+    }
+    let sentinel = store.apply { try $0.addTasks(["Inspect the tool shelf"], on: .day(store.today)) }![0]
+    let before = store.planner
+    let persistedBefore = try! Data(contentsOf: store.file.url)
+    let panel = NotchPanel(frame: CGRect(x: 50, y: 100, width: 420, height: 400))
+    panel.isReleasedWhenClosed = false
+    panel.ignoresMouseEvents = false
+    var plannerUndoCount = 0
+    panel.onUndo = { redo in
+        plannerUndoCount += 1
+        if redo { store.redo() } else { store.undo() }
+    }
+    let root = NSHostingView(
+        rootView: TasksCard().environmentObject(store).environmentObject(model).environmentObject(services)
+            .environment(\.accessibilityEnabled, true))
+    panel.contentView = root
+    panel.makeKeyAndOrderFront(nil); NSApp.activate(ignoringOtherApps: true)
+    await settle(); await wakeAX(); await settle()
+    panel.makeFirstResponder(nil)
+    for _ in 0..<60 {
+        key("\t", code: 48, in: panel)
+        try? await Task.sleep(nanoseconds: 50_000_000)
+        if panel.firstResponder is NSTextView { break }
+    }
+    guard let editor = panel.firstResponder as? NSTextView else {
+        require(false, "submission fixture reaches capture through Tab"); return
+    }
+    recordTextUndo(editor, in: panel, phase: "empty", scenario: "submission", output: output)
+    require(editor.string.isEmpty && editor.undoManager?.canUndo == false, "new capture has empty text history")
+    sendKey(.keyDown, "z", code: 6, in: panel, modifiers: [.command])
+    sendKey(.keyUp, "z", code: 6, in: panel, modifiers: [.command])
+    await settle()
+    require(plannerUndoCount == 0 && store.planner == before, "empty text Undo never consumes planner history")
+    let draft = "Sort the seed packets"
+    let replacement = "Label the seed packets"
+    await typeCaptureText(draft, in: panel)
+    recordTextUndo(editor, in: panel, phase: "typed", scenario: "submission", output: output)
+    require(editor.string == draft, "capture receives the original draft through keyboard events")
+    require(panel.firstResponder === editor, "typing retains the capture editor")
+    editor.breakUndoCoalescing()
+    let selected = NSRange(location: 0, length: editor.string.utf16.count)
+    editor.setSelectedRange(selected)
+    recordTextUndo(editor, in: panel, phase: "selected", scenario: "submission", output: output)
+    require(editor.selectedRange() == selected, "capture selects the entire original draft")
+    await typeCaptureText(replacement, in: panel)
+    editor.breakUndoCoalescing()
+    recordTextUndo(editor, in: panel, phase: "replaced", scenario: "submission", output: output)
+    require(editor.string == replacement, "capture replaces exactly the selected draft")
+    require(panel.firstResponder === editor, "replacement retains the capture editor")
+    require(editor.undoManager?.canUndo == true, "selection replacement registers native Undo")
+    sendKey(.keyDown, "z", code: 6, in: panel, modifiers: [.command])
+    sendKey(.keyUp, "z", code: 6, in: panel, modifiers: [.command])
+    await settle()
+    recordTextUndo(editor, in: panel, phase: "undo-replacement", scenario: "submission", output: output)
+    require(editor.string == draft, "capture Undo restores the replaced selection")
+    require(panel.firstResponder === editor, "replacement Undo retains the capture editor")
+    sendKey(.keyDown, "z", code: 6, in: panel, modifiers: [.command, .shift])
+    sendKey(.keyUp, "z", code: 6, in: panel, modifiers: [.command, .shift])
+    await settle()
+    recordTextUndo(editor, in: panel, phase: "redo-replacement", scenario: "submission", output: output)
+    require(editor.string == replacement, "capture Redo restores the replacement")
+    require(panel.firstResponder === editor, "replacement Redo retains the capture editor")
+    require(plannerUndoCount == 0 && store.planner == before, "text Redo never consumes planner history")
+    require(try! Data(contentsOf: store.file.url) == persistedBefore, "draft Undo and Redo leave storage unchanged")
+    sendKey(.keyDown, "z", code: 6, in: panel, modifiers: [.command])
+    sendKey(.keyUp, "z", code: 6, in: panel, modifiers: [.command])
+    await settle()
+    recordTextUndo(editor, in: panel, phase: "restored-draft", scenario: "submission", output: output)
+    require(editor.string == draft, "capture returns to the draft before submission")
+    key("\r", code: 36, in: panel); await settle()
+    require(
+        store.planner.tasks.count == 2 && store.planner.tasks.contains { $0.id == sentinel.id }
+            && store.planner.tasks.contains { $0.id != sentinel.id && $0.title == draft },
+        "capture submission uses the undone and redone binding")
+    require(try! store.file.load().tasks == store.planner.tasks, "capture submission persists the exact draft")
+    require(editor.string.isEmpty && panel.firstResponder === editor, "submission clears capture and keeps focus")
+    recordTextUndo(editor, in: panel, phase: "submitted", scenario: "submission", output: output)
+    panel.orderOut(nil)
+}
+
+@MainActor
+func verifyRowCustomActions(store: PlannerStore, model: NotchModel, services: Services, output: URL) async {
+    store.seedFixture { engine in
+        engine.planner.tasks = []; engine.planner.focus = nil
+    }
+    let tasks = store.apply {
+        try $0.addTasks(["Inspect the greenhouse lamps", "Label the spare bulbs"], on: .day(store.today))
+    }!
+    let target = tasks[0], sentinel = tasks[1]
+    store.updateTask(target.id) {
+        $0.priority = .medium; $0.minutes = 12
+    }
+    let original = store.planner.tasks
+    let window = NSWindow(
+        contentRect: CGRect(x: 50, y: 100, width: 420, height: 400), styleMask: [.titled], backing: .buffered,
+        defer: false)
+    window.isReleasedWhenClosed = false
+    let root = NSHostingView(
+        rootView: TasksCard().environmentObject(store).environmentObject(model).environmentObject(services)
+            .environment(\.accessibilityEnabled, true))
+    window.contentView = root; window.makeKeyAndOrderFront(nil)
+    await settle(); await wakeAX(); await settle()
+    recordAccessibility(root, "custom-actions-active", into: output)
+    guard let row = control("task-row-\(target.id)", attribute: "accessibilityIdentifier", in: root) else {
+        require(false, "row exposes its own accessibility element"); return
+    }
+    require(attr(row, "accessibilityLabel") as? String == target.title, "row label is the task title")
+    require(
+        attr(row, "accessibilityValue") as? String == "Not completed, Medium priority",
+        "row value describes state and priority")
+    require((attr(row, "accessibilityHelp") as? String ?? "").contains("undone"), "row hint explains deletion recovery")
+    require(
+        Set(customActions(row).map(\.name)) == ["Complete", "Details", "Delete", "Focus"],
+        "active row names all custom actions")
+    performCustomAction("Details", taskID: target.id, in: root)
+    require(
+        model.detailsTaskID == target.id && store.planner.tasks == original,
+        "row custom Details selects only the target")
+    model.detailsTaskID = nil
+    let completionStart = Date()
+    performCustomAction("Complete", taskID: target.id, in: root); await settle()
+    let completed = try! store.file.load().tasks
+    let completedTarget = completed.first { $0.id == target.id }!
+    require(
+        completedTarget.completedAt.map { $0 >= completionStart && $0 <= Date() } == true,
+        "row custom completion records its actual completion time")
+    var expectedCompleted = original
+    let targetIndex = expectedCompleted.firstIndex { $0.id == target.id }!
+    expectedCompleted[targetIndex].done = true
+    expectedCompleted[targetIndex].completedAt = completedTarget.completedAt
+    require(
+        sameTaskContent(completed, expectedCompleted) && completed.first { $0.id == sentinel.id } == sentinel,
+        "row custom completion persists only the target")
+    press("Completed 1", in: root); await settle()
+    guard let completedRow = control("task-row-\(target.id)", attribute: "accessibilityIdentifier", in: root) else {
+        require(false, "completed row remains accessible"); return
+    }
+    require(
+        Set(customActions(completedRow).map(\.name)) == ["Reopen", "Details", "Delete"],
+        "completed row offers Reopen but no Focus")
+    require(
+        attr(completedRow, "accessibilityValue") as? String == "Completed, Medium priority",
+        "completed row announces its state")
+    performCustomAction("Reopen", taskID: target.id, in: root); await settle()
+    require(sameTaskContent(try! store.file.load().tasks, original), "row custom reopening persists only the target")
+    performCustomAction("Focus", taskID: target.id, in: root); await settle()
+    let running = try! store.file.load()
+    require(
+        running.focus?.taskID == target.id && running.focus?.state == .running && running.focus?.limit == 720,
+        "row custom Focus persists exact task and duration")
+    guard let runningRow = control("task-row-\(target.id)", attribute: "accessibilityIdentifier", in: root) else {
+        require(false, "running row remains accessible"); return
+    }
+    require(!customActions(runningRow).contains { $0.name == "Focus" }, "running row omits the Focus custom action")
+    performCustomAction("Delete", taskID: target.id, in: root); await settle()
+    require(try! store.file.load().tasks == [sentinel], "row custom deletion persists only the target")
+    press("Undo", in: root); await settle()
+    let restored = try! store.file.load()
+    require(
+        restored.tasks.contains { $0.id == target.id && $0.title == target.title && $0.minutes == 12 }
+            && restored.tasks.first { $0.id == sentinel.id } == sentinel,
+        "Undo restores custom deletion without changing its neighbor")
+    require(restored.focus?.state != .running, "Undo custom deletion never restarts focus")
+    recordAccessibility(root, "custom-actions-restored", into: output)
+    window.orderOut(nil)
+}
+
 MainActor.assumeIsolated {
+    require(
+        UserDefaults.standard.integer(forKey: "AppleKeyboardUIMode") == 3,
+        "probe process enables keyboard navigation without changing system preferences")
+    require(isFocused(FocusProbeElement(true)), "native focus getter recognizes true")
+    require(!isFocused(FocusProbeElement(false)), "native focus getter recognizes false")
+    require(!isFocused(NSObject()), "missing native focus getter is not treated as focused")
+    let sampleTitle = "Check the seed trays\nRecord watering"
+    require(
+        isStaticText(StaticTextProbeElement(value: sampleTitle), matching: sampleTitle),
+        "static-text selector accepts a value-only title")
+    require(
+        isStaticText(StaticTextProbeElement(label: sampleTitle), matching: sampleTitle),
+        "static-text selector accepts a labelled title")
+    require(
+        !isStaticText(StaticTextProbeElement(role: "AXButton", label: sampleTitle), matching: sampleTitle),
+        "static-text selector rejects an action with matching text")
+    require(
+        !isStaticText(StaticTextProbeElement(value: "Another title"), matching: sampleTitle)
+            && !isStaticText(StaticTextProbeElement(), matching: sampleTitle),
+        "static-text selector rejects different and missing text")
     let app = NSApplication.shared
     let delegate = AppDelegate()
     app.delegate = delegate
@@ -219,9 +771,10 @@ MainActor.assumeIsolated {
                 // Keyboard navigation uses real AppKit key dispatch. No AX press or model fallback.
                 window.makeFirstResponder(nil)
                 for _ in 0..<35 {
-                    key("\t", code: 48, in: window); await Task.yield()
+                    key("\t", code: 48, in: window)
+                    try? await Task.sleep(nanoseconds: 50_000_000)
                     if let focus = control("Start focus", in: root),
-                        (attr(focus, "accessibilityFocused") as? NSNumber)?.boolValue == true
+                        isFocused(focus)
                     {
                         key(" ", code: 49, in: window); await settle()
                         keyboardVerified = store.planner.focus?.state == .running
@@ -229,6 +782,114 @@ MainActor.assumeIsolated {
                     }
                 }
                 if store.planner.focus != nil { press("End focus session", in: root); await settle() }
+                window.makeFirstResponder(nil)
+                var rowKeyboardReached = false
+                var keyboardTrace: [[String: Any]] = []
+                @MainActor func recordKeyboardState(_ phase: String) {
+                    keyboardTrace.append([
+                        "phase": phase, "keyWindow": window.isKeyWindow,
+                        "firstResponder": String(describing: window.firstResponder),
+                        "focusedIdentifiers": nodes(root).filter(isFocused).map {
+                            attr($0, "accessibilityIdentifier") as? String
+                                ?? attr($0, "accessibilityLabel") as? String ?? "unnamed"
+                        },
+                        "completedIDs": store.planner.tasks.filter(\.done).map { $0.id.uuidString },
+                        "storeError": String(describing: store.lastError),
+                    ])
+                    let data = try! JSONSerialization.data(withJSONObject: keyboardTrace, options: [.prettyPrinted])
+                    try! data.write(to: output.appendingPathComponent("keyboard-trace-\(name).json"))
+                }
+                for step in 0..<60 {
+                    key("\t", code: 48, in: window)
+                    try? await Task.sleep(nanoseconds: 50_000_000)
+                    recordKeyboardState("tab-\(step)")
+                    guard
+                        let first = control(
+                            "task-complete-\(added[0].id)", attribute: "accessibilityIdentifier", in: root),
+                        isFocused(first)
+                    else { continue }
+                    rowKeyboardReached = true
+                    key("\u{F701}", code: 125, in: window); await settle()
+                    guard
+                        let next = control(
+                            "task-complete-\(added[2].id)", attribute: "accessibilityIdentifier", in: root)
+                    else {
+                        require(false, "\(name): next row is accessible"); return
+                    }
+                    require(
+                        isFocused(next),
+                        "\(name): Down focuses the next displayed task")
+                    key("\u{F700}", code: 126, in: window); await settle()
+                    let previous = control(
+                        "task-complete-\(added[0].id)", attribute: "accessibilityIdentifier", in: root)
+                    require(
+                        previous.map(isFocused) == true,
+                        "\(name): Up returns to the previous task")
+                    snapshot(root, "\(name)-row-keyboard-focused", into: output)
+                    let completedBeforeSpace = Set(store.planner.tasks.filter(\.done).map(\.id))
+                    recordKeyboardState("before-space")
+                    sendKey(.keyDown, " ", code: 49, in: window); await settle()
+                    recordKeyboardState("after-space")
+                    let expectedCompleted = completedBeforeSpace.union([added[0].id])
+                    require(
+                        Set(store.planner.tasks.filter(\.done).map(\.id)) == expectedCompleted,
+                        "\(name): Space completes exactly the focused task")
+                    let persistedAfterSpace = try! store.file.load()
+                    require(
+                        Set(persistedAfterSpace.tasks.filter(\.done).map(\.id)) == expectedCompleted,
+                        "\(name): keyboard completion persists the exact task")
+                    let nextAfterCompletion = control(
+                        "task-complete-\(added[2].id)", attribute: "accessibilityIdentifier", in: root)
+                    require(
+                        nextAfterCompletion.map(isFocused) == true, "\(name): completion keeps focus on the next task")
+                    // Holding Space across focus recovery must not also complete the neighboring row.
+                    sendKey(.keyDown, " ", code: 49, in: window, isARepeat: true); await settle()
+                    require(
+                        Set(store.planner.tasks.filter(\.done).map(\.id)) == expectedCompleted,
+                        "\(name): keyDown - no repeated completion")
+                    sendKey(.keyUp, " ", code: 49, in: window); await settle()
+                    require(
+                        Set(store.planner.tasks.filter(\.done).map(\.id)) == expectedCompleted,
+                        "\(name): keyUp does not activate the next row")
+                    press("Undo", in: root); await settle()
+                    require(
+                        Set(store.planner.tasks.filter(\.done).map(\.id)) == completedBeforeSpace,
+                        "\(name): visible Undo restores keyboard completion")
+                    break
+                }
+                let traceData = try! JSONSerialization.data(withJSONObject: keyboardTrace, options: [.prettyPrinted])
+                try! traceData.write(to: output.appendingPathComponent("keyboard-trace-\(name).json"))
+                if !rowKeyboardReached { print("Keyboard trace: " + String(decoding: traceData, as: UTF8.self)) }
+                require(rowKeyboardReached, "\(name): Tab reaches a real task completion button")
+                // The completed list uses the same focused action, not a separate global shortcut.
+                press("Completed 1", in: root); await settle()
+                window.makeFirstResponder(nil)
+                var completedRowReached = false
+                for step in 0..<60 {
+                    key("\t", code: 48, in: window)
+                    try? await Task.sleep(nanoseconds: 50_000_000)
+                    recordKeyboardState("completed-tab-\(step)")
+                    guard
+                        let completed = control(
+                            "task-complete-\(added[1].id)", attribute: "accessibilityIdentifier", in: root),
+                        isFocused(completed)
+                    else { continue }
+                    completedRowReached = true
+                    key(" ", code: 49, in: window); await settle()
+                    recordKeyboardState("after-reopen")
+                    require(
+                        store.planner.tasks.allSatisfy { !$0.done },
+                        "\(name): Space reopens exactly the focused completed task")
+                    require(
+                        try! store.file.load().tasks.allSatisfy { !$0.done },
+                        "\(name): keyboard reopening persists")
+                    press("Undo", in: root); await settle()
+                    require(
+                        Set(store.planner.tasks.filter(\.done).map(\.id)) == [added[1].id],
+                        "\(name): Undo restores keyboard reopening")
+                    break
+                }
+                require(completedRowReached, "\(name): Tab reaches the completed task action")
                 // Dense rows scroll independently of the still-visible entry and capture.
                 store.apply { try $0.addTasks((1...24).map { "Inspect inventory group \($0)" }, on: .day(store.today)) }
                 await settle()
@@ -248,53 +909,127 @@ MainActor.assumeIsolated {
                 window.orderOut(nil)
             }
             print("Keyboard activation before task route: \(keyboardVerified)")
-            // Existing task focus: ask the real hosted row for its context menu, then activate its actual item.
+            await verifyLastRowKeyboardUndo(
+                store: store, model: delegate.model, services: delegate.services, output: output)
+            await verifyCaptureUndoSubmission(
+                store: store, model: delegate.model, services: delegate.services, output: output)
+            await verifyRowCustomActions(
+                store: store, model: delegate.model, services: delegate.services, output: output)
+            // Dispatch a right-click to the rendered title and observe the menu AppKit actually opens.
             store.seedFixture { e in
                 e.planner.tasks = []; e.planner.focus = nil
             }
             let linked = store.apply { try $0.addTasks(["Verify a single linked task"], on: .day(store.today)) }![0]
             store.updateTask(linked.id) { $0.minutes = 12 }
             let rowWindow = NSWindow(
-                contentRect: CGRect(x: 50, y: 100, width: 420, height: 80), styleMask: [.titled], backing: .buffered,
+                contentRect: CGRect(x: 50, y: 100, width: 420, height: 140), styleMask: [.titled], backing: .buffered,
                 defer: false)
             rowWindow.isReleasedWhenClosed = false
             let rowRoot = NSHostingView(
                 rootView: TaskRow(task: store.planner.tasks[0]).environmentObject(store).environmentObject(
-                    delegate.model))
+                    delegate.model
+                ).environment(\.accessibilityEnabled, true))
             rowWindow.contentView = rowRoot; rowWindow.makeKeyAndOrderFront(nil)
             await settle(); await wakeAX(); await settle()
+            snapshot(rowRoot, "task-before-context-click", into: output)
+            recordAccessibility(rowRoot, "task-before-context-click", into: output)
+            guard let title = staticText(linked.title, in: rowRoot) else {
+                require(false, "context-click target is the rendered task title"); return
+            }
+            let titleFrame = frame(title)
+            require(titleFrame.width > 0 && titleFrame.height > 0, "context-click title has a visible frame")
+            let location = rowWindow.convertPoint(fromScreen: NSPoint(x: titleFrame.midX, y: titleFrame.midY))
+            let rootLocation = rowRoot.convert(location, from: nil)
+            require(rowRoot.hitTest(rootLocation) != nil, "context-click lands inside the hosted task row")
+            let observation = ContextMenuObservation()
+            observation.start()
             let contextEvent = NSEvent.mouseEvent(
-                with: .rightMouseDown, location: NSPoint(x: 120, y: 40), modifierFlags: [],
+                with: .rightMouseDown, location: location, modifierFlags: [],
                 timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: rowWindow.windowNumber,
                 context: nil, eventNumber: 1, clickCount: 1, pressure: 1)!
-            var taskMenu: NSMenu?
-            for view in views(rowRoot) {
-                if let menu = view.menu(for: contextEvent), menu.items.contains(where: { $0.title == "Start focusing" })
-                {
-                    taskMenu = menu; break
-                }
+            rowWindow.sendEvent(contextEvent)
+            // SwiftUI may begin tracking during dispatch or on the next run-loop pass.
+            while observation.matchedMenu == nil && !observation.timedOut {
+                try? await Task.sleep(nanoseconds: 50_000_000)
             }
+            observation.stop()
+            let contextUp = NSEvent.mouseEvent(
+                with: .rightMouseUp, location: location, modifierFlags: [],
+                timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: rowWindow.windowNumber,
+                context: nil, eventNumber: 2, clickCount: 1, pressure: 0)!
+            rowWindow.sendEvent(contextUp)
+            let contextTrace: [String: Any] = [
+                "mechanism": "window-right-click-tracked-NSMenu-item-action",
+                "titleFrame": NSStringFromRect(titleFrame), "windowPoint": NSStringFromPoint(location),
+                "keyWindow": rowWindow.isKeyWindow, "menus": observation.observedTitles,
+                "timedOut": observation.timedOut,
+            ]
+            try! JSONSerialization.data(withJSONObject: contextTrace, options: [.prettyPrinted, .sortedKeys]).write(
+                to: output.appendingPathComponent("context-menu-trace.json"))
+            let taskMenu = observation.matchedMenu
             require(taskMenu != nil, "existing task context menu exposes Start focusing")
-            let index = taskMenu!.items.firstIndex { $0.title == "Start focusing" }!
-            require(taskMenu!.items[index].isEnabled, "existing task menu item enabled")
-            taskMenu!.performActionForItem(at: index)
             await settle()
             require(
-                store.planner.focus?.taskID == linked.id && store.planner.focus?.limit == 720,
-                "task hover action retains exact ID and 12-minute estimate")
+                store.planner.focus?.state == .running
+                    && store.planner.focus?.taskID == linked.id && store.planner.focus?.limit == 720,
+                "task context-menu action starts the exact task with a 12-minute limit")
             require(
                 store.planner.tasks.count == 1 && store.planner.tasks[0].id == linked.id
                     && store.planner.tasks[0].minutes == 12,
                 "task action does not change task identity or estimate")
-            snapshot(rowRoot, "task-hover", into: output)
+            // Preserve the on-disk running session before the later deletion intentionally stops it.
+            try! Data(contentsOf: store.file.url).write(to: output.appendingPathComponent("linked-focus.json"))
+            // Real visible controls must work without hover, a context menu, or a swipe.
+            for label in ["Complete \(linked.title)", "Details \(linked.title)", "Delete \(linked.title)"] {
+                guard let node = control(label, in: rowRoot) else {
+                    require(false, "visible row action exists: \(label)"); return
+                }
+                let bounds = frame(node)
+                require(bounds.width >= 28 && bounds.height >= 28, "row action has a 28pt target: \(label)")
+            }
+            press("Details \(linked.title)", in: rowRoot)
+            require(delegate.model.detailsTaskID == linked.id, "visible Details selects exact task")
+            delegate.model.detailsTaskID = nil
+            press("Delete \(linked.title)", in: rowRoot)
+            require(!store.planner.tasks.contains { $0.id == linked.id }, "visible Delete persists removal")
+            store.undo()
+            require(
+                store.planner.tasks.contains { $0.id == linked.id && $0.title == linked.title },
+                "Undo restores the exact deleted task")
+            require(store.planner.focus?.state != .running, "Undo deletion never restarts the timer")
+            snapshot(rowRoot, "task-actions", into: output)
+
+            // Textual priorities and multiline titles remain present at the narrow card width.
+            for priority in [TaskPriority.high, .medium, .low] {
+                var task = store.planner.tasks.first { $0.id == linked.id }!
+                task.priority = priority
+                task.title =
+                    "Inspect every seed tray\nCheck the labels and record which seedlings need water before closing the greenhouse"
+                rowWindow.setContentSize(NSSize(width: 280, height: 240))
+                rowRoot.rootView = TaskRow(task: task).environmentObject(store).environmentObject(delegate.model)
+                    .environment(\.accessibilityEnabled, true)
+                await settle(); await wakeAX(); await settle()
+                snapshot(rowRoot, "task-\(priority.rawValue)-narrow", into: output)
+                recordAccessibility(rowRoot, "task-\(priority.rawValue)-narrow", into: output)
+                require(
+                    staticText("\(priority.rawValue.capitalized) priority", in: rowRoot) != nil,
+                    "\(priority): priority is text, not color alone")
+                guard let title = staticText(task.title, in: rowRoot) else {
+                    require(false, "\(priority): full multiline title exposed"); return
+                }
+                require(frame(title).height > 28, "\(priority): long title actually wraps")
+            }
             require(store.lastError == nil, "no store error during UI lifecycle")
             let report: [String: Any] = [
                 "metrics": metrics,
                 "keyboardActivation": keyboardVerified ? "verified-in-process-Tab-Space" : "unverified-on-this-runner",
                 "activation": "real-own-process-AX-press-no-model-fallback",
-                "taskActivation": "real-NSMenu-item-action-from-hosted-row",
+                "taskActivation": "window-right-click-tracked-NSMenu-item-action",
                 "screenshots": "own-window-cacheDisplay-not-compositor", "physicalNotch": "unverified",
                 "voiceOverSpeech": "unverified",
+                "lastRowKeyboardUndo": "verified-own-process-NotchPanel",
+                "captureTextUndo": "native-keyboard-undo-redo-and-submit",
+                "rowCustomActions": "verified-native-handlers-exact-task",
             ]
             try! JSONSerialization.data(withJSONObject: report, options: [.prettyPrinted, .sortedKeys]).write(
                 to: output.appendingPathComponent("results.json"))

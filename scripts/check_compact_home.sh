@@ -46,7 +46,7 @@ if [[ -z ${2:-} ]]; then
 import pathlib, sys
 path = pathlib.Path(sys.argv[1])
 source = path.read_text()
-attachment = '                    .background(TasksContinuationObserver())\n'
+attachment = '                        .background(TasksContinuationObserver())\n'
 assert source.count(attachment) == 1
 path.write_text(source.replace(attachment, ''))
 PY

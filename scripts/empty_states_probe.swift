@@ -179,10 +179,10 @@ func axObject(_ node: NSObject, _ name: String) -> Any? {
 }
 
 @MainActor
-func findControl(_ label: String) -> NSObject? {
+func findControl(_ label: String, attribute: String = "accessibilityLabel") -> NSObject? {
     func find(_ node: NSObject, depth: Int) -> NSObject? {
         guard depth < 60 else { return nil }
-        if axObject(node, "accessibilityLabel") as? String == label { return node }
+        if axObject(node, attribute) as? String == label { return node }
         for child in (axObject(node, "accessibilityChildren") as? [NSObject]) ?? [] {
             if let found = find(child, depth: depth + 1) { return found }
         }
@@ -195,8 +195,8 @@ func findControl(_ label: String) -> NSObject? {
 }
 
 @MainActor
-func pressControl(_ label: String) {
-    guard let node = findControl(label) else { require(false, "button exists: \(label)"); return }
+func pressControl(_ label: String, attribute: String = "accessibilityLabel") {
+    guard let node = findControl(label, attribute: attribute) else { require(false, "button exists: \(label)"); return }
     let selector = NSSelectorFromString("accessibilityPerformPress")
     guard node.responds(to: selector), let implementation = node.method(for: selector) else {
         require(false, "button supports press: \(label)"); return
@@ -285,6 +285,7 @@ MainActor.assumeIsolated {
             delegate.notch.snapshot(into: output.appendingPathComponent("today-populated"))
 
             let id = delegate.store.planner.tasks[0].id
+            let completionID = "task-complete-\(id)"
             delegate.store.apply { try $0.complete(id) }
             await settle()
             delegate.notch.snapshot(into: output.appendingPathComponent("today-cleared"))
@@ -293,26 +294,44 @@ MainActor.assumeIsolated {
             delegate.store.apply { try $0.addTasks(["Sort the seed packets", "Rinse the paint tray"]) }
             await settle()
             require(delegate.store.engine.tasks(on: .day(delegate.store.today)).count == 3, "three-task Today fixture")
+            let activeIDs = delegate.store.engine.tasks(on: .day(delegate.store.today)).filter { !$0.done }.map(\.id)
+            require(activeIDs.count == 2, "two active task controls are expected")
             require(findControl("Completed 1") != nil, "first completion makes Completed reachable")
             delegate.notch.snapshot(into: output.appendingPathComponent("today-three-one-completed"))
             pressControl("Completed 1")
             await settle()
             require(
-                findControl("Uncheck task") != nil && findControl("Check off task") == nil,
+                findControl(completionID, attribute: "accessibilityIdentifier") != nil
+                    && findControl("Reopen Capture probe task") != nil
+                    && activeIDs.allSatisfy {
+                        findControl("task-complete-\($0)", attribute: "accessibilityIdentifier") == nil
+                    },
                 "Completed shows only the finished row")
             delegate.notch.snapshot(into: output.appendingPathComponent("today-completed-tab"))
-            pressControl("Uncheck task")
+            pressControl(completionID, attribute: "accessibilityIdentifier")
             await settle()
+            require(
+                delegate.store.planner.tasks.first { $0.id == id }?.done == false,
+                "the real Reopen button updates the exact captured task")
             require(
                 findControl("Completed 0") == nil && findControl("To do 3") != nil,
                 "reopening the last completion hides its pill")
-            require(findControl("Check off task") != nil, "last completion reopened: To do rows are visible")
+            require(
+                ([id] + activeIDs).allSatisfy {
+                    findControl("task-complete-\($0)", attribute: "accessibilityIdentifier") != nil
+                }
+                    && findControl("Complete Capture probe task") != nil,
+                "last completion reopened: To do rows are visible")
             delegate.notch.snapshot(into: output.appendingPathComponent("today-tab-fallback"))
             delegate.store.apply { try $0.complete(id) }
             await settle()
             require(
-                findControl("Completed 1") != nil && findControl("Check off task") != nil
-                    && findControl("Uncheck task") == nil,
+                findControl("Completed 1") != nil
+                    && activeIDs.allSatisfy {
+                        findControl("task-complete-\($0)", attribute: "accessibilityIdentifier") != nil
+                    }
+                    && findControl(completionID, attribute: "accessibilityIdentifier") == nil
+                    && findControl("Reopen Capture probe task") == nil,
                 "a new completion does not resurrect the hidden tab selection")
             delegate.store.seedFixture { engine in
                 engine.planner.tasks = []

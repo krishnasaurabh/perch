@@ -82,6 +82,7 @@
             let markersURL: URL
             let snapshotDir: URL?
             private var markers: [[String: Any]] = []
+            private var tickTaskID: UUID?
 
             init(store: PlannerStore, model: NotchModel, markers: URL, snapshots: URL?) {
                 self.store = store; self.model = model; self.markersURL = markers; self.snapshotDir = snapshots
@@ -137,7 +138,12 @@
                     // 2.4 s (was 1.4): settle time for SwiftUI to publish the tree after the wake.
                     Step(name: "page", wait: 2.4, capture: true) { self.requiredPress(target.title) },
                     Step(name: "page-back", wait: 2.4, capture: false) { self.requiredPress(NotchPage.home.title) },
-                    Step(name: "tick", wait: 2.4, capture: true) { self.requiredPress("Check off task") },
+                    Step(name: "tick", wait: 2.4, capture: true) {
+                        guard let task = self.store.engine.tasks(on: .day(self.store.today)).first(where: { !$0.done })
+                        else { return "FAILED:missing-active-task" }
+                        self.tickTaskID = task.id
+                        return self.requiredPress("task-complete-\(task.id)", byIdentifier: true)
+                    },
                     Step(name: "timer", wait: 2.4, capture: true) { self.requiredPress("Start focus") },
                     Step(name: "timer-stop", wait: 2.4, capture: false) { self.requiredPress("End focus session") },
                     Step(name: "end", wait: 2.4, capture: false) { [model] in
@@ -182,6 +188,7 @@
                         "name": step.name, "t": t, "uptime": ProcessInfo.processInfo.systemUptime, "via": via,
                     ]
                     if step.name == "page" { m["target"] = extra["page"] ?? "" }
+                    if step.name == "tick" { m["task_id"] = tickTaskID?.uuidString }
                     m["ax_nodes"] = axNodes
                     m["policy"] = policy
                     m["session"] = state
@@ -205,6 +212,12 @@
                             "page": model.page.rawValue, "timer_present": store.planner.focus != nil,
                             "completed_tasks": store.planner.tasks.filter(\.done).count,
                         ]
+                        if step.name == "tick", let id = tickTaskID,
+                            var settled = markers[markerIndex]["settled_state"] as? [String: Any]
+                        {
+                            settled["completed_target"] = store.planner.tasks.first { $0.id == id }?.done == true
+                            markers[markerIndex]["settled_state"] = settled
+                        }
                         write()
                     }
                     if step.capture, let dir = snapshotDir {
@@ -236,21 +249,23 @@
 
             /// Presses the first element labelled `label` in a visible notch window. Returns the `via` string, or nil.
             /// Uses the ObjC accessibility methods directly, so it works for NSViews and SwiftUI's private AX nodes alike.
-            private func requiredPress(_ label: String) -> String {
+            private func requiredPress(_ label: String, byIdentifier: Bool = false) -> String {
                 let requested =
                     ProcessInfo.processInfo.environment["PERCH_MOTION_MISSING_CONTROL"] == label
                     ? "missing-control" : label
-                return press(requested) ?? "FAILED:missing-control:\(label)"
+                return press(requested, byIdentifier: byIdentifier) ?? "FAILED:missing-control:\(label)"
             }
 
             static var screenLocked: Bool {
                 (CGSessionCopyCurrentDictionary() as? [String: Any])?["CGSSessionScreenIsLocked"] as? Bool ?? false
             }
 
-            private func press(_ label: String) -> String? {
+            private func press(_ label: String, byIdentifier: Bool) -> String? {
                 for w in NSApp.windows where w is NotchPanel && w.isVisible {
                     guard let root = w.contentView else { continue }
-                    if let el = find(label, in: root, depth: 0), AX.press(el) { return "ax-press:\(label)" }
+                    if let el = find(label, in: root, depth: 0, byIdentifier: byIdentifier), AX.press(el) {
+                        return "ax-press:\(label)"
+                    }
                 }
                 return nil
             }
@@ -268,11 +283,11 @@
                 return n
             }
 
-            private func find(_ label: String, in node: NSObject, depth: Int) -> NSObject? {
+            private func find(_ label: String, in node: NSObject, depth: Int, byIdentifier: Bool) -> NSObject? {
                 guard depth < 60 else { return nil }
-                if depth > 0, AX.label(node) == label { return node }
+                if depth > 0, (byIdentifier ? AX.identifier(node) : AX.label(node)) == label { return node }
                 for c in AX.children(node) {
-                    if let f = find(label, in: c, depth: depth + 1) { return f }
+                    if let f = find(label, in: c, depth: depth + 1, byIdentifier: byIdentifier) { return f }
                 }
                 return nil
             }
@@ -344,6 +359,7 @@
         }
 
         static func label(_ o: NSObject) -> String? { object(o, "accessibilityLabel") as? String }
+        static func identifier(_ o: NSObject) -> String? { object(o, "accessibilityIdentifier") as? String }
         static func children(_ o: NSObject) -> [NSObject] {
             (object(o, "accessibilityChildren") as? [Any])?.compactMap { $0 as? NSObject } ?? []
         }

@@ -1,8 +1,9 @@
 """Conservative evidence qualification, independent of codecs and presentation frames."""
 import math
+import re
 
 CLIPS = ('open', 'close', 'page', 'tick', 'timer')
-EXPECTED = {'page': 'ax-press:Week', 'tick': 'ax-press:Check off task', 'timer': 'ax-press:Start focus'}
+EXPECTED = {'page': 'ax-press:Week', 'tick': 'ax-press:task-complete-', 'timer': 'ax-press:Start focus'}
 
 def qualify(marker, sha):
     reasons = []
@@ -34,7 +35,15 @@ def qualify(marker, sha):
         reasons.append('tick-not-observed')
     if name == 'timer' and after.get('timer_present') is not True:
         reasons.append('timer-not-observed')
-    if marker.get('name') in EXPECTED and marker.get('via') != EXPECTED[marker['name']]:
+    expected_control = EXPECTED.get(name)
+    if name == 'tick':
+        task_id = marker.get('task_id')
+        valid_id = isinstance(task_id, str) and re.fullmatch(
+            r'[0-9A-Fa-f]{8}-(?:[0-9A-Fa-f]{4}-){3}[0-9A-Fa-f]{12}', task_id)
+        expected_control = EXPECTED['tick'] + task_id if valid_id else None
+        if after.get('completed_target') is not True:
+            reasons.append('tick-target-not-observed')
+    if name in EXPECTED and (expected_control is None or marker.get('via') != expected_control):
         reasons.append('missing-real-control')
     if marker.get('interaction_ok') is False:
         reasons.append('failed-interaction')

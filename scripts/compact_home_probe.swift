@@ -59,6 +59,27 @@ func snapshot(_ root: NSView, _ name: String, into output: URL) {
     try! rep.representation(using: .png, properties: [:])!.write(to: output.appendingPathComponent(name + ".png"))
 }
 
+@MainActor
+func recordFocus(delegate: AppDelegate, scenario: String, output: URL) {
+    let state: [String: Any] = [
+        "scenario": scenario,
+        "expanded": delegate.model.expanded,
+        "captureRequest": delegate.model.captureFocusRequest?.uuidString ?? "none",
+        "windows": NSApp.windows.map { window -> [String: Any] in
+            [
+                "key": window.isKeyWindow,
+                "visible": window.isVisible,
+                "firstResponder": String(describing: window.firstResponder),
+                "captureFrame": window.contentView.flatMap { controlFrame("Add a task", in: $0) }
+                    .map(NSStringFromRect) ?? "missing",
+            ]
+        },
+    ]
+    try! JSONSerialization.data(withJSONObject: state, options: [.prettyPrinted, .sortedKeys]).write(
+        to: output.appendingPathComponent("capture-focus-\(scenario).json"))
+    delegate.notch.snapshot(into: output.appendingPathComponent("capture-focus-\(scenario)"))
+}
+
 MainActor.assumeIsolated {
     let app = NSApplication.shared
     let delegate = AppDelegate()
@@ -71,7 +92,7 @@ MainActor.assumeIsolated {
             var metrics: [[String: Any]] = []
             let geometryOnly = ProcessInfo.processInfo.environment["COMPACT_HOME_GEOMETRY_ONLY"] == "1"
             if !geometryOnly {
-                for scenario in ["empty", "three", "timer", "long-title", "dense", "timer-notepad"] {
+                for scenario in ["empty", "three", "completed", "timer", "long-title", "dense", "timer-notepad"] {
                     delegate.model.close()
                     delegate.store.seedFixture { e in
                         e.planner.tasks = []
@@ -90,6 +111,9 @@ MainActor.assumeIsolated {
                                     "Review item \($0) for the release checklist"
                                 }
                             _ = try e.addTasks(titles, on: .day(e.today))
+                            if scenario == "completed" {
+                                for task in e.planner.tasks { _ = try e.complete(task.id) }
+                            }
                         }
                         if scenario == "timer" || scenario == "timer-notepad" {
                             _ = try e.startTimer(task: e.planner.tasks[0].id, minutes: 45)
@@ -99,6 +123,7 @@ MainActor.assumeIsolated {
                     }
                     NotificationCenter.default.post(name: .perchOpenWorkspace, object: NotchPage.home)
                     await settle()
+                    recordFocus(delegate: delegate, scenario: scenario, output: output)
                     guard let panel = NSApp.keyWindow, let root = panel.contentView,
                         let editor = panel.firstResponder as? NSTextView, editor.isFieldEditor,
                         let geometry = delegate.model.geometry
@@ -140,6 +165,33 @@ MainActor.assumeIsolated {
                         "capture": NSStringFromRect(capture), "taskViewport": NSStringFromRect(listFrame),
                         "taskDocumentHeight": list.documentView?.frame.height ?? 0,
                     ])
+                    if scenario == "completed" && !baseline {
+                        await wakeAX(); await settle()
+                        guard let captureBounds = controlFrame("Add a task", in: root) else {
+                            require(false, "completed: capture bounds exist"); return
+                        }
+                        guard
+                            let button = axNodes(root).first(where: {
+                                attribute($0, "accessibilityLabel") as? String == "Completed 3"
+                            })
+                        else { require(false, "completed: filter remains reachable"); return }
+                        let selector = NSSelectorFromString("accessibilityPerformPress")
+                        guard button.responds(to: selector), let implementation = button.method(for: selector) else {
+                            require(false, "completed: filter exposes native action"); return
+                        }
+                        typealias Press = @convention(c) (AnyObject, Selector) -> Bool
+                        require(
+                            unsafeBitCast(implementation, to: Press.self)(button, selector),
+                            "completed: filter action succeeds")
+                        await settle(); await wakeAX(); await settle()
+                        let title = delegate.store.planner.tasks[0].title
+                        require(
+                            controlFrame("Reopen \(title)", in: root) != nil,
+                            "completed: finished rows expose Reopen")
+                        require(
+                            controlFrame("Add a task", in: root) == captureBounds,
+                            "completed: capture stays fixed while browsing finished tasks")
+                    }
                     delegate.notch.snapshot(into: output.appendingPathComponent(scenario))
                     if scenario == "dense", let document = list.documentView {
                         require(
