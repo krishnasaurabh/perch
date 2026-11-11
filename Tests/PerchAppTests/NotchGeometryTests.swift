@@ -37,6 +37,30 @@ final class NotchGeometryTests: XCTestCase {
                 expanded: false, timer: nil, activity: false),
             "The same explicit preference still enables an external synthetic notch")
     }
+
+    func testActivityControlsStayClickableWithoutBecomingOpenTargets() {
+        let screen = NotchLayout.Screen(
+            frame: CGRect(x: 0, y: 0, width: 1512, height: 982),
+            visibleFrame: CGRect(x: 0, y: 0, width: 1512, height: 950),
+            safeAreaTop: 32, auxiliaryLeftWidth: 663, auxiliaryRightWidth: 664)
+        let geometry = NotchGeometry(screen: screen)
+        let activity = geometry.idle(timer: nil, activity: true)
+        let openTarget = geometry.hover(expanded: false, timer: nil, activity: true)
+
+        XCTAssertEqual(openTarget, geometry.notchRect)
+        for x in [activity.minX + 40, activity.maxX - 22] {
+            let control = CGPoint(x: x, y: activity.minY + 20)
+            XCTAssertTrue(
+                geometry.shapeContains(control, expanded: false, timer: nil, activity: true),
+                "The strip must keep receiving its own control clicks")
+            XCTAssertFalse(
+                NotchLayout.contains(openTarget, pointer: control),
+                "The same control click must not be routed to workspace opening")
+        }
+        let gap = CGPoint(x: activity.midX, y: activity.minY - 1)
+        XCTAssertFalse(geometry.shapeContains(gap, expanded: false, timer: nil, activity: true))
+        XCTAssertFalse(NotchLayout.contains(openTarget, pointer: gap))
+    }
 }
 
 private extension CGRect {
