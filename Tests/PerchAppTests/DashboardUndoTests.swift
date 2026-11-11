@@ -19,6 +19,9 @@ final class DashboardUndoTests: XCTestCase {
         XCTAssertTrue(deleted.projects.isEmpty)
         XCTAssertTrue(deleted.tasks.allSatisfy { $0.projectID == nil })
         XCTAssertNotEqual(deleted, beforeDelete)
+        NSApp.activate(ignoringOtherApps: true)
+        window.makeKeyAndOrderFront(nil)
+        await Self.settle()
         XCTAssertTrue(window.isKeyWindow, "Command-Z is dispatched to the real Dashboard key window")
 
         NSApp.sendEvent(Self.commandZ(windowNumber: window.windowNumber))
@@ -172,7 +175,7 @@ private final class DashboardFixture {
         store = PlannerStore(file: file, now: { now }, watching: false)
         // Leave an earlier Undo entry. A double invocation would revert this edit as well.
         store.updateTask(planner.tasks[0].id) { $0.notes = "Earlier planner edit" }
-        NSApp.setActivationPolicy(.accessory)
+        NSApp.setActivationPolicy(.regular)
         let mainMenu = NSMenu()
         let editRoot = NSMenuItem()
         let editMenu = NSMenu(title: "Edit")
