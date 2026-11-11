@@ -22,7 +22,8 @@ struct NotchGeometry: Equatable {
     /// fully hidden behind the hardware and never peeks out by a rounding pixel.
     static let tuck: CGFloat = 1
     /// An activity strip hangs this far below the notch, at least this wide.
-    static let activityDepth: CGFloat = 62, activityWidth: CGFloat = 400, activityWing: CGFloat = 100
+    static let activityDepth: CGFloat = 96, activityWidth: CGFloat = 400, activityWing: CGFloat = 100
+    static let activityGap: CGFloat = 4
 
     let screen: NotchLayout.Screen
     let backingScaleFactor: CGFloat
@@ -75,6 +76,14 @@ struct NotchGeometry: Equatable {
         return NSRect(x: x, y: top - h, width: Self.pillWidth, height: h)
     }
 
+    /// The reminder surface is entirely below the menu bar, detached from the housing.
+    var activityRect: NSRect {
+        let bounds = idle(timer: nil, activity: true)
+        return NSRect(
+            x: bounds.minX, y: bounds.minY, width: bounds.width,
+            height: bounds.height - notchRect.height - Self.activityGap)
+    }
+
     /// The visible shape in global coordinates.
     func shape(expanded: Bool, timer: NotchTimerPlacement?, activity: Bool) -> NSRect {
         expanded ? workspace : idle(timer: timer, activity: activity)
@@ -83,9 +92,7 @@ struct NotchGeometry: Equatable {
     /// Where hovering opens the notch (closed), or keeps it open (expanded: exactly the workspace).
     /// An activity strip stays clickable without becoming an open target; only its housing can open the workspace.
     func hover(expanded: Bool, timer: NotchTimerPlacement?, activity: Bool) -> NSRect {
-        NotchLayout.hoverFrame(
-            idle: idle(timer: timer, activity: activity), workspace: workspace, expanded: expanded,
-            activity: activity, screen: screen)
+        NotchLayout.triggerFrame(workspace: workspace, expanded: expanded, screen: screen)
     }
 
     /// Open on a flat screen: the strip of menu bar between the notch and the floating workspace. The pointer may
@@ -118,8 +125,18 @@ struct NotchGeometry: Equatable {
     func shapeContains(_ p: NSPoint, expanded: Bool, timer: NotchTimerPlacement?, activity: Bool) -> Bool {
         // A built-in flat screen never has a synthetic closed notch to draw or hit, even when the external preference is on.
         if !expanded, !activity, screen.isBuiltIn, camera == nil { return false }
-        if !expanded, !activity, let side = timer {
-            return NotchLayout.contains(pill(side: side), pointer: p) || NotchLayout.contains(tuckedNotch, pointer: p)
+        if !expanded, activity {
+            let rect = activityRect
+            let path = RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .path(in: CGRect(origin: .zero, size: rect.size))
+            let inStrip =
+                NotchLayout.contains(rect, pointer: p)
+                && path.contains(CGPoint(x: p.x - rect.minX, y: rect.maxY - p.y))
+            return inStrip || NotchLayout.contains(tuckedNotch, pointer: p)
+        }
+        if !expanded, let side = timer {
+            return NotchLayout.capsuleContains(pill(side: side), pointer: p)
+                || NotchLayout.contains(tuckedNotch, pointer: p)
         }
         let r = shape(expanded: expanded, timer: timer, activity: activity)
         guard NotchLayout.contains(r, pointer: p) else { return false }

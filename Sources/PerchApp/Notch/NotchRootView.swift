@@ -21,48 +21,44 @@ struct NotchRootView: View {
         let g = screen.geometry
         let window = g.window
         let timer = NotchModel.timerShowing(store)
-        let shape = g.shape(expanded: expanded, timer: timer, activity: activity != nil)
-        // Closed with only a timer: the hidden notch plus a separate capsule, drawn as two shapes.
-        let pillSide: NotchTimerPlacement? = (!expanded && activity == nil) ? timer : nil
-        // Beside a housing the open shell hangs from the top edge; on a flat screen it floats below the menu bar.
-        // Same outline the controller hit-tests (`NotchGeometry.shapeContains`).
+        let shell = expanded ? g.workspace : g.tuckedNotch
         let outline = g.outline(expanded: expanded)
 
         ZStack(alignment: .topLeading) {
-            if let side = pillSide {
-                TimerPillLayer(geometry: g, side: side, bounds: shape)
-                    .frame(width: shape.width, height: shape.height, alignment: .topLeading)
-                    .offset(x: shape.minX - window.minX, y: window.maxY - shape.maxY)
-                    .transition(.opacity)
-            } else {
-                ZStack(alignment: .top) {
-                    // The open shell is drawn without a shadow.
-                    outline
-                        .fill(Theme.notchBlack)
+            // Stable housing coordinates: only opening the workspace grows this shell.
+            ZStack(alignment: .top) {
+                outline.fill(Theme.notchBlack)
+                if expanded {
+                    WorkspaceView(notchHeight: g.notchSize.height)
+                        // Keep outgoing content above the shell during removal.
+                        .zIndex(1)
+                        .transition(motionPolicy.workspaceTransition)
+                        .padding(.horizontal, 10)
+                }
+            }
+            .frame(width: shell.width, height: shell.height)
+            .clipShape(outline)
+            .contentShape(outline)
+            .onDrop(of: [.fileURL, .url, .plainText, .image], isTargeted: nil) { providers in
+                handleDrop(providers); return true
+            }
+            .offset(x: shell.minX - window.minX, y: window.maxY - shell.maxY)
 
-                    Group {
-                        if expanded {
-                            // Normal mode scales/fades with the shell; reduced mode inserts at final geometry.
-                            WorkspaceView(notchHeight: g.notchSize.height)
-                                // Retain the disappearing content above the opaque shell during removal.
-                                // Otherwise ZStack can draw its still-running transition behind the fill.
-                                .zIndex(1)
-                                .transition(motionPolicy.workspaceTransition)
-                        } else {
-                            ClosedNotchView(notch: g.notchSize, activity: activity)
-                                .transition(.opacity)
+            if !expanded {
+                if let activity {
+                    ActivityStrip(activity: activity)
+                        .padding(10)
+                        .frame(width: g.activityRect.width, height: g.activityRect.height)
+                        .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Theme.notchBlack))
+                        .onDrop(of: [.fileURL, .url, .plainText, .image], isTargeted: nil) { providers in
+                            handleDrop(providers); return true
                         }
-                    }
-                    .padding(.horizontal, expanded ? 10 : 0)
+                        .offset(x: g.activityRect.minX - window.minX, y: window.maxY - g.activityRect.maxY)
+                        .transition(.opacity)
+                } else if let side = timer {
+                    TimerPillLayer(geometry: g, side: side, bounds: window, focus: store.planner.focus)
+                        .transition(.opacity)
                 }
-                .frame(width: shape.width, height: shape.height)
-                .clipShape(outline)
-                .contentShape(outline)
-                .onDrop(of: [.fileURL, .url, .plainText, .image], isTargeted: nil) { providers in
-                    handleDrop(providers); return true
-                }
-                // The window is flush with the screen top; the shape is too, except an open workspace on a flat screen.
-                .offset(x: shape.minX - window.minX, y: window.maxY - shape.maxY)
             }
         }
         .frame(width: window.width, height: window.height, alignment: .topLeading)
@@ -112,60 +108,50 @@ struct NotchRootView: View {
     }
 }
 
-/// Closed state with a nudge: a strip below the notch. Nothing to show: nothing drawn beyond the housing.
-struct ClosedNotchView: View {
-    let notch: CGSize
-    let activity: PresentedNotchActivity?
-
-    var body: some View {
-        VStack(spacing: 0) {
-            if let a = activity {
-                Spacer().frame(height: notch.height)
-                // Mask reveal: the strip sits at its final size and the growing shape (clipped above) uncovers it.
-                ActivityStrip(activity: a).padding(.horizontal, 10).padding(.bottom, 10)
-                    .transition(.opacity)
-            }
-        }
-    }
-}
-
 /// Closed with a running timer: the notch stays hidden behind the hardware, and a black capsule beside it shows the
 /// time in dot-matrix digits. No icon, no accent, no border: one piece of information.
 struct TimerPillLayer: View {
     let geometry: NotchGeometry
     let side: NotchTimerPlacement
     let bounds: NSRect
-    @EnvironmentObject var store: PlannerStore
+    // Preserve the outgoing value during a dismiss transition after the live store clears it.
+    let focus: FocusSession?
 
     var body: some View {
-        let n = geometry.tuckedNotch, p = geometry.pill(side: side)
-        ZStack(alignment: .topLeading) {
-            geometry.outline(expanded: false).fill(Theme.notchBlack)
-                .frame(width: n.width, height: n.height)
-                .offset(x: n.minX - bounds.minX, y: bounds.maxY - n.maxY)
-            Capsule(style: .continuous).fill(Theme.notchBlack)
-                .overlay(digits(width: p.width, height: p.height))
-                .frame(width: p.width, height: p.height)
-                .offset(x: p.minX - bounds.minX, y: bounds.maxY - p.maxY)
-        }
+        let p = geometry.pill(side: side)
+        Capsule(style: .continuous).fill(Theme.notchBlack)
+            .overlay(digits(width: p.width, height: p.height))
+            .frame(width: p.width, height: p.height)
+            .offset(x: p.minX - bounds.minX, y: bounds.maxY - p.maxY)
     }
 
     @ViewBuilder private func digits(width: CGFloat, height: CGFloat) -> some View {
-        if let f = store.planner.focus, f.state != .finished {
+        if let f = focus, f.state != .finished {
             LocalClock(running: f.state == .running) { now in
-                let text = TimerText.clock(f.remaining(at: now) ?? f.elapsed(at: now))
-                DotMatrixText(
-                    text: text, dot: Self.dot(for: text, width: width - 24, height: height * 0.52),
-                    color: Color.white.opacity(f.state == .running ? 0.95 : 0.6), unlit: .clear)
+                let face = NotchTimerPresentation(seconds: f.remaining(at: now) ?? f.elapsed(at: now))
+                Group {
+                    if face.usesDotMatrix {
+                        DotMatrixText(
+                            text: face.text, dot: Self.dot(for: face.text, width: width - 16, height: height * 0.68),
+                            color: Color.white.opacity(f.state == .running ? 0.95 : 0.6), unlit: .clear)
+                    } else {
+                        Text(face.text).font(
+                            .system(size: ThemeTokens.TypeSize.body, weight: .semibold, design: .monospaced)
+                        )
+                        .foregroundStyle(Color.white.opacity(f.state == .running ? 0.95 : 0.6))
+                        .lineLimit(1).minimumScaleFactor(0.8)
+                    }
+                }
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel("\(f.state == .running ? "Running" : "Paused") timer, \(face.fullText)")
+                .help("\(face.fullText) \(f.limit == nil ? "elapsed" : "remaining")")
             }
         }
     }
 
     /// Largest dot that fits the text in the capsule's inner box (glyphs are 3x5 dots; colons one dot wide).
     static func dot(for text: String, width: CGFloat, height: CGFloat) -> CGFloat {
-        let colons = CGFloat(text.filter { $0 == ":" }.count), digits = CGFloat(text.count) - colons
-        let units = digits * 3.9 + colons + CGFloat(max(0, text.count - 1)) * 1.2
-        return max(1, min(width / units, height / 6.8, 2.2))
+        NotchTimerPresentation.dot(for: text, width: width, height: height)
     }
 }
 
@@ -176,29 +162,56 @@ struct ActivityStrip: View {
     @EnvironmentObject var model: NotchModel
     @EnvironmentObject var services: Services
 
+    @State private var actionFailed = false
+
     var body: some View {
-        HStack(spacing: 10) {
-            // Static reminder icon, without a swinging animation.
-            Image(systemName: icon)
-                .font(.system(size: 15, weight: .semibold)).foregroundStyle(Theme.accent)
-            VStack(alignment: .leading, spacing: 1) {
-                Text(activity.title).font(.system(size: 12.5, weight: .semibold)).foregroundStyle(Theme.text).lineLimit(
-                    1)
-                LocalClock(running: needsCountdown) { now in
-                    Text(services.timeline.subtitle(for: activity, now: now)).font(.system(size: 11)).foregroundStyle(
-                        Theme.secondary
-                    ).lineLimit(1)
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 8) {
+                Image(systemName: icon)
+                    .font(Theme.heading).foregroundStyle(Theme.accent)
+                    .accessibilityHidden(true)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(activity.title).font(Theme.label).foregroundStyle(Theme.text).lineLimit(1)
+                        .help(activity.title)
+                    LocalClock(running: needsCountdown) { now in
+                        // Read the notification owner's record while this short-lived card is visible.
+                        // Never label an overdue timestamp alone as a missed notification.
+                        Text(subtitle(at: now)).font(Theme.meta)
+                            .foregroundStyle(actionFailed ? Theme.danger : Theme.secondary)
+                            .lineLimit(1)
+                            .help(actionFailed ? (store.lastError?.message ?? subtitle(at: now)) : subtitle(at: now))
+                    }
                 }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                GlassButton(symbol: "xmark", help: "Dismiss", size: Theme.minimumTarget) {
+                    model.dismissActivity()
+                }
+                .accessibilityIdentifier("notch.dismiss")
             }
-            Spacer(minLength: 6)
-            actions
-            GlassButton(symbol: "xmark", help: "Dismiss", size: 22) { model.dismissActivity() }
+            HStack(spacing: 6) {
+                actions
+                Spacer(minLength: 0)
+            }
         }
+        .onChange(of: activity.id) { _, _ in actionFailed = false }
+    }
+
+    private func subtitle(at now: Date) -> String {
+        if actionFailed { return "Action failed. Please try again." }
+        if case .reminder(let id) = activity.kind,
+            NotchReminderPresentation.isMissed(
+                task: store.planner.tasks.first { $0.id == id }, records: services.reminders.records, now: now)
+        {
+            return "Missed reminder · delivery unconfirmed"
+        }
+        return services.timeline.subtitle(for: activity, now: now)
     }
 
     private var needsCountdown: Bool {
-        if case .eventSoon = activity.kind { return true }
-        return false
+        switch activity.kind {
+        case .eventSoon, .reminder: return true
+        default: return false
+        }
     }
 
     private var icon: String {
@@ -214,38 +227,40 @@ struct ActivityStrip: View {
     @ViewBuilder private var actions: some View {
         switch activity.kind {
         case .reminder(let id):
-            pill("Start") {
-                store.apply { try $0.startTimer(task: id, minutes: nil) }
-                model.dismissActivity()
+            pill("Start focus", identifier: "notch.start") {
+                perform { try $0.startTimer(task: id, minutes: nil) }
             }
-            pill("Snooze 5 min") {
-                store.apply { try $0.snooze(id, minutes: 5) }; model.dismissActivity()
+            pill("Snooze 5 min", identifier: "notch.snooze") {
+                perform { try $0.snooze(id, minutes: 5) }
             }
-            pill("Done") {
-                store.apply { try $0.complete(id) }; model.dismissActivity()
+            pill("Done", identifier: "notch.done") {
+                perform { try $0.complete(id) }
             }
         case .focusDone(let id):
             if let id {
-                pill("Mark done") {
-                    store.apply { try $0.complete(id) }; model.dismissActivity()
+                pill("Mark done", identifier: "notch.done") {
+                    perform { try $0.complete(id) }
                 }
             }
-            pill("+5 min") {
-                store.apply { try $0.extendTimer(minutes: 5) }; model.dismissActivity()
+            pill("+5 min", identifier: "notch.extend") {
+                perform { try $0.extendTimer(minutes: 5) }
             }
         case .clip:
-            pill("Open line") {
+            pill("Open line", identifier: "notch.openClips") {
                 model.dismissActivity(); model.open(page: .clips)
             }
         default: EmptyView()
         }
     }
 
-    func pill(_ title: String, _ action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Text(title).font(.system(size: 11, weight: .semibold)).foregroundStyle(Theme.text)
-                .padding(.horizontal, 9).padding(.vertical, 5)
-                .background(Capsule().fill(Theme.fill))
-        }.buttonStyle(.plain)
+    /// Keep failed actions visible, including failures flushing an in-progress edit.
+    func perform<T>(_ action: (PlannerCommands) throws -> T) {
+        actionFailed = !model.performActivityAction(in: store, action)
+    }
+
+    private func pill(_ title: String, identifier: String, _ action: @escaping () -> Void) -> some View {
+        Button(title, action: action)
+            .buttonStyle(PillStyle())
+            .accessibilityIdentifier(identifier)
     }
 }

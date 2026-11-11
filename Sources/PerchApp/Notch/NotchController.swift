@@ -175,6 +175,7 @@ final class NotchController {
     /// Drag pasteboard change count while no button is held; a different count with the button down means a drag.
     private var dragBaseline = NSPasteboard(name: .drag).changeCount
     private var openedForDrop = false
+    private var hoverIntent = NotchHoverIntent()
 
     init(
         store: PlannerStore, model: NotchModel, services: Services,
@@ -218,6 +219,7 @@ final class NotchController {
 
         model.$expanded.removeDuplicates().sink { [weak self] open in
             guard let self else { return }
+            self.cancelHover(blocking: open ? nil : self.model.screenID)
             if !open {
                 self.openedForDrop = false
                 for s in self.slots.values { s.panel.resignKey() }
@@ -229,6 +231,9 @@ final class NotchController {
         }.store(in: &cancellables)
         model.$activity.sink { [weak self] _ in DispatchQueue.main.async { self?.updateMouseRouting() } }.store(
             in: &cancellables)
+        store.$planner.map(\.preferences.notchOpenTrigger).removeDuplicates().dropFirst().sink { [weak self] _ in
+            self?.cancelHover()
+        }.store(in: &cancellables)
         store.$planner.map(\.preferences.showOnDisplay).removeDuplicates().dropFirst().sink { [weak self] _ in
             DispatchQueue.main.async { self?.updateScreens() }
         }.store(in: &cancellables)
@@ -339,6 +344,7 @@ final class NotchController {
 
     /// One window per screen: add windows for new screens, drop them for removed ones, re-lay out the rest.
     func updateScreens() {
+        cancelHover()
         let screens = eligibleScreens()
         let ids = Set(screens.map(\.displayID))
         for (id, slot) in slots where !ids.contains(id) {
@@ -400,6 +406,8 @@ final class NotchController {
 
     private func open(on id: CGDirectDisplayID, page: NotchPage? = nil, pinned: Bool = false, activate: Bool = false) {
         guard let slot = slots[id] else { return }
+        cancelHover()
+        closeWork?.cancel(); closeWork = nil
         if model.screenID != id {
             if model.expanded { model.close() }
             model.screenID = id
@@ -428,6 +436,7 @@ final class NotchController {
     }
 
     func checkFullScreenSoon() {
+        cancelHover()
         applyFullScreen()
         fullscreenWork.forEach { $0.cancel() }
         fullscreenWork = []
@@ -510,6 +519,7 @@ final class NotchController {
         let prefs = store.prefs
 
         if e.type == .leftMouseDown {
+            cancelHover()
             if model.expanded {
                 // Same test as mouse routing: a click that went through to another app (menu bar, a corner) closes.
                 let inside = slots[model.screenID].map { isOnShape(p, $0) } ?? false
@@ -529,14 +539,27 @@ final class NotchController {
             guard prefs.notchOpenTrigger == .hover, e.type == .mouseMoved,
                 let id = slotUnderPointer(), let slot = slots[id], drawn(slot),
                 NotchLayout.contains(hoverRect(slot), pointer: p)
-            else { openWork?.cancel(); openWork = nil; return }
-            guard openWork == nil else { return }
-            openWork = scheduler.schedule(after: 0.12) { [weak self] in
+            else {
+                openWork?.cancel(); openWork = nil
+                _ = hoverIntent.enter(screen: nil)
+                return
+            }
+            guard NSEvent.pressedMouseButtons == 0,
+                let token = hoverIntent.enter(screen: id)
+            else { return }
+            openWork?.cancel()
+            openWork = scheduler.schedule(after: NotchHoverIntent.delay) { [weak self] in
                 guard let self else { return }
                 self.openWork = nil
-                guard let slot = self.slots[id],
-                    NotchLayout.contains(self.hoverRect(slot), pointer: NSEvent.mouseLocation)
-                else { return }
+                let eligible =
+                    self.slots[id].map {
+                        !self.model.expanded && !self.model.pinned && !self.openedForDrop
+                            && self.store.prefs.notchOpenTrigger == .hover
+                            && !($0.state.fullScreen) && self.drawn($0)
+                            && NSEvent.pressedMouseButtons == 0
+                            && NotchLayout.contains(self.hoverRect($0), pointer: NSEvent.mouseLocation)
+                    } ?? false
+                guard self.hoverIntent.consume(token, screen: id, eligible: eligible) else { return }
                 self.open(on: id)
             }
             return
@@ -557,6 +580,11 @@ final class NotchController {
                 }
             }
         }
+    }
+
+    private func cancelHover(blocking screen: CGDirectDisplayID? = nil) {
+        openWork?.cancel(); openWork = nil
+        hoverIntent.cancel(blocking: screen)
     }
 
     /// Keeps it open: the workspace, plus (flat screen) the menu-bar strip the pointer crosses to reach it.
