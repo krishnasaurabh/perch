@@ -51,13 +51,55 @@ func nodes(_ root: NSObject) -> [NSObject] {
     var seen = Set<ObjectIdentifier>()
     func walk(_ node: NSObject, _ depth: Int) -> [NSObject] {
         guard depth < 60, seen.insert(ObjectIdentifier(node)).inserted else { return [] }
-        return [node] + ((attr(node, "accessibilityChildren") as? [NSObject]) ?? []).flatMap { walk($0, depth + 1) }
+        let children = ["accessibilityChildren", "accessibilityContents", "accessibilityChildrenInNavigationOrder"]
+            .flatMap { (attr(node, $0) as? [NSObject]) ?? [] }
+        return [node] + children.flatMap { walk($0, depth + 1) }
     }
     return walk(root, 0)
 }
 @MainActor
 func control(_ value: String, attribute: String = "accessibilityLabel", in root: NSView) -> NSObject? {
     nodes(root).first { attr($0, attribute) as? String == value }
+}
+// Unlabelled Text may publish its string as AXValue rather than AXDescription.
+// Require the static-text role so a button with the same title is never a match.
+@MainActor
+func isStaticText(_ node: NSObject, matching text: String) -> Bool {
+    attr(node, "accessibilityRole") as? String == "AXStaticText"
+        && (attr(node, "accessibilityLabel") as? String == text
+            || attr(node, "accessibilityValue") as? String == text)
+}
+@MainActor
+func staticText(_ text: String, in root: NSView) -> NSObject? {
+    let matches = nodes(root).filter { isStaticText($0, matching: text) }
+    return matches.count == 1 ? matches[0] : nil
+}
+@MainActor
+final class StaticTextProbeElement: NSObject {
+    let role: String
+    let label: String?
+    let value: String?
+    init(role: String = "AXStaticText", label: String? = nil, value: String? = nil) {
+        self.role = role; self.label = label; self.value = value
+    }
+    @objc func accessibilityRole() -> String { role }
+    @objc func accessibilityLabel() -> String? { label }
+    @objc func accessibilityValue() -> String? { value }
+}
+@MainActor
+func recordAccessibility(_ root: NSView, _ name: String, into output: URL) {
+    let tree = nodes(root).map { node in
+        [
+            "class": String(describing: type(of: node)),
+            "role": attr(node, "accessibilityRole") as? String ?? "",
+            "label": attr(node, "accessibilityLabel") as? String ?? "",
+            "value": attr(node, "accessibilityValue") as? String ?? "",
+            "identifier": attr(node, "accessibilityIdentifier") as? String ?? "",
+            "frame": NSStringFromRect(frame(node)),
+        ]
+    }
+    try! JSONSerialization.data(withJSONObject: tree, options: [.prettyPrinted, .sortedKeys]).write(
+        to: output.appendingPathComponent(name + "-ax.json"))
 }
 @MainActor
 func press(_ node: NSObject, _ label: String) {
@@ -169,6 +211,20 @@ MainActor.assumeIsolated {
     require(isFocused(FocusProbeElement(true)), "native focus getter recognizes true")
     require(!isFocused(FocusProbeElement(false)), "native focus getter recognizes false")
     require(!isFocused(NSObject()), "missing native focus getter is not treated as focused")
+    let sampleTitle = "Check the seed trays\nRecord watering"
+    require(
+        isStaticText(StaticTextProbeElement(value: sampleTitle), matching: sampleTitle),
+        "static-text selector accepts a value-only title")
+    require(
+        isStaticText(StaticTextProbeElement(label: sampleTitle), matching: sampleTitle),
+        "static-text selector accepts a labelled title")
+    require(
+        !isStaticText(StaticTextProbeElement(role: "AXButton", label: sampleTitle), matching: sampleTitle),
+        "static-text selector rejects an action with matching text")
+    require(
+        !isStaticText(StaticTextProbeElement(value: "Another title"), matching: sampleTitle)
+            && !isStaticText(StaticTextProbeElement(), matching: sampleTitle),
+        "static-text selector rejects different and missing text")
     let app = NSApplication.shared
     let delegate = AppDelegate()
     app.delegate = delegate
@@ -448,10 +504,13 @@ MainActor.assumeIsolated {
             rowWindow.isReleasedWhenClosed = false
             let rowRoot = NSHostingView(
                 rootView: TaskRow(task: store.planner.tasks[0]).environmentObject(store).environmentObject(
-                    delegate.model))
+                    delegate.model
+                ).environment(\.accessibilityEnabled, true))
             rowWindow.contentView = rowRoot; rowWindow.makeKeyAndOrderFront(nil)
             await settle(); await wakeAX(); await settle()
-            guard let title = control(linked.title, in: rowRoot) else {
+            snapshot(rowRoot, "task-before-context-click", into: output)
+            recordAccessibility(rowRoot, "task-before-context-click", into: output)
+            guard let title = staticText(linked.title, in: rowRoot) else {
                 require(false, "context-click target is the rendered task title"); return
             }
             let titleFrame = frame(title)
@@ -525,15 +584,17 @@ MainActor.assumeIsolated {
                     "Inspect every seed tray\nCheck the labels and record which seedlings need water before closing the greenhouse"
                 rowWindow.setContentSize(NSSize(width: 280, height: 240))
                 rowRoot.rootView = TaskRow(task: task).environmentObject(store).environmentObject(delegate.model)
+                    .environment(\.accessibilityEnabled, true)
                 await settle(); await wakeAX(); await settle()
+                snapshot(rowRoot, "task-\(priority.rawValue)-narrow", into: output)
+                recordAccessibility(rowRoot, "task-\(priority.rawValue)-narrow", into: output)
                 require(
                     control("\(priority.rawValue.capitalized) priority", in: rowRoot) != nil,
                     "\(priority): priority is text, not color alone")
-                guard let title = control(task.title, in: rowRoot) else {
+                guard let title = staticText(task.title, in: rowRoot) else {
                     require(false, "\(priority): full multiline title exposed"); return
                 }
                 require(frame(title).height > 28, "\(priority): long title actually wraps")
-                snapshot(rowRoot, "task-\(priority.rawValue)-narrow", into: output)
             }
             require(store.lastError == nil, "no store error during UI lifecycle")
             let report: [String: Any] = [

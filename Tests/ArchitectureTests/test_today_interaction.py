@@ -171,6 +171,33 @@ class TodayInteractionTests(unittest.TestCase):
         wrapper = (ROOT / "scripts/check_focus_entry.sh").read_text()
         self.assertIn("result['taskActivation'] == 'window-right-click-tracked-NSMenu-item-action'", wrapper)
 
+    def test_row_probe_matches_static_text_labels_or_values_not_action_labels(self):
+        source = (ROOT / "scripts/focus_entry_probe.swift").read_text()
+        self.assertIn('attr(node, "accessibilityRole") as? String == "AXStaticText"', source)
+        self.assertIn('attr(node, "accessibilityLabel") as? String == text', source)
+        self.assertIn('attr(node, "accessibilityValue") as? String == text', source)
+        self.assertIn('staticText(linked.title, in: rowRoot)', source)
+        self.assertIn('staticText(task.title, in: rowRoot)', source)
+        self.assertIn('static-text selector accepts a value-only title', source)
+        self.assertIn('static-text selector accepts a labelled title', source)
+        self.assertIn('static-text selector rejects an action with matching text', source)
+        self.assertIn('static-text selector rejects different and missing text', source)
+
+    def test_standalone_row_explicitly_enables_accessibility(self):
+        source = (ROOT / "scripts/focus_entry_probe.swift").read_text()
+        initial = source.split('let rowRoot = NSHostingView(', 1)[1].split('rowWindow.contentView', 1)[0]
+        replacement = source.split('rowRoot.rootView =', 1)[1].split('await settle()', 1)[0]
+        for fixture in (initial, replacement):
+            self.assertIn('.environment(\\.accessibilityEnabled, true)', fixture)
+
+    def test_row_probe_records_evidence_before_title_lookup(self):
+        source = (ROOT / "scripts/focus_entry_probe.swift").read_text()
+        before_lookup = source.split('guard let title = staticText(linked.title, in: rowRoot)', 1)[0]
+        self.assertIn('snapshot(rowRoot, "task-before-context-click", into: output)', before_lookup)
+        self.assertIn('recordAccessibility(rowRoot, "task-before-context-click", into: output)', before_lookup)
+        self.assertIn('recordAccessibility(rowRoot, "task-\\(priority.rawValue)-narrow", into: output)', source)
+        self.assertIn('"accessibilityContents"', source)
+
     def test_overdue_policy_is_not_a_persistent_home_banner(self):
         source = "\n".join(p.read_text() for p in WORKSPACE.glob("*.swift"))
         self.assertNotIn("OverdueBanner()", source)
