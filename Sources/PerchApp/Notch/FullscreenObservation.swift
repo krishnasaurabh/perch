@@ -7,9 +7,15 @@ import ApplicationServices
 final class FullscreenObservation {
     private let changed: @MainActor () -> Void
     @MainActor
+    private final class CallbackContext {
+        weak var owner: FullscreenObservation?
+        init(_ owner: FullscreenObservation) { self.owner = owner }
+    }
+    @MainActor
     private final class LifetimeState {
         var tokens: [NSObjectProtocol] = []
         var observer: AXObserver?
+        var callbackContext: CallbackContext?
         var registrations: [(AXUIElement, CFString)] = []
         var timer: Timer?
         var delivery: DispatchWorkItem?
@@ -67,17 +73,19 @@ final class FullscreenObservation {
             for (element, name) in registrations { AXObserverRemoveNotification(observer, element, name) }
         }
         registrations = []; observer = nil
+        lifetimeState.state.callbackContext = nil
         if AXIsProcessTrusted(), let app = NSWorkspace.shared.frontmostApplication {
             var created: AXObserver?
             let callback: AXObserverCallback = { _, _, _, context in
                 guard let context else { return }
                 MainActor.assumeIsolated {
-                    let owner = Unmanaged<FullscreenObservation>.fromOpaque(context).takeUnretainedValue()
-                    owner.signal()
+                    let context = Unmanaged<CallbackContext>.fromOpaque(context).takeUnretainedValue()
+                    context.owner?.signal()
                 }
             }
             if AXObserverCreate(app.processIdentifier, callback, &created) == .success, let created {
                 observer = created
+                lifetimeState.state.callbackContext = CallbackContext(self)
                 let element = AXUIElementCreateApplication(app.processIdentifier)
                 for name in [kAXFocusedWindowChangedNotification, kAXWindowCreatedNotification] {
                     register(element, name as CFString)
@@ -113,8 +121,10 @@ final class FullscreenObservation {
     }
 
     private func register(_ element: AXUIElement, _ name: CFString) {
-        guard let observer else { return }
-        if AXObserverAddNotification(observer, element, name, Unmanaged.passUnretained(self).toOpaque()) == .success {
+        guard let observer, let context = lifetimeState.state.callbackContext else { return }
+        // The context outlives the owner until main-queue cleanup removes the observer.
+        if AXObserverAddNotification(observer, element, name, Unmanaged.passUnretained(context).toOpaque()) == .success
+        {
             registrations.append((element, name))
         }
     }

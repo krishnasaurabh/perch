@@ -157,7 +157,7 @@ jobs:
           pip3 install --quiet --break-system-packages mcp || pip3 install --quiet mcp
           PERCH_DATA=$RUNNER_TEMP/p.json python3 scripts/mcp_smoke.py "$PWD/dist/Perch.app/Contents/MacOS/Perch"
       - name: Focus survives an app crash without crediting offline time
-        run: python3 scripts/focus_crash_check.py "$PWD/dist/Perch.app/Contents/MacOS/Perch" "$RUNNER_TEMP/focus-crash"
+        run: python3 scripts/focus_crash_check.py "$PWD/dist/Perch.app/Contents/MacOS/Perch" "$RUNNER_TEMP/focus-crash" "$PWD/dist/testing/Perch.app/Contents/MacOS/Perch"
       - name: App launches and survives 5 s
         run: |
           PERCH_DATA=$RUNNER_TEMP/launch.json dist/Perch.app/Contents/MacOS/Perch &
