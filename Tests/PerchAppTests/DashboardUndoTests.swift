@@ -21,7 +21,7 @@ final class DashboardUndoTests: XCTestCase {
         XCTAssertNotEqual(deleted, beforeDelete)
         XCTAssertTrue(window.isKeyWindow, "Command-Z is dispatched to the real Dashboard key window")
 
-        XCTAssertTrue(window.performKeyEquivalent(with: Self.commandZ(windowNumber: window.windowNumber)))
+        NSApp.sendEvent(Self.commandZ(windowNumber: window.windowNumber))
         await Self.settle()
         XCTAssertEqual(
             try fixture.file.load(), beforeDelete, "Command-Z restores the exact persisted project and tasks")
@@ -50,7 +50,7 @@ final class DashboardUndoTests: XCTestCase {
         XCTAssertEqual(editor.string, "first second")
         XCTAssertTrue(editor.undoManager?.canUndo == true, "The real field editor registered native text Undo")
 
-        XCTAssertTrue(window.performKeyEquivalent(with: Self.commandZ(windowNumber: window.windowNumber)))
+        NSApp.sendEvent(Self.commandZ(windowNumber: window.windowNumber))
         await Self.settle()
         XCTAssertEqual(editor.string, "first", "Command-Z edits only the native text-field history")
         XCTAssertEqual(try fixture.file.load(), beforeEditing, "Text Undo never consumes or rewrites planner state")
@@ -124,23 +124,17 @@ fileprivate extension DashboardUndoTests {
         for _ in 0..<30 {
             window.contentView?.layoutSubtreeIfNeeded()
             await settle()
-            if let picker = nodes(window).compactMap({ $0 as? NSSegmentedControl }).first(where: { control in
-                (0..<control.segmentCount).contains { index in pickerLabel(control, segment: index) == tab }
+            if let segment = nodes(window).first(where: {
+                attribute($0, "accessibilityRole") as? String == "AXRadioButton"
+                    && attribute($0, "accessibilityLabel") as? String == tab
             }) {
-                let index = try XCTUnwrap((0..<picker.segmentCount).first { pickerLabel(picker, segment: $0) == tab })
-                picker.selectedSegment = index
-                XCTAssertTrue(picker.sendAction(picker.action, to: picker.target))
+                try press(segment)
                 await settle()
                 return
             }
         }
         XCTFail("Missing Dashboard tab \(tab)")
         throw DashboardTestError.missingControl
-    }
-
-    static func pickerLabel(_ picker: NSSegmentedControl, segment: Int) -> String? {
-        if #available(macOS 13.0, *) { return picker.label(forSegment: segment) }
-        return nil
     }
 
     static func attribute(_ node: NSObject, _ name: String) -> Any? {
