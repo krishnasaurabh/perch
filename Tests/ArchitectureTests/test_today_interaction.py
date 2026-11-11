@@ -33,6 +33,63 @@ class TodayInteractionTests(unittest.TestCase):
         self.assertIn(".downArrow", source)
         self.assertIn("TodayTaskNavigation", source)
 
+    def test_empty_state_probe_uses_stable_task_identifiers(self):
+        source = (ROOT / "scripts/empty_states_probe.swift").read_text()
+        self.assertIn('pressControl(completionID, attribute: "accessibilityIdentifier")', source)
+        self.assertIn('let completionID = "task-complete-\\(id)"', source)
+        self.assertIn('findControl(completionID, attribute: "accessibilityIdentifier")', source)
+        self.assertIn('findControl("task-complete-\\($0)", attribute: "accessibilityIdentifier")', source)
+        for label in ("Reopen Capture probe task", "Complete Capture probe task"):
+            self.assertIn(f'findControl("{label}")', source)
+        self.assertIn('delegate.store.planner.tasks.first { $0.id == id }?.done == false', source)
+        for stale in ('"Check off task"', '"Uncheck task"'):
+            self.assertNotIn(stale, source)
+
+    def test_motion_probe_and_qualifiers_agree_on_identifiers(self):
+        driver = (ROOT / "Sources/PerchApp/App/MotionScript.swift").read_text()
+        negative = (ROOT / "scripts/check_motion_driver.sh").read_text()
+        rules = (ROOT / "scripts/motion_evidence_rules.py").read_text()
+        self.assertIn('self.requiredPress("task-complete-\\(task.id)", byIdentifier: true)', driver)
+        self.assertIn('object(o, "accessibilityIdentifier")', driver)
+        for source in (negative, rules):
+            self.assertIn("ax-press:task-complete-", source)
+            self.assertNotIn("ax-press:Check off task", source)
+        self.assertIn("FAILED:missing-control:Start focus", negative)
+        self.assertIn("['settled_state']['timer_present'] is False", negative)
+        self.assertIn("['settled_state']['completed_target'] is True", negative)
+        self.assertIn("tick-not-observed", rules)
+        self.assertIn("missing-real-control", rules)
+
+    def test_motion_tick_requires_a_real_press_and_observed_completion(self):
+        import runpy
+        qualify = runpy.run_path(str(ROOT / "scripts/motion_evidence_rules.py"))["qualify"]
+        task_id = "11111111-1111-1111-1111-111111111111"
+        marker = {
+            "name": "tick", "via": f"ax-press:task-complete-{task_id}", "interaction_ok": True,
+            "task_id": task_id,
+            "policy": dict(nsworkspace_reduce_motion=False, swiftui_reduce_motion=False,
+                           resolved_reduce_motion=False, explicit_reduce_motion=False, mode="production"),
+            "session": dict(screen_locked=False, session_available=True, on_console=True, completed_tasks=0),
+            "settled_state": dict(completed_tasks=1, completed_target=True),
+        }
+        self.assertTrue(qualify(marker, "a" * 40)["qualified"])
+        other_task_id = "22222222-2222-2222-2222-222222222222"
+        for via in ("ax-press:Check off task", "direct:complete", f"FAILED:missing-control:task-complete-{task_id}",
+                    f"ax-press:task-complete-{other_task_id}"):
+            result = qualify(dict(marker, via=via), "a" * 40)
+            self.assertFalse(result["qualified"])
+            self.assertIn("missing-real-control", result["reasons"])
+        for invalid in (None, "", "not-a-task-id", 42):
+            result = qualify(dict(marker, task_id=invalid), "a" * 40)
+            self.assertFalse(result["qualified"])
+            self.assertIn("missing-real-control", result["reasons"])
+        result = qualify(dict(marker, settled_state=dict(completed_tasks=0, completed_target=True)), "a" * 40)
+        self.assertFalse(result["qualified"])
+        self.assertIn("tick-not-observed", result["reasons"])
+        result = qualify(dict(marker, settled_state=dict(completed_tasks=1, completed_target=False)), "a" * 40)
+        self.assertFalse(result["qualified"])
+        self.assertIn("tick-target-not-observed", result["reasons"])
+
     def test_overdue_policy_is_not_a_persistent_home_banner(self):
         source = "\n".join(p.read_text() for p in WORKSPACE.glob("*.swift"))
         self.assertNotIn("OverdueBanner()", source)
