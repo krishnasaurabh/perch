@@ -114,9 +114,10 @@ public struct RepeatPickerDraft: Equatable, Sendable {
     public static let weekdayShortNames = ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"]
 
     public let original: TaskRepeat?
-    /// The day repeats count from (the task's day, or its series anchor when the rule is kept).
-    /// A repeat without one cannot be saved.
+    /// The current or edited occurrence day, owned by the date field. A repeat needs a date.
     public private(set) var anchor: DayKey?
+    /// The existing series start, which stays fixed when only the occurrence day changes.
+    public let seriesAnchor: DayKey?
     public private(set) var frequency: Frequency
     public private(set) var customUnit: CustomUnit
     /// Kept as typed so an invalid entry is shown back to the person, not silently replaced.
@@ -130,9 +131,14 @@ public struct RepeatPickerDraft: Equatable, Sendable {
     private var anchorTouched = false
     private let calendar: Calendar
 
-    public init(original: TaskRepeat?, anchor: DayKey?, calendar: Calendar = .current) {
+    /// Supply both dates for an existing occurrence, or use `init(task:calendar:)`.
+    /// Without an explicit series anchor, an existing rule starts at the initial occurrence day.
+    public init(
+        original: TaskRepeat?, anchor: DayKey?, seriesAnchor: DayKey? = nil, calendar: Calendar = .current
+    ) {
         self.original = original
         self.anchor = anchor
+        self.seriesAnchor = original == nil ? nil : (seriesAnchor ?? anchor)
         self.calendar = Self.storageCalendar(calendar)
         fromCompletion = original?.fromCompletion ?? false
         weekdays = original.map { $0.unit == .week ? $0.weekdays : [] } ?? []
@@ -154,6 +160,11 @@ public struct RepeatPickerDraft: Equatable, Sendable {
         case (.month, 12): frequency = .yearly
         default: frequency = .custom
         }
+    }
+
+    public init(task: PlanTask, calendar: Calendar = .current) {
+        self.init(
+            original: task.repeatRule, anchor: task.day, seriesAnchor: task.repeatAnchor, calendar: calendar)
     }
 
     // MARK: Editing
@@ -205,7 +216,7 @@ public struct RepeatPickerDraft: Equatable, Sendable {
         fromCompletion = value
     }
 
-    /// The date field owns the day; the repeat draft only validates against it.
+    /// Update the occurrence day without moving the preserved series start.
     public mutating func setAnchor(_ day: DayKey?) {
         guard day != anchor else { return }
         anchorTouched = true
@@ -214,7 +225,7 @@ public struct RepeatPickerDraft: Equatable, Sendable {
 
     /// Cancel: forget every edit and failed commit, keeping the date supplied by its own field.
     public mutating func revert() {
-        self = RepeatPickerDraft(original: original, anchor: anchor, calendar: calendar)
+        self = RepeatPickerDraft(original: original, anchor: anchor, seriesAnchor: seriesAnchor, calendar: calendar)
     }
 
     // MARK: State
@@ -291,7 +302,8 @@ public struct RepeatPickerDraft: Equatable, Sendable {
             return (n == 1 ? "Every month" : "Every \(n) months") + suffix
         case .week:
             var text = n == 1 ? "Every week" : "Every \(n) weeks"
-            let days = rule.weekdays.isEmpty ? anchor.map { [$0.weekday(calendar: calendar)] } ?? [] : rule.weekdays
+            let days =
+                rule.weekdays.isEmpty ? scheduleAnchor.map { [$0.weekday(calendar: calendar)] } ?? [] : rule.weekdays
             if !days.isEmpty { text += " on " + days.map { Self.weekdayNames[$0 - 1] }.joined(separator: ", ") }
             return text + suffix
         }
@@ -300,12 +312,15 @@ public struct RepeatPickerDraft: Equatable, Sendable {
     /// The next `count` days a scheduled rule lands on after the task's own day.
     public func preview(count: Int = 3) -> Preview {
         guard frequency != .none else { return .none }
-        guard issue == nil, let rule, let anchor, count > 0 else { return .unavailable }
+        guard issue == nil, let rule = hasChanges ? rule : original, let anchor, count > 0 else {
+            return .unavailable
+        }
         if rule.fromCompletion {
             return .afterCompletion(
                 completed: anchor, next: rule.next(after: anchor, completed: anchor, calendar: calendar))
         }
-        return .scheduled(Self.upcoming(rule, after: anchor, count: count, calendar: calendar))
+        guard let start = scheduleAnchor else { return .unavailable }
+        return .scheduled(Self.upcoming(rule, starting: start, after: anchor, count: count, calendar: calendar))
     }
 
     /// Readable preview text. Days are formatted as civil dates, independent of the process time zone.
@@ -333,6 +348,10 @@ public struct RepeatPickerDraft: Equatable, Sendable {
 
     // MARK: Schedule arithmetic
 
+    /// A changed cadence starts a new series on the edited day, just like a typed task update.
+    /// Merely visiting another frequency and returning to the original cadence keeps the series.
+    private var scheduleAnchor: DayKey? { hasChanges ? anchor : (seriesAnchor ?? anchor) }
+
     private static func customUnit(for unit: TaskRepeat.Unit) -> CustomUnit {
         switch unit {
         case .day: .day
@@ -342,12 +361,13 @@ public struct RepeatPickerDraft: Equatable, Sendable {
     }
 
     /// Counted from the anchor, as planned copies are, so month-end clamping does not drift.
-    private static func upcoming(_ rule: TaskRepeat, after anchor: DayKey, count: Int, calendar: Calendar)
-        -> [DayKey]
-    {
+    private static func upcoming(
+        _ rule: TaskRepeat, starting anchor: DayKey, after occurrence: DayKey, count: Int, calendar: Calendar
+    ) -> [DayKey] {
+        let after = max(anchor, occurrence)
         var out: [DayKey] = []
         if rule.weekdaysOnly {
-            var day = anchor
+            var day = after
             while out.count < count {
                 day = day.adding(days: 1, calendar: calendar)
                 if ![1, 7].contains(day.weekday(calendar: calendar)) { out.append(day) }
@@ -356,26 +376,41 @@ public struct RepeatPickerDraft: Equatable, Sendable {
         }
         let interval = max(1, rule.interval)
         switch rule.unit {
-        case .day:
-            return (1...count).map { anchor.adding(days: $0 * interval, calendar: calendar) }
-        case .week where rule.weekdays.isEmpty:
-            return (1...count).map { anchor.adding(days: $0 * interval * 7, calendar: calendar) }
-        case .week:
+        case .day, .week:
+            if rule.unit == .day || rule.weekdays.isEmpty {
+                let stride = rule.unit == .day ? interval : interval * 7
+                let elapsed = calendar.dateComponents(
+                    [.day], from: anchor.date(calendar: calendar), to: after.date(calendar: calendar)
+                ).day!
+                let first = elapsed / stride + 1
+                return (first..<(first + count)).map { anchor.adding(days: $0 * stride, calendar: calendar) }
+            }
             let weekStart = anchor.adding(days: -(anchor.weekday(calendar: calendar) - 1), calendar: calendar)
-            var cycle = 0
+            let elapsed = calendar.dateComponents(
+                [.day], from: weekStart.date(calendar: calendar), to: after.date(calendar: calendar)
+            ).day!
+            var cycle = elapsed / (interval * 7)
             while out.count < count {
                 for weekday in rule.weekdays where out.count < count {
                     let day = weekStart.adding(days: cycle * interval * 7 + weekday - 1, calendar: calendar)
-                    if day > anchor { out.append(day) }
+                    if day > after { out.append(day) }
                 }
                 cycle += 1
             }
             return out
         case .month:
             let start = anchor.date(calendar: calendar)
-            return (1...count).map {
-                DayKey(calendar.date(byAdding: .month, value: $0 * interval, to: start)!, calendar: calendar)
+            let a = calendar.dateComponents([.year, .month], from: start)
+            let b = calendar.dateComponents([.year, .month], from: after.date(calendar: calendar))
+            let elapsed = (b.year! - a.year!) * 12 + b.month! - a.month!
+            var cycle = max(1, elapsed / interval)
+            while out.count < count {
+                let day = DayKey(
+                    calendar.date(byAdding: .month, value: cycle * interval, to: start)!, calendar: calendar)
+                if day > after { out.append(day) }
+                cycle += 1
             }
+            return out
         }
     }
 

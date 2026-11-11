@@ -49,6 +49,10 @@ class RepeatPickerContractTests(unittest.TestCase):
         self.assertGreaterEqual(self.view.count("ViewThatFits(in: .horizontal)"), 2)
         self.assertIn("RepeatPickerLayout.compactMinimumWidth", self.view)
 
+    def test_standalone_editor_preserves_the_series_anchor(self):
+        self.assertIn("seriesAnchor: DayKey? = nil", self.view)
+        self.assertIn("original: original, anchor: anchor, seriesAnchor: seriesAnchor, calendar: calendar", self.view)
+
     def test_only_frequencies_the_core_model_supports(self):
         cases = re.search(r"case (none, daily.*)\n", self.draft).group(1)
         self.assertEqual([c.strip() for c in cases.split(",")],

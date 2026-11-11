@@ -165,13 +165,15 @@ struct RepeatPickerEditor: View {
     @FocusState private var focus: RepeatPickerFields.Focus?
 
     init(
-        original: TaskRepeat?, anchor: DayKey?, calendar: Calendar = .current,
+        original: TaskRepeat?, anchor: DayKey?, seriesAnchor: DayKey? = nil, calendar: Calendar = .current,
         onCommit: @escaping (RepeatPickerDraft.Commit) -> Void, onCancel: @escaping () -> Void
     ) {
         self.anchor = anchor
         self.onCommit = onCommit
         self.onCancel = onCancel
-        _draft = State(initialValue: RepeatPickerDraft(original: original, anchor: anchor, calendar: calendar))
+        _draft = State(
+            initialValue: RepeatPickerDraft(
+                original: original, anchor: anchor, seriesAnchor: seriesAnchor, calendar: calendar))
     }
 
     var body: some View {

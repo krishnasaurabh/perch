@@ -231,12 +231,162 @@ final class RepeatPickerDraftTests: XCTestCase {
         XCTAssertEqual(d.commit(), .set(.weekly))
     }
 
-    func testChangingTheAnchorIsNotARepeatEdit() {
-        var d = draft(.monthly, anchor: "2026-11-09")
+    private func materializedDays(
+        _ engine: inout PlannerEngine, after day: DayKey, through end: DayKey
+    ) -> [String] {
+        var cursor = day
+        var result: [String] = []
+        while cursor < end {
+            cursor = cursor.adding(days: 1, calendar: Fixture.calendar)
+            result += engine.applyRepeats(on: cursor).compactMap { $0.day?.raw }
+        }
+        return result
+    }
+
+    func testChangingTheDateKeepsTheSeriesSchedule() throws {
+        let task = PlanTask(title: "Synthetic monthly task", day: today, repeatRule: .monthly)
+        var planner = Planner()
+        planner.tasks = [task]
+        var engine = PlannerEngine(planner: planner, now: { Fixture.now }, calendar: Fixture.calendar)
+        var d = draft(task.repeatRule, anchor: task.day)
         d.setAnchor("2026-11-30")
         XCTAssertFalse(d.hasChanges)
         XCTAssertNil(d.visibleIssue)
-        XCTAssertEqual(days(d.preview(count: 2)), ["2026-12-30", "2027-01-30"])
+        XCTAssertEqual(d.commit(), .unchanged)
+        let moved = try engine.move(task.id, from: .day(today), to: .day("2026-11-30"))
+        XCTAssertEqual(moved.repeatAnchor, today)
+        let actual = materializedDays(&engine, after: "2026-11-30", through: "2027-01-31")
+        XCTAssertEqual(actual, ["2026-12-09", "2027-01-09"])
+        XCTAssertEqual(days(d.preview(count: 2)), actual)
+    }
+
+    func testClampedOccurrencePreviewsAfterItsDayFromTheSeriesAnchor() throws {
+        let task = PlanTask(title: "Synthetic month end", day: "2027-01-31", repeatRule: .monthly)
+        var planner = Planner()
+        planner.tasks = [task]
+        var engine = PlannerEngine(planner: planner, now: { Fixture.now }, calendar: Fixture.calendar)
+        let occurrence = try XCTUnwrap(engine.applyRepeats(on: "2027-02-28").first)
+        XCTAssertEqual(occurrence.repeatAnchor, "2027-01-31")
+        var d = draft(occurrence.repeatRule, anchor: occurrence.repeatAnchor)
+        d.setAnchor(occurrence.day)
+        XCTAssertEqual(d.commit(), .unchanged)
+        let actual = materializedDays(&engine, after: "2027-02-28", through: "2027-04-30")
+        XCTAssertEqual(actual, ["2027-03-31", "2027-04-30"])
+        XCTAssertEqual(days(d.preview(count: 2)), actual)
+    }
+
+    func testTaskInitializerKeepsOccurrenceAndSeriesDatesSeparate() throws {
+        let task = PlanTask(
+            title: "Synthetic clamped occurrence", day: "2027-02-28", repeatRule: .monthly,
+            repeatAnchor: "2027-01-31")
+        var d = RepeatPickerDraft(task: task, calendar: Fixture.calendar)
+        XCTAssertEqual(d.anchor, "2027-02-28")
+        XCTAssertEqual(d.seriesAnchor, "2027-01-31")
+        XCTAssertEqual(days(d.preview(count: 2)), ["2027-03-31", "2027-04-30"])
+        XCTAssertEqual(d.commit(), .unchanged)
+    }
+
+    func testUnchangedCadencesMatchTheEngineAfterMovingTheirOccurrence() throws {
+        let cases: [(TaskRepeat, DayKey, DayKey, [String])] = [
+            (
+                TaskRepeat(unit: .day, interval: 3), today, "2026-11-10",
+                ["2026-11-12", "2026-11-15", "2026-11-18"]
+            ),
+            (
+                TaskRepeat(unit: .day, interval: 3), "2027-03-12", "2027-03-15",
+                ["2027-03-18", "2027-03-21", "2027-03-24"]
+            ),
+            (
+                TaskRepeat(unit: .week, interval: 2), "2026-10-25", "2026-11-09",
+                ["2026-11-22", "2026-12-06", "2026-12-20"]
+            ),
+            (
+                TaskRepeat(unit: .week, interval: 2), today, "2026-11-20",
+                ["2026-11-23", "2026-12-07", "2026-12-21"]
+            ),
+            (
+                TaskRepeat(unit: .week, interval: 2, weekdays: [2, 6]), today, "2026-11-18",
+                ["2026-11-23", "2026-11-27", "2026-12-07"]
+            ),
+            (
+                TaskRepeat(unit: .month, interval: 3), "2027-01-31", "2027-04-30",
+                ["2027-07-31", "2027-10-31", "2028-01-31"]
+            ),
+            (
+                TaskRepeat(unit: .month, interval: 12), "2028-02-29", "2029-02-28",
+                ["2030-02-28", "2031-02-28", "2032-02-29"]
+            ),
+        ]
+        for (rule, start, movedDay, expected) in cases {
+            let task = PlanTask(title: "Synthetic preserved schedule", day: start, repeatRule: rule)
+            var planner = Planner()
+            planner.tasks = [task]
+            let now = Fixture.calendar.date(
+                bySettingHour: 12, minute: 0, second: 0, of: start.date(calendar: Fixture.calendar))!
+            var engine = PlannerEngine(planner: planner, now: { now }, calendar: Fixture.calendar)
+            let moved = try engine.move(task.id, from: .day(start), to: .day(movedDay))
+            var d = RepeatPickerDraft(task: moved, calendar: Fixture.calendar)
+            XCTAssertEqual(d.commit(), .unchanged, rule.description)
+            XCTAssertEqual(days(d.preview()), expected, rule.description)
+            let end = try XCTUnwrap(DayKey(expected.last!))
+            XCTAssertEqual(materializedDays(&engine, after: movedDay, through: end), expected, rule.description)
+        }
+    }
+
+    func testChangingCadenceStartsAtTheEditedDayLikeTheEngine() throws {
+        let task = PlanTask(title: "Synthetic new cadence", day: today, repeatRule: .monthly)
+        var planner = Planner()
+        planner.tasks = [task]
+        var engine = PlannerEngine(planner: planner, now: { Fixture.now }, calendar: Fixture.calendar)
+        var d = RepeatPickerDraft(task: task, calendar: Fixture.calendar)
+        d.setAnchor("2026-11-30")
+        d.select(.quarterly)
+        let action = try XCTUnwrap(d.commit()?.action(taskID: task.id))
+        _ = try engine.move(task.id, from: .day(today), to: .day("2026-11-30"))
+        try engine.execute(action)
+        XCTAssertEqual(try engine.task(task.id).repeatAnchor, "2026-11-30")
+        let actual = materializedDays(&engine, after: "2026-11-30", through: "2027-05-30")
+        XCTAssertEqual(actual, ["2027-02-28", "2027-05-30"])
+        XCTAssertEqual(days(d.preview(count: 2)), actual)
+    }
+
+    func testReturningToOriginalCadenceOrCancellingRestoresThePreservedSchedule() {
+        var d = RepeatPickerDraft(
+            original: .weekly, anchor: "2026-11-20", seriesAnchor: today, calendar: Fixture.calendar)
+        XCTAssertEqual(d.summary, "Every week on Monday")
+        d.select(.monthly)
+        XCTAssertEqual(days(d.preview(count: 1)), ["2026-12-20"])
+        d.select(.weekly)
+        XCTAssertEqual(d.commit(), .unchanged)
+        XCTAssertEqual(days(d.preview(count: 1)), ["2026-11-23"])
+        d.select(.monthly)
+        d.revert()
+        XCTAssertEqual(d.anchor, "2026-11-20", "The date field still owns the edited occurrence day")
+        XCTAssertEqual(d.seriesAnchor, today)
+        XCTAssertEqual(d.summary, "Every week on Monday")
+        XCTAssertEqual(d.commit(), .unchanged)
+        XCTAssertEqual(days(d.preview(count: 1)), ["2026-11-23"])
+    }
+
+    func testAnOccurrenceMovedBeforeTheSeriesStartDoesNotPreviewTheStartAsANewCopy() throws {
+        let task = PlanTask(title: "Synthetic earlier move", day: "2026-11-30", repeatRule: .weekly)
+        var planner = Planner()
+        planner.tasks = [task]
+        var engine = PlannerEngine(planner: planner, now: { Fixture.now }, calendar: Fixture.calendar)
+        let moved = try engine.move(task.id, from: .day("2026-11-30"), to: .day(today))
+        let d = RepeatPickerDraft(task: moved, calendar: Fixture.calendar)
+        let actual = materializedDays(&engine, after: today, through: "2026-12-14")
+        XCTAssertEqual(actual, ["2026-12-07", "2026-12-14"])
+        XCTAssertEqual(days(d.preview(count: 2)), actual)
+    }
+
+    func testCompletionRelativePreviewUsesTheEditedDayNotTheSeriesAnchor() {
+        var d = RepeatPickerDraft(
+            original: TaskRepeat(unit: .month, fromCompletion: true), anchor: "2027-02-28",
+            seriesAnchor: "2027-01-31", calendar: Fixture.calendar)
+        XCTAssertEqual(d.preview(), .afterCompletion(completed: "2027-02-28", next: "2027-03-28"))
+        d.setAnchor("2027-03-02")
+        XCTAssertEqual(d.preview(), .afterCompletion(completed: "2027-03-02", next: "2027-04-02"))
         XCTAssertEqual(d.commit(), .unchanged)
     }
 
