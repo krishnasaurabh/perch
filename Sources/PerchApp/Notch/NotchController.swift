@@ -30,6 +30,23 @@ enum NotchPage: String, CaseIterable, Identifiable {
 @MainActor
 final class NotchModel: ObservableObject {
     @Published var expanded = false
+    /// Hide immediately even when writing the disabled preference fails. Only explicit re-enabling clears it.
+    @Published private(set) var taskCountSuppressed = false
+
+    func hideTaskCount(in store: PlannerStore) {
+        taskCountSuppressed = true
+        store.updatePrefs { $0.notchTaskCount = false }
+    }
+
+    func taskCountPreferenceChanged(enabled: Bool) {
+        if enabled { taskCountSuppressed = false }
+    }
+
+    func glance(in store: PlannerStore, expanded: Bool, activityVisible: Bool) -> NotchGlancePresentation? {
+        guard !taskCountSuppressed else { return nil }
+        return NotchGlancePresentation(
+            planner: store.planner, today: store.today, expanded: expanded, activityVisible: activityVisible)
+    }
     @Published var page: NotchPage = .home
     @Published var activity: PresentedNotchActivity?
     @Published private(set) var missedReminder: PresentedNotchActivity?
@@ -268,6 +285,17 @@ final class NotchController {
         model.$activity.merge(with: model.$missedReminder)
             .sink { [weak self] _ in DispatchQueue.main.async { self?.updateMouseRouting() } }
             .store(in: &cancellables)
+        // A count toggle, completion, timer change or day rollover can remove a capsule
+        // beneath a stationary pointer. Re-route after publication stores the incoming value.
+        model.$taskCountSuppressed.sink { [weak self] _ in
+            DispatchQueue.main.async { self?.updateMouseRouting() }
+        }.store(in: &cancellables)
+        store.$planner.map(\.preferences.notchTaskCount).removeDuplicates().dropFirst().sink { [weak self] enabled in
+            self?.model.taskCountPreferenceChanged(enabled: enabled)
+        }.store(in: &cancellables)
+        store.$planner.combineLatest(store.$today).sink { [weak self] _, _ in
+            DispatchQueue.main.async { self?.updateMouseRouting() }
+        }.store(in: &cancellables)
         store.$planner.map(\.preferences.notchOpenTrigger).removeDuplicates().dropFirst().sink { [weak self] _ in
             self?.cancelHover()
         }.store(in: &cancellables)
@@ -514,7 +542,10 @@ final class NotchController {
         let active = model.screenID == slot.state.id
         return slot.state.geometry.shapeContains(
             p, expanded: active && model.expanded, timer: timerShowing(),
-            activity: active && model.displayedActivity != nil)
+            activity: active && model.displayedActivity != nil,
+            glance: model.glance(
+                in: store, expanded: active && model.expanded,
+                activityVisible: active && model.displayedActivity != nil) != nil)
     }
 
     private func hoverRect(_ slot: Slot) -> NSRect {
