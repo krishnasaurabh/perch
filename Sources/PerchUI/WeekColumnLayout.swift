@@ -6,7 +6,21 @@ public enum WeekColumnLayout {
     public static let dragHint = "Drag to move. Double-click for details."
     public static let pastHint = "Older days stay unchanged in your history."
 
-    /// Chip tooltip: the full title first (chips truncate at two lines), then the hint that applies.
+    /// Seven civil days beginning on the user's first weekday, based on the
+    /// engine's logical today (already adjusted for its reset hour).
+    public static func days(today: DayKey, weekOffset: Int = 0, calendar: Calendar = .current) -> [DayKey] {
+        let distance = (today.weekday(calendar: calendar) - calendar.firstWeekday + 7) % 7
+        let start = today.adding(days: weekOffset * 7 - distance, calendar: calendar)
+        return (0..<7).map { start.adding(days: $0, calendar: calendar) }
+    }
+
+    /// Scroll rather than squeeze the text or reduce its font size. Inbox is a
+    /// separate view and never consumes one of the seven calendar columns.
+    public static func columnWidth(available: Double) -> Double {
+        max(248, (available - 6 * ThemeTokens.gutter) / 7)
+    }
+
+    /// Chip tooltip: the full title first, then the hint that applies.
     public static func chipHelp(title: String, past: Bool) -> String {
         let hint = past ? pastHint : dragHint
         let t = title.trimmingCharacters(in: .whitespacesAndNewlines)
