@@ -130,13 +130,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func showWelcome() {
         WindowHost.show("welcome", title: "Welcome to Perch", size: CGSize(width: 560, height: 520)) {
-            WelcomeView { [weak self] in
-                self?.store.updatePrefs { $0.welcomeCompleted = true }
-                WindowHost.windows["welcome"]?.close()
-                NotificationCenter.default.post(name: .perchOpenWorkspace, object: NotchPage.home)
-            }
-            .environmentObject(store).environmentObject(services)
+            WelcomeView { [weak self] in self?.completeWelcome() }
+                .environmentObject(store).environmentObject(services)
         }
+    }
+
+    func completeWelcome() {
+        store.updatePrefs {
+            $0.welcomeCompleted = true
+            $0.catchScreenshots = true
+        }
+        WindowHost.windows["welcome"]?.close()
+        NotificationCenter.default.post(name: .perchOpenWorkspace, object: NotchPage.home)
     }
 }
 
