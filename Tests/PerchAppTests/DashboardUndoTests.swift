@@ -36,8 +36,8 @@ final class DashboardUndoTests: XCTestCase {
         defer { fixture.close() }
         let window = try await fixture.open(tab: "History")
         let beforeEditing = try fixture.file.load()
-        let field = try XCTUnwrap(
-            try await Self.control(named: "Search history", role: .textField, in: window) as? NSTextField)
+        let fieldNode = try await Self.control(named: "Search history", role: .textField, in: window)
+        let field = try XCTUnwrap(fieldNode as? NSTextField)
         XCTAssertTrue(window.makeFirstResponder(field))
         let editor = try XCTUnwrap(field.currentEditor() as? NSTextView)
         XCTAssertTrue(window.firstResponder === editor)
