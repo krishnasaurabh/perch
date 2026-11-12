@@ -44,11 +44,22 @@ def run(label, extra):
     log_path = out / ('%s.log' % label)
     env = dict(os.environ, PERCH_DATA=str(data), MATRIX_OUTPUT=str(out),
                SWIFT_BACKTRACE='enable=yes')
+    command = [binary, '-AppleKeyboardUIMode', '3'] + extra
+    # Opt in only on the diagnostic branch. Unset GITHUB_REF and all other refs
+    # retain the normal child invocation, including after a cherry-pick.
+    if os.environ.get('GITHUB_REF') == 'refs/heads/t_7ef2077d-clickfix' and label == 'matrix':
+        command = [
+            'lldb', '--batch', '-o', 'settings set target.disable-aslr false',
+            '-o', 'run',
+            '-o', 'script p = lldb.debugger.GetSelectedTarget().GetProcess(); '
+                  'lldb.debugger.HandleCommand("quit %d" % '
+                  '(p.GetExitStatus() if p.GetState() == lldb.eStateExited else 1))',
+            '-k', 'thread backtrace all', '-k', 'quit 1', '--'] + command
+        print('all-page matrix: out-of-process LLDB diagnostics enabled')
     print('running all-page matrix probe: %s' % label)
     with open(log_path, 'w') as handle:
         result = subprocess.run(
-            [binary, '-AppleKeyboardUIMode', '3'] + extra,
-            env=env, stdout=handle, stderr=subprocess.STDOUT, timeout=300, check=False)
+            command, env=env, stdout=handle, stderr=subprocess.STDOUT, timeout=300, check=False)
     lines = log_path.read_text(errors='replace').splitlines()
     print('--- %s exit=%s lines=%d ---' % (label, result.returncode, len(lines)))
     for line in lines[-120:]:

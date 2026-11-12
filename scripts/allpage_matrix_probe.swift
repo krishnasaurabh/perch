@@ -1671,27 +1671,6 @@ final class MatrixPasteboard: PasteboardAccess {
 
 // MARK: - Entry point
 
-// Preserve the interrupted native stack, then restore the original fatal signal. This is
-// diagnostic only: a trap still terminates the probe and cannot turn a failure into a pass.
-nonisolated func mxTrapBacktrace(_ trappedSignal: Int32) {
-    let heading: StaticString = "matrix SIGTRAP native backtrace:\n"
-    _ = Darwin.write(STDERR_FILENO, heading.utf8Start, heading.utf8CodeUnitCount)
-    withUnsafeTemporaryAllocation(of: UnsafeMutableRawPointer?.self, capacity: 128) { frames in
-        let count = backtrace(frames.baseAddress!, Int32(frames.count))
-        backtrace_symbols_fd(frames.baseAddress!, count, STDERR_FILENO)
-    }
-    signal(trappedSignal, SIG_DFL)
-    raise(trappedSignal)
-}
-
-nonisolated func mxUncaughtException(_ exception: NSException) {
-    mxLog("matrix uncaught exception: \(exception.name.rawValue) \(exception.reason ?? "")")
-    for frame in exception.callStackSymbols { mxLog(frame) }
-}
-
-signal(SIGTRAP, mxTrapBacktrace)
-NSSetUncaughtExceptionHandler(mxUncaughtException)
-
 let matrixApplication = NSApplication.shared
 matrixApplication.setActivationPolicy(.accessory)
 mxLog("matrix probe start (smoke=\(CommandLine.arguments.contains("--ax-smoke")))")
