@@ -51,7 +51,9 @@ struct AgentsSettings: View {
                     .enabled
                 ).lineLimit(2)
                 Spacer()
-                Button(copied == "cmd" ? "Copied" : "Copy") { copy(AgentConnector.terminalCommand, "cmd") }
+                Button(AppL10n.text(copied == "cmd" ? "Copied" : "Copy")) {
+                    copy(AgentConnector.terminalCommand, "cmd")
+                }
             }
             Text("Scripts can also open perch://add?title=Your%20task").font(Theme.meta).foregroundStyle(
                 Theme.secondary)

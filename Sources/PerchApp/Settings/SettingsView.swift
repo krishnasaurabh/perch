@@ -152,9 +152,8 @@ struct SettingsView: View {
         Section("Apple Intelligence") {
             Toggle("Auto-sort new tasks", isOn: pref(\.sortWithAI)).disabled(!AISorter.isSupported)
             Text(
-                AISorter.isSupported
-                    ? "Uses the on-device model to suggest a priority and project for new tasks. Your explicit #project and !priority choices take precedence."
-                    : AISorter.unavailableReason
+                Self.appleIntelligenceExplanation(
+                    isSupported: AISorter.isSupported, unavailableReason: AISorter.unavailableReason)
             )
             .font(Theme.meta).foregroundStyle(Theme.secondary)
         }
@@ -302,6 +301,16 @@ struct SettingsView: View {
             LabeledContent("Version", value: AppInfo.version)
             Button("Quit Perch") { NSApp.terminate(nil) }
         }
+    }
+
+    static func appleIntelligenceExplanation(
+        isSupported: Bool, unavailableReason: String, locale: Locale? = nil
+    ) -> String {
+        isSupported
+            ? AppL10n.text(
+                "Uses the on-device model to suggest a priority and project for new tasks. Your explicit #project and !priority choices take precedence.",
+                locale: locale)
+            : unavailableReason
     }
 
     /// "Midnight" for 0, otherwise the hour in the user's clock style ("4 AM" or "04:00").

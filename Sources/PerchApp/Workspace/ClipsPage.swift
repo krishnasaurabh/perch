@@ -191,7 +191,7 @@ private struct ClipCard: View {
                 } label: {
                     VStack(alignment: .leading, spacing: 5) {
                         ClipPreview(content: clip.content, thumbnail: clip.thumbnail)
-                        Text(copied ? "Copied" : clip.title).font(Theme.meta).lineLimit(1)
+                        Text(clip.displayTitle(copied: copied)).font(Theme.meta).lineLimit(1)
                             .foregroundStyle(Theme.text).frame(width: 132, alignment: .leading)
                     }.contentShape(Rectangle())
                 }
@@ -241,7 +241,7 @@ private struct ClipCard: View {
     }
 
     @ViewBuilder private var clipActions: some View {
-        Button(clip.pinned ? "Unpin" : "Pin") { clips.togglePin(clip.id) }
+        Button(AppL10n.text(clip.pinned ? "Unpin" : "Pin")) { clips.togglePin(clip.id) }
         Button("Copy") { clips.copy(clip) }
         if let url = clips.clipURL(clip) {
             Button("Open") { clips.open(clip) }

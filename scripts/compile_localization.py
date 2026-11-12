@@ -45,6 +45,21 @@ def compile_catalog(source, destination):
         with (directory / "Localizable.stringsdict").open("wb") as stream:
             plistlib.dump(stringsdict, stream, sort_keys=True)
 
+    info_path = destination / "Info.plist"
+    if info_path.exists():
+        with info_path.open("rb") as stream:
+            info = plistlib.load(stream)
+    else:
+        info = {}
+    info.setdefault("CFBundleInfoDictionaryVersion", "6.0")
+    info.setdefault("CFBundleIdentifier", "app.perch.mac.localization")
+    info["CFBundlePackageType"] = "BNDL"
+    info["CFBundleDevelopmentRegion"] = "en"
+    info["CFBundleLocalizations"] = ["en", "zz"]
+    destination.mkdir(parents=True, exist_ok=True)
+    with info_path.open("wb") as stream:
+        plistlib.dump(info, stream, sort_keys=True)
+
 
 def main():
     if len(sys.argv) != 3:

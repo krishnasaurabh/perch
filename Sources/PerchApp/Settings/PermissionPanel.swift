@@ -188,10 +188,12 @@ struct PermissionPanel: View {
 
     @ViewBuilder private func action(_ feature: PermissionFeature, _ state: PermissionState) -> some View {
         if state == .notDetermined {
-            Button(model.requesting == feature ? "Requesting…" : "Allow") { Task { await model.request(feature) } }
-                .buttonStyle(PillStyle(disabledReason: "Wait for the current permission request."))
-                .disabled(model.requesting != nil)
-                .accessibilityLabel(AppL10n.format("Allow %@", feature.title))
+            Button(AppL10n.text(model.requesting == feature ? "Requesting…" : "Allow")) {
+                Task { await model.request(feature) }
+            }
+            .buttonStyle(PillStyle(disabledReason: "Wait for the current permission request."))
+            .disabled(model.requesting != nil)
+            .accessibilityLabel(AppL10n.format("Allow %@", feature.title))
         } else if state != .checking {
             Button("Settings…") {
                 if !NSWorkspace.shared.open(feature.settingsURL) {

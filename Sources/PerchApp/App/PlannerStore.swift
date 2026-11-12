@@ -122,7 +122,7 @@ final class PlannerStore: ObservableObject {
             // The file remains authoritative and rejects every mutation until repaired.
             // Display the validated draft without publishing or saving it as a new revision.
             loaded = recovery.recoveredPlanner
-            loadError = .planner(recovery.localizedDescription)
+            loadError = .planner(recovery.perchPresentationDetail)
         } catch {
             loadError = .planner(error.perchPresentationDetail)
             loadNeedsRetry = true
@@ -449,7 +449,7 @@ final class PlannerStore: ObservableObject {
             }
         case .failure(let recovery as PlannerRecoveryError):
             loadNeedsRetry = false
-            loadFailure = .planner(recovery.localizedDescription)
+            loadFailure = .planner(recovery.perchPresentationDetail)
             lastError = loadFailure
             if recovery.recoveredPlanner != planner {
                 epoch += 1

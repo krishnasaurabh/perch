@@ -160,7 +160,7 @@ private struct TaskDetailsEditor: View {
 
     private var footer: some View {
         HStack(spacing: Theme.gutter) {
-            Text(readOnly ? "History" : (editor.hasChanges ? "Unsaved changes" : "Task details"))
+            Text(AppL10n.text(readOnly ? "History" : (editor.hasChanges ? "Unsaved changes" : "Task details")))
                 .font(Theme.meta).foregroundStyle(Theme.secondary).lineLimit(1)
             Spacer(minLength: Theme.gutter)
             Button("Cancel") { dismiss() }

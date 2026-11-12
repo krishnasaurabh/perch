@@ -71,10 +71,11 @@ struct FocusCard: View {
                 Button {
                     store.apply { e in running ? try e.pauseTimer() : try e.resumeTimer() }
                 } label: {
-                    Label(running ? "Pause" : "Continue", systemImage: running ? "pause.fill" : "play.fill")
+                    Label(
+                        AppL10n.text(running ? "Pause" : "Continue"), systemImage: running ? "pause.fill" : "play.fill")
                 }
                 .buttonStyle(PillStyle(prominent: true))
-                .help(running ? "Pause timer" : "Continue timer")
+                .help(AppL10n.text(running ? "Pause timer" : "Continue timer"))
                 if f.limit != nil {
                     GlassButton(symbol: "goforward.5", help: "Add five minutes", size: 26) {
                         store.apply { try $0.extendTimer(minutes: 5) }

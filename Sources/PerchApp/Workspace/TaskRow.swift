@@ -110,7 +110,7 @@ struct TaskRow: View {
                 "Use actions to complete or reopen, view details, focus, or delete this task. Deletion can be undone."
             )
             .accessibilityActions {
-                Button(task.done ? "Reopen" : "Complete", action: toggle)
+                Button(AppL10n.text(task.done ? "Reopen" : "Complete"), action: toggle)
                 Button("Details") { model.detailsTaskID = task.id }
                 Button("Delete", role: .destructive, action: delete)
                 if canFocus { Button("Focus", action: startFocus) }
@@ -151,7 +151,7 @@ struct TaskRow: View {
         )
         .accessibilityValue(task.done || ticked ? AppL10n.text("Completed") : AppL10n.text("Not completed"))
         .accessibilityIdentifier("task-complete-\(task.id)")
-        .help(task.done ? "Reopen task" : "Complete task")
+        .help(AppL10n.text(task.done ? "Reopen task" : "Complete task"))
     }
 
     private var actions: some View {

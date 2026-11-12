@@ -106,6 +106,42 @@ class LocalizationTests(unittest.TestCase):
         errors = (ROOT / 'Sources/PerchApp/App/AppErrors.swift').read_text()
         self.assertIn('Self.presentedDetail(detail)', errors)
 
+    def test_owned_errors_and_mixed_dynamic_labels_use_localized_presentation(self):
+        app = json.loads((ROOT / 'Sources/PerchApp/Resources/Localizable.xcstrings').read_text())['strings']
+        for prefix in ('Another process is updating the planner.',
+                       'Unable to read planner data at %@: %@.',
+                       'Unable to load planner data at %@: %@.',
+                       'Planner schema version %lld is not supported',
+                       'Planner data needs recovery. Kept %lld valid record(s)',
+                       'Uses the on-device model to suggest a priority', 'No plans'):
+            self.assertTrue(any(key.startswith(prefix) for key in app), prefix)
+
+        errors = (ROOT / 'Sources/PerchApp/App/AppErrors.swift').read_text()
+        self.assertIn('is PlannerStorageBusy', errors)
+        for type_name in ('PlannerDataError', 'PlannerSchemaError', 'PlannerRecoveryError'):
+            self.assertIn(f'as? {type_name}', errors)
+        store = (ROOT / 'Sources/PerchApp/App/PlannerStore.swift').read_text()
+        self.assertNotIn('.planner(recovery.localizedDescription)', store)
+        settings = (ROOT / 'Sources/PerchApp/Settings/SettingsView.swift').read_text()
+        self.assertIn('Self.appleIntelligenceExplanation(', settings)
+        clips = (ROOT / 'Sources/PerchApp/Workspace/ClipsPage.swift').read_text()
+        self.assertIn('clip.displayTitle(copied: copied)', clips)
+
+        verbatim_branches = {
+            'Settings/PermissionPanel.swift': 'Button(model.requesting == feature ? "Requesting…" : "Allow")',
+            'Settings/AgentsSettings.swift': 'Button(copied == "cmd" ? "Copied" : "Copy")',
+            'Settings/HistoryList.swift': 'Text(query.isEmpty ? "Finished days show up here."',
+            'Workspace/WeekPage.swift': 'Text(anchor == 0 ? "This week" : "Week")',
+            'Workspace/TaskDetailsSheet.swift': 'Text(readOnly ? "History"',
+            'Workspace/TaskRow.swift': 'Button(task.done ? "Reopen" : "Complete"',
+            'Workspace/HomeCards.swift': 'Label(running ? "Pause" : "Continue"',
+            'Workspace/ClipsPage.swift': 'Button(clip.pinned ? "Unpin" : "Pin")',
+        }
+        for relative, forbidden in verbatim_branches.items():
+            self.assertNotIn(forbidden, (ROOT / 'Sources/PerchApp' / relative).read_text(), relative)
+        task_row = (ROOT / 'Sources/PerchApp/Workspace/TaskRow.swift').read_text()
+        self.assertNotIn('.help(task.done ? "Reopen task" : "Complete task")', task_row)
+
     def test_week_measurement_hooks_match_production_source(self):
         from scripts import week_measurement_hooks
         source = (ROOT / 'Sources/PerchApp/Workspace/WeekPage.swift').read_text()

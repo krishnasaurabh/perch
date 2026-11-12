@@ -33,6 +33,7 @@ LOCAL_HELPER = re.compile(r'(?<![A-Za-z])(?:text|format)\(\s*"((?:\\.|[^"\\])*)"
 ENUM_RAW = re.compile(r'(?:\bcase\s+|,\s*)[A-Za-z_]\w*\s*=\s*"((?:\\.|[^"\\])*)"')
 TERNARY = re.compile(r'\?\s*"((?:\\.|[^"\\])*)"\s*:\s*"((?:\\.|[^"\\])*)"', re.S)
 EXAMPLE_PROMPTS = re.compile(r'\bstatic\s+let\s+examplePrompts\s*=\s*\[(.*?)\]', re.S)
+EMPTY_STATE = re.compile(r'\bEmptyStateView\(\s*(.*?),\s*symbol\s*:', re.S)
 QUOTED = re.compile(r'"((?:\\.|[^"\\])*)"')
 PRESENTATION = re.compile(
     r'AppL10n|PerchL10n|Text\(|Label\(|Button\(|Toggle\(|Picker\(|Menu\(|Section\(|'
@@ -103,6 +104,13 @@ def human_app_strings():
         # Prompts are displayed through AppL10n but copied in their original
         # English form, so extract their stable array entries separately.
         for match in EXAMPLE_PROMPTS.finditer(text):
+            for raw in QUOTED.findall(match.group(1)):
+                value = key(raw)
+                if value and any(character.isalpha() for character in value):
+                    found.add(value)
+        # EmptyStateView performs the lookup internally, so every literal in its
+        # message expression is a catalog key, including nested fallback branches.
+        for match in EMPTY_STATE.finditer(text):
             for raw in QUOTED.findall(match.group(1)):
                 value = key(raw)
                 if value and any(character.isalpha() for character in value):

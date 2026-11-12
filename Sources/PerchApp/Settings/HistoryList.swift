@@ -22,8 +22,10 @@ struct HistoryList: View {
                 }.frame(width: 150)
             }
             if groups.isEmpty {
-                Text(query.isEmpty ? "Finished days show up here." : "No matches. Change the search text.")
-                    .foregroundStyle(Theme.secondary)
+                Text(
+                    AppL10n.text(query.isEmpty ? "Finished days show up here." : "No matches. Change the search text.")
+                )
+                .foregroundStyle(Theme.secondary)
             }
             ForEach(groups, id: \.key) { day, tasks in
                 VStack(alignment: .leading, spacing: 4) {

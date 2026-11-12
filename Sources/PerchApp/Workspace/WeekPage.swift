@@ -20,7 +20,7 @@ struct WeekPage: View {
                 GlassButton(symbol: "chevron.left", help: "Previous week") { go(anchor - 1) }
                     .keyboardShortcut(.leftArrow, modifiers: [.command, .option])
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(anchor == 0 ? "This week" : "Week").font(Theme.heading)
+                    Text(AppL10n.text(anchor == 0 ? "This week" : "Week")).font(Theme.heading)
                     Text(
                         AppL10n.format(
                             "%@ – %@", label(days[0], format: "MMM d"), label(days[6], format: "MMM d, yyyy"))
@@ -282,7 +282,7 @@ struct WeekChip: View {
     @ViewBuilder private var actions: some View {
         Button("Details…") { model.detailsTaskID = task.id }
         if let completion {
-            Button(task.done ? "Uncheck task" : "Check off task") { store.send(completion) }
+            Button(AppL10n.text(task.done ? "Uncheck task" : "Check off task")) { store.send(completion) }
         }
         if !past && !task.done {
             if task.day == store.today {

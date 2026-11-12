@@ -287,7 +287,7 @@ class TodayInteractionTests(unittest.TestCase):
         for expected in ('accessibilityIdentifier("task-row-\\(task.id)")',
                          '.accessibilityLabel(task.title)', '.accessibilityValue(accessibilitySummary)',
                          '.accessibilityHint(', '.accessibilityActions {',
-                         'Button(task.done ? "Reopen" : "Complete", action: toggle)',
+                         'Button(AppL10n.text(task.done ? "Reopen" : "Complete"), action: toggle)',
                          'Button("Details") { model.detailsTaskID = task.id }',
                          'Button("Delete", role: .destructive, action: delete)',
                          'if canFocus { Button("Focus", action: startFocus) }'):

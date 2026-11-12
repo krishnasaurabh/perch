@@ -228,6 +228,12 @@ if sys.argv[1:3] == ["notarytool", "submit"]:
         pseudo = (resources / "zz.lproj" / "Localizable.strings").read_text()
         self.assertIn('"General" = "General";', english)
         self.assertIn('"General" = "⟦Gënëràl ·~⟧";', pseudo)
+        with (resources / "Info.plist").open("rb") as stream:
+            native = plistlib.load(stream)
+        self.assertEqual(native["CFBundlePackageType"], "BNDL")
+        self.assertEqual(native["CFBundleDevelopmentRegion"], "en")
+        self.assertEqual(native["CFBundleLocalizations"], ["en", "zz"])
+        self.assertTrue(native["CFBundleIdentifier"])
         with (resources / "en.lproj" / "Localizable.stringsdict").open("rb") as stream:
             plurals = plistlib.load(stream)
         self.assertEqual(plurals["%lld tasks"]["count"]["one"], "%lld task")
@@ -238,6 +244,9 @@ if sys.argv[1:3] == ["notarytool", "submit"]:
             for language in ("en", "zz"):
                 self.assertTrue((bundle / f"{language}.lproj" / "Localizable.strings").is_file())
                 self.assertTrue((bundle / f"{language}.lproj" / "Localizable.stringsdict").is_file())
+            with (bundle / "Info.plist").open("rb") as stream:
+                module_native = plistlib.load(stream)
+            self.assertEqual(module_native["CFBundleLocalizations"], ["en", "zz"])
         self.assertEqual(stat.S_IMODE((app / "Contents" / "MacOS" / "Perch").stat().st_mode), 0o755)
         self.assertEqual(stat.S_IMODE((app / "Contents" / "Info.plist").stat().st_mode), 0o644)
         sign = self.calls("codesign")[0]["args"]

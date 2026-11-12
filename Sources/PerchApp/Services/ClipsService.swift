@@ -45,6 +45,10 @@ final class ClipsService: ObservableObject {
             case .image: return AppL10n.text("Copied image", locale: locale)
             }
         }
+
+        func displayTitle(copied: Bool, locale: Locale? = nil) -> String {
+            copied ? AppL10n.text("Copied", locale: locale) : localizedTitle(locale: locale)
+        }
     }
 
     /// What the undo toast shows while a let-go can still be taken back.

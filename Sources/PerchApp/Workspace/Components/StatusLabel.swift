@@ -1,5 +1,4 @@
 import Foundation
-import PerchUI
 import SwiftUI
 
 /// A status is always a named state plus a symbol; hue is supplementary.
@@ -29,11 +28,10 @@ struct StatusLabel: View {
     let title: String
     let tone: Tone
     var locale: Locale? = nil
-    @ScaledMetric(relativeTo: .caption) private var metaSize = ThemeTokens.TypeSize.meta
 
     var body: some View {
         Label(AppL10n.text(title, locale: locale), systemImage: tone.symbol)
-            .font(.system(size: metaSize, weight: .medium))
+            .font(.caption.weight(.medium))
             .foregroundStyle(tone.color)
             .fixedSize(horizontal: false, vertical: true)
             .accessibilityElement(children: .ignore)

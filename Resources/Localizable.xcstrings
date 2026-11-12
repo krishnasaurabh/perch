@@ -1693,6 +1693,23 @@
         }
       }
     },
+    "Another process is updating the planner. Please try again.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Another process is updating the planner. Please try again."
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Ånöthër pröcëss ïs üpdàtïng thë plànnër. Plëàsë try àgàïn. ·~⟧"
+          }
+        }
+      }
+    },
     "Any active focus session will stop and its elapsed time will be recorded.": {
       "extractionState": "manual",
       "localizations": {
@@ -5144,6 +5161,23 @@
         }
       }
     },
+    "No plans": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No plans"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Nö plàns ·~⟧"
+          }
+        }
+      }
+    },
     "No projects yet. Add #project to a new task.": {
       "extractionState": "manual",
       "localizations": {
@@ -6245,6 +6279,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "⟦Plànnër chàngëd ëlsëwhërë. Rëtry Rëmïndërs sync wïth thë làtëst vërsïön. ·~⟧"
+          }
+        }
+      }
+    },
+    "Planner data needs recovery. Kept %lld valid record(s) in a read-only draft. Quarantined %lld invalid record(s) and %lld invalid field(s). Valid records are available read-only; changes cannot be saved. The original planner is unchanged. An exact copy, including malformed records, is at %@. A separate valid-record draft is at %@; rejected locations are listed at %@. Quit Perch and repair the original using those files, or explicitly restore a known-good backup. Do not replace the original with the draft unless you accept omitting the rejected records.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Planner data needs recovery. Kept %lld valid record(s) in a read-only draft. Quarantined %lld invalid record(s) and %lld invalid field(s). Valid records are available read-only; changes cannot be saved. The original planner is unchanged. An exact copy, including malformed records, is at %@. A separate valid-record draft is at %@; rejected locations are listed at %@. Quit Perch and repair the original using those files, or explicitly restore a known-good backup. Do not replace the original with the draft unless you accept omitting the rejected records."
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Plànnër dàtà nëëds rëcövëry. Këpt %lld vàlïd rëcörd(s) ïn à rëàd-önly dràft. Qüàràntïnëd %lld ïnvàlïd rëcörd(s) ànd %lld ïnvàlïd fïëld(s). Vàlïd rëcörds àrë àvàïlàblë rëàd-önly; chàngës cànnöt bë sàvëd. Thë örïgïnàl plànnër ïs ünchàngëd. Ån ëxàct cöpy, ïnclüdïng màlförmëd rëcörds, ïs àt %@. Å sëpàràtë vàlïd-rëcörd dràft ïs àt %@; rëjëctëd löcàtïöns àrë lïstëd àt %@. Qüït Përch ànd rëpàïr thë örïgïnàl üsïng thösë fïlës, ör ëxplïcïtly rëstörë à knöwn-gööd bàcküp. Dö nöt rëplàcë thë örïgïnàl wïth thë dràft ünlëss yöü àccëpt ömïttïng thë rëjëctëd rëcörds. ·~⟧"
+          }
+        }
+      }
+    },
+    "Planner schema version %lld is not supported by this document reader. Open it with a compatible Perch version. No data was rewritten or restored.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Planner schema version %lld is not supported by this document reader. Open it with a compatible Perch version. No data was rewritten or restored."
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Plànnër schëmà vërsïön %lld ïs nöt süppörtëd by thïs döcümënt rëàdër. Öpën ït wïth à cömpàtïblë Përch vërsïön. Nö dàtà wàs rëwrïttën ör rëstörëd. ·~⟧"
           }
         }
       }
@@ -9163,6 +9231,40 @@
         }
       }
     },
+    "Unable to load planner data at %@: %@. The original is unchanged. An exact recovery copy is saved at %@. No reduced planner was loaded or saved over the original. Quit Perch and repair the file or explicitly restore a known-good backup before saving.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unable to load planner data at %@: %@. The original is unchanged. An exact recovery copy is saved at %@. No reduced planner was loaded or saved over the original. Quit Perch and repair the file or explicitly restore a known-good backup before saving."
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Ünàblë tö löàd plànnër dàtà àt %@: %@. Thë örïgïnàl ïs ünchàngëd. Ån ëxàct rëcövëry cöpy ïs sàvëd àt %@. Nö rëdücëd plànnër wàs löàdëd ör sàvëd övër thë örïgïnàl. Qüït Përch ànd rëpàïr thë fïlë ör ëxplïcïtly rëstörë à knöwn-gööd bàcküp bëförë sàvïng. ·~⟧"
+          }
+        }
+      }
+    },
+    "Unable to load planner data at %@: %@. The original is unchanged. No reduced planner was loaded or saved over the original. Quit Perch and repair the file or explicitly restore a known-good backup before saving.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unable to load planner data at %@: %@. The original is unchanged. No reduced planner was loaded or saved over the original. Quit Perch and repair the file or explicitly restore a known-good backup before saving."
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Ünàblë tö löàd plànnër dàtà àt %@: %@. Thë örïgïnàl ïs ünchàngëd. Nö rëdücëd plànnër wàs löàdëd ör sàvëd övër thë örïgïnàl. Qüït Përch ànd rëpàïr thë fïlë ör ëxplïcïtly rëstörë à knöwn-gööd bàcküp bëförë sàvïng. ·~⟧"
+          }
+        }
+      }
+    },
     "Unable to load planner data.": {
       "extractionState": "manual",
       "localizations": {
@@ -9193,6 +9295,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "⟦Ünàblë tö prësërvë cörrüpt plànnër dàtà: %@. Thë örïgïnàl wàs nöt chàngëd. ·~⟧"
+          }
+        }
+      }
+    },
+    "Unable to read planner data at %@: %@. The original was not changed; check file access before retrying. No empty or reduced planner was saved.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unable to read planner data at %@: %@. The original was not changed; check file access before retrying. No empty or reduced planner was saved."
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Ünàblë tö rëàd plànnër dàtà àt %@: %@. Thë örïgïnàl wàs nöt chàngëd; chëck fïlë àccëss bëförë rëtryïng. Nö ëmpty ör rëdücëd plànnër wàs sàvëd. ·~⟧"
           }
         }
       }
@@ -9499,6 +9618,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "⟦Üsë ⌥N ·~⟧"
+          }
+        }
+      }
+    },
+    "Uses the on-device model to suggest a priority and project for new tasks. Your explicit #project and !priority choices take precedence.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uses the on-device model to suggest a priority and project for new tasks. Your explicit #project and !priority choices take precedence."
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Üsës thë ön-dëvïcë mödël tö süggëst à prïörïty ànd pröjëct för nëw tàsks. Yöür ëxplïcït #pröjëct ànd !prïörïty chöïcës tàkë prëcëdëncë. ·~⟧"
           }
         }
       }
