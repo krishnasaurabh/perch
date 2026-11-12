@@ -22,6 +22,31 @@ struct MatrixFailure: Error, CustomStringConvertible {
     var description: String { label }
 }
 
+/// Unbuffered, unconditional log line: a killed probe still shows how far it got.
+func mxLog(_ line: String) { FileHandle.standardOutput.write(Data((line + "\n").utf8)) }
+
+/// The stage name a watchdog reports if the probe ever stops making progress. Nothing here
+/// blocks: a hang always names the step that hung instead of burning the job timeout.
+@MainActor
+final class MatrixStage {
+    nonisolated(unsafe) static var current = "start"
+    nonisolated(unsafe) static var watchdog: DispatchSourceTimer?
+
+    static func mark(_ stage: String) { current = stage }
+
+    static func startWatchdog(seconds: Int = 150) {
+        let timer = DispatchSource.makeTimerSource(queue: .global())
+        timer.schedule(deadline: .now() + .seconds(seconds))
+        timer.setEventHandler {
+            FileHandle.standardError.write(
+                Data("FAIL: all-page matrix watchdog fired during stage: \(MatrixStage.current)\n".utf8))
+            exit(3)
+        }
+        timer.resume()
+        watchdog = timer
+    }
+}
+
 @MainActor
 final class MatrixReport {
     private(set) var passed: [String] = []
@@ -30,12 +55,12 @@ final class MatrixReport {
 
     func pass(_ label: String) {
         passed.append(label)
-        print("PASS: \(label)")
+        mxLog("PASS: \(label)")
     }
 
     func fail(_ group: String, _ detail: String) {
         failed.append("\(group): \(detail)")
-        print("FAIL: \(group): \(detail)")
+        mxLog("FAIL: \(group): \(detail)")
     }
 
     func require(_ condition: Bool, _ label: String, _ detail: @autoclosure () -> String = "") throws {
@@ -49,6 +74,7 @@ final class MatrixReport {
     /// One group never aborts the run: every failure is reported, so a deliberately broken
     /// scratch copy of the product produces all of its red observations in a single run.
     func group(_ name: String, _ body: @MainActor () async throws -> Void) async {
+        MatrixStage.mark(name)
         do {
             try await body()
         } catch let failure as MatrixFailure {
@@ -61,8 +87,8 @@ final class MatrixReport {
     func record(_ key: String, _ value: Any) { evidence[key] = value }
 
     func finish(output: URL) -> Never {
-        print("All-page matrix: \(passed.count) passed, \(failed.count) failed")
-        for failure in failed { print("RED: \(failure)") }
+        mxLog("All-page matrix: \(passed.count) passed, \(failed.count) failed")
+        for failure in failed { mxLog("RED: \(failure)") }
         let payload: [String: Any] = [
             "passed": passed, "failed": failed, "assertions": passed.count + failed.count,
             "evidence": evidence,
@@ -81,7 +107,13 @@ final class MatrixReport {
 // element rather than from the hosting view's in-process children.
 
 @MainActor
-func mxApp() -> AXUIElement { AXUIElementCreateApplication(getpid()) }
+func mxApp() -> AXUIElement {
+    let app = AXUIElementCreateApplication(getpid())
+    // A self-addressed accessibility request must fail fast rather than wait for a runloop
+    // that this thread is holding.
+    AXUIElementSetMessagingTimeout(app, 5)
+    return app
+}
 
 @MainActor
 func mxRaw(_ element: AXUIElement, _ attribute: String) -> CFTypeRef? {
@@ -186,6 +218,7 @@ func mxFocusedRole() -> String? {
 
 @MainActor
 func mxPress(_ element: AXUIElement) throws {
+    MatrixStage.mark("AX press \(mxIdentifier(element) ?? mxRole(element) ?? "control")")
     let error = AXUIElementPerformAction(element, kAXPressAction as CFString)
     guard error == .success else { throw MatrixFailure(label: "AX press refused (\(error.rawValue))") }
 }
@@ -248,8 +281,8 @@ func mxDumpAX(_ root: AXUIElement, _ tag: String) {
         guard !identifier.isEmpty || !name.isEmpty || role != "AXGroup" else { return nil }
         return "\(role)|\(identifier)|\(name)"
     }
-    print("AXDUMP \(tag) count=\(lines.count)")
-    for line in lines.prefix(160) { print("AXDUMP \(tag) \(line)") }
+    mxLog("AXDUMP \(tag) count=\(lines.count)")
+    for line in lines.prefix(160) { mxLog("AXDUMP \(tag) \(line)") }
 }
 
 // MARK: - Key, pixel and window helpers
@@ -275,11 +308,13 @@ func mxKeyEvent(
 func mxKey(_ window: NSWindow, _ code: UInt16, _ characters: String, modifiers: NSEvent.ModifierFlags = [])
     async throws
 {
+    MatrixStage.mark("key \(code) modifiers \(modifiers.rawValue)")
     for type in [NSEvent.EventType.keyDown, .keyUp] {
         let event = try mxKeyEvent(
             code, characters, type: type, modifiers: modifiers, windowNumber: window.windowNumber)
         NSApp.sendEvent(event)
     }
+    MatrixStage.mark("settle after key \(code)")
     await mxSettle()
 }
 
@@ -298,10 +333,17 @@ func mxReady(_ seconds: Double = 1.0) async {
 }
 
 @MainActor
-func mxClick(host: NSView, window: NSWindow, screenRect: NSRect) {
+func mxClick(host: NSView, window: NSWindow, screenRect: NSRect) throws {
     let inWindow = window.convertFromScreen(screenRect)
     let local = host.convert(inWindow, from: nil)
     let point = CGPoint(x: local.midX, y: host.isFlipped ? local.midY : host.bounds.height - local.midY)
+    // A click outside the content view can start a window drag loop, which no synthetic mouse-up
+    // can end. Refuse it instead of hanging.
+    guard host.bounds.contains(point) else {
+        throw MatrixFailure(label: "click outside the hosted view: \(point) in \(host.bounds)")
+    }
+    MatrixStage.mark(
+        "click \(Int(screenRect.midX)),\(Int(screenRect.midY)) size \(Int(screenRect.width))x\(Int(screenRect.height))")
     let location = host.convert(point, to: nil)
     for type in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
         guard
@@ -520,6 +562,7 @@ final class MatrixMenuObservation: NSObject {
 
     /// Suspend on the main actor so the native tracking loop keeps running; never block it.
     func waitForMenu() async -> NSMenu? {
+        MatrixStage.mark("waiting for the native menu to begin tracking")
         let limit = ProcessInfo.processInfo.systemUptime + 4
         while menu == nil && ProcessInfo.processInfo.systemUptime < limit {
             try? await Task.sleep(nanoseconds: 80_000_000)
@@ -764,12 +807,12 @@ final class AllPageMatrix {
         let rows = nodes.filter { (mxRole($0) ?? "").contains("Row") }
         for row in rows
         where mxNames(row).contains(title) || mxTree(row).contains(where: { mxNames($0).contains(title) }) {
-            mxClick(host: host, window: window, screenRect: mxFrame(row))
+            try mxClick(host: host, window: window, screenRect: mxFrame(row))
             return
         }
         // A sidebar row may expose its label only on a child static text: click that frame.
         for label in nodes where mxRole(label) == "AXStaticText" && mxNames(label).contains(title) {
-            mxClick(host: host, window: window, screenRect: mxFrame(label))
+            try mxClick(host: host, window: window, screenRect: mxFrame(label))
             return
         }
         mxDumpAX(root, "settings-\(pane.rawValue)")
@@ -919,7 +962,7 @@ final class AllPageMatrix {
                 mxDumpAX(root, "dashboard-\(tab.rawValue)")
                 throw MatrixFailure(label: "no dashboard segment for \(tab.rawValue)")
             }
-            mxClick(host: host, window: window, screenRect: mxFrame(segment))
+            try mxClick(host: host, window: window, screenRect: mxFrame(segment))
             await mxReady(0.8)
             let texts = mxText(root)
             try report.require(
@@ -1493,6 +1536,7 @@ matrixArguments["AppleKeyboardUIMode"] = 3
 UserDefaults.standard.setVolatileDomain(matrixArguments, forName: UserDefaults.argumentDomain)
 
 Task { @MainActor in
+    MatrixStage.startWatchdog()
     let output =
         ProcessInfo.processInfo.environment["MATRIX_OUTPUT"].map { URL(fileURLWithPath: $0) }
         ?? FileManager.default.temporaryDirectory.appendingPathComponent("allpage-matrix")
