@@ -113,14 +113,11 @@ print("Matrix assertion plumbing check passed")
             "clips.copy(",
         ):
             self.assertNotIn(forbidden, self.source, forbidden)
-        # The only AX presses are the Welcome call to action and none of them is a permission or
-        # capture control.
-        presses = re.findall(r"(?<!func )mxPress\(([^)]*)\)", self.source)
-        self.assertEqual(len(presses), 1, presses)
-        for hit in presses:
-            self.assertNotIn("Allow", hit)
-            self.assertNotIn("screenshots", hit)
-            self.assertNotIn("copied items", hit)
+        # Every activation is a real input event, including the Welcome default action.
+        self.assertNotIn("AXUIElementPerformAction", self.source)
+        self.assertNotIn("accessibilityPerformPress", self.source)
+        self.assertNotIn("performClick", self.source)
+        self.assertIn('try await mxKey(window, 36, "\\r")', self.source)
 
     def test_measurements_read_the_system_accessibility_tree(self):
         # Other groups retain the system reader; the workspace graphs are read on

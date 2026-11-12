@@ -261,19 +261,6 @@ enum MatrixAXReader {
         return result
     }
 
-    // Used only by the existing Welcome CTA check, never to substitute for a key event.
-    static func press(_ target: MatrixElement) -> Int32 {
-        let app = AXUIElementCreateApplication(getpid())
-        var stack = elements(app, kAXWindowsAttribute as String)
-        var visited: Set<MatrixElement> = []
-        while let element = stack.popLast() {
-            let key = handle(element)
-            guard visited.insert(key).inserted, visited.count <= 3000 else { continue }
-            if key == target { return AXUIElementPerformAction(element, kAXPressAction as CFString).rawValue }
-            stack.append(contentsOf: elements(element, kAXChildrenAttribute as String))
-        }
-        return AXError.invalidUIElement.rawValue
-    }
 }
 
 /// These workspace fixtures must not query their own process through the system AX client:
@@ -464,13 +451,6 @@ func mxFocusIdentity() -> String? {
 func mxFocusedRole() -> String? {
     guard let element = mxFocusedElement() else { return nil }
     return mxRole(element)
-}
-
-@MainActor
-func mxPress(_ element: MatrixElement) async throws {
-    MatrixStage.mark("AX press \(mxIdentifier(element) ?? mxRole(element) ?? "control")")
-    let error = await Task.detached { MatrixAXReader.press(element) }.value
-    guard error == AXError.success.rawValue else { throw MatrixFailure(label: "AX press refused (\(error))") }
 }
 
 @MainActor
@@ -1424,11 +1404,13 @@ final class AllPageMatrix {
             mxHas(root, AppL10n.text("Skip any permission. You can review it later in Settings.")),
             "welcome keeps the skip promise in the failure state")
 
-        guard let cta = mxFind(root, name: AppL10n.text("Open workspace")) else {
+        guard mxFind(root, name: AppL10n.text("Open workspace")) != nil else {
             mxDumpAX(root, "welcome")
             throw MatrixFailure(label: "welcome has no Open workspace action")
         }
-        try await mxPress(cta)
+        // The production CTA owns the default-action Return shortcut. Drive that
+        // real key rather than translating view-tree handles into system AX handles.
+        try await mxKey(window, 36, "\r")
         await mxReady(0.5)
         try report.require(opened == 1, "welcome opens the workspace without any permission")
         try mxSave(host, output.appendingPathComponent("welcome-failure-state.png"))
