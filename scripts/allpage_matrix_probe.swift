@@ -471,14 +471,24 @@ func mxClick(host: NSView, window: NSWindow, screenRect: NSRect) throws {
     }
     MatrixStage.mark(
         "click \(Int(screenRect.midX)),\(Int(screenRect.midY)) size \(Int(screenRect.width))x\(Int(screenRect.height))")
+    MatrixStage.mark("click before host.convert")
     let location = host.convert(point, to: nil)
+    MatrixStage.mark("click after host.convert location=\(location)")
     for type in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
+        MatrixStage.mark("click before mouseEvent type=\(type.rawValue)")
         guard
             let event = NSEvent.mouseEvent(
                 with: type, location: location, modifierFlags: [], timestamp: 0,
                 windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1)
         else { return }
+        MatrixStage.mark("click after mouseEvent type=\(type.rawValue)")
+        mxLog(
+            "matrix click window: number=\(window.windowNumber) key=\(window.isKeyWindow) "
+                + "main=\(window.isMainWindow) visible=\(window.isVisible) "
+                + "eventWindowMatches=\(event.window === window) mainThread=\(Thread.isMainThread)")
+        MatrixStage.mark("click before NSApp.sendEvent type=\(type.rawValue)")
         NSApp.sendEvent(event)
+        MatrixStage.mark("click after NSApp.sendEvent type=\(type.rawValue)")
     }
 }
 
