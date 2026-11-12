@@ -25,6 +25,17 @@ struct MatrixFailure: Error, CustomStringConvertible {
 /// Unbuffered, unconditional log line: a killed probe still shows how far it got.
 func mxLog(_ line: String) { FileHandle.standardOutput.write(Data((line + "\n").utf8)) }
 
+/// Announced once so a trap before the first assertion still says where the process was.
+@MainActor
+final class MatrixMark {
+    nonisolated(unsafe) static var announced = false
+    static func firstAccessibilityRead() {
+        guard !announced else { return }
+        announced = true
+        mxLog("matrix probe: first accessibility read")
+    }
+}
+
 /// The stage name a watchdog reports if the probe ever stops making progress. Nothing here
 /// blocks: a hang always names the step that hung instead of burning the job timeout.
 @MainActor
@@ -117,6 +128,7 @@ func mxApp() -> AXUIElement {
 
 @MainActor
 func mxRaw(_ element: AXUIElement, _ attribute: String) -> CFTypeRef? {
+    MatrixMark.firstAccessibilityRead()
     var value: CFTypeRef?
     guard AXUIElementCopyAttributeValue(element, attribute as CFString, &value) == .success else { return nil }
     return value
@@ -1531,12 +1543,39 @@ final class MatrixPasteboard: PasteboardAccess {
 
 let matrixApplication = NSApplication.shared
 matrixApplication.setActivationPolicy(.accessory)
+mxLog("matrix probe start (smoke=\(CommandLine.arguments.contains("--ax-smoke")))")
 // Argument-domain override only: the probe never writes the user's keyboard preferences.
 var matrixArguments = UserDefaults.standard.volatileDomain(forName: UserDefaults.argumentDomain)
 matrixArguments["AppleKeyboardUIMode"] = 3
 UserDefaults.standard.setVolatileDomain(matrixArguments, forName: UserDefaults.argumentDomain)
 
+/// One accessibility read per API, nothing else: if the process traps here the fault is the AX
+/// API itself rather than any measurement.
+@MainActor
+func matrixAccessibilitySmoke() -> Never {
+    mxLog("ax smoke: creating the application element")
+    let app = mxApp()
+    mxLog("ax smoke: reading the window list")
+    let windows = mxElements(app, kAXWindowsAttribute as String)
+    mxLog("ax smoke: windows \(windows.count)")
+    guard let first = windows.first else {
+        mxLog("ax smoke: no windows to read")
+        exit(0)
+    }
+    mxLog("ax smoke: reading the window title")
+    mxLog("ax smoke: title \(mxString(first, kAXTitleAttribute as String) ?? "none")")
+    mxLog("ax smoke: reading the window children")
+    let children = mxElements(first, kAXChildrenAttribute as String)
+    mxLog("ax smoke: children \(children.count)")
+    if let element = children.first {
+        mxLog("ax smoke: first child role \(mxRole(element) ?? "none")")
+    }
+    mxLog("ax smoke: done")
+    exit(0)
+}
+
 Task { @MainActor in
+    if CommandLine.arguments.contains("--ax-smoke") { matrixAccessibilitySmoke() }
     MatrixStage.startWatchdog()
     let output =
         ProcessInfo.processInfo.environment["MATRIX_OUTPUT"].map { URL(fileURLWithPath: $0) }
