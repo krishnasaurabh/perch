@@ -43,7 +43,10 @@ final class MatrixStage {
     nonisolated(unsafe) static var current = "start"
     nonisolated(unsafe) static var watchdog: DispatchSourceTimer?
 
-    static func mark(_ stage: String) { current = stage }
+    static func mark(_ stage: String) {
+        current = stage
+        mxLog("matrix stage: \(stage)")
+    }
 
     static func startWatchdog(seconds: Int = 150) {
         let timer = DispatchSource.makeTimerSource(queue: .global())
@@ -234,7 +237,9 @@ enum MatrixAX {
     static var snapshot = MatrixAXSnapshot()
     static func refresh() async {
         MatrixMark.firstAccessibilityRead()
+        mxLog("matrix snapshot: begin")
         snapshot = await Task.detached { MatrixAXReader.read() }.value
+        mxLog("matrix snapshot: complete nodes=\(snapshot.nodes.count)")
     }
 }
 
