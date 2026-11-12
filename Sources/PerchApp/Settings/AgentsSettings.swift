@@ -4,7 +4,10 @@ import SwiftUI
 
 struct AgentsSettings: View {
     @EnvironmentObject var store: PlannerStore
-    @State private var statuses: [AgentConnector.App: AgentConnector.Status] = [:]
+    @Binding var statuses: [AgentConnector.App: AgentConnector.Status]
+    @ObservedObject var feedback: SettingsFailureFeedback
+    var readStatus: (AgentConnector.App) -> AgentConnector.Status = AgentConnector.status
+    var disconnect: (AgentConnector.App) throws -> Void = AgentConnector.disconnect
     @State private var message: String?
     @State private var copied: String?
 
@@ -28,7 +31,7 @@ struct AgentsSettings: View {
                     case .connected:
                         Label("Connected", systemImage: "checkmark.circle.fill").foregroundStyle(Theme.success)
                         Button("Disconnect") {
-                            try? AgentConnector.disconnect(app); refresh()
+                            try? disconnect(app); refresh()
                         }
                     case .notConnected:
                         Button("Connect") {
@@ -81,7 +84,7 @@ struct AgentsSettings: View {
         }
     }
 
-    func refresh() { for a in AgentConnector.App.allCases { statuses[a] = AgentConnector.status(a) } }
+    func refresh() { for a in AgentConnector.App.allCases { statuses[a] = readStatus(a) } }
     func copy(_ s: String, _ tag: String) {
         NSPasteboard.general.clearContents(); NSPasteboard.general.setString(s, forType: .string)
         copied = tag
