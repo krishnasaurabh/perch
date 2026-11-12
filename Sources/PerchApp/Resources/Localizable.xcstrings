@@ -5450,6 +5450,23 @@
         }
       }
     },
+    "Off": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Off"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Öff ·~⟧"
+          }
+        }
+      }
+    },
     "Off by default. Shows a count only, never task titles. Timers and reminders take priority.": {
       "extractionState": "manual",
       "localizations": {
@@ -5463,6 +5480,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "⟦Öff by dëfàült. Shöws à cöünt önly, nëvër tàsk tïtlës. Tïmërs ànd rëmïndërs tàkë prïörïty. ·~⟧"
+          }
+        }
+      }
+    },
+    "On": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "On"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Ön ·~⟧"
           }
         }
       }
