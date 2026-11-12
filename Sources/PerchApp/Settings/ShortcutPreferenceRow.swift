@@ -42,7 +42,7 @@ struct ShortcutPreferenceRow: View {
             // The live hot key kept the old chord; show what is actually registered now.
             recording = false
             shortcut = note.userInfo?["restored"] as? ShortcutKey ?? ShortcutStore.load()
-            problem = "macOS wouldn't give up that combination. Kept \(shortcut.display)."
+            problem = AppL10n.format("macOS wouldn't give up that combination. Kept %@.", shortcut.display)
         }
     }
 

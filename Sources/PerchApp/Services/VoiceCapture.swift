@@ -46,18 +46,23 @@ final class VoiceCapture: ObservableObject {
             SFSpeechRecognizer.requestAuthorization { c.resume(returning: $0) }
         }
         guard speech == .authorized else {
-            state = .error("Allow Speech Recognition for Perch under System Settings › Privacy & Security."); return
+            state = .error(
+                AppL10n.text("Allow Speech Recognition for Perch under System Settings › Privacy & Security."));
+            return
         }
         guard await AVCaptureDevice.requestAccess(for: .audio) else {
-            state = .error("Perch needs microphone access. Enable it under System Settings › Privacy & Security.")
+            state = .error(
+                AppL10n.text("Perch needs microphone access. Enable it under System Settings › Privacy & Security."))
             return
         }
         guard let recognizer = SFSpeechRecognizer(), recognizer.isAvailable else {
-            state = .error("Speech recognition isn't available right now."); return
+            state = .error(AppL10n.text("Speech recognition isn't available right now.")); return
         }
         guard recognizer.supportsOnDeviceRecognition else {
             state = .error(
-                "Dictation for your language isn't installed on this Mac. Download it under System Settings › Keyboard › Dictation."
+                AppL10n.text(
+                    "Dictation for your language isn't installed on this Mac. Download it under System Settings › Keyboard › Dictation."
+                )
             )
             return
         }
@@ -69,10 +74,12 @@ final class VoiceCapture: ObservableObject {
         request.addsPunctuation = false
         let input = engine.inputNode
         let format = input.outputFormat(forBus: 0)
-        guard format.channelCount > 0 else { state = .error("Perch can't find a microphone."); return }
+        guard format.channelCount > 0 else {
+            state = .error(AppL10n.text("Perch can't find a microphone.")); return
+        }
         input.installTap(onBus: 0, bufferSize: 1024, format: format) { buf, _ in request.append(buf) }
         do { try engine.start() } catch {
-            state = .error("Recording failed to start: \(error.localizedDescription)"); return
+            state = .error(AppL10n.format("Recording failed to start: %@", error.localizedDescription)); return
         }
 
         self.engine = engine; self.request = request
@@ -112,7 +119,11 @@ final class VoiceCapture: ObservableObject {
         engine = nil; request = nil; task = nil
         state = .idle
         let text = transcript.trimmingCharacters(in: .whitespacesAndNewlines)
-        if text.isEmpty { state = .error("Heard nothing usable. Tap the mic to retry.") } else { onFinish?(text) }
+        if text.isEmpty {
+            state = .error(AppL10n.text("Heard nothing usable. Tap the mic to retry."))
+        } else {
+            onFinish?(text)
+        }
         onFinish = nil
     }
 }

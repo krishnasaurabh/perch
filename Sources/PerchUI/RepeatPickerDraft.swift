@@ -10,14 +10,14 @@ public struct RepeatPickerDraft: Equatable, Sendable {
 
         public var title: String {
             switch self {
-            case .none: "Does not repeat"
-            case .daily: "Daily"
-            case .weekdays: "Weekdays"
-            case .weekly: "Weekly"
-            case .monthly: "Monthly"
-            case .quarterly: "Quarterly"
-            case .yearly: "Yearly"
-            case .custom: "Custom"
+            case .none: PerchL10n.text("Does not repeat")
+            case .daily: PerchL10n.text("Daily")
+            case .weekdays: PerchL10n.text("Weekdays")
+            case .weekly: PerchL10n.text("Weekly")
+            case .monthly: PerchL10n.text("Monthly")
+            case .quarterly: PerchL10n.text("Quarterly")
+            case .yearly: PerchL10n.text("Yearly")
+            case .custom: PerchL10n.text("Custom")
             }
         }
     }
@@ -25,7 +25,16 @@ public struct RepeatPickerDraft: Equatable, Sendable {
     public enum CustomUnit: String, CaseIterable, Sendable {
         case day, week, month
 
-        public func title(plural: Bool) -> String { plural ? rawValue + "s" : rawValue }
+        public func title(plural: Bool) -> String {
+            switch (self, plural) {
+            case (.day, false): PerchL10n.text("day")
+            case (.day, true): PerchL10n.text("days")
+            case (.week, false): PerchL10n.text("week")
+            case (.week, true): PerchL10n.text("weeks")
+            case (.month, false): PerchL10n.text("month")
+            case (.month, true): PerchL10n.text("months")
+            }
+        }
 
         var unit: TaskRepeat.Unit {
             switch self {
@@ -55,12 +64,14 @@ public struct RepeatPickerDraft: Equatable, Sendable {
             case .invalidInterval(let text):
                 let clean = text.trimmingCharacters(in: .whitespacesAndNewlines)
                 if clean.isEmpty {
-                    return "Enter how often it repeats, from 1 to \(RepeatPickerDraft.maximumInterval)."
+                    return PerchL10n.format(
+                        "Enter how often it repeats, from 1 to %lld.", RepeatPickerDraft.maximumInterval)
                 }
-                return "“\(clean)” is not a valid interval. Enter a whole number from 1 to "
-                    + "\(RepeatPickerDraft.maximumInterval)."
+                return PerchL10n.format(
+                    "“%@” is not a valid interval. Enter a whole number from 1 to %lld.",
+                    clean, RepeatPickerDraft.maximumInterval)
             case .missingAnchor:
-                return "Choose a date for this task before setting a repeat."
+                return PerchL10n.text("Choose a date for this task before setting a repeat.")
             }
         }
     }
@@ -289,24 +300,54 @@ public struct RepeatPickerDraft: Equatable, Sendable {
 
     // MARK: Presentation
 
-    public var summary: String {
+    public var summary: String { summary(locale: .current) }
+
+    public func summary(locale: Locale) -> String {
         guard frequency != .none else { return Frequency.none.title }
-        guard let rule else { return "Custom repeat" }
-        let suffix = rule.fromCompletion ? " after completion" : ""
-        if rule.weekdaysOnly { return "Every weekday" + suffix }
+        guard let rule else { return PerchL10n.text("Custom repeat", locale: locale) }
+        let suffix = rule.fromCompletion ? PerchL10n.text(" after completion", locale: locale) : ""
+        if rule.weekdaysOnly { return PerchL10n.text("Every weekday", locale: locale) + suffix }
         let n = rule.interval
         switch rule.unit {
-        case .day: return (n == 1 ? "Every day" : "Every \(n) days") + suffix
+        case .day:
+            return PerchL10n.format("%lld day repeat", locale: locale, n) + suffix
         case .month:
-            if n == 12 { return "Every year" + suffix }
-            return (n == 1 ? "Every month" : "Every \(n) months") + suffix
+            if n == 12 { return PerchL10n.text("Every year", locale: locale) + suffix }
+            return PerchL10n.format("%lld month repeat", locale: locale, n) + suffix
         case .week:
-            var text = n == 1 ? "Every week" : "Every \(n) weeks"
+            var text = PerchL10n.format("%lld week repeat", locale: locale, n)
             let days =
                 rule.weekdays.isEmpty ? scheduleAnchor.map { [$0.weekday(calendar: calendar)] } ?? [] : rule.weekdays
-            if !days.isEmpty { text += " on " + days.map { Self.weekdayNames[$0 - 1] }.joined(separator: ", ") }
+            if !days.isEmpty {
+                let names = Self.localizedWeekdayNames(locale: locale)
+                text +=
+                    PerchL10n.text(" on ", locale: locale)
+                    + days.map { names[$0 - 1] }.joined(separator: PerchL10n.text(", ", locale: locale))
+            }
             return text + suffix
         }
+    }
+
+    public static func localizedWeekdayNames(locale: Locale = .current) -> [String] {
+        let formatter = DateFormatter()
+        formatter.locale = locale
+        formatter.calendar = Calendar(identifier: .gregorian)
+        #if os(macOS)
+            return formatter.standaloneWeekdaySymbols ?? weekdayNames
+        #else
+            return formatter.standaloneWeekdaySymbols
+        #endif
+    }
+
+    public static func localizedShortWeekdayNames(locale: Locale = .current) -> [String] {
+        let formatter = DateFormatter()
+        formatter.locale = locale
+        formatter.calendar = Calendar(identifier: .gregorian)
+        #if os(macOS)
+            return formatter.veryShortStandaloneWeekdaySymbols ?? weekdayShortNames
+        #else
+            return formatter.veryShortStandaloneWeekdaySymbols
+        #endif
     }
 
     /// The next `count` days a scheduled rule lands on after the task's own day.
@@ -340,9 +381,11 @@ public struct RepeatPickerDraft: Equatable, Sendable {
         case .none, .unavailable: return nil
         case .scheduled(let days):
             guard !days.isEmpty else { return nil }
-            return "Next: " + days.map(format).joined(separator: " · ")
+            return PerchL10n.text("Next: ", locale: locale)
+                + days.map(format).joined(separator: PerchL10n.text(" · ", locale: locale))
         case let .afterCompletion(completed, next):
-            return "If completed \(format(completed)), next is \(format(next))"
+            return PerchL10n.format(
+                "If completed %@, next is %@", locale: locale, format(completed), format(next))
         }
     }
 

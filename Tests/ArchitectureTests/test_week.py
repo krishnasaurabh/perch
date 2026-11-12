@@ -9,7 +9,8 @@ class WeekViewTests(unittest.TestCase):
     def test_week_is_not_a_rolling_eight_column_list(self):
         source = (ROOT / "Sources/PerchApp/Workspace/WeekPage.swift").read_text()
         self.assertIn("WeekColumnLayout.days", source)
-        self.assertIn('Button(showInbox ? "Back to week"', source)
+        self.assertIn('AppL10n.text("Back to week")', source)
+        self.assertIn('AppL10n.format("Inbox (%lld)"', source)
         calendar = source.split('ScrollView(.horizontal)', 1)[1].split('private func label', 1)[0]
         self.assertNotIn('column(title: "Inbox"', calendar)
 
@@ -22,7 +23,8 @@ class WeekViewTests(unittest.TestCase):
 
     def test_completion_buttons_name_their_tasks(self):
         source = (ROOT / "Sources/PerchApp/Workspace/WeekPage.swift").read_text()
-        self.assertIn('help: task.done ? "Uncheck task: \\(task.title)" : "Check off task: \\(task.title)"', source)
+        self.assertIn('AppL10n.format("Uncheck task: %@", task.title)', source)
+        self.assertIn('AppL10n.format("Check off task: %@", task.title)', source)
 
     def test_native_probe_imports_the_fixture_storage_module(self):
         source = (ROOT / "scripts/week_shots.sh").read_text()

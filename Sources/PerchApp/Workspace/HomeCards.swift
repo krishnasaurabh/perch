@@ -13,7 +13,9 @@ struct FocusCard: View {
         let task = f?.taskID.flatMap { id in store.planner.tasks.first { $0.id == id } }
 
         VStack(alignment: .leading, spacing: 10) {
-            CardHeading(active ? (task?.title ?? "Just focusing") : "Focus", trailing: AnyView(styleMenu))
+            CardHeading(
+                active ? (task?.title ?? AppL10n.text("Just focusing")) : AppL10n.text("Focus"),
+                trailing: AnyView(styleMenu))
             // When the timer is the only card beside the tasks it fills the column; the face centres in it.
             Spacer(minLength: 0)
             LocalClock(running: f?.state == .running) { now in
@@ -36,8 +38,8 @@ struct FocusCard: View {
     }
 
     private func status(_ f: FocusSession) -> String {
-        if f.state == .paused { return "Paused" }
-        return f.limit == nil ? "Elapsed" : "Remaining"
+        if f.state == .paused { return AppL10n.text("Paused") }
+        return f.limit == nil ? AppL10n.text("Elapsed") : AppL10n.text("Remaining")
     }
 
     @ViewBuilder func face(_ f: FocusSession?, at now: Date) -> some View {
@@ -69,10 +71,11 @@ struct FocusCard: View {
                 Button {
                     store.apply { e in running ? try e.pauseTimer() : try e.resumeTimer() }
                 } label: {
-                    Label(running ? "Pause" : "Continue", systemImage: running ? "pause.fill" : "play.fill")
+                    Label(
+                        AppL10n.text(running ? "Pause" : "Continue"), systemImage: running ? "pause.fill" : "play.fill")
                 }
                 .buttonStyle(PillStyle(prominent: true))
-                .help(running ? "Pause timer" : "Continue timer")
+                .help(AppL10n.text(running ? "Pause timer" : "Continue timer"))
                 if f.limit != nil {
                     GlassButton(symbol: "goforward.5", help: "Add five minutes", size: 26) {
                         store.apply { try $0.extendTimer(minutes: 5) }
@@ -88,7 +91,8 @@ struct FocusCard: View {
                 }
             } else {
                 Stepper(value: $minutes, in: 5...180, step: 5) {
-                    Text("\(minutes) min").font(.system(size: 11.5, weight: .semibold).monospacedDigit())
+                    Text(AppL10n.format("%lld min", minutes)).font(
+                        .system(size: 11.5, weight: .semibold).monospacedDigit())
                 }
                 .controlSize(.small)
                 Spacer()
@@ -138,7 +142,7 @@ struct FocusProgress: View {
         .frame(height: 4)
         .accessibilityElement()
         .accessibilityLabel("Focus progress")
-        .accessibilityValue("\(Int(fraction * 100)) percent")
+        .accessibilityValue(AppL10n.format("%lld percent", Int(fraction * 100)))
     }
 }
 
@@ -154,9 +158,9 @@ struct NotepadCard: View {
         let readOnly = d < store.today
         VStack(alignment: .leading, spacing: 8) {
             CardHeading(
-                "Notepad",
+                AppL10n.text("Notepad"),
                 trailing: AnyView(
-                    Text(flash ?? "⌘↩ makes a task").font(Theme.meta).foregroundStyle(
+                    Text(flash ?? AppL10n.text("⌘↩ makes a task")).font(Theme.meta).foregroundStyle(
                         flash == nil ? Theme.tertiary : Theme.accent)))
             ScratchpadEditor(
                 text: Binding(
@@ -166,9 +170,9 @@ struct NotepadCard: View {
                 onCommandReturn: { line in
                     let clean = line.trimmingCharacters(in: .whitespaces)
                     guard !clean.isEmpty,
-                        let t = store.apply({ try $0.lineToTask(clean, day: max(d, store.today)) }) ?? nil
+                        let t = store.addTasks([clean], on: .day(max(d, store.today)))?.first
                     else { return }
-                    flash = "Added “\(t.title)”"
+                    flash = AppL10n.format("Added “%@”", t.title)
                 }, onEndEditing: { store.flushPendingText() }
             )
             .focused($editing)
@@ -329,7 +333,7 @@ private struct AgendaBody: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            CardHeading("Today's agenda")
+            CardHeading(AppL10n.text("Today's agenda"))
             if !calendar.hasAccess {
                 Text("Allow calendar access to list today's events here.").font(Theme.meta).foregroundStyle(
                     Theme.secondary)
@@ -355,20 +359,25 @@ private struct AgendaBody: View {
                                 )
                                 .toggleStyle(.checkbox)
                                 .labelsHidden()
-                                .accessibilityLabel("Complete calendar event: \(e.title)")
+                                .accessibilityLabel(AppL10n.format("Complete calendar event: %@", e.title))
                                 .help(
                                     completed
                                         ? "Mark incomplete in Perch" : "Mark complete in Perch (Calendar is unchanged)")
-                                Text(e.allDay ? "All day" : e.start.formatted(date: .omitted, time: .shortened))
-                                    .font(Theme.meta.monospacedDigit()).foregroundStyle(Theme.secondary)
-                                    .frame(width: 58, alignment: .leading)
+                                Text(
+                                    e.allDay
+                                        ? AppL10n.text("All day")
+                                        : e.start.formatted(date: .omitted, time: .shortened)
+                                )
+                                .font(Theme.meta.monospacedDigit()).foregroundStyle(Theme.secondary)
+                                .frame(width: 58, alignment: .leading)
                                 Text(e.title).font(Theme.title).lineLimit(1)
                                     .strikethrough(completed)
                                     .foregroundStyle(completed ? Theme.secondary : Theme.text)
                             }
                         }
                         if events.count > 4 {
-                            Text("+\(events.count - 4) more").font(Theme.meta).foregroundStyle(Theme.tertiary)
+                            Text(AppL10n.format("+%lld more", events.count - 4))
+                                .font(Theme.meta).foregroundStyle(Theme.tertiary)
                         }
                     }
                 }

@@ -8,7 +8,8 @@ import sys
 import time
 
 TEST_FLAGS = ["--demo", "--demo-clips", "--scenario", "--preview-open", "--page", "--snapshot",
-              "--dump-layout", "--dump-activity", "--motion-script", "--motion-policy", "--motion-snapshots"]
+              "--dump-layout", "--dump-activity", "--motion-script", "--motion-policy", "--motion-snapshots",
+              "--check-localization"]
 TEST_MARKERS = TEST_FLAGS + ["MotionScript", "PlannerPreview", "PERCH_SCREENSHOT_FOLDER",
                               "PERCH_MOTION_MISSING_CONTROL", "PERCH_MOTION_AX_WAKE"]
 
@@ -18,7 +19,7 @@ def assert_no_hooks(binary):
     # Debug line tables can retain the name of an empty, conditionally compiled source file.
     # Check executable symbols for types/functions; raw bytes for runtime environment selectors.
     symbols = subprocess.check_output(["nm", "-j", str(binary)], text=True)
-    for marker in ["MotionScript", "PlannerPreview", "motionPolicyOverride", "seedPreview", "seedDemo", "layoutDump"]:
+    for marker in ["MotionScript", "PlannerPreview", "motionPolicyOverride", "seedPreview", "seedDemo", "layoutDump", "AppLocalizationCheck"]:
         assert marker not in symbols, f"Release contains diagnostic symbol: {marker}"
     for marker in TEST_FLAGS + ["PERCH_SCREENSHOT_FOLDER", "PERCH_MOTION_MISSING_CONTROL", "PERCH_MOTION_AX_WAKE"]:
         assert marker.encode() not in content, f"Release contains test hook: {marker}"

@@ -12,7 +12,10 @@ final class AppLaunchConfigurationTests: XCTestCase {
 
     #if DEBUG || PERCH_TESTING
         func testDiagnosticsRequireExplicitIsolatedStorage() throws {
-            for args in [["--demo"], ["--demo-clips"], ["--snapshot", "/fixture/out"], ["--scenario", "three"]] {
+            for args in [
+                ["--demo"], ["--demo-clips"], ["--snapshot", "/fixture/out"], ["--scenario", "three"],
+                ["--check-localization"],
+            ] {
                 XCTAssertThrowsError(try AppLaunchConfiguration.validate(arguments: args, environment: [:]))
                 XCTAssertThrowsError(
                     try AppLaunchConfiguration.validate(arguments: args, environment: ["PERCH_DATA": "relative"]))
@@ -29,6 +32,7 @@ final class AppLaunchConfigurationTests: XCTestCase {
                 ["--page", "home"], ["--preview-open", "--page", "typo"],
                 ["--motion-policy", "normal"], ["--motion-script", "x", "--motion-policy", "typo"],
                 ["--demo", "--mcp"], ["--demo", "--scenario", "three"],
+                ["--check-localization", "--mcp"], ["--check-localization", "--demo"],
             ] {
                 XCTAssertThrowsError(try AppLaunchConfiguration.validate(arguments: args, environment: env), "\(args)")
             }
@@ -51,7 +55,10 @@ final class AppLaunchConfigurationTests: XCTestCase {
         }
     #else
         func testReleaseRejectsDiagnosticsEvenWithIsolatedStorage() {
-            for args in [["--demo"], ["--scenario", "three"], ["--motion-script", "out"], ["--snapshot", "out"]] {
+            for args in [
+                ["--demo"], ["--scenario", "three"], ["--motion-script", "out"], ["--snapshot", "out"],
+                ["--check-localization"],
+            ] {
                 XCTAssertThrowsError(
                     try AppLaunchConfiguration.validate(
                         arguments: args,

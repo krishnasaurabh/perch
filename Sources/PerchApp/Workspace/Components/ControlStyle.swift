@@ -104,7 +104,7 @@ struct PillStyle: PrimitiveButtonStyle {
                 .overlay(ControlFocusRing(shape: Capsule(), focused: enabled && focused))
                 .contentShape(Capsule())
                 .onHover { hover = $0 }
-                .accessibilityHint(enabled ? "" : disabledReason)
+                .accessibilityHint(enabled ? "" : AppL10n.text(disabledReason))
         }
 
         private var fill: Color {

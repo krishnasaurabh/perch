@@ -32,6 +32,7 @@ struct TaskRow: View {
     var focus: FocusState<TodayFocus?>.Binding? = nil
     @EnvironmentObject var store: PlannerStore
     @EnvironmentObject var model: NotchModel
+    @Environment(\.locale) private var locale
     @FocusState private var localFocus: TodayFocus?
     @State private var hover = false
     @State private var editing = false
@@ -109,7 +110,7 @@ struct TaskRow: View {
                 "Use actions to complete or reopen, view details, focus, or delete this task. Deletion can be undone."
             )
             .accessibilityActions {
-                Button(task.done ? "Reopen" : "Complete", action: toggle)
+                Button(AppL10n.text(task.done ? "Reopen" : "Complete"), action: toggle)
                 Button("Details") { model.detailsTaskID = task.id }
                 Button("Delete", role: .destructive, action: delete)
                 if canFocus { Button("Focus", action: startFocus) }
@@ -143,10 +144,14 @@ struct TaskRow: View {
                 shape: RoundedRectangle(cornerRadius: 6),
                 focused: focusBinding.wrappedValue == .task(task.id, .complete))
         )
-        .accessibilityLabel(task.done ? "Reopen \(task.title)" : "Complete \(task.title)")
-        .accessibilityValue(task.done || ticked ? "Completed" : "Not completed")
+        .accessibilityLabel(
+            task.done
+                ? AppL10n.format("Reopen %@", task.title)
+                : AppL10n.format("Complete %@", task.title)
+        )
+        .accessibilityValue(task.done || ticked ? AppL10n.text("Completed") : AppL10n.text("Not completed"))
         .accessibilityIdentifier("task-complete-\(task.id)")
-        .help(task.done ? "Reopen task" : "Complete task")
+        .help(AppL10n.text(task.done ? "Reopen task" : "Complete task"))
     }
 
     private var actions: some View {
@@ -164,7 +169,7 @@ struct TaskRow: View {
         role: ButtonRole? = nil, perform: @escaping () -> Void
     ) -> some View {
         Button(role: role, action: perform) {
-            Label(title, systemImage: symbol).labelStyle(.titleOnly)
+            Label(AppL10n.text(title), systemImage: symbol).labelStyle(.titleOnly)
                 .foregroundStyle(role == .destructive ? Theme.danger : Theme.text)
         }
         .buttonStyle(PillStyle())
@@ -182,9 +187,12 @@ struct TaskRow: View {
             ControlFocusRing(
                 shape: Capsule(), focused: focusBinding.wrappedValue == .task(task.id, kind))
         )
-        .accessibilityLabel("\(title) \(task.title)")
+        .accessibilityLabel(AppL10n.format("%@ %@", AppL10n.text(title), task.title))
         .accessibilityIdentifier(kind.identifierPrefix + task.id.uuidString)
-        .help(title == "Delete" ? "Delete task. Use Undo below the list to restore it." : "\(title) task")
+        .help(
+            title == "Delete"
+                ? AppL10n.text("Delete task. Use Undo below the list to restore it.")
+                : AppL10n.format("%@ task", AppL10n.text(title)))
     }
 
     private var metadata: some View {
@@ -200,9 +208,9 @@ struct TaskRow: View {
 
     @ViewBuilder private var metadataLabels: some View {
         if task.priority != .none {
-            Label(task.priority.rawValue.capitalized, systemImage: "flag.fill")
+            Label(AppL10n.priority(task.priority), systemImage: "flag.fill")
                 .foregroundStyle(Theme.priority(task.priority))
-                .accessibilityLabel("\(task.priority.rawValue.capitalized) priority")
+                .accessibilityLabel(AppL10n.format("%@ priority", AppL10n.priority(task.priority)))
         }
         if let r = task.remindAt {
             Label(r.formatted(date: .omitted, time: .shortened), systemImage: "bell")
@@ -210,17 +218,22 @@ struct TaskRow: View {
         }
         if let p = store.engine.project(id: task.projectID) { Label(p.name, systemImage: "number") }
         if let d = task.deadline {
-            Label("Due " + shortDay(d), systemImage: "calendar")
+            Label(AppL10n.format("Due %@", shortDay(d)), systemImage: "calendar")
                 .foregroundStyle(d < store.today && !task.done ? Theme.danger : Theme.secondary)
         }
-        if let rule = task.repeatRule { Label(rule.description, systemImage: "repeat") }
-        if let m = task.minutes { Label("\(m)m", systemImage: "timer") }
-        if !task.steps.isEmpty {
-            Label("\(task.steps.filter(\.done).count)/\(task.steps.count) steps", systemImage: "list.bullet")
+        if let rule = task.repeatRule {
+            Label(RepeatPickerDraft(original: rule, anchor: task.day).summary(locale: locale), systemImage: "repeat")
         }
-        if let c = task.carriedFrom { Label("From " + shortDay(c), systemImage: "arrow.uturn.right") }
+        if let m = task.minutes { Label(AppL10n.format("%lldm", m), systemImage: "timer") }
+        if !task.steps.isEmpty {
+            Label(
+                AppL10n.format("%lld/%lld steps", task.steps.filter(\.done).count, task.steps.count),
+                systemImage: "list.bullet")
+        }
+        if let c = task.carriedFrom { Label(AppL10n.format("From %@", shortDay(c)), systemImage: "arrow.uturn.right") }
         if let agent = task.agentID, let name = AgentName.short(agent) {
-            Label("Via " + name, systemImage: "sparkles").help("Added through MCP by \(agent)")
+            Label(AppL10n.format("Via %@", name), systemImage: "sparkles").help(
+                AppL10n.format("Added through MCP by %@", agent))
         }
     }
 
@@ -237,7 +250,7 @@ struct TaskRow: View {
             Divider()
             Menu("Priority") {
                 ForEach(TaskPriority.allCases.reversed(), id: \.self) { p in
-                    Button(p == .none ? "None" : p.rawValue.capitalized) {
+                    Button(AppL10n.priority(p)) {
                         store.updateTask(task.id) { $0.priority = p }
                     }
                 }
@@ -251,8 +264,10 @@ struct TaskRow: View {
     }
 
     private var accessibilitySummary: String {
-        let state = task.done || ticked ? "Completed" : "Not completed"
-        return task.priority == .none ? state : "\(state), \(task.priority.rawValue.capitalized) priority"
+        let state = task.done || ticked ? AppL10n.text("Completed") : AppL10n.text("Not completed")
+        return task.priority == .none
+            ? state
+            : AppL10n.format("%@, %@ priority", state, AppL10n.priority(task.priority))
     }
 
     private func startFocus() {

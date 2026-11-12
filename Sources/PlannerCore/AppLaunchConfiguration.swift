@@ -17,7 +17,7 @@ public enum AppLaunchConfiguration {
             if argument == "--mcp" { continue }
             #if DEBUG || PERCH_TESTING
                 switch argument {
-                case "--demo", "--demo-clips", "--preview-open": break
+                case "--demo", "--demo-clips", "--preview-open", "--check-localization": break
                 case "--scenario", "--page", "--dump-layout", "--dump-activity", "--snapshot",
                     "--motion-script", "--motion-snapshots", "--motion-policy":
                     guard index < arguments.count, !arguments[index].isEmpty,
@@ -51,6 +51,7 @@ public enum AppLaunchConfiguration {
                 }
                 guard !options.contains("--mcp") else { throw Invalid.argument }
             }
+            if options.contains("--check-localization"), options.count != 1 { throw Invalid.argument }
             if !options.isDisjoint(with: ["--motion-policy", "--motion-snapshots"]),
                 !options.contains("--motion-script")
             {

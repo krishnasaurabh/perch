@@ -40,10 +40,14 @@ public final class PlannerCommands {
     }
 
     @discardableResult
-    public func addTasks(_ titles: [String], on day: DayRef? = nil, literal: Bool = false, agentID: String? = nil)
-        throws -> [PlanTask]
-    {
-        try execute(.addTasks(titles, day: day, literal: literal, agentID: agentID)).tasks
+    public func addTasks(
+        _ titles: [String], on day: DayRef? = nil, literal: Bool = false, agentID: String? = nil,
+        language: TaskParserLanguage = .english
+    ) throws -> [PlanTask] {
+        switch language {
+        case .english:
+            try execute(.addTasks(titles, day: day, literal: literal, agentID: agentID)).tasks
+        }
     }
     @discardableResult public func complete(_ id: UUID) throws -> PlanTask { try execute(.complete(id)).tasks[0] }
     @discardableResult public func reopen(_ id: UUID) throws -> PlanTask { try execute(.reopen(id)).tasks[0] }
