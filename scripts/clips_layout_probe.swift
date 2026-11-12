@@ -61,14 +61,17 @@ func clipsAttribute(_ node: NSObject, _ name: String) -> Any? {
 }
 
 @MainActor
-func clipsNodes(_ root: NSObject) -> [NSObject] {
+func clipsNodes(_ root: NSObject, includingNavigationOrder: Bool = false) -> [NSObject] {
     var seen = Set<ObjectIdentifier>()
     @MainActor func walk(_ node: NSObject) -> [NSObject] {
         guard seen.insert(ObjectIdentifier(node)).inserted else { return [] }
         let children = (clipsAttribute(node, "accessibilityChildren") as? [NSObject]) ?? []
         let contents = (clipsAttribute(node, "accessibilityContents") as? [NSObject]) ?? []
+        let navigation =
+            includingNavigationOrder
+            ? (clipsAttribute(node, "accessibilityChildrenInNavigationOrder") as? [NSObject]) ?? [] : []
         let subviews = (node as? NSView)?.subviews ?? []
-        return [node] + (children + contents + subviews).flatMap { walk($0) }
+        return [node] + (children + contents + navigation + subviews).flatMap { walk($0) }
     }
     return walk(root)
 }
@@ -733,9 +736,18 @@ func clipsMenuAction(
     @MainActor
     final class ClipsKeyboardRun {
         let broken: String?
+        let evidenceDirectory: URL
         private(set) var passed: [String] = []
         var trace: [String] = []
-        init(broken: String?) { self.broken = broken }
+        init(broken: String?, evidenceDirectory: URL) {
+            self.broken = broken
+            self.evidenceDirectory = evidenceDirectory
+        }
+
+        func record(_ message: String) {
+            trace.append(message)
+            FileHandle.standardError.write(Data("Clips keyboard: \(message)\n".utf8))
+        }
 
         func breaks(_ assertion: String) -> Bool { broken == assertion }
 
@@ -839,10 +851,26 @@ func clipsMenuAction(
         return unsafeBitCast(implementation, to: Getter.self)(node, selector)
     }
 
+    /// A focused native descendant need not also appear in accessibilityChildren.
+    /// Include navigation-order children and the public focused-element getter, but
+    /// still require the target's own typed isAccessibilityFocused result below.
+    @MainActor
+    func clipsKeyboardNodes(_ window: NSWindow) -> [NSObject] {
+        guard let content = window.contentView else { return [] }
+        var nodes = clipsNodes(content, includingNavigationOrder: true)
+        let owners: [NSObject] = [NSApp, window, content, window.firstResponder].compactMap { $0 }
+        for owner in owners {
+            if let focused = clipsAttribute(owner, "accessibilityFocusedUIElement") as? NSObject {
+                nodes.append(focused)
+            }
+        }
+        var seen = Set<ObjectIdentifier>()
+        return nodes.filter { seen.insert(ObjectIdentifier($0)).inserted }
+    }
+
     @MainActor
     func clipsFocusedNames(_ window: NSWindow) -> [String] {
-        guard let content = window.contentView else { return [] }
-        return clipsNodes(content).filter { clipsBool($0, "isAccessibilityFocused") }.map { node in
+        return clipsKeyboardNodes(window).filter { clipsBool($0, "isAccessibilityFocused") }.map { node in
             let identifier = clipsAttribute(node, "accessibilityIdentifier") as? String ?? ""
             return ([identifier] + clipsNames(node)).filter { !$0.isEmpty }.joined(separator: "|")
         }
@@ -851,25 +879,67 @@ func clipsMenuAction(
     /// Native focus on a control carrying this identifier or accessibility label.
     @MainActor
     func clipsIsFocused(_ window: NSWindow, _ name: String) -> Bool {
-        guard window.isKeyWindow, let content = window.contentView else { return false }
-        return clipsNodes(content).contains { node in
+        guard window.isKeyWindow else { return false }
+        return clipsKeyboardNodes(window).contains { node in
             (clipsAttribute(node, "accessibilityIdentifier") as? String == name || clipsNames(node).contains(name))
                 && clipsBool(node, "isAccessibilityFocused")
         }
     }
 
     @MainActor
+    func writeClipsKeyboardState(_ window: NSWindow, target: String, to url: URL) throws {
+        let rows: [[String: Any]] = clipsKeyboardNodes(window).map { node in
+            var row: [String: Any] = [
+                "class": NSStringFromClass(type(of: node)), "names": clipsNames(node),
+                "identifier": clipsAttribute(node, "accessibilityIdentifier") as? String ?? "",
+                "role": clipsAttribute(node, "accessibilityRole") as? String ?? "",
+                "hasFocusGetter": node.responds(to: NSSelectorFromString("isAccessibilityFocused")),
+                "focused": clipsBool(node, "isAccessibilityFocused"),
+                "enabled": clipsBool(node, "isAccessibilityEnabled"),
+            ]
+            if let view = node as? NSView {
+                row["acceptsFirstResponder"] = view.acceptsFirstResponder
+                row["hidden"] = view.isHiddenOrHasHiddenAncestor
+                row["visibleRect"] = NSStringFromRect(view.visibleRect)
+            }
+            if let host = window.contentView, let frame = try? clipsFrame(node, in: host) {
+                row["frame"] = NSStringFromRect(frame)
+            }
+            return row
+        }
+        let evidence: [String: Any] = [
+            "target": target, "keyWindow": window.isKeyWindow, "visible": window.isVisible,
+            "firstResponderClass": window.firstResponder.map { NSStringFromClass(type(of: $0)) } ?? "",
+            "firstResponderNames": window.firstResponder.map { clipsNames($0) } ?? [],
+            "focusedNames": clipsFocusedNames(window), "nodes": rows,
+        ]
+        try JSONSerialization.data(withJSONObject: evidence, options: [.prettyPrinted, .sortedKeys]).write(to: url)
+    }
+
+    @MainActor
     func clipsTabUntil(
         _ window: NSWindow, _ name: String, run: ClipsKeyboardRun, assertion: String, limit: Int = 30
     ) async throws {
+        let prefix = run.evidenceDirectory.appendingPathComponent("tab-\(run.passed.count)")
+        try writeClipsKeyboardState(window, target: name, to: prefix.appendingPathExtension("before.json"))
+        if let host = window.contentView {
+            try capture(host, size: host.bounds.size, to: prefix.appendingPathExtension("before.png"))
+        }
         var traversal: [String] = []
         for _ in 0..<limit {
             // The broken variant withholds the Tab key itself, so focus can never arrive.
             if !run.breaks(assertion) { try await clipsKey(window, 48, "\t") } else { await clipsKeySettle() }
             traversal.append(clipsFocusedNames(window).joined(separator: ","))
+            run.record(
+                "\(assertion) step \(traversal.count): key=\(window.isKeyWindow) "
+                    + "responder=\(window.firstResponder.map { NSStringFromClass(type(of: $0)) } ?? "none") "
+                    + "focus=\(traversal.last ?? "")")
+            try writeClipsKeyboardState(
+                window, target: name, to: prefix.appendingPathExtension("step-\(traversal.count).json"))
             if clipsIsFocused(window, name) { break }
         }
-        run.trace.append("\(assertion) traversal: \(traversal)")
+        run.record("\(assertion) traversal: \(traversal)")
+        try writeClipsKeyboardState(window, target: name, to: prefix.appendingPathExtension("after.json"))
         try run.require(clipsIsFocused(window, name), assertion, "traversal \(traversal)")
     }
 
@@ -988,7 +1058,10 @@ func clipsMenuAction(
 
     @MainActor
     func clipsKeyboardWindow(_ title: String, _ view: some View, size: NSSize) -> (NSWindow, NSView) {
-        let host = NSHostingView(rootView: view)
+        // Activate accessibility at the hosting root, including the native starting
+        // field and presented content, rather than just the inner page subtree.
+        let host = NSHostingView(rootView: view.environment(\.accessibilityEnabled, true))
+        host.sizingOptions = []
         host.safeAreaRegions = []
         let window = NSWindow(
             contentRect: NSRect(origin: NSPoint(x: 60, y: 60), size: size), styleMask: [.titled],
@@ -997,6 +1070,7 @@ func clipsMenuAction(
         window.title = title
         window.appearance = NSAppearance(named: .darkAqua)
         window.contentView = host
+        window.setContentSize(size)
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
         host.layoutSubtreeIfNeeded()
@@ -1035,6 +1109,9 @@ func clipsMenuAction(
         }
         await settleClips()
         try run.require(window.makeFirstResponder(destinations.before), "week fixture", "no starting field")
+        try run.require(
+            window.isKeyWindow && destinations.before.currentEditor() === window.firstResponder,
+            "week fixture", "starting field must own the key window's native editor")
         let menuID = "week-menu-\(task.id)"
         func fingerprint() -> [String] {
             store.planner.tasks.map { "\($0.id) \($0.title) \($0.done) \($0.day as Any)" }
@@ -1045,7 +1122,7 @@ func clipsMenuAction(
         let cancel = try await clipsOpenMenuByKey(
             window, plan: run.breaks(clipsKeyboardAssertions[2]) ? .nothing : .escape,
             withholdSpace: run.breaks(clipsKeyboardAssertions[1]))
-        run.trace.append("week menu items: \(cancel.items)")
+        run.record("week menu items: \(cancel.items)")
         try run.require(
             cancel.menu != nil && cancel.items.contains(AppL10n.text("Details…")), clipsKeyboardAssertions[1],
             "items \(cancel.items)")
@@ -1112,6 +1189,9 @@ func clipsMenuAction(
         defer { window.close() }
         await settleClips()
         try run.require(window.makeFirstResponder(destinations.before), "clips fixture", "no starting field")
+        try run.require(
+            window.isKeyWindow && destinations.before.currentEditor() === window.firstResponder,
+            "clips fixture", "starting field must own the key window's native editor")
         func fingerprint() -> [String] { clips.clips.map { "\($0.id) \($0.pinned)" } }
         let before = fingerprint()
 
@@ -1133,7 +1213,7 @@ func clipsMenuAction(
         let cancel = try await clipsOpenMenuByKey(
             window, plan: run.breaks(clipsKeyboardAssertions[14]) ? .nothing : .escape,
             withholdSpace: run.breaks(clipsKeyboardAssertions[13]))
-        run.trace.append("clips menu items: \(cancel.items)")
+        run.record("clips menu items: \(cancel.items)")
         try run.require(
             cancel.menu != nil && cancel.items.contains(AppL10n.text("Copy"))
                 && cancel.items.contains(AppL10n.text("Remove")),
@@ -1197,11 +1277,13 @@ func clipsMenuAction(
         // assertion once, on the probe side, and requires exactly that assertion to go red.
         let negatives = ProcessInfo.processInfo.environment["CLIPS_KEYBOARD_NEGATIVES"] == "1"
         let brokenRuns: [String?] = [nil] + (negatives ? clipsKeyboardAssertions.map { Optional($0) } : [])
-        for broken in brokenRuns {
-            let run = ClipsKeyboardRun(broken: broken)
+        for (index, broken) in brokenRuns.enumerated() {
+            let run = ClipsKeyboardRun(
+                broken: broken, evidenceDirectory: out.appendingPathComponent("keyboard-\(index)"))
             var red: ClipsKeyboardFailure?
             let surface = broken.map { $0.hasPrefix("week") ? "week" : "clips" }
             do {
+                try FileManager.default.createDirectory(at: run.evidenceDirectory, withIntermediateDirectories: true)
                 if surface != "clips" { try await clipsKeyboardWeek(run, directory: directory) }
                 if surface != "week" { try await clipsKeyboardClips(run, directory: directory) }
             } catch let failure as ClipsKeyboardFailure {

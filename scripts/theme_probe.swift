@@ -576,9 +576,11 @@ MainActor.assumeIsolated {
 // Measured-state assertions collect every red before exiting, so one run reports all failures.
 @MainActor enum Measured {
     static var failed: [String] = []
+    static var passed: [String] = []
     static var rows: [[String: Any]] = []
     static func check(_ condition: Bool, _ message: String) {
         if condition {
+            passed.append(message)
             print("PASS: measured state: \(message)")
         } else {
             failed.append(message)
@@ -976,7 +978,7 @@ private extension Int {
             base > 0 && big >= base * 1.4,
             "\(name): enlarged type grows the status label's real AX frame (\(base) -> \(big))")
     }
-    let payload: [String: Any] = ["rows": Measured.rows, "failed": Measured.failed]
+    let payload: [String: Any] = ["rows": Measured.rows, "passed": Measured.passed, "failed": Measured.failed]
     try? JSONSerialization.data(withJSONObject: payload, options: [.prettyPrinted, .sortedKeys])
         .write(to: output.appendingPathComponent("measured-states.json"))
     print("Measured states: \(Measured.rows.count) captures, \(Measured.failed.count) failed")

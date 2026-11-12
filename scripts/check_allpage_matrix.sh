@@ -7,6 +7,7 @@
 set -euo pipefail
 [[ $(uname -s) == Darwin ]] || { printf '%s\n' 'This UI probe requires macOS.' >&2; exit 2; }
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
+python3 -m unittest discover -s "$ROOT/scripts" -p test_allpage_matrix.py
 OUT=${1:?usage: check_allpage_matrix.sh OUTPUT_DIRECTORY}
 mkdir -p "$OUT"
 OUT=$(cd "$OUT" && pwd)
@@ -15,12 +16,13 @@ trap 'rm -rf "$PROBE"' EXIT
 cp "$ROOT/Package.swift" "$PROBE/"
 cp -R "$ROOT/Sources" "$ROOT/Tests" "$PROBE/"
 cp "$ROOT/scripts/allpage_matrix_probe.swift" "$PROBE/Sources/Perch/main.swift"
-swift build -Xswiftc -DPERCH_TESTING -Xswiftc -enable-testing --package-path "$PROBE" -c release --product Perch
+swift build --jobs 2 -Xswiftc -DPERCH_TESTING -Xswiftc -enable-testing --package-path "$PROBE" -c release --product Perch
 python3 - "$PROBE/.build/release/Perch" "$OUT" <<'PY'
 import json, os, pathlib, subprocess, sys
 
 binary, out = sys.argv[1:]
 out = pathlib.Path(out)
+(out / 'matrix-evidence.json').unlink(missing_ok=True)
 data = out / 'planner.json'
 data.write_text(json.dumps({'preferences': {
     'welcomeCompleted': True, 'catchCopies': False, 'catchScreenshots': False, 'remindersSync': False}}))
@@ -77,3 +79,4 @@ finally:
     print('increase-contrast restored=%r' % read_contrast())
 sys.exit(1 if failed else 0)
 PY
+python3 "$ROOT/scripts/check_probe_results.py" allpage "$OUT/matrix-evidence.json"

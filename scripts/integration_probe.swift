@@ -247,16 +247,20 @@ private extension PlannerStore {
 // from persisted planner state. No AX press or model call stands in for a key.
 
 @MainActor
-var matrixFailures: [String] = []
+enum MatrixChecks {
+    static var failures: [String] = []
+    static var passed: [String] = []
+}
 
 /// Records every red check, so one hosted run reports the whole matrix; the probe still exits 1.
 @MainActor
 func matrixRequire(_ ok: Bool, _ label: String, _ detail: @autoclosure () -> String = "") {
     guard ok else {
-        matrixFailures.append(label)
+        MatrixChecks.failures.append(label)
         FileHandle.standardError.write(Data("FAIL: matrix: \(label)\n\(detail())\n".utf8))
         return
     }
+    MatrixChecks.passed.append(label)
     print("PASS: matrix: \(label)")
 }
 
@@ -439,9 +443,12 @@ func checkPageMatrix(store _: PlannerStore, output: URL) async throws {
     try await checkDashboardMatrix(fixture, output: output)
     try await checkWelcomeMatrix(fixture, output: output)
     try await checkDetailsMatrix(fixture, output: output)
-    guard matrixFailures.isEmpty else {
+    let report: [String: Any] = ["passed": MatrixChecks.passed, "failed": MatrixChecks.failures]
+    try JSONSerialization.data(withJSONObject: report, options: [.prettyPrinted, .sortedKeys])
+        .write(to: output.appendingPathComponent("integration-matrix.json"))
+    guard MatrixChecks.failures.isEmpty else {
         FileHandle.standardError.write(
-            Data("FAIL: page matrix: \(matrixFailures.count) red: \(matrixFailures)\n".utf8))
+            Data("FAIL: page matrix: \(MatrixChecks.failures.count) red: \(MatrixChecks.failures)\n".utf8))
         exit(1)
     }
     print("Page matrix passed")
