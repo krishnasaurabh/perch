@@ -39,14 +39,14 @@ class AllPageMatrixProbeTests(unittest.TestCase):
     def test_every_required_group_runs_and_the_assertion_set_is_large(self):
         for group in REQUIRED_GROUPS:
             self.assertIn(f'await report.group("{group}")', self.source, group)
-        self.assertGreaterEqual(self.source.count("report.require("), 80)
+        self.assertGreaterEqual(self.source.count("report.require("), 84)
         self.assertNotIn("XCTSkip", self.source)
         # Two settling waits only: no retry-by-sleep anywhere in the probe.
         self.assertEqual(self.source.count("Task.sleep"), 2)
-        self.assertLessEqual(self.source.count("for _ in 0..<"), 8)
+        self.assertLessEqual(self.source.count("for _ in 0..<"), 4)
 
     def test_assertion_plumbing_can_go_red(self):
-        plumbing = self.source.split("struct MatrixFailure", 1)[1].split("// MARK: - Native helpers", 1)[0]
+        plumbing = self.source.split("struct MatrixFailure", 1)[1].split("// MARK: - System accessibility layer", 1)[0]
         program = (
             "import Foundation\n\nstruct MatrixFailure"
             + plumbing
@@ -102,6 +102,15 @@ print("Matrix assertion plumbing check passed")
             self.assertNotIn("screenshots", hit)
             self.assertNotIn("copied items", hit)
 
+    def test_measurements_read_the_system_accessibility_tree(self):
+        # In-window accessibilityChildren stay empty until something asks, so every measurement
+        # goes through the application element of the system AX API.
+        self.assertIn("AXUIElementCreateApplication(getpid())", self.source)
+        self.assertIn("kAXWindowsAttribute", self.source)
+        self.assertIn("kAXChildrenAttribute", self.source)
+        self.assertNotIn("accessibilityChildren", self.source)
+        self.assertIn("kAXFocusedUIElementAttribute", self.source)
+
     def test_negative_controls_cover_the_measured_groups(self):
         self.assertIn("negative control: a fixed-size control does not grow", self.source)
         self.assertIn("negative control: a low-contrast label is detected", self.source)
@@ -126,6 +135,12 @@ print("Matrix assertion plumbing check passed")
         self.assertIn("cp -R \"$ROOT/Sources\" \"$ROOT/Tests\"", runner)
         self.assertIn("Sources/Perch/main.swift", runner)
         self.assertIn("MATRIX_OUTPUT", runner)
+        # Real Tab traversal needs full keyboard access as an argument-domain override.
+        self.assertIn("'-AppleKeyboardUIMode', '3'", runner)
+        # The contrast group needs the system increase-contrast state and restores it afterwards.
+        self.assertIn("com.apple.universalaccess", runner)
+        self.assertIn("increaseContrast", runner)
+        self.assertIn("restored", runner)
         self.assertIn("PERCH_DATA", runner)
         self.assertIn("catchCopies': False", runner)
         self.assertIn("catchScreenshots': False", runner)
