@@ -474,7 +474,17 @@ final class ClipsMenuTracker: NSObject {
 }
 
 @MainActor
-func clipsMenuAction(_ action: String, title: String, host: NSView, expectsOpen: Bool) throws {
+func clipsMenuAction(_ action: String, title: String, host: NSView, expectsOpen: Bool, out: URL) throws {
+    // Retain the exact kept-row state before the first selector or press can fail.
+    let diagnostic = out.appendingPathComponent("kept-file-menu-before.ax.json")
+    if !FileManager.default.fileExists(atPath: diagnostic.path) {
+        try capture(host, to: out.appendingPathComponent("kept-file-menu-before.png"))
+        try writeClipsAccessibility(host, to: diagnostic)
+    }
+    let control = try clipsControl("Actions for \(title)", in: host)
+    let frame = try clipsFrame(control, in: host)
+    try requireClips(frame.height >= 28 && frame.width >= 28, "Clip menu target below 28pt: \(frame)")
+    try requireClips(host.bounds.insetBy(dx: 24, dy: 24).contains(frame), "Clip menu target outside card")
     let tracker = ClipsMenuTracker()
     tracker.start()
     defer { tracker.stop() }
@@ -486,6 +496,15 @@ func clipsMenuAction(_ action: String, title: String, host: NSView, expectsOpen:
     guard let menu = tracker.menu else {
         throw NSError(domain: "ClipsLayout", code: 4, userInfo: [NSLocalizedDescriptionKey: "More did not open menu"])
     }
+    let menuEvidence: [String: Any] = [
+        "requestedAction": action, "controlNames": clipsNames(control),
+        "controlRole": clipsAttribute(control, "accessibilityRole") as? String ?? "",
+        "controlIdentifier": clipsAttribute(control, "accessibilityIdentifier") as? String ?? "",
+        "frame": NSStringFromRect(frame),
+        "items": menu.items.map { ["title": $0.title, "enabled": $0.isEnabled] as [String: Any] },
+    ]
+    try JSONSerialization.data(withJSONObject: menuEvidence, options: [.prettyPrinted, .sortedKeys])
+        .write(to: out.appendingPathComponent("kept-file-menu-\(action.lowercased()).json"))
     for name in ["Copy", "Remove"] + (expectsOpen ? ["Open"] : []) {
         try requireClips(menu.items.contains { $0.title == name && $0.isEnabled }, "Missing menu action: \(name)")
     }
@@ -623,14 +642,14 @@ func clipsMenuAction(_ action: String, title: String, host: NSView, expectsOpen:
                 .environment(\.colorScheme, .dark).padding(24).background(Color.black))
         window.contentView = page
         await settleClips()
-        try clipsMenuAction("Pin", title: kept.title, host: page, expectsOpen: true)
+        try clipsMenuAction("Pin", title: kept.title, host: page, expectsOpen: true, out: out)
         await settleClips()
         try requireClips(services.clips.clips.first?.pinned == true, "Native Pin must pin the kept file")
         try capture(page, to: out.appendingPathComponent("kept-file.png"))
-        try clipsMenuAction("Unpin", title: kept.title, host: page, expectsOpen: true)
+        try clipsMenuAction("Unpin", title: kept.title, host: page, expectsOpen: true, out: out)
         await settleClips()
         try requireClips(services.clips.clips.first?.pinned == false, "Native Unpin must unpin the kept file")
-        try clipsMenuAction("Remove", title: kept.title, host: page, expectsOpen: true)
+        try clipsMenuAction("Remove", title: kept.title, host: page, expectsOpen: true, out: out)
         await settleClips()
         try requireClips(services.clips.clips.isEmpty, "Native Remove must remove the kept file")
         try pressClips("Undo", in: page)

@@ -206,6 +206,66 @@ private struct FolderWatchStatus: View {
     }
 }
 
+/// Assign identity to the AppKit launcher itself. A SwiftUI Menu's outer
+/// accessibility label does not label its native popup cell on macOS.
+private struct ClipsActionsMenu: NSViewRepresentable {
+    let clip: ClipsService.Clip
+    let clips: ClipsService
+    @Environment(\.isEnabled) private var isEnabled
+
+    func makeCoordinator() -> Coordinator { Coordinator() }
+
+    func makeNSView(context: Context) -> NSPopUpButton {
+        let button = NSPopUpButton(frame: .zero, pullsDown: true)
+        // Unlike fixed-height popup bezels, this bezel fills the real 32pt target.
+        button.bezelStyle = .regularSquare
+        button.font = .systemFont(ofSize: ThemeTokens.TypeSize.meta, weight: .medium)
+        button.controlSize = .regular
+        return button
+    }
+
+    func updateNSView(_ button: NSPopUpButton, context: Context) {
+        let menu = NSMenu()
+        menu.autoenablesItems = false
+        let title = NSMenuItem(title: "More", action: nil, keyEquivalent: "")
+        title.image = NSImage(systemSymbolName: "ellipsis", accessibilityDescription: nil)
+        menu.addItem(title)
+        context.coordinator.actions = []
+        @MainActor func add(_ title: String, action: @escaping () -> Void) {
+            let item = NSMenuItem(title: title, action: #selector(Coordinator.performAction(_:)), keyEquivalent: "")
+            item.target = context.coordinator
+            item.tag = context.coordinator.actions.count
+            item.isEnabled = isEnabled
+            context.coordinator.actions.append(action)
+            menu.addItem(item)
+        }
+        add(clip.pinned ? "Unpin" : "Pin") { clips.togglePin(clip.id) }
+        add("Copy") { clips.copy(clip) }
+        if let url = clips.clipURL(clip) {
+            add("Open") { clips.open(clip) }
+            add("Show in Finder") { NSWorkspace.shared.activateFileViewerSelecting([url]) }
+        }
+        menu.addItem(.separator())
+        add("Remove") { clips.letGo(clip.id) }
+        button.menu = menu
+        button.isEnabled = isEnabled
+        let label = "Actions for \(clip.title)"
+        let identifier = "clips.actions.\(clip.id)"
+        button.setAccessibilityLabel(label)
+        button.setAccessibilityIdentifier(identifier)
+        button.cell?.setAccessibilityLabel(label)
+        button.cell?.setAccessibilityIdentifier(identifier)
+    }
+
+    @MainActor final class Coordinator: NSObject {
+        var actions: [() -> Void] = []
+        @objc func performAction(_ sender: NSMenuItem) {
+            guard sender.isEnabled, actions.indices.contains(sender.tag) else { return }
+            actions[sender.tag]()
+        }
+    }
+}
+
 private struct ClipCard: View {
     let clip: ClipsService.Clip
     let clips: ClipsService
@@ -238,15 +298,8 @@ private struct ClipCard: View {
                         Label("Pinned", systemImage: "pin.fill").font(Theme.meta).foregroundStyle(Theme.secondary)
                     }
                     Spacer(minLength: 0)
-                    Menu {
-                        clipActions
-                    } label: {
-                        Label("More", systemImage: "ellipsis")
-                            .font(Theme.meta).frame(minHeight: Theme.minimumTarget)
-                    }
-                    .menuStyle(.borderlessButton)
-                    .fixedSize()
-                    .accessibilityLabel("Actions for \(clip.title)")
+                    ClipsActionsMenu(clip: clip, clips: clips)
+                        .frame(width: 80, height: 32)
                 }.frame(width: 132)
             }
             .padding(6)
