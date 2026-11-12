@@ -266,7 +266,8 @@ public struct Preferences: Codable, Equatable, Sendable {
     public var ringOnPhone: Bool = false
     public var sortWithAI: Bool = false
     public var includeWeekendsInStreak: Bool = true
-    public var catchScreenshots: Bool = true
+    /// Fresh profiles opt in from Welcome or Settings; an explicitly saved value is preserved when decoding.
+    public var catchScreenshots: Bool = false
     public var catchCopies: Bool = false
     /// Order of Today's side-column cards (see `HomeLayout`). Older files may still list "tasks" and "insights";
     /// both are ignored there, because tasks are always shown and Insights has its own tab.

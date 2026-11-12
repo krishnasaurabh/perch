@@ -42,6 +42,16 @@ final class PlannerMigrationTests: XCTestCase {
         }
         """#
 
+    func testFreshScreenshotCaptureRequiresConsentAndSavedEnableSurvivesDecoding() throws {
+        XCTAssertFalse(Preferences().catchScreenshots)
+        let saved = try PlannerFile.decoder.decode(
+            Planner.self,
+            from: Data(
+                #"{"version":1,"preferences":{"catchScreenshots":true,"welcomeCompleted":false}}"#.utf8))
+        XCTAssertTrue(saved.preferences.catchScreenshots)
+        XCTAssertFalse(saved.preferences.welcomeCompleted)
+    }
+
     func testPopulatedCurrentFormatLoadsWithoutLosingAnyTaskOrPreference() throws {
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: dir) }
