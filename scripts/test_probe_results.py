@@ -39,7 +39,9 @@ def clips_report():
     source = (ROOT / "scripts/clips_layout_probe.swift").read_text()
     array = source.split("let clipsKeyboardAssertions = [", 1)[1].split("]", 1)[0]
     labels = re.findall(r'"([^"]+)"', array)
-    return [{"broken": "", "red": "", "ok": True, "passed": labels}]
+    return [{"broken": "", "red": "", "ok": True,
+             "passed": ["week fixture", "week fixture"] + labels[:9]
+                       + ["clips fixture", "clips fixture"] + labels[9:]}]
 
 
 class ProbeReportTests(unittest.TestCase):
@@ -74,13 +76,51 @@ class ProbeReportTests(unittest.TestCase):
     def test_every_keyboard_assertion_is_mandatory(self):
         for index in range(19):
             report = clips_report()
-            report[0]["passed"].pop(index)
+            report[0]["passed"].remove(results.CLIPS_KEYBOARD_ASSERTIONS[index])
             with self.subTest(index=index), self.assertRaises(ValueError):
                 results.validate("clips", report)
         for key, value in (("ok", False), ("red", "wrong")):
             report = clips_report()
             report[0][key] = value
             with self.assertRaises(ValueError):
+                results.validate("clips", report)
+
+    def test_native_keyboard_report_includes_all_fixture_preconditions(self):
+        report = clips_report()
+        self.assertEqual(len(report[0]["passed"]), 23)
+        self.assertEqual(results.validate("clips", report), 19)
+        for label in ("week fixture", "clips fixture"):
+            for mutation in ("missing", "duplicate", "unknown"):
+                broken = copy.deepcopy(report)
+                if mutation == "duplicate":
+                    broken[0]["passed"].append(label)
+                else:
+                    broken[0]["passed"].remove(label)
+                    if mutation == "unknown":
+                        broken[0]["passed"].append("unknown fixture")
+                with self.subTest(label=label, mutation=mutation), self.assertRaises(ValueError):
+                    results.validate("clips", broken)
+
+    def test_keyboard_identity_cannot_be_replaced_or_duplicated(self):
+        for label in results.CLIPS_KEYBOARD_ASSERTIONS:
+            for mutation in ("duplicate", "same-prefix replacement"):
+                report = clips_report()
+                if mutation == "duplicate":
+                    report[0]["passed"].append(label)
+                else:
+                    index = report[0]["passed"].index(label)
+                    report[0]["passed"][index] = label + " unexpected"
+                with self.subTest(label=label, mutation=mutation), self.assertRaises(ValueError):
+                    results.validate("clips", report)
+        report = clips_report()
+        interactions = [label for label in report[0]["passed"] if ":" in label]
+        self.assertEqual(interactions, list(results.CLIPS_KEYBOARD_ASSERTIONS))
+
+    def test_keyboard_report_rejects_invalid_labels_and_collections(self):
+        for value in (None, {}, "not a list", [None], [[]]):
+            report = clips_report()
+            report[0]["passed"] = value
+            with self.subTest(value=value), self.assertRaises(ValueError):
                 results.validate("clips", report)
 
     def test_keyboard_control_must_fail_its_exact_assertion(self):
