@@ -8,7 +8,7 @@ struct ClipsPage: View {
     var body: some View { ClipsBody(clips: services.clips) }
 }
 
-private struct ClipsBody: View {
+struct ClipsBody: View {
     @ObservedObject var clips: ClipsService
     @EnvironmentObject var store: PlannerStore
 
@@ -21,6 +21,9 @@ private struct ClipsBody: View {
                     captureControls
                     removeUnpinned.fixedSize()
                 }
+                // Leave room for whole, minimum-size controls on a single row.
+                // Compact cards put the capture controls below the heading.
+                .frame(minWidth: 640)
                 VStack(alignment: .leading, spacing: Theme.gutter) {
                     HStack {
                         CardHeading("Clips", symbol: "paperclip"); Spacer(); removeUnpinned
@@ -79,15 +82,17 @@ private struct ClipsBody: View {
                     get: { store.prefs.catchScreenshots },
                     set: { value in store.updatePrefs { $0.catchScreenshots = value } })
             )
-            .fixedSize().frame(minHeight: Theme.minimumTarget)
+            .toggleStyle(ClipsCaptureToggleStyle(title: "Add screenshots"))
+            .fixedSize()
             Toggle(
                 "Add copied items",
                 isOn: Binding(
                     get: { store.prefs.catchCopies }, set: { value in store.updatePrefs { $0.catchCopies = value } })
             )
-            .fixedSize().frame(minHeight: Theme.minimumTarget)
+            .toggleStyle(ClipsCaptureToggleStyle(title: "Add copied items"))
+            .fixedSize()
         }
-        .toggleStyle(.switch).controlSize(.small).font(Theme.meta)
+        .font(Theme.meta)
         // Refuse label compression so ViewThatFits moves these whole controls
         // below the heading instead of fitting a row of broken-up words.
         .fixedSize(horizontal: true, vertical: false)
@@ -106,6 +111,27 @@ private struct ClipsBody: View {
             Text("Click to copy · Drag to share · More for clip actions")
                 .font(Theme.meta).foregroundStyle(Theme.secondary)
         }
+    }
+}
+
+/// Keep the label and state inside one native action target, rather than a
+/// small switch whose separate text is not part of its accessibility frame.
+private struct ClipsCaptureToggleStyle: ToggleStyle {
+    let title: String
+
+    func makeBody(configuration: Configuration) -> some View {
+        Button {
+            configuration.isOn.toggle()
+        } label: {
+            HStack(spacing: Theme.gutter) {
+                Image(systemName: configuration.isOn ? "checkmark.circle.fill" : "circle")
+                    .accessibilityHidden(true)
+                configuration.label
+            }
+        }
+        .buttonStyle(PillStyle(prominent: configuration.isOn))
+        .accessibilityLabel(title)
+        .accessibilityValue(configuration.isOn ? "On" : "Off")
     }
 }
 

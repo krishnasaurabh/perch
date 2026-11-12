@@ -171,6 +171,51 @@ func checkClipsScrolling(host: NSView) async throws {
     await settleClips()
 }
 
+@MainActor
+func checkClipsToolbarFrames(_ frames: [NSRect], in bounds: NSRect) throws {
+    let names = ["Add screenshots", "Add copied items", "Remove unpinned"]
+    try requireClips(frames.count == names.count, "Missing toolbar control frames")
+    for (name, frame) in zip(names, frames) {
+        try requireClips(bounds.insetBy(dx: 24, dy: 24).contains(frame), "Control outside card: \(name)")
+        try requireClips(frame.height >= 28, "Control target below 28pt: \(name), \(frame)")
+    }
+    for i in frames.indices {
+        for j in frames.indices where j > i {
+            try requireClips(!frames[i].intersects(frames[j]), "Toolbar controls overlap")
+        }
+    }
+    if bounds.width <= 640 {
+        try requireClips(
+            frames[0].minY >= frames[2].maxY + Theme.gutter
+                && frames[1].minY >= frames[2].maxY + Theme.gutter,
+            "Compact capture controls must reflow below the heading row")
+    }
+}
+
+@MainActor
+func checkClipsGeometryMatching() throws {
+    let bounds = NSRect(x: 0, y: 0, width: 640, height: 360)
+    let valid = [
+        NSRect(x: 38, y: 78, width: 160, height: 32),
+        NSRect(x: 206, y: 78, width: 160, height: 32),
+        NSRect(x: 484, y: 38, width: 118, height: 32),
+    ]
+    try checkClipsToolbarFrames(valid, in: bounds)
+    var small = valid
+    small[0].size.height = 20
+    var overlapping = valid
+    overlapping[1] = overlapping[0]
+    var outside = valid
+    outside[0].origin.x = 0
+    let singleRow = valid.map { NSRect(x: $0.minX, y: 38, width: $0.width, height: $0.height) }
+    for invalid in [small, overlapping, outside, singleRow, Array(valid.prefix(2))] {
+        var rejected = false
+        do { try checkClipsToolbarFrames(invalid, in: bounds) } catch { rejected = true }
+        try requireClips(rejected, "Toolbar geometry accepted an invalid fixture")
+    }
+    try checkClipsToolbarFrames(singleRow, in: NSRect(x: 0, y: 0, width: 820, height: 360))
+}
+
 // Recognize each complete label on ONE rendered line. Joining OCR lines (or checking AX
 // labels alone) would wrongly accept the old "Add / screenshot / s" narrow layout.
 @MainActor
@@ -202,15 +247,13 @@ func checkClipsToolbar(_ url: URL, host: NSView) throws -> [String: Any] {
     }
     // NSHostingView uses flipped coordinates; image coordinates are always top-down.
     let bottom = frames.map { host.isFlipped ? $0.maxY : host.bounds.height - $0.minY }.max()!
-    for (name, frame) in zip(names, frames) {
-        try requireClips(host.bounds.insetBy(dx: 24, dy: 24).contains(frame), "Control outside card: \(name)")
-        try requireClips(frame.height >= 28, "Control target below 28pt: \(name), \(frame)")
+    let imageFrames = frames.map { frame in
+        host.isFlipped
+            ? frame
+            : NSRect(
+                x: frame.minX, y: host.bounds.height - frame.maxY, width: frame.width, height: frame.height)
     }
-    for i in frames.indices {
-        for j in frames.indices where j > i {
-            try requireClips(!frames[i].intersects(frames[j]), "Toolbar controls overlap")
-        }
-    }
+    try checkClipsToolbarFrames(imageFrames, in: host.bounds)
 
     // Locate the actual rope's left end in the captured pixels BELOW the measured
     // toolbar. Only translate the scanner's existing 7 x 34pt ROI; do not widen it.
@@ -238,6 +281,72 @@ func checkClipsToolbar(_ url: URL, host: NSView) throws -> [String: Any] {
     try requireClips(ropeRow(in: noRope) == nil, "Rope anchor detector accepted a rope-less capture")
     return ["toolbarBottom": bottom, "toolbarLines": lines, "ropeY": CGFloat(ropeY!) / scale]
 }
+
+#if CLIPS_PREVIEW_REGRESSION
+    @MainActor
+    private struct ClipsProbePasteboard: PasteboardAccess {
+        let changeCount = 0
+        let declaredTypes: [String] = []
+        let fileURLs: [URL] = []
+        let imageData: Data? = nil
+        let plainText: String? = nil
+        func replace(with value: PasteboardValue) { fatalError("Capture controls must not write the clipboard") }
+    }
+
+    @MainActor
+    func checkCaptureToggleInteractions(window: NSWindow, out: URL) async throws {
+        // Use the real page body and preference bindings, but no Services aggregator:
+        // enabling a control must never start a real monitor in this fixture.
+        let file = PlannerFile(url: out.appendingPathComponent("capture-controls-planner.json"))
+        let store = PlannerStore(file: file, watching: false)
+        store.updatePrefs {
+            $0.catchScreenshots = false
+            $0.catchCopies = false
+            $0.remindersSync = false
+        }
+        let clips = ClipsService(store: store, pasteboard: ClipsProbePasteboard(), monitoring: false)
+        let controls: [(String, WritableKeyPath<Preferences, Bool>)] = [
+            ("Add screenshots", \.catchScreenshots), ("Add copied items", \.catchCopies),
+        ]
+        var checks: [[String: Any]] = []
+        for width in [640, 820] {
+            window.setContentSize(NSSize(width: width, height: 360))
+            window.appearance = NSAppearance(named: .darkAqua)
+            let view = NSHostingView(
+                rootView: ClipsBody(clips: clips).environmentObject(store)
+                    .environment(\.accessibilityEnabled, true).environment(\.colorScheme, .dark)
+                    .padding(24).background(Color.black))
+            window.contentView = view
+            await settleClips()
+            for (index, control) in controls.enumerated() {
+                let (title, key) = control
+                let otherKey = controls[1 - index].1
+                for enabled in [true, false] {
+                    let prefix = "capture-\(width)-\(index)-\(enabled)"
+                    try writeClipsAccessibility(view, to: out.appendingPathComponent("\(prefix)-before.ax.json"))
+                    try pressClips(title, in: view)
+                    await settleClips()
+                    let url = out.appendingPathComponent("\(prefix).png")
+                    try capture(view, to: url)
+                    try writeClipsAccessibility(view, to: url.deletingPathExtension().appendingPathExtension("ax.json"))
+                    _ = try checkClipsToolbar(url, host: view)
+                    let persisted = try file.load().preferences
+                    try requireClips(
+                        store.prefs[keyPath: key] == enabled && persisted[keyPath: key] == enabled,
+                        "Native capture control did not persist its state: \(title)")
+                    try requireClips(
+                        !store.prefs[keyPath: otherKey] && !persisted[keyPath: otherKey],
+                        "Native capture control changed the other preference")
+                    let value = clipsAttribute(try clipsControl(title, in: view), "accessibilityValue") as? String
+                    try requireClips(value == (enabled ? "On" : "Off"), "Capture control did not expose its state")
+                    checks.append(["width": width, "control": title, "enabled": enabled, "passed": true])
+                }
+            }
+        }
+        try JSONSerialization.data(withJSONObject: checks, options: [.prettyPrinted, .sortedKeys])
+            .write(to: out.appendingPathComponent("capture-control-checks.json"))
+    }
+#endif
 
 // Observe the menu opened by the actual More control, not reconstructed actions.
 @MainActor
@@ -459,6 +568,7 @@ MainActor.assumeIsolated {
         Task { @MainActor in
             do {
                 try checkClipsControlMatching()
+                try checkClipsGeometryMatching()
                 var captures: [[String: Any]] = []
                 // Start with the regression width; both widths retain all four states.
                 for width in [640, 820] {
@@ -523,6 +633,7 @@ MainActor.assumeIsolated {
                     .write(to: out.appendingPathComponent("captures.json"))
                 #if CLIPS_PREVIEW_REGRESSION
                     try await checkPreviews(window: window, services: services, store: store, out: out)
+                    try await checkCaptureToggleInteractions(window: window, out: out)
                 #endif
                 print(
                     "Clips snapshots: \(captures.count). Actual ClipsPage + ClipsService; fixed dark tile in both appearances."
