@@ -37,9 +37,15 @@ struct ProjectsList: View {
 private struct ProjectDeleteButton: View {
     let action: () -> Void
     @FocusState private var focused: Bool
+    @Environment(\.isEnabled) private var enabled
 
     var body: some View {
         Button("Delete project", role: .destructive, action: action)
             .buttonStyle(PillStyle(focus: $focused))
+            .onKeyPress(.space, phases: .down) { _ in
+                guard enabled else { return .ignored }
+                action()
+                return .handled
+            }
     }
 }

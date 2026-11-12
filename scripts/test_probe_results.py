@@ -152,6 +152,43 @@ class ProbeReportTests(unittest.TestCase):
         self.assertIn(".focusable()\n                .focused($copyFocused)", clips)
         self.assertIn("focused: copyFocused", clips)
         self.assertIn("clips.copy(clip)", clips)
+        self.assertIn("Button(action: copyClip)", clips)
+        for source in (projects, clips):
+            self.assertIn(".onKeyPress(.space, phases: .down)", source)
+            self.assertNotIn(".onKeyPress(.space, phases: .all)", source)
+
+    def test_keyboard_activation_consumes_once_and_rejects_disabled(self):
+        swift = shutil.which("swiftc")
+        assert swift is not None
+        sources = [
+            ("project", ROOT / "Sources/PerchApp/Settings/ProjectsList.swift"),
+            ("clip", ROOT / "Sources/PerchApp/Workspace/ClipsPage.swift"),
+        ]
+        functions = []
+        for name, path in sources:
+            source = path.read_text()
+            match = re.search(r'\.onKeyPress\(\.space, phases: \.down\) \{ _ in\n(.*?)\n\s*\}', source, re.S)
+            self.assertIsNotNone(match, path)
+            body = match.group(1)
+            functions.append(f"func {name}(_ enabled: Bool, action: () -> Void, copyClip: () -> Void) -> Result {{\n{body}\n}}")
+        program = "enum Result { case handled, ignored }\n" + "\n".join(functions) + '''
+for handler in [project, clip] {
+    var count = 0
+    let action = { count += 1 }
+    precondition(handler(false, action, action) == .ignored)
+    precondition(count == 0)
+    precondition(handler(true, action, action) == .handled)
+    precondition(count == 1)
+}
+'''
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "main.swift"
+            source.write_text(program)
+            binary = Path(directory) / "activation"
+            built = subprocess.run([swift, str(source), "-o", str(binary)], capture_output=True, text=True)
+            self.assertEqual(built.returncode, 0, built.stderr)
+            ran = subprocess.run([str(binary)], capture_output=True, text=True)
+            self.assertEqual(ran.returncode, 0, ran.stderr)
 
     def test_integration_accumulator_keeps_every_failure(self):
         swift = shutil.which("swiftc")

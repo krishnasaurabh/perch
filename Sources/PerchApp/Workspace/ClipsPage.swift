@@ -295,15 +295,18 @@ private struct ClipCard: View {
     let clips: ClipsService
     @State private var copied = false
     @FocusState private var copyFocused: Bool
+    @Environment(\.isEnabled) private var enabled
+
+    private func copyClip() {
+        clips.copy(clip)
+        copied = true
+    }
 
     var body: some View {
         VStack(spacing: 0) {
             RoundedRectangle(cornerRadius: 2).fill(Theme.accent).frame(width: 8, height: 18).offset(y: 6).zIndex(1)
             VStack(alignment: .leading, spacing: 5) {
-                Button {
-                    clips.copy(clip)
-                    copied = true
-                } label: {
+                Button(action: copyClip) {
                     VStack(alignment: .leading, spacing: 5) {
                         ClipPreview(content: clip.content, thumbnail: clip.thumbnail)
                         Text(clip.displayTitle(copied: copied)).font(Theme.meta).lineLimit(1)
@@ -314,6 +317,11 @@ private struct ClipCard: View {
                 .focusable()
                 .focused($copyFocused)
                 .focusEffectDisabled()
+                .onKeyPress(.space, phases: .down) { _ in
+                    guard enabled else { return .ignored }
+                    copyClip()
+                    return .handled
+                }
                 .overlay(
                     ControlFocusRing(shape: RoundedRectangle(cornerRadius: Theme.controlRadius), focused: copyFocused)
                 )
