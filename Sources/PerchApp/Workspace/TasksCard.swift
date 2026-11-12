@@ -331,29 +331,6 @@ struct TaskComposer: View {
             await Task.yield()
             guard !Task.isCancelled else { return }
             focusBinding.wrappedValue = .capture
-            // SwiftUI drops the assignment when the incoming field is not yet focusable, e.g. while a dense list
-            // lays out or an outgoing workspace still owns the field editor. Reassert until it holds (≤ 1.5 s);
-            // stop as soon as anything else takes focus so a deliberate move is never overridden.
-            var held = 0, attempts = 0
-            while held < 3 && attempts < 30 {
-                attempts += 1
-                try? await Task.sleep(nanoseconds: 50_000_000)
-                guard !Task.isCancelled, model.expanded, model.page == .home else { return }
-                // The notepad is an AppKit text view outside SwiftUI focus; never take focus back from it.
-                if let text = NSApp.keyWindow?.firstResponder as? NSTextView, !text.isFieldEditor { return }
-                switch focusBinding.wrappedValue {
-                case .capture:
-                    held += 1
-                case nil:
-                    held = 0
-                    #if DEBUG || PERCH_TESTING
-                        NotificationCenter.default.post(name: .init("PerchCaptureFocusReasserted"), object: nil)
-                    #endif
-                    focusBinding.wrappedValue = .capture
-                default:
-                    return
-                }
-            }
         }
         .overlay(ControlFocusRing(shape: RoundedRectangle(cornerRadius: 10), focused: focused))
         .help(preview ?? "Return adds a task. Paste multiple lines to add multiple tasks.")

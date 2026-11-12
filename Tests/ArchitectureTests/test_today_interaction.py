@@ -146,19 +146,23 @@ class TodayInteractionTests(unittest.TestCase):
         self.assertLess(request.index("await Task.yield()"), request.index("focusBinding.wrappedValue = .capture"))
         self.assertIn("guard !Task.isCancelled", request)
 
-    def test_explicit_capture_request_reasserts_until_focus_holds(self):
-        source = (WORKSPACE / "TasksCard.swift").read_text()
-        request = source.split(".task(id: model.captureFocusRequest)", 1)[1].split(".overlay(ControlFocusRing", 1)[0]
-        loop = request.split("focusBinding.wrappedValue = .capture", 1)[1]
-        # Bounded, cancellable, and never overrides a different focus destination.
-        self.assertIn("while held < 3 && attempts < 30", loop)
-        self.assertIn("guard !Task.isCancelled, model.expanded, model.page == .home else { return }", loop)
-        self.assertIn("case nil:", loop)
-        self.assertIn("focusBinding.wrappedValue = .capture", loop)
-        self.assertIn("default:\n                    return", loop)
+    def test_compact_capture_wait_observes_native_ownership_without_assigning_focus(self):
         compact = (ROOT / "scripts/compact_home_probe.swift").read_text()
+        identity = compact.split("func captureEditorIdentity(", 1)[1].split("/// One focus sample", 1)[0]
+        for expected in ("captureEditorFocused(delegate)", "delegate.model.expanded",
+                         "delegate.model.captureFocusRequest != nil", "field.currentEditor() === editor",
+                         "field.isDescendant(of: root)", "!field.isHiddenOrHasHiddenAncestor"):
+            self.assertIn(expected, identity)
+        traced = compact.split("func openHomeTraced(", 1)[1].split("MainActor.assumeIsolated", 1)[0]
+        self.assertIn("captureEditorIdentity(delegate)", traced)
+        self.assertIn("readiness.observe(time: t, editorIdentity: identity, editingEndedAt: trace.editingEndedAt)", traced)
+        self.assertIn("t >= CaptureFocusReadiness.deadline", traced)
+        self.assertIn("readiness.settledFocusAt != nil", traced)
+        self.assertNotIn("makeFirstResponder", compact)
+        self.assertNotIn("focusBinding.wrappedValue =", compact)
         self.assertIn("for iteration in 1...20", compact)
         self.assertIn('"dense-repeat-\\(iteration)", full: true', compact)
+        self.assertIn('label: scenario, full: scenario == "dense"', compact)
         self.assertIn('"\\(label): capture editor is focused and stays focused"', compact)
         self.assertIn('"capture-focus-trace.json"', compact)
         self.assertLess(compact.index("FocusTraceLog.append(open, output: output)"),
