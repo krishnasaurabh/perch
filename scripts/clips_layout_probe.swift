@@ -8,9 +8,35 @@ import PlannerCore
     import PerchMCP
 #endif
 
+// This fixture owns the proposal. Content-derived window constraints must not
+// silently replace it with the view's ideal height before a snapshot is taken.
 @MainActor
-func capture(_ view: NSView, to url: URL) throws {
+func installClipsFixture(_ root: some View, in window: NSWindow, size: NSSize) -> NSView {
+    let host = NSHostingView(rootView: root)
+    host.sizingOptions = []
+    window.contentView = host
+    window.setContentSize(size)
+    return host
+}
+
+@MainActor
+func capture(_ view: NSView, size expectedSize: NSSize, to url: URL) throws {
     view.layoutSubtreeIfNeeded()
+    let contentSize = view.window.map { $0.contentRect(forFrameRect: $0.frame).size } ?? .zero
+    let geometry: [String: Any] = [
+        "requestedSize": NSStringFromSize(expectedSize),
+        "viewBounds": NSStringFromRect(view.bounds),
+        "windowContentSize": NSStringFromSize(contentSize),
+        "windowContentMinSize": NSStringFromSize(view.window?.contentMinSize ?? .zero),
+        "windowContentMaxSize": NSStringFromSize(view.window?.contentMaxSize ?? .zero),
+    ]
+    try JSONSerialization.data(withJSONObject: geometry, options: [.prettyPrinted, .sortedKeys])
+        .write(to: url.deletingPathExtension().appendingPathExtension("geometry.json"))
+    guard view.bounds.size == expectedSize, contentSize == expectedSize else {
+        throw NSError(
+            domain: "ClipsLayout", code: 1,
+            userInfo: [NSLocalizedDescriptionKey: "Native fixture size differs from the requested capture size"])
+    }
     guard let bitmap = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { fatalError("No bitmap") }
     view.cacheDisplay(in: view.bounds, to: bitmap)
     guard let png = bitmap.representation(using: .png, properties: [:]) else { fatalError("No PNG") }
@@ -88,18 +114,17 @@ func settleClips() async { try? await Task.sleep(nanoseconds: 500_000_000) }
         var checks: [[String: Any]] = []
         var baselines: [String: Double] = [:]
         var inlineVariances: [String: Double] = [:]
-        window.setContentSize(NSSize(width: 180, height: 140))
+        let previewSize = NSSize(width: 180, height: 140)
         for (appearance, scheme) in [("dark", ColorScheme.dark), ("light", ColorScheme.light)] {
             window.appearance = NSAppearance(named: appearance == "dark" ? .darkAqua : .aqua)
             for (name, root) in cases {
-                let view = NSHostingView(
-                    rootView: root.environment(\.colorScheme, scheme)
-                        .padding(24).background(Color.black))
-                window.contentView = view
+                let view = installClipsFixture(
+                    root.environment(\.colorScheme, scheme)
+                        .padding(24).background(Color.black), in: window, size: previewSize)
                 await settleClips()
                 let filename = "preview-\(appearance)-\(name).png"
                 let url = out.appendingPathComponent(filename)
-                try capture(view, to: url)
+                try capture(view, size: previewSize, to: url)
                 let pixels = try previewPixels(url, box: NSRect(x: 30, y: 30, width: 120, height: 80))
                 let icon = try previewPixels(url, box: NSRect(x: 70, y: 38, width: 40, height: 35))
                 if name == "empty-tile" { baselines[appearance] = pixels.variance }
@@ -141,13 +166,13 @@ func settleClips() async { try? await Task.sleep(nanoseconds: 500_000_000) }
                 userInfo: [NSLocalizedDescriptionKey: "Kept text fixture was not copied into the vault"])
         }
         services.clips.togglePin(kept.id)
-        window.setContentSize(NSSize(width: 820, height: 360))
-        let page = NSHostingView(
-            rootView: ClipsPage().environmentObject(store).environmentObject(services)
-                .environment(\.colorScheme, .dark).padding(24).background(Color.black))
-        window.contentView = page
+        let pageSize = NSSize(width: 820, height: 360)
+        let page = installClipsFixture(
+            ClipsPage().environmentObject(store).environmentObject(services)
+                .environment(\.colorScheme, .dark).padding(24).background(Color.black),
+            in: window, size: pageSize)
         await settleClips()
-        try capture(page, to: out.appendingPathComponent("kept-file.png"))
+        try capture(page, size: pageSize, to: out.appendingPathComponent("kept-file.png"))
         print(
             "Preview pixel gates: \(checks.count) passed, including UTF-8 limits, real kept file, binary icon and blank Quick Look fallback."
         )
@@ -175,14 +200,13 @@ MainActor.assumeIsolated {
                 for width in [820, 640] {
                     for (appearance, scheme) in [("dark", ColorScheme.dark), ("light", ColorScheme.light)] {
                         services.clips.clearUnpinned()
-                        window.setContentSize(NSSize(width: width, height: 360))
+                        let size = NSSize(width: width, height: 360)
                         window.appearance = NSAppearance(named: appearance == "dark" ? .darkAqua : .aqua)
-                        let view = NSHostingView(
-                            rootView: ClipsPage()
+                        let view = installClipsFixture(
+                            ClipsPage()
                                 .environmentObject(store).environmentObject(services)
                                 .environment(\.colorScheme, scheme)
-                                .padding(24).background(Color.black))
-                        window.contentView = view
+                                .padding(24).background(Color.black), in: window, size: size)
                         await settleClips()
                         for state in ["empty", "one", "populated", "cleared"] {
                             switch state {
@@ -199,7 +223,7 @@ MainActor.assumeIsolated {
                             }
                             await settleClips()
                             let name = "\(appearance)-\(width)-\(state).png"
-                            try capture(view, to: out.appendingPathComponent(name))
+                            try capture(view, size: size, to: out.appendingPathComponent(name))
                             captures.append([
                                 "file": name, "width": width, "height": 360,
                                 "appearance": appearance, "state": state,
