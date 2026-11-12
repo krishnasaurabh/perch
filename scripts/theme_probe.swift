@@ -593,12 +593,16 @@ struct PageState {
     let increased: Bool
 }
 
-let pageStates = [
-    PageState(name: "standard", enlarged: false, increased: false),
-    PageState(name: "enlarged-type", enlarged: true, increased: false),
-    PageState(name: "increased-contrast", enlarged: false, increased: true),
-    PageState(name: "enlarged-increased", enlarged: true, increased: true),
-]
+enum PageStates {
+    // Static storage is initialized on first access, even while the entry point's
+    // app.run() is blocking. A later top-level let has not been initialized yet.
+    static let all = [
+        PageState(name: "standard", enlarged: false, increased: false),
+        PageState(name: "enlarged-type", enlarged: true, increased: false),
+        PageState(name: "increased-contrast", enlarged: false, increased: true),
+        PageState(name: "enlarged-increased", enlarged: true, increased: true),
+    ]
+}
 
 /// Observes the contrast SwiftUI actually resolved for the hosted page.
 @MainActor final class ContrastObservation: ObservableObject {
@@ -641,42 +645,71 @@ func pageContrast(_ a: [Int], _ b: [Int]) -> Double {
     return (max(x, y) + 0.05) / (min(x, y) + 0.05)
 }
 
-/// Rendered-pixel measurement: dominant background, then pixels at >= 3:1 against it.
+/// Rendered-pixel measurement on a 1x grid. Counts are observed samples,
+/// never extrapolated pixel totals; every existing threshold is unchanged.
 @MainActor func measureInk(_ view: NSView) -> PageInk {
     view.layoutSubtreeIfNeeded()
-    let bitmap = view.bitmapImageRepForCachingDisplay(in: view.bounds)!
+    func invalid(_ reason: String) -> PageInk {
+        fputs("Invalid rendered measurement: \(reason)\n", stderr)
+        return PageInk(background: [0, 0, 0], inkPixels: 0, inkRows: 0, maxRatio: 1)
+    }
+    let size = view.bounds.size
+    guard size.width.isFinite, size.height.isFinite,
+        size.width >= 1, size.height >= 1, size.width <= 8192, size.height <= 8192
+    else { return invalid("invalid view bounds \(view.bounds)") }
+    let (w, h) = (Int(ceil(size.width)), Int(ceil(size.height)))
+    guard
+        let bitmap = NSBitmapImageRep(
+            bitmapDataPlanes: nil, pixelsWide: w, pixelsHigh: h, bitsPerSample: 8,
+            samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
+            colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0),
+        bitmap.pixelsWide == w, bitmap.pixelsHigh == h,
+        bitmap.samplesPerPixel == 4, bitmap.bitsPerSample == 8,
+        !bitmap.isPlanar, bitmap.bytesPerRow >= w * 4, bitmap.bitmapData != nil
+    else { return invalid("cannot allocate a 1x RGBA bitmap") }
+    bitmap.size = size
     view.cacheDisplay(in: view.bounds, to: bitmap)
     var counts: [Int: Int] = [:]
-    let (w, h) = (bitmap.pixelsWide, bitmap.pixelsHigh)
-    func rgb(_ x: Int, _ y: Int) -> [Int] {
-        var p = [Int](repeating: 0, count: 4)
-        bitmap.getPixel(&p, atX: x, y: y)
-        return Array(p.prefix(3))
-    }
+    var samples: [[Int]] = []
+    // Read each sampled pixel once. Reuse the histogram for the contrast math.
     for y in stride(from: 0, to: h, by: 2) {
+        var row: [Int] = []
         for x in stride(from: 0, to: w, by: 2) {
-            let c = rgb(x, y)
-            counts[(c[0] << 16) | (c[1] << 8) | c[2], default: 0] += 1
-        }
-    }
-    let key = counts.max { $0.value < $1.value }?.key ?? 0
-    let background = [(key >> 16) & 255, (key >> 8) & 255, key & 255]
-    var ink = 0
-    var rows = 0
-    var best = 1.0
-    for y in 0..<h {
-        var rowInk = false
-        for x in 0..<w {
-            let ratio = pageContrast(rgb(x, y), background)
-            if ratio >= 3 {
-                ink += 1
-                rowInk = true
+            guard let color = bitmap.colorAt(x: x, y: y)?.usingColorSpace(.sRGB) else {
+                return invalid("cannot read RGB at \(x),\(y)")
             }
-            best = max(best, ratio)
+            let r = Int((color.redComponent * 255).rounded()).clampedByte
+            let g = Int((color.greenComponent * 255).rounded()).clampedByte
+            let b = Int((color.blueComponent * 255).rounded()).clampedByte
+            let key = (r << 16) | (g << 8) | b
+            row.append(key)
+            counts[key, default: 0] += 1
         }
-        if rowInk { rows += 1 }
+        samples.append(row)
     }
+    // Stable tie-breaking keeps equally prevalent backgrounds deterministic.
+    guard
+        let key = counts.keys.max(by: {
+            counts[$0]! == counts[$1]! ? $0 < $1 : counts[$0]! < counts[$1]!
+        })
+    else { return invalid("empty pixel grid") }
+    let background = [(key >> 16) & 255, (key >> 8) & 255, key & 255]
+    var contrastByColor: [Int: Double] = [:]
+    var ink = 0
+    var best = 1.0
+    for (color, count) in counts {
+        let rgb = [(color >> 16) & 255, (color >> 8) & 255, color & 255]
+        let ratio = pageContrast(rgb, background)
+        contrastByColor[color] = ratio
+        if ratio >= 3 { ink += count }
+        best = max(best, ratio)
+    }
+    let rows = samples.filter { row in row.contains { (contrastByColor[$0] ?? 1) >= 3 } }.count
     return PageInk(background: background, inkPixels: ink, inkRows: rows, maxRatio: best)
+}
+
+private extension Int {
+    var clampedByte: Int { min(255, max(0, self)) }
 }
 
 /// In-process AX walk (the same NSAccessibility path the gallery's AX press uses).
@@ -688,10 +721,14 @@ func pageContrast(_ a: [Int], _ b: [Int]) -> Double {
 }
 
 @MainActor func nodeFrame(_ node: NSObject) -> CGRect? {
-    guard node.responds(to: NSSelectorFromString("accessibilityFrame")),
-        let value = node.value(forKey: "accessibilityFrame") as? NSValue
+    // A selector check alone does not make an arbitrary SwiftUI child KVC-safe.
+    // Use the typed protocol accessor so CGRect follows the correct native ABI.
+    guard let accessible = node as? any NSAccessibility else { return nil }
+    let frame = accessible.accessibilityFrame()
+    guard frame.origin.x.isFinite, frame.origin.y.isFinite,
+        frame.width.isFinite, frame.height.isFinite
     else { return nil }
-    return value.rectValue
+    return frame
 }
 
 @MainActor func pageTextFrames(_ host: NSView, window: NSWindow) -> [(String, CGRect)] {
@@ -720,8 +757,12 @@ func pageContrast(_ a: [Int], _ b: [Int]) -> Double {
     return frames
 }
 
-@MainActor func settle(_ nanoseconds: UInt64 = 700_000_000) async {
-    try? await Task.sleep(nanoseconds: nanoseconds)
+@MainActor func settle() async {
+    // Cross the main run-loop boundary once, without retries or fixed sleeps.
+    // The measured subtree has animations disabled and is laid out before capture.
+    await withCheckedContinuation { continuation in
+        DispatchQueue.main.async { continuation.resume() }
+    }
 }
 
 @MainActor func firstTable(_ view: NSView) -> NSTableView? {
@@ -793,7 +834,7 @@ func pageContrast(_ a: [Int], _ b: [Int]) -> Double {
     for page in pages {
         var ink: [String: PageInk] = [:]
         var text: [String: [(String, CGRect)]] = [:]
-        for state in pageStates {
+        for state in PageStates.all {
             let observation = ContrastObservation()
             // NEGATIVE-CONTROL SITE (type): the enlarged state requests accessibility3.
             let typeSize: DynamicTypeSize = state.enlarged ? .accessibility3 : .large
@@ -806,6 +847,10 @@ func pageContrast(_ a: [Int], _ b: [Int]) -> Double {
             .environment(\.dynamicTypeSize, typeSize)
             .environment(\._colorSchemeContrast, contrast)
             .environment(\.accessibilityEnabled, true)
+            .transaction {
+                $0.animation = nil
+                $0.disablesAnimations = true
+            }
             let label = "\(page.name) [\(state.name)]"
             fputs("measured stage: render \(label)\n", stderr)
             let (window, host) = render(root, size: page.size, appearance: appearance)
@@ -821,7 +866,7 @@ func pageContrast(_ a: [Int], _ b: [Int]) -> Double {
                 print("MEASURED: \(label) sidebar row before keys \(table?.selectedRow ?? -1)")
                 for _ in 0..<pane {
                     key(125, String(UnicodeScalar(0xF701)!), in: window, modifiers: [.numericPad, .function])
-                    await settle(250_000_000)
+                    await settle()
                 }
                 Measured.check(
                     table?.selectedRow == pane,
@@ -829,7 +874,7 @@ func pageContrast(_ a: [Int], _ b: [Int]) -> Double {
                 await settle()
             }
             await wakeControlAccessibility()
-            await settle(250_000_000)
+            await settle()
             fputs("measured stage: pixels \(label)\n", stderr)
             let measured = measureInk(host)
             fputs("measured stage: accessibility frames \(label)\n", stderr)
