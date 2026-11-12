@@ -142,6 +142,30 @@ class LocalizationTests(unittest.TestCase):
         task_row = (ROOT / 'Sources/PerchApp/Workspace/TaskRow.swift').read_text()
         self.assertNotIn('.help(task.done ? "Reopen task" : "Complete task")', task_row)
 
+    def test_native_status_observes_and_uses_the_requested_text_environment(self):
+        status = (ROOT / 'Sources/PerchApp/Workspace/Components/StatusLabel.swift').read_text()
+        self.assertIn('@Environment(\\.dynamicTypeSize)', status)
+        self.assertIn('@Environment(\\.layoutDirection)', status)
+        self.assertIn('.font(.system(size: Self.pointSize(for: dynamicTypeSize)', status)
+        self.assertRegex(status, r'\.preference\(\s*key: LayoutMetricsKey\.self')
+        native = (ROOT / 'Tests/PerchAppTests/LocalizationTests.swift').read_text()
+        self.assertNotIn('host.userInterfaceLayoutDirection', native)
+        # The leading frame must be INSIDE the direction override, not its parent.
+        self.assertEqual(native.count('.frame(width: 280, alignment: .leading)'), 2)
+        for host in native.split('let host = NSHostingView(')[1:]:
+            root = host.split('let window = NSWindow(', 1)[0]
+            self.assertLess(root.index('.frame(width: 280, alignment: .leading)'),
+                            root.index('.environment(\\.layoutDirection, direction)'))
+        self.assertIn('onPreferenceChange(StatusLabel.LayoutMetricsKey.self)', native)
+        self.assertIn('XCTAssertGreaterThan(enlargedLabelFrame.height, standardLabelFrame.height)', native)
+
+    def test_native_catalog_test_selects_an_explicit_language_bundle(self):
+        native = (ROOT / 'Tests/PerchAppTests/LocalizationTests.swift').read_text()
+        self.assertIn('Set(generated.keys), Set(catalogStrings.keys)', native)
+        self.assertIn('Bundle(path: languageDirectory.path)', native)
+        self.assertIn('languageBundle.localizedString(forKey:', native)
+        self.assertNotIn('String.LocalizationValue("General")', native)
+
     def test_week_measurement_hooks_match_production_source(self):
         from scripts import week_measurement_hooks
         source = (ROOT / 'Sources/PerchApp/Workspace/WeekPage.swift').read_text()

@@ -45,8 +45,12 @@ final class LocalizationTests: XCTestCase {
         let recovery = PlannerRecoveryError(
             recoveredPlanner: Planner(), issues: [], keptCount: 3, quarantinedCount: 2, quarantinedFieldCount: 1,
             originalURL: copy, recoveredURL: recovered, issuesURL: issues)
+        let busy = PlannerStorageBusy()
+        XCTAssertEqual(busy.perchPresentationDetail(locale: english), busy.localizedDescription)
+        XCTAssertEqual(
+            busy.perchPresentationDetail(locale: pseudo),
+            "⟦Ånöthër pröcëss ïs üpdàtïng thë plànnër. Plëàsë try àgàïn. ·~⟧")
         let cases: [(Error, String)] = [
-            (PlannerStorageBusy(), "Another process"),
             (PlannerDataError.unreadable(url: original, reason: "Permission denied"), original.path),
             (PlannerDataError.corrupt(url: original, quarantineURL: nil, reason: "Invalid JSON"), original.path),
             (PlannerDataError.corrupt(url: original, quarantineURL: copy, reason: "Invalid JSON"), copy.path),
@@ -150,20 +154,54 @@ final class LocalizationTests: XCTestCase {
         try process.run()
         process.waitUntilExit()
         XCTAssertEqual(process.terminationStatus, 0)
-        let bundle = try XCTUnwrap(Bundle(path: output.path))
-        let pseudoStrings = try String(
-            contentsOf: output.appendingPathComponent("zz.lproj/Localizable.strings"), encoding: .utf8)
-        let pseudoResource = bundle.path(
-            forResource: "Localizable", ofType: "strings", inDirectory: nil, forLocalization: "zz")
-        let diagnostics = {
-            "localizations=\(bundle.localizations); resource=\(pseudoResource ?? "missing"); strings=\(pseudoStrings)"
+        _ = try XCTUnwrap(Bundle(path: output.path))
+        let catalog = try XCTUnwrap(
+            JSONSerialization.jsonObject(
+                with: Data(contentsOf: root.appendingPathComponent("Resources/Localizable.xcstrings")))
+                as? [String: Any])
+        let catalogStrings = try XCTUnwrap(catalog["strings"] as? [String: [String: Any]])
+        for language in ["en", "zz"] {
+            let languageDirectory = output.appendingPathComponent("\(language).lproj")
+            let generated = try XCTUnwrap(
+                PropertyListSerialization.propertyList(
+                    from: Data(contentsOf: languageDirectory.appendingPathComponent("Localizable.strings")),
+                    options: [], format: nil) as? [String: String])
+            XCTAssertEqual(Set(generated.keys), Set(catalogStrings.keys), language)
+            for (key, entry) in catalogStrings {
+                let localizations = try XCTUnwrap(entry["localizations"] as? [String: [String: Any]])
+                let localization = try XCTUnwrap(localizations[language])
+                let unit: [String: Any]
+                if let singular = localization["stringUnit"] as? [String: Any] {
+                    unit = singular
+                } else {
+                    let variations = try XCTUnwrap(localization["variations"] as? [String: Any])
+                    let plural = try XCTUnwrap(variations["plural"] as? [String: [String: Any]])
+                    let other = try XCTUnwrap(plural["other"])
+                    unit = try XCTUnwrap(other["stringUnit"] as? [String: Any])
+                }
+                XCTAssertEqual(generated[key], unit["value"] as? String, "\(language): \(key)")
+            }
+            // Select the language bundle explicitly. The root bundle chooses the user's
+            // preferred localization independently of a formatting Locale argument.
+            let languageBundle = try XCTUnwrap(Bundle(path: languageDirectory.path))
+            XCTAssertEqual(
+                languageBundle.localizedString(forKey: "General", value: "MISSING", table: "Localizable"),
+                language == "en" ? "General" : "⟦Gënëràl ·~⟧")
         }
-        XCTAssertEqual(
-            String(localized: String.LocalizationValue("General"), bundle: bundle, locale: Locale(identifier: "en")),
-            "General", diagnostics())
-        XCTAssertEqual(
-            String(localized: String.LocalizationValue("General"), bundle: bundle, locale: Locale(identifier: "zz")),
-            "⟦Gënëràl ·~⟧", diagnostics())
+    }
+
+    @MainActor
+    func testStatusPointSizesGrowThroughAccessibilityCategories() {
+        let sizes: [DynamicTypeSize] = [
+            .xSmall, .small, .medium, .large, .xLarge, .xxLarge, .xxxLarge,
+            .accessibility1, .accessibility2, .accessibility3, .accessibility4, .accessibility5,
+        ]
+        let points = sizes.map { StatusLabel.pointSize(for: $0) }
+        for (smaller, larger) in zip(points, points.dropFirst()) {
+            XCTAssertGreaterThanOrEqual(larger, smaller)
+        }
+        XCTAssertGreaterThan(StatusLabel.pointSize(for: .xxxLarge), StatusLabel.pointSize(for: .large))
+        XCTAssertGreaterThan(StatusLabel.pointSize(for: .accessibility5), StatusLabel.pointSize(for: .xxxLarge))
     }
 
     @MainActor
@@ -174,6 +212,7 @@ final class LocalizationTests: XCTestCase {
         let enlarged = try await measureStatus(title: title, locale: Locale(identifier: "en"), dynamicType: .xxxLarge)
         let standardLabelFrame = try XCTUnwrap(standard.labelFrame)
         let enlargedLabelFrame = try XCTUnwrap(enlarged.labelFrame)
+        XCTAssertGreaterThan(enlarged.pointSize, standard.pointSize)
         XCTAssertGreaterThan(enlargedLabelFrame.height, standardLabelFrame.height)
 
         let pseudo = try await measureStatus(
@@ -190,12 +229,18 @@ final class LocalizationTests: XCTestCase {
             "The production accessibility label stays inside the rendered host at enlarged pseudo-locale text")
     }
 
+    @MainActor
+    private final class LayoutObservation {
+        var metrics: StatusLabel.LayoutMetrics?
+    }
+
     private struct StatusMeasurement {
         var size: CGSize
         var labels: [String]
         var hostFrame: NSRect?
         var labelFrame: NSRect?
         var direction: LayoutDirection
+        var pointSize: CGFloat
     }
 
     @MainActor
@@ -205,12 +250,16 @@ final class LocalizationTests: XCTestCase {
     ) async throws -> StatusMeasurement {
         let measuredDirection = try await measureDirection(
             locale: locale, dynamicType: dynamicType, direction: direction)
+        let observation = LayoutObservation()
         let host = NSHostingView(
             rootView: StatusLabel(title: title, tone: .warning, locale: locale)
+                .frame(width: 280, alignment: .leading)
+                .onPreferenceChange(StatusLabel.LayoutMetricsKey.self) { metrics in
+                    MainActor.assumeIsolated { observation.metrics = metrics }
+                }
                 .environment(\.dynamicTypeSize, dynamicType)
                 .environment(\.layoutDirection, direction)
-                .environment(\.accessibilityEnabled, true)
-                .frame(width: 280, alignment: .leading))
+                .environment(\.accessibilityEnabled, true))
         let window = NSWindow(
             contentRect: NSRect(x: 100, y: 100, width: 280, height: 300),
             styleMask: [.titled, .closable], backing: .buffered, defer: false)
@@ -218,8 +267,9 @@ final class LocalizationTests: XCTestCase {
         window.contentView = host
         window.makeKeyAndOrderFront(nil)
         defer { window.close() }
-        await Task.yield()
-        host.layoutSubtreeIfNeeded()
+        let metrics = try await Self.waitForLayout(observation, host: host)
+        XCTAssertEqual(metrics.pointSize, StatusLabel.pointSize(for: dynamicType))
+        XCTAssertEqual(metrics.isRightToLeft, direction == .rightToLeft)
         let nodes = Self.nodes(host)
         let labels = Array(
             Set(
@@ -230,9 +280,13 @@ final class LocalizationTests: XCTestCase {
         let labelFrame = nodes.first(where: {
             (Self.attribute($0, "accessibilityLabel") as? String) == labels.first
         }).flatMap { Self.accessibilityFrame(of: $0) }
+        FileHandle.standardError.write(
+            Data(
+                "Status layout: size=\(dynamicType), points=\(metrics.pointSize), host=\(hostFrame), label=\(String(describing: labelFrame))\n"
+                    .utf8))
         return StatusMeasurement(
             size: host.fittingSize, labels: labels, hostFrame: hostFrame, labelFrame: labelFrame,
-            direction: measuredDirection)
+            direction: measuredDirection, pointSize: metrics.pointSize)
     }
 
     /// A short, single-line production label exposes leading/trailing rendered geometry without wrapped text
@@ -241,12 +295,16 @@ final class LocalizationTests: XCTestCase {
     private func measureDirection(
         locale: Locale, dynamicType: DynamicTypeSize, direction: LayoutDirection
     ) async throws -> LayoutDirection {
+        let observation = LayoutObservation()
         let host = NSHostingView(
             rootView: StatusLabel(title: "General", tone: .info, locale: locale)
+                .frame(width: 280, alignment: .leading)
+                .onPreferenceChange(StatusLabel.LayoutMetricsKey.self) { metrics in
+                    MainActor.assumeIsolated { observation.metrics = metrics }
+                }
                 .environment(\.dynamicTypeSize, dynamicType)
                 .environment(\.layoutDirection, direction)
-                .environment(\.accessibilityEnabled, true)
-                .frame(width: 280, alignment: .leading))
+                .environment(\.accessibilityEnabled, true))
         let window = NSWindow(
             contentRect: NSRect(x: 100, y: 100, width: 280, height: 300),
             styleMask: [.titled, .closable], backing: .buffered, defer: false)
@@ -254,8 +312,7 @@ final class LocalizationTests: XCTestCase {
         window.contentView = host
         window.makeKeyAndOrderFront(nil)
         defer { window.close() }
-        await Task.yield()
-        host.layoutSubtreeIfNeeded()
+        let metrics = try await Self.waitForLayout(observation, host: host)
         let title = AppL10n.text("General", locale: locale)
         let node = try XCTUnwrap(
             Self.nodes(host).first { (Self.attribute($0, "accessibilityLabel") as? String) == title })
@@ -263,7 +320,30 @@ final class LocalizationTests: XCTestCase {
         let hostFrame = window.convertToScreen(host.convert(host.bounds, to: nil))
         let leadingInset = labelFrame.minX - hostFrame.minX
         let trailingInset = hostFrame.maxX - labelFrame.maxX
-        return leadingInset > trailingInset + 1 ? .rightToLeft : .leftToRight
+        let diagnostics = "RTL=\(metrics.isRightToLeft); host=\(hostFrame); label=\(labelFrame)"
+        FileHandle.standardError.write(Data((diagnostics + "\n").utf8))
+        XCTAssertEqual(metrics.isRightToLeft, direction == .rightToLeft, diagnostics)
+        if direction == .rightToLeft {
+            XCTAssertGreaterThan(leadingInset, trailingInset + 1, diagnostics)
+        } else {
+            XCTAssertGreaterThan(trailingInset, leadingInset + 1, diagnostics)
+        }
+        return metrics.isRightToLeft ? .rightToLeft : .leftToRight
+    }
+
+    @MainActor
+    private static func waitForLayout<V: View>(
+        _ observation: LayoutObservation, host: NSHostingView<V>
+    ) async throws -> StatusLabel.LayoutMetrics {
+        for _ in 0..<25 {
+            host.layoutSubtreeIfNeeded()
+            if observation.metrics != nil { break }
+            try await Task.sleep(nanoseconds: 20_000_000)
+        }
+        let metrics = try XCTUnwrap(observation.metrics, "Production status environment was not published")
+        await Task.yield()
+        host.layoutSubtreeIfNeeded()
+        return metrics
     }
 
     private static func accessibilityFrame(of node: NSObject) -> NSRect? {
@@ -278,9 +358,10 @@ final class LocalizationTests: XCTestCase {
         return node.responds(to: selector) ? node.perform(selector)?.takeUnretainedValue() : nil
     }
 
+    @MainActor
     private static func nodes(_ root: NSObject) -> [NSObject] {
         var seen = Set<ObjectIdentifier>()
-        func walk(_ node: NSObject) -> [NSObject] {
+        @MainActor func walk(_ node: NSObject) -> [NSObject] {
             guard seen.insert(ObjectIdentifier(node)).inserted else { return [] }
             let children = (attribute(node, "accessibilityChildren") as? [NSObject]) ?? []
             let contents = (attribute(node, "accessibilityContents") as? [NSObject]) ?? []
