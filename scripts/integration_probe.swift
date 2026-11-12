@@ -247,10 +247,15 @@ private extension PlannerStore {
 // from persisted planner state. No AX press or model call stands in for a key.
 
 @MainActor
+var matrixFailures: [String] = []
+
+/// Records every red check, so one hosted run reports the whole matrix; the probe still exits 1.
+@MainActor
 func matrixRequire(_ ok: Bool, _ label: String, _ detail: @autoclosure () -> String = "") {
     guard ok else {
-        fputs("FAIL: matrix: \(label)\n\(detail())\n", stderr)
-        exit(1)
+        matrixFailures.append(label)
+        FileHandle.standardError.write(Data("FAIL: matrix: \(label)\n\(detail())\n".utf8))
+        return
     }
     print("PASS: matrix: \(label)")
 }
@@ -323,6 +328,7 @@ func matrixKey(
         NSApp.sendEvent(event)
     }
     await matrixSettle(0.4)
+    print("matrix: key \(code) -> firstResponder \(String(describing: window.firstResponder.map { type(of: $0) }))")
 }
 
 /// Return or Escape delivered through the window's key-equivalent dispatch, as AppKit does for
@@ -433,6 +439,12 @@ func checkPageMatrix(store _: PlannerStore, output: URL) async throws {
     try await checkDashboardMatrix(fixture, output: output)
     try await checkWelcomeMatrix(fixture, output: output)
     try await checkDetailsMatrix(fixture, output: output)
+    guard matrixFailures.isEmpty else {
+        FileHandle.standardError.write(
+            Data("FAIL: page matrix: \(matrixFailures.count) red: \(matrixFailures)\n".utf8))
+        exit(1)
+    }
+    print("Page matrix passed")
 }
 
 @MainActor
@@ -444,7 +456,11 @@ func checkSettingsMatrix(_ fixture: MatrixFixture, output: URL) async throws {
     defer { window.close() }
     await matrixSettle(1.0)
     matrixRequire(window.isKeyWindow, "settings window owns the key window")
-    let sidebar = matrixViews(host).compactMap { $0 as? NSTableView }.first
+    print("matrix: full keyboard access=\(NSApp.isFullKeyboardAccessEnabled)")
+    // The sidebar is the one native list with exactly one row per pane.
+    let tables = matrixViews(host).compactMap { $0 as? NSTableView }
+    print("matrix: settings tables \(tables.map { "\(type(of: $0)) rows=\($0.numberOfRows)" })")
+    let sidebar = tables.first { $0.numberOfRows == SettingsView.Pane.allCases.count }
     matrixRequire(sidebar != nil, "settings exposes its native sidebar list")
     guard let sidebar else { return }
     matrixRequire(window.makeFirstResponder(sidebar), "settings sidebar accepts keyboard focus")
@@ -538,7 +554,9 @@ func checkDashboardMatrix(_ fixture: MatrixFixture, output: URL) async throws {
     defer { window.close() }
     await matrixSettle(1.0)
     matrixRequire(window.isKeyWindow, "dashboard window owns the key window")
-    let picker = matrixViews(host).compactMap { $0 as? NSSegmentedControl }.first
+    let picker = matrixViews(host).compactMap { $0 as? NSSegmentedControl }.first {
+        $0.segmentCount == DashboardView.Tab.allCases.count
+    }
     matrixRequire(picker != nil, "dashboard exposes its native tab control")
     guard let picker else { return }
     matrixRequire(window.makeFirstResponder(picker), "dashboard tab control accepts keyboard focus")
