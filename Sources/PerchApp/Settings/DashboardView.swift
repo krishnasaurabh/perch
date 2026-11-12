@@ -1,8 +1,20 @@
 import SwiftUI
 
 enum DashboardWindow {
+    @MainActor static func show(store: PlannerStore, tab: DashboardView.Tab = .insights) {
+        WindowHost.show(
+            "dashboard", title: "Perch", size: CGSize(width: 900, height: 640),
+            onUndo: { redo in redo ? store.redo() : store.undo() }
+        ) {
+            DashboardView(tab: tab).environmentObject(store).environment(\.accessibilityEnabled, true)
+        }
+    }
+
     @MainActor static func show(store: PlannerStore, model: NotchModel, services: Services) {
-        WindowHost.show("dashboard", title: "Perch", size: CGSize(width: 900, height: 640)) {
+        WindowHost.show(
+            "dashboard", title: "Perch", size: CGSize(width: 900, height: 640),
+            onUndo: { redo in redo ? store.redo() : store.undo() }
+        ) {
             DashboardView().environmentObject(store).environmentObject(model).environmentObject(services)
         }
     }
@@ -12,10 +24,12 @@ enum DashboardWindow {
 
 struct DashboardView: View {
     @EnvironmentObject var store: PlannerStore
-    @State private var tab: Tab = .insights
+    @State private var tab: Tab
     enum Tab: String, CaseIterable {
         case upcoming = "Upcoming", history = "History", insights = "Insights", projects = "Projects"
     }
+
+    init(tab: Tab = .insights) { _tab = State(initialValue: tab) }
 
     var body: some View {
         VStack(spacing: 0) {
