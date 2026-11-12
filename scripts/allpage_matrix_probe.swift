@@ -8,6 +8,7 @@
 // measurement has a probe-local negative control that proves the measurement can go red.
 import AppKit
 import ApplicationServices
+import Darwin
 import EventKit
 import PerchUI
 import ServiceManagement
@@ -948,6 +949,7 @@ final class AllPageMatrix {
         let rows = nodes.filter { (mxRole($0) ?? "").contains("Row") }
         for row in rows
         where mxNames(row).contains(title) || mxTree(row).contains(where: { mxNames($0).contains(title) }) {
+            mxLog("matrix click target: role=\(mxRole(row) ?? "") names=\(mxNames(row)) pane=\(title)")
             try mxClick(host: host, window: window, screenRect: mxFrame(row))
             return
         }
@@ -1668,6 +1670,23 @@ final class MatrixPasteboard: PasteboardAccess {
 }
 
 // MARK: - Entry point
+
+// Preserve the interrupted native stack, then restore the original fatal signal. This is
+// diagnostic only: a trap still terminates the probe and cannot turn a failure into a pass.
+signal(SIGTRAP) { trappedSignal in
+    let heading: StaticString = "matrix SIGTRAP native backtrace:\n"
+    _ = Darwin.write(STDERR_FILENO, heading.utf8Start, heading.utf8CodeUnitCount)
+    withUnsafeTemporaryAllocation(of: UnsafeMutableRawPointer?.self, capacity: 128) { frames in
+        let count = backtrace(frames.baseAddress!, Int32(frames.count))
+        backtrace_symbols_fd(frames.baseAddress!, count, STDERR_FILENO)
+    }
+    signal(trappedSignal, SIG_DFL)
+    raise(trappedSignal)
+}
+NSSetUncaughtExceptionHandler { exception in
+    mxLog("matrix uncaught exception: \(exception.name.rawValue) \(exception.reason ?? "")")
+    for frame in exception.callStackSymbols { mxLog(frame) }
+}
 
 let matrixApplication = NSApplication.shared
 matrixApplication.setActivationPolicy(.accessory)
