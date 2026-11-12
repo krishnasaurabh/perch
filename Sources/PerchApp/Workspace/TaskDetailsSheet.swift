@@ -164,7 +164,7 @@ private struct TaskDetailsEditor: View {
                 .font(Theme.meta).foregroundStyle(Theme.secondary).lineLimit(1)
             Spacer(minLength: Theme.gutter)
             Button("Cancel") { dismiss() }
-                .keyboardShortcut(.cancelAction).buttonStyle(PillStyle())
+                .buttonStyle(PillStyle())
                 .accessibilityIdentifier("details-cancel")
             Button("Save") { save() }
                 .keyboardShortcut(.defaultAction).buttonStyle(PillStyle(prominent: true))
