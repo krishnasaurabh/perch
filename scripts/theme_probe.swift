@@ -794,7 +794,7 @@ func pageContrast(_ a: [Int], _ b: [Int]) -> Double {
         for state in pageStates {
             let observation = ContrastObservation()
             // NEGATIVE-CONTROL SITE (type): the enlarged state requests accessibility3.
-            let typeSize: DynamicTypeSize = state.enlarged ? .accessibility3 : .large
+            let typeSize: DynamicTypeSize = .large  // NEGATIVE CONTROL: type scale clamped
             // NEGATIVE-CONTROL SITE (contrast): the increased state requests .increased.
             let contrast: ColorSchemeContrast = state.increased ? .increased : .standard
             let root = ZStack(alignment: .topLeading) {
