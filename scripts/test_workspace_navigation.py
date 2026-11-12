@@ -305,6 +305,14 @@ try await FocusLifecycle().run()
         anchor = anchor.replace("#selector(performMenuAction(_:))", '"performMenuAction:"').replace("@objc ", "")
         program = """
 import Foundation
+// The extracted view uses app localization; keep the routing adapter standalone.
+@MainActor private enum AppL10n {
+    static var requestedKeys: [String] = []
+    static func text(_ key: String) -> String {
+        requestedKeys.append(key)
+        return key
+    }
+}
 @MainActor private class NSView {
     var window: Int? = 1
     var bounds = CGRect(x: 0, y: 0, width: 35, height: 30)
@@ -364,6 +372,8 @@ NSMenu.popup = { _, _, _ in preconditionFailure("Unattached anchors cannot prese
 view.show(canUndo: true, undo: { calls[0] += 1 },
           dashboard: { calls[1] += 1 }, settings: { calls[2] += 1 })
 precondition(calls == [1, 2, 2])
+precondition(AppL10n.requestedKeys == ["Undo", "Open Dashboard", "Settings…",
+                                      "Undo", "Open Dashboard", "Settings…"])
 print("Menu routing and lifetime adapter checks passed")
 """
         with tempfile.TemporaryDirectory() as directory:

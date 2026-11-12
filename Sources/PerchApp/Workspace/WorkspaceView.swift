@@ -229,7 +229,9 @@ private final class WorkspaceMenuAnchorView: NSView {
         defer { actions.removeAll() }
         let menu = NSMenu(title: "More")
         menu.autoenablesItems = false
-        for (index, title) in ["Undo", "Open Dashboard", "Settings…"].enumerated() {
+        for (index, title) in [AppL10n.text("Undo"), AppL10n.text("Open Dashboard"), AppL10n.text("Settings…")]
+            .enumerated()
+        {
             if index == 1 { menu.addItem(.separator()) }
             let item = NSMenuItem(title: title, action: #selector(performMenuAction(_:)), keyEquivalent: "")
             item.target = self
