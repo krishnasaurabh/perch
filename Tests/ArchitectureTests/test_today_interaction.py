@@ -146,6 +146,24 @@ class TodayInteractionTests(unittest.TestCase):
         self.assertLess(request.index("await Task.yield()"), request.index("focusBinding.wrappedValue = .capture"))
         self.assertIn("guard !Task.isCancelled", request)
 
+    def test_explicit_capture_request_reasserts_until_focus_holds(self):
+        source = (WORKSPACE / "TasksCard.swift").read_text()
+        request = source.split(".task(id: model.captureFocusRequest)", 1)[1].split(".overlay(ControlFocusRing", 1)[0]
+        loop = request.split("focusBinding.wrappedValue = .capture", 1)[1]
+        # Bounded, cancellable, and never overrides a different focus destination.
+        self.assertIn("while held < 3 && attempts < 30", loop)
+        self.assertIn("guard !Task.isCancelled, model.expanded, model.page == .home else { return }", loop)
+        self.assertIn("case nil:", loop)
+        self.assertIn("focusBinding.wrappedValue = .capture", loop)
+        self.assertIn("default:\n                    return", loop)
+        compact = (ROOT / "scripts/compact_home_probe.swift").read_text()
+        self.assertIn("for iteration in 1...20", compact)
+        self.assertIn('"dense-repeat-\\(iteration)", full: true', compact)
+        self.assertIn('"\\(label): capture editor is focused and stays focused"', compact)
+        self.assertIn('"capture-focus-trace.json"', compact)
+        self.assertLess(compact.index("FocusTraceLog.append(open, output: output)"),
+                        compact.index('"\\(scenario): capture editor is focused"'))
+
     def test_capture_destination_is_not_overridden_by_row_recovery(self):
         source = (WORKSPACE / "TasksCard.swift").read_text()
         recovery = source.split(".onChange(of: ids)", 1)[1].split(".onKeyPress", 1)[0]
