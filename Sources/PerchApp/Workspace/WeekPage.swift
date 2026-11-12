@@ -227,6 +227,7 @@ struct WeekChip: View {
     @EnvironmentObject var store: PlannerStore
     @EnvironmentObject var model: NotchModel
     @FocusState private var menuFocused: Bool
+    @State private var menuKeyboard = WeekMenuKeyboardTarget()
 
     private var completion: PlannerAction? { WeekTaskPolicy.completionAction(for: task, today: store.today) }
     private var checkHint: String {
@@ -264,8 +265,12 @@ struct WeekChip: View {
                     .overlay(RoundedRectangle(cornerRadius: Theme.controlRadius).strokeBorder(Theme.inputStroke))
             }
             .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
+            .background(WeekMenuKeyboardAnchor(target: menuKeyboard))
             .focusable()
             .focused($menuFocused).focusEffectDisabled()
+            .onKeyPress(.space, phases: .down) { _ in
+                menuKeyboard.open() ? .handled : .ignored
+            }
             .overlay(ControlFocusRing(shape: RoundedRectangle(cornerRadius: Theme.controlRadius), focused: menuFocused))
             .accessibilityLabel(AppL10n.format("Task actions: %@", task.title))
             .accessibilityIdentifier("week-menu-\(task.id)")
@@ -315,6 +320,48 @@ struct WeekChip: View {
         guard task.repeatRule != nil else { return words }
         return Text(Image(systemName: "repeat")).font(Theme.meta).foregroundStyle(Theme.secondary) + Text(" ") + words
     }
+}
+
+/// Forward the focus proxy's Space action to the existing native popup. Its
+/// SwiftUI menu still owns every item, pointer action and context-menu action.
+@MainActor
+final class WeekMenuKeyboardTarget {
+    weak var anchor: NSView?
+
+    func popup() -> NSPopUpButton? {
+        guard let anchor, let root = anchor.window?.contentView else { return nil }
+        let rect = anchor.convert(anchor.bounds, to: root)
+        guard rect.width > 0, rect.height > 0 else { return nil }
+        let center = NSPoint(x: rect.midX, y: rect.midY)
+        @MainActor func candidates(_ view: NSView) -> [NSPopUpButton] {
+            let own = (view as? NSPopUpButton).map { [$0] } ?? []
+            return own + view.subviews.flatMap(candidates)
+        }
+        let matches = candidates(root).filter {
+            !$0.isHiddenOrHasHiddenAncestor && $0.isEnabled
+                && $0.convert($0.bounds, to: root).contains(center)
+        }
+        return matches.count == 1 ? matches[0] : nil
+    }
+
+    func open() -> Bool {
+        guard let popup = popup() else { return false }
+        popup.performClick(nil)
+        return true
+    }
+}
+
+private struct WeekMenuKeyboardAnchor: NSViewRepresentable {
+    let target: WeekMenuKeyboardTarget
+
+    func makeNSView(context: Context) -> NSView {
+        let view = NSView()
+        view.setAccessibilityElement(false)
+        target.anchor = view
+        return view
+    }
+
+    func updateNSView(_ view: NSView, context: Context) { target.anchor = view }
 }
 
 struct MiniComposer: View {

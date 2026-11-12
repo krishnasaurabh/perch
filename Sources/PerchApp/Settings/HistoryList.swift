@@ -74,6 +74,7 @@ struct DashboardHistorySearch: NSViewRepresentable {
 
 final class DashboardSearchField: NSTextField, NSTextFieldDelegate {
     var onChange: ((String) -> Void)?
+    private var navigationMonitor: Any?
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -84,10 +85,31 @@ final class DashboardSearchField: NSTextField, NSTextFieldDelegate {
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
+        if let navigationMonitor { NSEvent.removeMonitor(navigationMonitor) }
+        navigationMonitor = nil
+        guard window != nil else { return }
+        navigationMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            let handled = MainActor.assumeIsolated { self?.handleNavigation(event) ?? false }
+            return handled ? nil : event
+        }
         DispatchQueue.main.async { [weak self] in
             guard let window = self?.window else { return }
             DashboardKeyLoop.install(in: window)
         }
+    }
+
+    /// SwiftUI's hosting responder can consume Tab before the text delegate.
+    /// Consume only this field's navigation, never text or another window's keys.
+    func handleNavigation(_ event: NSEvent) -> Bool {
+        guard event.keyCode == 48, !event.isARepeat,
+            event.modifierFlags.intersection([.command, .control, .option]).isEmpty,
+            let window, event.window === window,
+            let editor = currentEditor(), window.firstResponder === editor
+        else { return false }
+        DashboardKeyLoop.install(in: window)
+        let target = event.modifierFlags.contains(.shift) ? previousKeyView : nextValidKeyView
+        guard let target else { return false }
+        return window.makeFirstResponder(target)
     }
 
     func controlTextDidBeginEditing(_ notification: Notification) {

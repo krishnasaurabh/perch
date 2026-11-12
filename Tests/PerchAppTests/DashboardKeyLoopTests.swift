@@ -34,6 +34,43 @@ final class DashboardKeyLoopTests: XCTestCase {
         DashboardKeyLoop.install(in: window)
         XCTAssertTrue(search.previousKeyView === tabs)
         XCTAssertFalse(search.nextKeyView === search)
+        XCTAssertTrue(window.makeFirstResponder(search))
+        XCTAssertTrue(window.firstResponder === search.currentEditor())
+        let backtab = NSEvent.keyEvent(
+            with: .keyDown, location: .zero, modifierFlags: .shift,
+            timestamp: 0, windowNumber: window.windowNumber, context: nil,
+            characters: "\u{19}", charactersIgnoringModifiers: "\u{19}", isARepeat: false, keyCode: 48)!
+        XCTAssertTrue(search.handleNavigation(backtab))
+        XCTAssertTrue(window.firstResponder === tabs)
+        // A key after leaving the search must not be consumed by its monitor.
+        XCTAssertFalse(search.handleNavigation(backtab))
+    }
+
+    @MainActor
+    func testWeekKeyboardTargetRejectsAmbiguousOrDetachedLaunchers() async {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 200, height: 100),
+            styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
+        let root = NSView(frame: NSRect(x: 0, y: 0, width: 200, height: 100))
+        window.contentView = root
+        let target = WeekMenuKeyboardTarget()
+        XCTAssertNil(target.popup())
+        let anchor = NSView(frame: NSRect(x: 20, y: 20, width: 28, height: 28))
+        root.addSubview(anchor)
+        target.anchor = anchor
+        XCTAssertNil(target.popup())
+        let button = NSPopUpButton(frame: anchor.frame)
+        root.addSubview(button)
+        XCTAssertTrue(target.popup() === button)
+        let other = NSPopUpButton(frame: anchor.frame)
+        root.addSubview(other)
+        XCTAssertNil(target.popup())
+        other.isHidden = true
+        XCTAssertTrue(target.popup() === button)
+        button.isEnabled = false
+        XCTAssertNil(target.popup())
     }
 
     @MainActor
