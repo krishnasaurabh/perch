@@ -10,6 +10,7 @@ UI = ROOT / "Sources/PerchUI"
 APP = ROOT / "Sources/PerchApp"
 CORE = ROOT / "Sources/PlannerCore"
 MCP = ROOT / "Sources/PerchMCP"
+REMINDERS = ROOT / "Sources/PerchReminders"
 UI_CATALOG = UI / "Resources/Localizable.xcstrings"
 APP_CATALOG = APP / "Resources/Localizable.xcstrings"
 BUNDLED_CATALOG = ROOT / "Resources/Localizable.xcstrings"
@@ -22,7 +23,12 @@ STATIC_UI = re.compile(
 HELPER_ARGUMENT = re.compile(
     r'\b(?:help|placeholder|title|subtitle|disabledReason|prompt):\s*"((?:\\.|[^"\\])*)"'
 )
+PRESENTATION_HELPER = re.compile(r'\b(?:field|label|pill|tile)\(\s*"((?:\\.|[^"\\])*)"')
+DISABLED_REASON = re.compile(
+    r'\bdisabledReason:\s*(?:String\s*=\s*|[^\n"]*\?\?\s*)?"((?:\\.|[^"\\])*)"'
+)
 ERROR = re.compile(r'PlannerError\(\s*"((?:\\.|[^"\\])*)"')
+REMINDER_ERROR = re.compile(r'ReminderSyncError\.stopped\(\s*"((?:\\.|[^"\\])*)"')
 LOCAL_HELPER = re.compile(r'(?<![A-Za-z])(?:text|format)\(\s*"((?:\\.|[^"\\])*)"')
 ENUM_RAW = re.compile(r'(?:\bcase\s+|,\s*)[A-Za-z_]\w*\s*=\s*"((?:\\.|[^"\\])*)"')
 TERNARY = re.compile(r'\?\s*"((?:\\.|[^"\\])*)"\s*:\s*"((?:\\.|[^"\\])*)"', re.S)
@@ -74,10 +80,21 @@ def human_app_strings():
     found = collect(L10N, paths)
     found |= collect(STATIC_UI, paths)
     found |= collect(HELPER_ARGUMENT, paths)
+    found |= collect(PRESENTATION_HELPER, paths)
+    found |= collect(DISABLED_REASON, paths)
     # PlannerError carries a stable presentation key and arguments. Its fully
     # rendered English transport text is deliberately not an extraction input.
     for directory in (APP, CORE, MCP):
         found |= collect(ERROR, directory.rglob('*.swift'))
+    # Static Perch-authored sync failures are looked up at the app boundary.
+    # Interpolated details and system errors are not stable catalog keys.
+    for directory in (APP, REMINDERS):
+        for path in directory.rglob('*.swift'):
+            for match in REMINDER_ERROR.finditer(source(path)):
+                raw = match.group(1)
+                value = key(raw)
+                if '\\(' not in raw and value and any(character.isalpha() for character in value):
+                    found.add(value)
     for path in paths:
         text = source(path)
         # Enum raw values become visible only through an explicit AppL10n call.

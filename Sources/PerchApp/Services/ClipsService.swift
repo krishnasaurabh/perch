@@ -36,11 +36,13 @@ final class ClipsService: ObservableObject {
             a.id == b.id && a.pinned == b.pinned && a.thumbnail === b.thumbnail
         }
 
-        var title: String {
+        var title: String { localizedTitle() }
+
+        func localizedTitle(locale: Locale? = nil) -> String {
             switch content {
             case .file(let u): return u.lastPathComponent
             case .text(let s): return String(s.prefix(60))
-            case .image: return "Copied image"
+            case .image: return AppL10n.text("Copied image", locale: locale)
             }
         }
     }

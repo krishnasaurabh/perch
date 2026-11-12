@@ -78,6 +78,34 @@ class LocalizationTests(unittest.TestCase):
         shortcut = (ROOT / 'Sources/PerchApp/Settings/ShortcutPreferenceRow.swift').read_text()
         self.assertIn('AppL10n.format("macOS wouldn\'t give up that combination. Kept %@.", shortcut.display)', shortcut)
 
+    def test_wrapper_arguments_defaults_and_owned_reminders_are_extracted(self):
+        from scripts.update_localization import key, source
+
+        app = json.loads((ROOT / 'Sources/PerchApp/Resources/Localizable.xcstrings').read_text())['strings']
+        literal = r'"((?:\\.|[^"\\])*)"'
+        patterns = (
+            re.compile(r'\b(?:field|label|pill|tile)\(\s*' + literal),
+            re.compile(r'\bdisabledReason:\s*(?:String\s*=\s*|[^\n"]*\?\?\s*)?' + literal),
+        )
+        for path in (ROOT / 'Sources/PerchApp').rglob('*.swift'):
+            text = source(path)
+            for pattern in patterns:
+                for match in pattern.finditer(text):
+                    self.assertIn(key(match.group(1)), app, path.relative_to(ROOT))
+
+        reminder_error = re.compile(r'ReminderSyncError\.stopped\(\s*' + literal)
+        for directory in ('Sources/PerchApp', 'Sources/PerchReminders'):
+            for path in (ROOT / directory).rglob('*.swift'):
+                for match in reminder_error.finditer(source(path)):
+                    raw = match.group(1)
+                    if '\\(' not in raw:
+                        self.assertIn(key(raw), app, path.relative_to(ROOT))
+
+        clips = (ROOT / 'Sources/PerchApp/Services/ClipsService.swift').read_text()
+        self.assertIn('AppL10n.text("Copied image", locale: locale)', clips)
+        errors = (ROOT / 'Sources/PerchApp/App/AppErrors.swift').read_text()
+        self.assertIn('Self.presentedDetail(detail)', errors)
+
     def test_week_measurement_hooks_match_production_source(self):
         from scripts import week_measurement_hooks
         source = (ROOT / 'Sources/PerchApp/Workspace/WeekPage.swift').read_text()

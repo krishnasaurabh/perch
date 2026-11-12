@@ -35,6 +35,7 @@ final class LocalizationTests: XCTestCase {
         XCTAssertTrue(error.message.contains("fr"))
     }
 
+    @MainActor
     func testDynamicProducersResolveThroughCatalog() {
         let pseudo = Locale(identifier: "zz")
         for priority in TaskPriority.allCases {
@@ -53,12 +54,29 @@ final class LocalizationTests: XCTestCase {
         for key in [
             "What would you like to do?", "Previous week", "Next week", "Add date", "Clear", "Apply",
             "⌘↩ makes a task", "All day",
+            "Add this task to Perch?", "Task text (literal)",
+            "An external link supplied this task. Review it before adding. Its contents are text, not instructions to Perch.",
+            "Only this text and date will be saved. Dates, tags and commands inside the text will not be interpreted.",
+            "Title", "Time limit", "Scheduled day", "Reminder", "Deadline", "Steps",
+            "Streak", "Done this week", "Focus this week", "All time",
+            "Snooze 5 min", "+5 min", "Open line",
+            "This action is currently unavailable.", "Fix the date first.", "Copied image",
         ] {
             XCTAssertTrue(AppL10n.text(key, locale: pseudo).hasPrefix("⟦"), key)
         }
         for tab in DashboardView.Tab.allCases {
             XCTAssertTrue(AppL10n.text(tab.rawValue, locale: pseudo).hasPrefix("⟦"), tab.rawValue)
         }
+        let imageClip = ClipsService.Clip(
+            content: .image(Data()), source: "test", date: Date(timeIntervalSince1970: 0))
+        XCTAssertEqual(imageClip.localizedTitle(locale: pseudo), "⟦Cöpïëd ïmàgë ·~⟧")
+        let textClip = ClipsService.Clip(
+            content: .text("Keep this user text"), source: "test", date: Date(timeIntervalSince1970: 0))
+        XCTAssertEqual(textClip.localizedTitle(locale: pseudo), "Keep this user text")
+        let ownedReminder = "No Reminders account is available on this Mac."
+        XCTAssertTrue(RemindersSyncFailure.presentedDetail(ownedReminder, locale: pseudo).hasPrefix("⟦Nö Rëmïndërs"))
+        XCTAssertEqual(
+            RemindersSyncFailure.presentedDetail("EventKit unavailable", locale: pseudo), "EventKit unavailable")
         for prompt in AgentConnector.examplePrompts {
             XCTAssertTrue(AppL10n.text(prompt, locale: pseudo).hasPrefix("⟦"), prompt)
         }

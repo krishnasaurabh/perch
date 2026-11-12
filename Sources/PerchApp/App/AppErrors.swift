@@ -82,11 +82,16 @@ enum RemindersSyncFailure: Error, Equatable {
     var message: String {
         switch self {
         case .consentRequired: Self.consentMessage
-        case .access(let detail): AppL10n.text(detail)
+        case .access(let detail): Self.presentedDetail(detail)
         case .historyPaused: Self.historyMessage
-        case .sync(let detail): AppL10n.format("Reminders sync stopped: %@", detail)
-        case .disableAfterHistory(let detail): Self.historyMessage + " " + detail
+        case .sync(let detail): AppL10n.format("Reminders sync stopped: %@", Self.presentedDetail(detail))
+        case .disableAfterHistory(let detail): Self.historyMessage + " " + Self.presentedDetail(detail)
         }
+    }
+
+    /// Owned recovery details resolve through the catalog; unknown system details remain verbatim.
+    static func presentedDetail(_ detail: String, locale: Locale? = nil) -> String {
+        AppL10n.text(detail, locale: locale)
     }
 }
 

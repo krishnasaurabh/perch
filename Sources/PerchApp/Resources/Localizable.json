@@ -741,6 +741,23 @@
         }
       }
     },
+    "+5 min": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "+5 min"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦+5 mïn ·~⟧"
+          }
+        }
+      }
+    },
     "A %lld-minute reminder for %@. Choose an action below.": {
       "extractionState": "manual",
       "localizations": {
@@ -775,6 +792,108 @@
         }
       }
     },
+    "A linked reminder disappeared before scope cleanup. It will not be recreated automatically.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A linked reminder disappeared before scope cleanup. It will not be recreated automatically."
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Å lïnkëd rëmïndër dïsàppëàrëd bëförë scöpë clëànüp. Ît wïll nöt bë rëcrëàtëd àütömàtïcàlly. ·~⟧"
+          }
+        }
+      }
+    },
+    "A linked reminder is still present outside this snapshot. Retry without recreating it.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A linked reminder is still present outside this snapshot. Retry without recreating it."
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Å lïnkëd rëmïndër ïs stïll prësënt öütsïdë thïs snàpshöt. Rëtry wïthöüt rëcrëàtïng ït. ·~⟧"
+          }
+        }
+      }
+    },
+    "A linked reminder moved outside its list. Move it back before retrying.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A linked reminder moved outside its list. Move it back before retrying."
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Å lïnkëd rëmïndër mövëd öütsïdë ïts lïst. Mövë ït bàck bëförë rëtryïng. ·~⟧"
+          }
+        }
+      }
+    },
+    "A mirrored reminder has unsupported fields. It was preserved; remove its recurrence or extra alarms before syncing.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A mirrored reminder has unsupported fields. It was preserved; remove its recurrence or extra alarms before syncing."
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Å mïrrörëd rëmïndër hàs ünsüppörtëd fïëlds. Ît wàs prësërvëd; rëmövë ïts rëcürrëncë ör ëxtrà àlàrms bëförë syncïng. ·~⟧"
+          }
+        }
+      }
+    },
+    "A mirrored reminder was deleted or moved outside Perch. It will not be recreated automatically.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A mirrored reminder was deleted or moved outside Perch. It will not be recreated automatically."
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Å mïrrörëd rëmïndër wàs dëlëtëd ör mövëd öütsïdë Përch. Ît wïll nöt bë rëcrëàtëd àütömàtïcàlly. ·~⟧"
+          }
+        }
+      }
+    },
+    "A mirrored reminder was duplicated. Resolve the duplicate before syncing.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A mirrored reminder was duplicated. Resolve the duplicate before syncing."
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Å mïrrörëd rëmïndër wàs düplïcàtëd. Rësölvë thë düplïcàtë bëförë syncïng. ·~⟧"
+          }
+        }
+      }
+    },
     "A quieter week": {
       "extractionState": "manual",
       "localizations": {
@@ -788,6 +907,91 @@
           "stringUnit": {
             "state": "translated",
             "value": "⟦Å qüïëtër wëëk ·~⟧"
+          }
+        }
+      }
+    },
+    "A reminder changed during pending cleanup. It was preserved; sync is stopped.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A reminder changed during pending cleanup. It was preserved; sync is stopped."
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Å rëmïndër chàngëd dürïng pëndïng clëànüp. Ît wàs prësërvëd; sync ïs stöppëd. ·~⟧"
+          }
+        }
+      }
+    },
+    "A reminder changed outside Perch. Remote text edits, reopening and future-day completion are not imported. Resolve the difference before syncing.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A reminder changed outside Perch. Remote text edits, reopening and future-day completion are not imported. Resolve the difference before syncing."
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Å rëmïndër chàngëd öütsïdë Përch. Rëmötë tëxt ëdïts, rëöpënïng ànd fütürë-dày cömplëtïön àrë nöt ïmpörtëd. Rësölvë thë dïffërëncë bëförë syncïng. ·~⟧"
+          }
+        }
+      }
+    },
+    "A reminder's ownership marker changed. It was preserved; sync is stopped.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A reminder's ownership marker changed. It was preserved; sync is stopped."
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Å rëmïndër's öwnërshïp màrkër chàngëd. Ît wàs prësërvëd; sync ïs stöppëd. ·~⟧"
+          }
+        }
+      }
+    },
+    "A removed task's reminder was edited elsewhere. It was preserved; resolve the change before syncing.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A removed task's reminder was edited elsewhere. It was preserved; resolve the change before syncing."
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Å rëmövëd tàsk's rëmïndër wàs ëdïtëd ëlsëwhërë. Ît wàs prësërvëd; rësölvë thë chàngë bëförë syncïng. ·~⟧"
+          }
+        }
+      }
+    },
+    "A retired reminder reappeared. It was preserved; sync is stopped.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A retired reminder reappeared. It was preserved; sync is stopped."
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Å rëtïrëd rëmïndër rëàppëàrëd. Ît wàs prësërvëd; sync ïs stöppëd. ·~⟧"
           }
         }
       }
@@ -1098,6 +1302,23 @@
         }
       }
     },
+    "Add this task to Perch?": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Add this task to Perch?"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Ådd thïs tàsk tö Përch? ·~⟧"
+          }
+        }
+      }
+    },
     "Add to Inbox": {
       "extractionState": "manual",
       "localizations": {
@@ -1285,6 +1506,23 @@
         }
       }
     },
+    "All time": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "All time"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Åll tïmë ·~⟧"
+          }
+        }
+      }
+    },
     "Allow": {
       "extractionState": "manual",
       "localizations": {
@@ -1417,6 +1655,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "⟦Ålrëàdy ünschëdülëd ïn ïnböx: %@. ·~⟧"
+          }
+        }
+      }
+    },
+    "An external link supplied this task. Review it before adding. Its contents are text, not instructions to Perch.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "An external link supplied this task. Review it before adding. Its contents are text, not instructions to Perch."
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Ån ëxtërnàl lïnk süpplïëd thïs tàsk. Rëvïëw ït bëförë àddïng. Îts cöntënts àrë tëxt, nöt ïnstrüctïöns tö Përch. ·~⟧"
+          }
+        }
+      }
+    },
+    "Another Perch process is syncing Reminders. Retry shortly.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Another Perch process is syncing Reminders. Retry shortly."
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Ånöthër Përch pröcëss ïs syncïng Rëmïndërs. Rëtry shörtly. ·~⟧"
           }
         }
       }
@@ -1774,6 +2046,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "⟦Càncël ·~⟧"
+          }
+        }
+      }
+    },
+    "Cannot lock Reminders sync metadata.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cannot lock Reminders sync metadata."
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Cànnöt löck Rëmïndërs sync mëtàdàtà. ·~⟧"
           }
         }
       }
@@ -2407,6 +2696,23 @@
         }
       }
     },
+    "Copied image": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copied image"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Cöpïëd ïmàgë ·~⟧"
+          }
+        }
+      }
+    },
     "Copy": {
       "extractionState": "manual",
       "localizations": {
@@ -2437,6 +2743,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "⟦Cöpy %@ ·~⟧"
+          }
+        }
+      }
+    },
+    "Could not confirm the reminder's absence. Retry sync.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Could not confirm the reminder's absence. Retry sync."
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Cöüld nöt cönfïrm thë rëmïndër's àbsëncë. Rëtry sync. ·~⟧"
           }
         }
       }
@@ -2624,6 +2947,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "⟦Dày ënds àt ·~⟧"
+          }
+        }
+      }
+    },
+    "Deadline": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Deadline"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Dëàdlïnë ·~⟧"
           }
         }
       }
@@ -2917,6 +3257,23 @@
         }
       }
     },
+    "Done this week": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Done this week"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Dönë thïs wëëk ·~⟧"
+          }
+        }
+      }
+    },
     "Dot grid": {
       "extractionState": "manual",
       "localizations": {
@@ -3100,6 +3457,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "⟦Ëmpty tëxt clïp ·~⟧"
+          }
+        }
+      }
+    },
+    "Enable Reminders mirroring and grant permission first.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enable Reminders mirroring and grant permission first."
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Ënàblë Rëmïndërs mïrrörïng ànd grànt përmïssïön fïrst. ·~⟧"
           }
         }
       }
@@ -3325,6 +3699,23 @@
         }
       }
     },
+    "Finish or resolve the pending two-way sync before changing modes.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Finish or resolve the pending two-way sync before changing modes."
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Fïnïsh ör rësölvë thë pëndïng twö-wày sync bëförë chàngïng mödës. ·~⟧"
+          }
+        }
+      }
+    },
     "Finished days show up here.": {
       "extractionState": "manual",
       "localizations": {
@@ -3338,6 +3729,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "⟦Fïnïshëd dàys shöw üp hërë. ·~⟧"
+          }
+        }
+      }
+    },
+    "Fix the date first.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fix the date first."
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Fïx thë dàtë fïrst. ·~⟧"
           }
         }
       }
@@ -3423,6 +3831,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "⟦Föcüs prögrëss ·~⟧"
+          }
+        }
+      }
+    },
+    "Focus this week": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Focus this week"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Föcüs thïs wëëk ·~⟧"
           }
         }
       }
@@ -3814,6 +4239,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "⟦Încömplëtë ·~⟧"
+          }
+        }
+      }
+    },
+    "Incomplete Reminders recovery intent. No changes were applied.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Incomplete Reminders recovery intent. No changes were applied."
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Încömplëtë Rëmïndërs rëcövëry ïntënt. Nö chàngës wërë àpplïëd. ·~⟧"
+          }
+        }
+      }
+    },
+    "Inconsistent Reminders retirement metadata. No changes were applied.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inconsistent Reminders retirement metadata. No changes were applied."
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Încönsïstënt Rëmïndërs rëtïrëmënt mëtàdàtà. Nö chàngës wërë àpplïëd. ·~⟧"
           }
         }
       }
@@ -4600,6 +5059,23 @@
         }
       }
     },
+    "No Reminders account is available on this Mac.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No Reminders account is available on this Mac."
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Nö Rëmïndërs àccöünt ïs àvàïlàblë ön thïs Màc. ·~⟧"
+          }
+        }
+      }
+    },
     "No date": {
       "extractionState": "manual",
       "localizations": {
@@ -4957,6 +5433,23 @@
         }
       }
     },
+    "Only this text and date will be saved. Dates, tags and commands inside the text will not be interpreted.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Only this text and date will be saved. Dates, tags and commands inside the text will not be interpreted."
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Önly thïs tëxt ànd dàtë wïll bë sàvëd. Dàtës, tàgs ànd cömmànds ïnsïdë thë tëxt wïll nöt bë ïntërprëtëd. ·~⟧"
+          }
+        }
+      }
+    },
     "Open": {
       "extractionState": "manual",
       "localizations": {
@@ -5106,6 +5599,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "⟦Öpën dày ·~⟧"
+          }
+        }
+      }
+    },
+    "Open line": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open line"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Öpën lïnë ·~⟧"
           }
         }
       }
@@ -5293,6 +5803,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "⟦Pàüsëd ·~⟧"
+          }
+        }
+      }
+    },
+    "Pending cleanup has no Reminders list. Sync is stopped.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pending cleanup has no Reminders list. Sync is stopped."
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Pëndïng clëànüp hàs nö Rëmïndërs lïst. Sync ïs stöppëd. ·~⟧"
+          }
+        }
+      }
+    },
+    "Pending two-way changes must be recovered before mirroring.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pending two-way changes must be recovered before mirroring."
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Pëndïng twö-wày chàngës müst bë rëcövërëd bëförë mïrrörïng. ·~⟧"
           }
         }
       }
@@ -5637,6 +6181,74 @@
         }
       }
     },
+    "Planner changed before remote completion could be saved.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Planner changed before remote completion could be saved."
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Plànnër chàngëd bëförë rëmötë cömplëtïön cöüld bë sàvëd. ·~⟧"
+          }
+        }
+      }
+    },
+    "Planner changed before the remote edit could be saved.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Planner changed before the remote edit could be saved."
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Plànnër chàngëd bëförë thë rëmötë ëdït cöüld bë sàvëd. ·~⟧"
+          }
+        }
+      }
+    },
+    "Planner changed during Reminders sync. No further reminders were changed.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Planner changed during Reminders sync. No further reminders were changed."
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Plànnër chàngëd dürïng Rëmïndërs sync. Nö fürthër rëmïndërs wërë chàngëd. ·~⟧"
+          }
+        }
+      }
+    },
+    "Planner changed elsewhere. Retry Reminders sync with the latest version.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Planner changed elsewhere. Retry Reminders sync with the latest version."
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Plànnër chàngëd ëlsëwhërë. Rëtry Rëmïndërs sync wïth thë làtëst vërsïön. ·~⟧"
+          }
+        }
+      }
+    },
     "Planner storage lock could not be acquired.": {
       "extractionState": "manual",
       "localizations": {
@@ -5960,6 +6572,23 @@
         }
       }
     },
+    "Reminder": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reminder"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Rëmïndër ·~⟧"
+          }
+        }
+      }
+    },
     "Reminder for %@. Choose an action below.": {
       "extractionState": "manual",
       "localizations": {
@@ -5990,6 +6619,142 @@
           "stringUnit": {
             "state": "translated",
             "value": "⟦Rëmïndër schëdülïng fàïlëd: %@ ·~⟧"
+          }
+        }
+      }
+    },
+    "Reminders could not be read. Retry after checking permission.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reminders could not be read. Retry after checking permission."
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Rëmïndërs cöüld nöt bë rëàd. Rëtry àftër chëckïng përmïssïön. ·~⟧"
+          }
+        }
+      }
+    },
+    "Reminders metadata is not locked.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reminders metadata is not locked."
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Rëmïndërs mëtàdàtà ïs nöt löckëd. ·~⟧"
+          }
+        }
+      }
+    },
+    "Reminders metadata needs recovery. Sync is stopped; no reminders were changed.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reminders metadata needs recovery. Sync is stopped; no reminders were changed."
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Rëmïndërs mëtàdàtà nëëds rëcövëry. Sync ïs stöppëd; nö rëmïndërs wërë chàngëd. ·~⟧"
+          }
+        }
+      }
+    },
+    "Reminders permission is unavailable.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reminders permission is unavailable."
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Rëmïndërs përmïssïön ïs ünàvàïlàblë. ·~⟧"
+          }
+        }
+      }
+    },
+    "Reminders permission is unavailable. No further reminders were changed; grant access in System Settings and retry.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reminders permission is unavailable. No further reminders were changed; grant access in System Settings and retry."
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Rëmïndërs përmïssïön ïs ünàvàïlàblë. Nö fürthër rëmïndërs wërë chàngëd; grànt àccëss ïn Systëm Sëttïngs ànd rëtry. ·~⟧"
+          }
+        }
+      }
+    },
+    "Reminders permission was revoked. Grant access in System Settings and retry.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reminders permission was revoked. Grant access in System Settings and retry."
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Rëmïndërs përmïssïön wàs rëvökëd. Grànt àccëss ïn Systëm Sëttïngs ànd rëtry. ·~⟧"
+          }
+        }
+      }
+    },
+    "Reminders returned duplicate identifiers. Sync is stopped.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reminders returned duplicate identifiers. Sync is stopped."
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Rëmïndërs rëtürnëd düplïcàtë ïdëntïfïërs. Sync ïs stöppëd. ·~⟧"
+          }
+        }
+      }
+    },
+    "Reminders sync is already running.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reminders sync is already running."
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Rëmïndërs sync ïs àlrëàdy rünnïng. ·~⟧"
           }
         }
       }
@@ -6698,6 +7463,23 @@
         }
       }
     },
+    "Scheduled day": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Scheduled day"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Schëdülëd dày ·~⟧"
+          }
+        }
+      }
+    },
     "Screen sharing is not detected automatically. Turn this off, or choose Hide task count in the Perch menu, before sharing. If the menu action cannot save, it hides the count for this session only.": {
       "extractionState": "manual",
       "localizations": {
@@ -7038,6 +7820,23 @@
         }
       }
     },
+    "Snooze 5 min": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Snooze 5 min"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Snöözë 5 mïn ·~⟧"
+          }
+        }
+      }
+    },
     "Speech recognition is not currently available for this language.": {
       "extractionState": "manual",
       "localizations": {
@@ -7225,6 +8024,23 @@
         }
       }
     },
+    "Steps": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Steps"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Stëps ·~⟧"
+          }
+        }
+      }
+    },
     "Steps need distinct ids and non-empty titles.": {
       "extractionState": "manual",
       "localizations": {
@@ -7293,6 +8109,23 @@
         }
       }
     },
+    "Streak": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Streak"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Strëàk ·~⟧"
+          }
+        }
+      }
+    },
     "Supply a field to update: title, notes, priority, project, remind_at, deadline, repeat, minutes, steps or done_steps.": {
       "extractionState": "manual",
       "localizations": {
@@ -7357,6 +8190,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "⟦Tàsk àddëd ·~⟧"
+          }
+        }
+      }
+    },
+    "Task changed during Reminders sync; remote completion was not applied.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Task changed during Reminders sync; remote completion was not applied."
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Tàsk chàngëd dürïng Rëmïndërs sync; rëmötë cömplëtïön wàs nöt àpplïëd. ·~⟧"
           }
         }
       }
@@ -7463,6 +8313,23 @@
         }
       }
     },
+    "Task text (literal)": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Task text (literal)"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Tàsk tëxt (lïtëràl) ·~⟧"
+          }
+        }
+      }
+    },
     "Task title": {
       "extractionState": "manual",
       "localizations": {
@@ -7510,6 +8377,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "⟦Tàsks wïth thëïr öwn tïmë büdgët üsë thàt ïnstëàd. ·~⟧"
+          }
+        }
+      }
+    },
+    "The Perch Reminders list was removed or moved. Sync is stopped; no replacement list was created.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The Perch Reminders list was removed or moved. Sync is stopped; no replacement list was created."
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Thë Përch Rëmïndërs lïst wàs rëmövëd ör mövëd. Sync ïs stöppëd; nö rëplàcëmënt lïst wàs crëàtëd. ·~⟧"
+          }
+        }
+      }
+    },
+    "The Reminders list changed while syncing. Retry sync.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The Reminders list changed while syncing. Retry sync."
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Thë Rëmïndërs lïst chàngëd whïlë syncïng. Rëtry sync. ·~⟧"
           }
         }
       }
@@ -7599,6 +8500,108 @@
         }
       }
     },
+    "The reminder alarm does not match its due time and Perch alert setting.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The reminder alarm does not match its due time and Perch alert setting."
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Thë rëmïndër àlàrm döës nöt màtch ïts düë tïmë ànd Përch àlërt sëttïng. ·~⟧"
+          }
+        }
+      }
+    },
+    "The reminder cannot be represented exactly. Neither version was overwritten.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The reminder cannot be represented exactly. Neither version was overwritten."
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Thë rëmïndër cànnöt bë rëprësëntëd ëxàctly. Nëïthër vërsïön wàs övërwrïttën. ·~⟧"
+          }
+        }
+      }
+    },
+    "The reminder has an incomplete due date.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The reminder has an incomplete due date."
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Thë rëmïndër hàs àn ïncömplëtë düë dàtë. ·~⟧"
+          }
+        }
+      }
+    },
+    "The reminder has an invalid due date.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The reminder has an invalid due date."
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Thë rëmïndër hàs àn ïnvàlïd düë dàtë. ·~⟧"
+          }
+        }
+      }
+    },
+    "The reminder priority is not representable in Perch.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The reminder priority is not representable in Perch."
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Thë rëmïndër prïörïty ïs nöt rëprësëntàblë ïn Përch. ·~⟧"
+          }
+        }
+      }
+    },
+    "The reminder time does not exist in its time zone.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The reminder time does not exist in its time zone."
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Thë rëmïndër tïmë döës nöt ëxïst ïn ïts tïmë zönë. ·~⟧"
+          }
+        }
+      }
+    },
     "There are no unpinned clips to remove.": {
       "extractionState": "manual",
       "localizations": {
@@ -7633,6 +8636,57 @@
         }
       }
     },
+    "This Reminders adapter cannot confirm deletions safely.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This Reminders adapter cannot confirm deletions safely."
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Thïs Rëmïndërs àdàptër cànnöt cönfïrm dëlëtïöns sàfëly. ·~⟧"
+          }
+        }
+      }
+    },
+    "This Reminders adapter cannot confirm ownership across lists.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This Reminders adapter cannot confirm ownership across lists."
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Thïs Rëmïndërs àdàptër cànnöt cönfïrm öwnërshïp àcröss lïsts. ·~⟧"
+          }
+        }
+      }
+    },
+    "This Reminders metadata version is not supported.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This Reminders metadata version is not supported."
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Thïs Rëmïndërs mëtàdàtà vërsïön ïs nöt süppörtëd. ·~⟧"
+          }
+        }
+      }
+    },
     "This access is managed by macOS or your administrator. It may not be changeable here.": {
       "extractionState": "manual",
       "localizations": {
@@ -7646,6 +8700,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "⟦Thïs àccëss ïs mànàgëd by màcÖS ör yöür àdmïnïstràtör. Ît mày nöt bë chàngëàblë hërë. ·~⟧"
+          }
+        }
+      }
+    },
+    "This action is currently unavailable.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This action is currently unavailable."
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Thïs àctïön ïs cürrëntly ünàvàïlàblë. ·~⟧"
           }
         }
       }
@@ -7697,6 +8768,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "⟦Thïs tàsk wàs rëmövëd. ·~⟧"
+          }
+        }
+      }
+    },
+    "This task's sync identity was deleted or has unknown legacy retirement metadata. Create a new task to sync it again.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This task's sync identity was deleted or has unknown legacy retirement metadata. Create a new task to sync it again."
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Thïs tàsk's sync ïdëntïty wàs dëlëtëd ör hàs ünknöwn lëgàcy rëtïrëmënt mëtàdàtà. Crëàtë à nëw tàsk tö sync ït àgàïn. ·~⟧"
           }
         }
       }
@@ -7769,6 +8857,23 @@
         }
       }
     },
+    "Time limit": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Time limit"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Tïmë lïmït ·~⟧"
+          }
+        }
+      }
+    },
     "Time not recognized: %@. Try 18:15, 6:15 pm, 2026-12-01 18:15 or in 15 minutes.": {
       "extractionState": "manual",
       "localizations": {
@@ -7833,6 +8938,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "⟦Tïmër ïn thë nötch ·~⟧"
+          }
+        }
+      }
+    },
+    "Title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Title"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Tïtlë ·~⟧"
           }
         }
       }
@@ -7986,6 +9108,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "⟦Twö-wày sync këëps lïnkëd tàsks àftër dày röllövër. Cömplëtïön ànd rëöpënïng stïll rëqüïrë tödày; hïstörïcàl ëdïts, ünsüppörtëd àlàrms ànd rëcürrëncë stöp sync. Dëlëtëd ïdëntïtïës àrë nëvër rëcrëàtëd àütömàtïcàlly. ·~⟧"
+          }
+        }
+      }
+    },
+    "Two-way sync requires a durable planner adapter.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Two-way sync requires a durable planner adapter."
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Twö-wày sync rëqüïrës à düràblë plànnër àdàptër. ·~⟧"
+          }
+        }
+      }
+    },
+    "Two-way sync requires a validated planner adapter.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Two-way sync requires a validated planner adapter."
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Twö-wày sync rëqüïrës à vàlïdàtëd plànnër àdàptër. ·~⟧"
           }
         }
       }
@@ -8394,6 +9550,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "⟦Wàït för thë cürrënt përmïssïön rëqüëst. ·~⟧"
+          }
+        }
+      }
+    },
+    "Wait for the current sync to finish.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wait for the current sync to finish."
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Wàït för thë cürrënt sync tö fïnïsh. ·~⟧"
           }
         }
       }
