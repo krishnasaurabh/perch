@@ -41,22 +41,27 @@ final class MatrixMark {
 /// blocks: a hang always names the step that hung instead of burning the job timeout.
 @MainActor
 final class MatrixStage {
-    nonisolated(unsafe) static var current = "start"
-    nonisolated(unsafe) static var watchdog: DispatchSourceTimer?
+    nonisolated private static let stageLock = NSLock()
+    // Every access is protected by stageLock; the watchdog receives only a String snapshot.
+    nonisolated(unsafe) private static var current = "start"
+    private static var watchdog: DispatchSourceTimer?
 
     static func mark(_ stage: String) {
-        current = stage
+        stageLock.withLock { current = stage }
         mxLog("matrix stage: \(stage)")
+    }
+
+    nonisolated private static func watchdogFired() {
+        let stage = stageLock.withLock { current }
+        FileHandle.standardError.write(
+            Data("FAIL: all-page matrix watchdog fired during stage: \(stage)\n".utf8))
+        exit(3)
     }
 
     static func startWatchdog(seconds: Int = 150) {
         let timer = DispatchSource.makeTimerSource(queue: .global())
         timer.schedule(deadline: .now() + .seconds(seconds))
-        timer.setEventHandler {
-            FileHandle.standardError.write(
-                Data("FAIL: all-page matrix watchdog fired during stage: \(MatrixStage.current)\n".utf8))
-            exit(3)
-        }
+        timer.setEventHandler(handler: watchdogFired)
         timer.resume()
         watchdog = timer
     }
@@ -479,6 +484,7 @@ func mxClick(host: NSView, window: NSWindow, screenRect: NSRect) throws {
     // Keep native hit testing while dispatching directly to the visible key/main fixture.
     window.makeKeyAndOrderFront(nil)
     window.makeMain()
+    var events: [NSEvent] = []
     for type in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
         MatrixStage.mark("click before mouseEvent type=\(type.rawValue)")
         guard
@@ -487,13 +493,25 @@ func mxClick(host: NSView, window: NSWindow, screenRect: NSRect) throws {
                 windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1)
         else { return }
         MatrixStage.mark("click after mouseEvent type=\(type.rawValue)")
+        events.append(event)
+    }
+    // A native table can track synchronously inside mouseDown. Queue its real mouse-up
+    // first, so that nested tracking can consume it before the down send returns.
+    for event in events.reversed() {
+        let type = event.type
         mxLog(
             "matrix click window: number=\(window.windowNumber) key=\(window.isKeyWindow) "
                 + "main=\(window.isMainWindow) visible=\(window.isVisible) "
                 + "eventWindowMatches=\(event.window === window) mainThread=\(Thread.isMainThread)")
-        MatrixStage.mark("click before window.sendEvent type=\(type.rawValue)")
-        window.sendEvent(event)
-        MatrixStage.mark("click after window.sendEvent type=\(type.rawValue)")
+        if type == .leftMouseUp {
+            MatrixStage.mark("click before NSApp.postEvent type=\(type.rawValue)")
+            NSApp.postEvent(event, atStart: true)
+            MatrixStage.mark("click after NSApp.postEvent type=\(type.rawValue)")
+        } else {
+            MatrixStage.mark("click before window.sendEvent type=\(type.rawValue)")
+            window.sendEvent(event)
+            MatrixStage.mark("click after window.sendEvent type=\(type.rawValue)")
+        }
     }
 }
 
