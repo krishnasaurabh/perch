@@ -709,7 +709,7 @@ func pageContrast(_ a: [Int], _ b: [Int]) -> Double {
 }
 
 private extension Int {
-    var clampedByte: Int { min(255, max(0, self)) }
+    var clampedByte: Int { Swift.min(255, Swift.max(0, self)) }
 }
 
 /// In-process AX walk (the same NSAccessibility path the gallery's AX press uses).
