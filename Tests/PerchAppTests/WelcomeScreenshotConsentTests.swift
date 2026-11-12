@@ -4,6 +4,26 @@ import SwiftUI
 import XCTest
 @testable import PerchApp
 
+/// Persist fixture preferences beside the synthetic planner, never in the user's defaults.
+private final class ConsentFilePreferences: PlannerPreferencesAdapter, Sendable {
+    let url: URL
+
+    init(url: URL) { self.url = url }
+
+    func load() throws -> DevicePreferences? {
+        guard FileManager.default.fileExists(atPath: url.path) else { return nil }
+        return try JSONDecoder().decode(DevicePreferences.self, from: Data(contentsOf: url))
+    }
+
+    func save(_ preferences: DevicePreferences?) throws {
+        if let preferences {
+            try JSONEncoder().encode(preferences).write(to: url, options: .atomic)
+        } else if FileManager.default.fileExists(atPath: url.path) {
+            try FileManager.default.removeItem(at: url)
+        }
+    }
+}
+
 final class WelcomeScreenshotConsentTests: XCTestCase {
     @MainActor func testCompletingWelcomeLeavesScreenshotImportOffWithoutOptIn() async throws {
         let root = try temporaryDirectory()
@@ -99,7 +119,8 @@ final class WelcomeScreenshotConsentTests: XCTestCase {
     @MainActor private func makeStore(_ root: URL) -> PlannerStore {
         PlannerStore(
             file: PlannerFile(
-                url: root.appendingPathComponent("planner.json"), preferences: MemoryPlannerPreferences()),
+                url: root.appendingPathComponent("planner.json"),
+                preferences: ConsentFilePreferences(url: root.appendingPathComponent("preferences.json"))),
             watching: false)
     }
 

@@ -138,7 +138,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func completeWelcome() {
         store.updatePrefs {
             $0.welcomeCompleted = true
-            $0.catchScreenshots = true
         }
         WindowHost.windows["welcome"]?.close()
         NotificationCenter.default.post(name: .perchOpenWorkspace, object: NotchPage.home)
