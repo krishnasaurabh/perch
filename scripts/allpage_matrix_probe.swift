@@ -474,6 +474,10 @@ func mxClick(host: NSView, window: NSWindow, screenRect: NSRect) throws {
     MatrixStage.mark("click before host.convert")
     let location = host.convert(point, to: nil)
     MatrixStage.mark("click after host.convert location=\(location)")
+    // These coordinates belong to this host's window, not the application's current event.
+    // Keep native hit testing while dispatching directly to the visible key/main fixture.
+    window.makeKeyAndOrderFront(nil)
+    window.makeMain()
     for type in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
         MatrixStage.mark("click before mouseEvent type=\(type.rawValue)")
         guard
@@ -486,9 +490,9 @@ func mxClick(host: NSView, window: NSWindow, screenRect: NSRect) throws {
             "matrix click window: number=\(window.windowNumber) key=\(window.isKeyWindow) "
                 + "main=\(window.isMainWindow) visible=\(window.isVisible) "
                 + "eventWindowMatches=\(event.window === window) mainThread=\(Thread.isMainThread)")
-        MatrixStage.mark("click before NSApp.sendEvent type=\(type.rawValue)")
-        NSApp.sendEvent(event)
-        MatrixStage.mark("click after NSApp.sendEvent type=\(type.rawValue)")
+        MatrixStage.mark("click before window.sendEvent type=\(type.rawValue)")
+        window.sendEvent(event)
+        MatrixStage.mark("click after window.sendEvent type=\(type.rawValue)")
     }
 }
 
