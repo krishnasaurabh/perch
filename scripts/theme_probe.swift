@@ -798,7 +798,7 @@ func pageContrast(_ a: [Int], _ b: [Int]) -> Double {
             // NEGATIVE-CONTROL SITE (contrast): the increased state requests .increased.
             let contrast: ColorSchemeContrast = state.increased ? .increased : .standard
             let root = ZStack(alignment: .topLeading) {
-                page.view
+                page.view.accessibilityHidden(true)  // NEGATIVE CONTROL: AX frames removed
                 ContrastReader(observation: observation)
             }
             .environment(\.dynamicTypeSize, typeSize)
@@ -817,7 +817,7 @@ func pageContrast(_ a: [Int], _ b: [Int]) -> Double {
                     "\(label): the Settings sidebar accepts native keyboard focus")
                 print("MEASURED: \(label) sidebar row before keys \(table?.selectedRow ?? -1)")
                 for _ in 0..<pane {
-                    key(125, String(UnicodeScalar(0xF701)!), in: window, modifiers: [.numericPad, .function])
+                    _ = window  // NEGATIVE CONTROL: no key event sent
                     await settle(250_000_000)
                 }
                 Measured.check(
