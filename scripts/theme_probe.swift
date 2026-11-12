@@ -876,7 +876,7 @@ private extension Int {
                 page.view
                 ContrastReader(observation: observation)
             }
-            .environment(\.dynamicTypeSize, typeSize)
+            .environment(\.dynamicTypeSize, state.enlarged ? .large : .accessibility3)
             .environment(\._colorSchemeContrast, contrast)
             .environment(\.accessibilityEnabled, true)
             .transaction {
