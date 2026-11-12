@@ -146,6 +146,28 @@ class TodayInteractionTests(unittest.TestCase):
         self.assertLess(request.index("await Task.yield()"), request.index("focusBinding.wrappedValue = .capture"))
         self.assertIn("guard !Task.isCancelled", request)
 
+    def test_compact_capture_wait_observes_native_ownership_without_assigning_focus(self):
+        compact = (ROOT / "scripts/compact_home_probe.swift").read_text()
+        identity = compact.split("func captureEditorIdentity(", 1)[1].split("/// One focus sample", 1)[0]
+        for expected in ("captureEditorFocused(delegate)", "delegate.model.expanded",
+                         "delegate.model.captureFocusRequest != nil", "field.currentEditor() === editor",
+                         "field.isDescendant(of: root)", "!field.isHiddenOrHasHiddenAncestor"):
+            self.assertIn(expected, identity)
+        traced = compact.split("func openHomeTraced(", 1)[1].split("MainActor.assumeIsolated", 1)[0]
+        self.assertIn("captureEditorIdentity(delegate)", traced)
+        self.assertIn("readiness.observe(time: t, editorIdentity: identity, editingEndedAt: trace.editingEndedAt)", traced)
+        self.assertIn("t >= CaptureFocusReadiness.deadline", traced)
+        self.assertIn("readiness.settledFocusAt != nil", traced)
+        self.assertNotIn("makeFirstResponder", compact)
+        self.assertNotIn("focusBinding.wrappedValue =", compact)
+        self.assertIn("for iteration in 1...20", compact)
+        self.assertIn('"dense-repeat-\\(iteration)", full: true', compact)
+        self.assertIn('label: scenario, full: scenario == "dense"', compact)
+        self.assertIn('"\\(label): capture editor is focused and stays focused"', compact)
+        self.assertIn('"capture-focus-trace.json"', compact)
+        self.assertLess(compact.index("FocusTraceLog.append(open, output: output)"),
+                        compact.index('"\\(scenario): capture editor is focused"'))
+
     def test_capture_destination_is_not_overridden_by_row_recovery(self):
         source = (WORKSPACE / "TasksCard.swift").read_text()
         recovery = source.split(".onChange(of: ids)", 1)[1].split(".onKeyPress", 1)[0]
