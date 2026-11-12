@@ -14,7 +14,7 @@ cp "$ROOT/Package.swift" "$PROBE/"
 cp -R "$ROOT/Sources" "$PROBE/"
 cp -R "$ROOT/Tests" "$PROBE/"
 cp "$ROOT/scripts/theme_probe.swift" "$PROBE/Sources/Perch/main.swift"
-swift build -Xswiftc -DPERCH_TESTING -Xswiftc -enable-testing --package-path "$PROBE" -c release --product Perch
+swift build --jobs 2 -Xswiftc -DPERCH_TESTING -Xswiftc -enable-testing --package-path "$PROBE" -c release --product Perch
 python3 - "$PROBE/.build/release/Perch" "$OUT" <<'PY'
 import json, os, pathlib, subprocess, sys
 binary, output = sys.argv[1:]
@@ -22,7 +22,9 @@ data = pathlib.Path(output) / 'planner.json'
 data.write_text(json.dumps({'preferences': {'welcomeCompleted': True,
                                           'catchCopies': False, 'catchScreenshots': False}}))
 env = dict(os.environ, PERCH_DATA=str(data), THEME_PROBE_OUTPUT=output)
+(pathlib.Path(output) / 'measured-states.json').unlink(missing_ok=True)
 # Argument-domain override is process-local: never write global keyboard preferences.
 subprocess.run([binary, '-AppleKeyboardUIMode', '3'], env=env, check=True, timeout=120)
 PY
+python3 "$ROOT/scripts/check_probe_results.py" theme "$OUT/measured-states.json"
 python3 "$ROOT/scripts/theme_contrast.py" --pixels "$OUT"
