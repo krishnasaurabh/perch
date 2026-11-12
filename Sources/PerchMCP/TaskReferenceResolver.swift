@@ -22,9 +22,13 @@ public enum TaskReferenceResolver {
         if matches.count == 1 { return matches[0].id }
         if matches.count > 1 {
             let names = matches.prefix(5).map { "\"\($0.title)\"" }.joined(separator: ", ")
-            throw PlannerError("Multiple tasks match \"\(text)\": \(names). Choose an id from list_tasks.")
+            throw PlannerError(
+                "Multiple tasks match \"%@\": %@. Choose an id from list_tasks.", arguments: [text, names],
+                message: "Multiple tasks match \"\(text)\": \(names). Choose an id from list_tasks.")
         }
         let location = day == .inbox ? "in the Inbox" : "on \(day.key!)"
-        throw PlannerError("No task found for \"\(text)\" \(location). Check list_tasks for an id.")
+        throw PlannerError(
+            "No task found for \"%@\" %@. Check list_tasks for an id.", arguments: [text, location],
+            message: "No task found for \"\(text)\" \(location). Check list_tasks for an id.")
     }
 }

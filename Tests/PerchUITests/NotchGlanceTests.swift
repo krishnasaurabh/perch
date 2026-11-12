@@ -64,7 +64,7 @@ final class NotchGlanceTests: XCTestCase {
         planner.tasks = (0..<1000).map { _ in PlanTask(title: "Synthetic", day: today) }
         let glance = try XCTUnwrap(NotchGlancePresentation(planner: planner, today: today))
         XCTAssertEqual(glance.text, "999+ tasks")
-        XCTAssertEqual(glance.accessibilityLabel, "1000 unfinished tasks today. Open Today")
+        XCTAssertEqual(glance.accessibilityLabel, "1,000 unfinished tasks today. Open Today")
     }
 
     func testPreferenceRoundTripsOnDeviceButDoesNotTravelInExport() throws {

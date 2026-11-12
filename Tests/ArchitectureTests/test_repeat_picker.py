@@ -41,7 +41,7 @@ class RepeatPickerContractTests(unittest.TestCase):
         self.assertIn(".defaultFocus($focus, .frequency)", self.view)
         for focus in (".frequency", ".interval", ".unit", ".weekday(weekday)", ".fromCompletion"):
             self.assertIn(f".focused(focus, equals: {focus})", self.view)
-        self.assertIn("RepeatPickerDraft.weekdayNames[weekday - 1]", self.view)
+        self.assertIn("RepeatPickerDraft.localizedWeekdayNames(locale: locale)[weekday - 1]", self.view)
 
     def test_errors_are_inline_and_compact_layouts_reflow(self):
         self.assertIn("draft.visibleIssue", self.view)

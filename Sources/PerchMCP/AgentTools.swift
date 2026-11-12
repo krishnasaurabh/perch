@@ -253,7 +253,9 @@ public struct AgentTools {
                     range.lowerBound == 0
                     ? "1 to \(range.upperBound), or 0 to clear the limit"
                     : "\(range.lowerBound) to \(range.upperBound)"
-                throw PlannerError("Invalid argument 'minutes': enter an integer from \(bounds).")
+                throw PlannerError(
+                    "Invalid argument 'minutes': enter an integer from %@.", arguments: [bounds],
+                    message: "Invalid argument 'minutes': enter an integer from \(bounds).")
             }
             return number
         }

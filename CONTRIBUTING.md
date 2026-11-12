@@ -80,6 +80,27 @@ swift build -c release --product perch-cli
 PERCH_DATA=/tmp/perch-mcp.json uv run --with mcp python scripts/mcp_smoke.py .build/release/perch-cli
 ```
 
+## Localization
+
+`Sources/PerchUI/Resources` and `Sources/PerchApp/Resources` contain the English string catalogs
+and a deterministic `zz` pseudolocale. After editing visible text, refresh and verify the catalogs:
+
+```sh
+python3 scripts/update_localization.py
+python3 scripts/update_localization.py --check
+```
+
+Exercise expanded text with sample data only. The pseudolocale deliberately keeps the English task
+parser; unsupported real languages must show an error rather than parse with English rules.
+
+```sh
+PERCH_BUILD_VARIANT=testing scripts/bundle.sh
+PERCH_DATA=/tmp/perch-pseudo.json dist/testing/Perch.app/Contents/MacOS/Perch --demo -AppleLanguages zz
+```
+
+Add `-AppleTextDirection YES` to the last command for a right-to-left layout smoke. Also check
+larger Dynamic Type and VoiceOver on macOS. Do not treat the pseudolocale as a real translation.
+
 ## Pull requests
 
 - Branch from `main` and keep each pull request to one change.

@@ -22,9 +22,9 @@ struct GlassButton: View {
         .focused($focused)
         .focusEffectDisabled()
         .onHover { hover = $0 }
-        .help(enabled ? help : disabledReason)
-        .accessibilityLabel(help)
-        .accessibilityHint(enabled ? "" : disabledReason)
+        .help(enabled ? AppL10n.text(help) : AppL10n.text(disabledReason))
+        .accessibilityLabel(AppL10n.text(help))
+        .accessibilityHint(enabled ? "" : AppL10n.text(disabledReason))
     }
 
     private struct IconStyle: ButtonStyle {

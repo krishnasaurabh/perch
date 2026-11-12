@@ -34,7 +34,7 @@ enum WindowHost {
             styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
             backing: .buffered, defer: false)
         w.onUndo = onUndo
-        w.title = title
+        w.title = AppL10n.text(title)
         w.titlebarAppearsTransparent = true
         w.isReleasedWhenClosed = false
         w.contentView = NSHostingView(rootView: content())

@@ -1,3 +1,4 @@
+import PerchUI
 import PlannerCore
 import SwiftUI
 
@@ -5,7 +6,16 @@ import SwiftUI
 struct InsightsPage: View {
     @EnvironmentObject var store: PlannerStore
     @State private var metric: Metric = .tasks
-    enum Metric: Hashable { case tasks, focus }
+    enum Metric: Hashable, CaseIterable {
+        case tasks, focus
+
+        func title(locale: Locale? = nil) -> String {
+            switch self {
+            case .tasks: AppL10n.text("Tasks", locale: locale)
+            case .focus: AppL10n.text("Focus", locale: locale)
+            }
+        }
+    }
 
     var body: some View {
         let i = store.engine.insights()
@@ -41,10 +51,14 @@ struct InsightsPage: View {
         let first = days.first?.day.date() ?? Date(), last = days.last?.day.date() ?? Date()
         return VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 10) {
-                SegmentPills(items: [(Metric.tasks, "Tasks"), (Metric.focus, "Focus")], selection: $metric)
+                SegmentPills(
+                    items: [(Metric.tasks, Metric.tasks.title()), (Metric.focus, Metric.focus.title())],
+                    selection: $metric)
                 Spacer()
                 Text(
-                    "\(first.formatted(.dateTime.day().month(.abbreviated))) – \(last.formatted(.dateTime.day().month(.abbreviated)))"
+                    AppL10n.format(
+                        "%@ – %@", first.formatted(.dateTime.day().month(.abbreviated)),
+                        last.formatted(.dateTime.day().month(.abbreviated)))
                 )
                 .font(Theme.meta).foregroundStyle(Theme.secondary)
             }
@@ -53,10 +67,10 @@ struct InsightsPage: View {
                 .frame(maxHeight: .infinity)
             HStack(spacing: 14) {
                 if metric == .tasks {
-                    legend(Theme.chartCompleted, "Completed")
-                    legend(Theme.chartPlanned, "Planned")
+                    legend(Theme.chartCompleted, AppL10n.text("Completed"))
+                    legend(Theme.chartPlanned, AppL10n.text("Planned"))
                 } else {
-                    legend(Theme.chartCompleted, "Minutes focused")
+                    legend(Theme.chartCompleted, AppL10n.text("Minutes focused"))
                 }
                 Spacer()
             }
@@ -84,15 +98,20 @@ struct InsightsPage: View {
             .fixedSize(horizontal: false, vertical: true)
             Spacer(minLength: 0)
             VStack(alignment: .leading, spacing: 8) {
-                stat("\(done)", "tasks done this week")
-                stat(TimerText.short(focus), "focused this week")
-                stat("\(i.streak) day\(i.streak == 1 ? "" : "s")", "streak")
-                stat("\(i.today.completed)/\(i.today.planned)", "done today")
+                stat(PerchL10n.number(done), AppL10n.text("tasks done this week"))
+                stat(TimerText.short(focus), AppL10n.text("focused this week"))
+                stat(AppL10n.format("%lld days", i.streak), AppL10n.text("streak"))
+                stat(AppL10n.format("%lld/%lld", i.today.completed, i.today.planned), AppL10n.text("done today"))
                 if i.allTimeCompletedCalendarEvents > 0 {
-                    stat("\(i.today.completedCalendarEvents)", "calendar events checked off today")
-                        .help(
-                            "Checked off in Perch. \(i.allTimeCompletedCalendarEvents) all time; Calendar is unchanged."
-                        )
+                    stat(
+                        PerchL10n.number(i.today.completedCalendarEvents),
+                        AppL10n.text("calendar events checked off today")
+                    )
+                    .help(
+                        AppL10n.format(
+                            "Checked off in Perch. %lld all time; Calendar is unchanged.",
+                            i.allTimeCompletedCalendarEvents)
+                    )
                 }
             }
         }
@@ -100,22 +119,23 @@ struct InsightsPage: View {
     }
 
     private func headline(done: Int, before: Int) -> String {
-        if done == 0 { return "A fresh week" }
-        if done > before { return "Ahead of last week" }
-        if done == before { return "Holding steady" }
-        return "A quieter week"
+        if done == 0 { return AppL10n.text("A fresh week") }
+        if done > before { return AppL10n.text("Ahead of last week") }
+        if done == before { return AppL10n.text("Holding steady") }
+        return AppL10n.text("A quieter week")
     }
 
     private func subline(done: Int, before: Int, focusThisWeek: Double) -> String {
         if done == 0 {
-            return focusThisWeek > 0
-                ? "Focus is logged. Finish a task to fill in the week." : "Finish one task and your week starts here."
+            return AppL10n.text(
+                focusThisWeek > 0
+                    ? "Focus is logged. Finish a task to fill in the week."
+                    : "Finish one task and your week starts here.")
         }
-        let noun = done == 1 ? "task" : "tasks"
-        if before == 0 { return "\(done) \(noun) done this week." }
+        if before == 0 { return AppL10n.format("%lld tasks done this week.", done) }
         return done > before
-            ? "\(done) \(noun) done, up from \(before) the week before."
-            : "\(done) \(noun) done, against \(before) the week before."
+            ? AppL10n.format("%lld tasks done, up from %lld the week before.", done, before)
+            : AppL10n.format("%lld tasks done, against %lld the week before.", done, before)
     }
 
     private func stat(_ value: String, _ label: String) -> some View {
@@ -163,7 +183,7 @@ struct WeekBars: View {
         switch metric {
         case .tasks:
             let n = Int(top.rounded())
-            return "\(n) task\(n == 1 ? "" : "s")"
+            return PerchL10n.tasks(count: n)
         case .focus:
             return TimerText.short(top * 60)
         }
@@ -186,7 +206,8 @@ struct WeekBars: View {
                         .lineLimit(1).fixedSize()
                         .frame(height: Self.scaleStrip, alignment: .bottom)
                         .padding(.bottom, 2)
-                        .accessibilityLabel("Chart top line: \(Self.scaleLabel(top: top, metric: metric))")
+                        .accessibilityLabel(
+                            AppL10n.format("Chart top line: %@", Self.scaleLabel(top: top, metric: metric)))
                 } else {
                     Color.clear.frame(height: Self.scaleStrip + 2)
                 }
@@ -263,6 +284,8 @@ struct WeekBars: View {
 
     private func label(_ d: Insights.Day, _ v: Double, _ p: Double) -> String {
         let day = d.day.date().formatted(.dateTime.weekday(.wide).month().day())
-        return metric == .tasks ? "\(day): \(Int(v)) of \(Int(p)) done" : "\(day): \(Int(v)) minutes focused"
+        return metric == .tasks
+            ? AppL10n.format("%@: %lld of %lld done", day, Int(v), Int(p))
+            : AppL10n.format("%@: %lld minutes focused", day, Int(v))
     }
 }

@@ -38,10 +38,10 @@ public struct DateFieldDraft: Equatable, Sendable {
 
         public var message: String {
             switch self {
-            case .required: "Choose a date."
-            case .unparseable(let text): "“\(text)” is not a date. Use YYYY-MM-DD."
-            case .pastDay: "This day has already passed."
-            case .pastDayNotAllowed: "Choose today or a later day."
+            case .required: PerchL10n.text("Choose a date.")
+            case .unparseable(let text): PerchL10n.format("“%@” is not a date. Use YYYY-MM-DD.", text)
+            case .pastDay: PerchL10n.text("This day has already passed.")
+            case .pastDayNotAllowed: PerchL10n.text("Choose today or a later day.")
             }
         }
     }
@@ -193,9 +193,9 @@ public struct DateFieldDraft: Equatable, Sendable {
 
     public func accessibilityValue(calendar: Calendar = .current, locale: Locale = .current) -> String {
         switch entry {
-        case .none: return "No date"
-        case .invalid(let text): return "Not a date: \(text)"
-        case .day(let day):
+        case .none: return PerchL10n.text("No date", locale: locale)
+        case .invalid(let text): return PerchL10n.format("Not a date: %@", locale: locale, text)
+        case .day:
             var style = Date.FormatStyle(date: .complete, time: .omitted, locale: locale, calendar: calendar)
             style.timeZone = calendar.timeZone
             return pickerDate(calendar: calendar).formatted(style)
@@ -213,12 +213,12 @@ public enum DateFieldControl: String, CaseIterable, Sendable {
     public func accessibilityLabel(field: String) -> String {
         let lower = field.lowercased()
         switch self {
-        case .add: return "Add \(lower)"
-        case .text: return "\(field), typed date"
+        case .add: return PerchL10n.format("Add %@", lower)
+        case .text: return PerchL10n.format("%@, typed date", field)
         case .picker: return field
-        case .clear: return "Clear \(lower)"
-        case .cancel: return "Cancel \(lower) edit"
-        case .commit: return "Apply \(lower)"
+        case .clear: return PerchL10n.format("Clear %@", lower)
+        case .cancel: return PerchL10n.format("Cancel %@ edit", lower)
+        case .commit: return PerchL10n.format("Apply %@", lower)
         }
     }
 

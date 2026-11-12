@@ -39,7 +39,8 @@ APP_ZIP="$OUT/$ZIP_NAME"
 
 for a in $ARCHS; do args+=(--arch "$a"); done
 swift build "${args[@]}"
-BIN=$(swift build "${args[@]}" --show-bin-path)/Perch
+BIN_DIR=$(swift build "${args[@]}" --show-bin-path)
+BIN="$BIN_DIR/Perch"
 
 rm -rf "$APP"; mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 install -m 0755 "$BIN" "$APP/Contents/MacOS/Perch"
@@ -56,6 +57,21 @@ for f in icon_16x16.png icon_32x32.png icon_128x128.png icon_256x256.png icon_51
 done
 rm -rf "$(dirname "$ICONSET")"
 install -m 0644 Resources/AppIcon.icns "$APP/Contents/Resources/"
+# SwiftPM copies string catalogs as data. Compile native resources explicitly for
+# SwiftUI's main-bundle lookup and keep the JSON used by the shared catalog reader.
+python3 scripts/compile_localization.py Resources/Localizable.xcstrings "$APP/Contents/Resources"
+install -m 0644 Sources/PerchApp/Resources/Localizable.json "$APP/Contents/Resources/Localizable.json"
+for target in PerchApp PerchUI; do
+  bundle="$BIN_DIR/Perch_${target}.bundle"
+  python3 scripts/compile_localization.py "Sources/${target}/Resources/Localizable.xcstrings" "$bundle" --resource-bundle
+  cp -R "$bundle" "$APP/Contents/Resources/"
+done
+for localization in en zz; do
+  for resource in Localizable.strings Localizable.stringsdict; do
+    path="$APP/Contents/Resources/${localization}.lproj/$resource"
+    [ -s "$path" ] || { echo "Missing compiled localization: $path" >&2; exit 1; }
+  done
+done
 
 sign_args=(--force --options runtime --entitlements Resources/Perch.entitlements)
 if [[ "$ID" == - ]]; then

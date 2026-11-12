@@ -18,6 +18,7 @@ struct DateFieldEditor: View {
     @FocusState private var focus: DateFieldControl?
 
     private var key: String { field.lowercased() }
+    private var localizedField: String { AppL10n.text(field) }
     private var hasActions: Bool { onCommit != nil || onCancel != nil }
 
     var body: some View {
@@ -26,7 +27,7 @@ struct DateFieldEditor: View {
             inlineIssue
         }
         .accessibilityElement(children: .contain)
-        .accessibilityLabel(field)
+        .accessibilityLabel(localizedField)
         .onExitCommand(perform: exitAction)
         .onAppear {
             // An enclosing form chooses its own initial focus.
@@ -120,14 +121,14 @@ struct DateFieldEditor: View {
             .frame(minWidth: 96, idealWidth: 110, maxWidth: 130)
             .focused($focus, equals: .text)
             .onSubmit(commit)
-            .accessibilityLabel(DateFieldControl.text.accessibilityLabel(field: field))
+            .accessibilityLabel(DateFieldControl.text.accessibilityLabel(field: localizedField))
             .accessibilityValue(draft.accessibilityValue(calendar: calendar, locale: locale))
             .accessibilityIdentifier(DateFieldControl.text.identifier(field: key))
     }
 
     private var picker: some View {
         DatePicker(
-            field,
+            localizedField,
             selection: Binding(
                 get: { draft.pickerDate(calendar: calendar) },
                 set: { draft.select($0, calendar: calendar) }),
@@ -137,7 +138,7 @@ struct DateFieldEditor: View {
         .datePickerStyle(.compact)
         .fixedSize()
         .focused($focus, equals: .picker)
-        .accessibilityLabel(DateFieldControl.picker.accessibilityLabel(field: field))
+        .accessibilityLabel(DateFieldControl.picker.accessibilityLabel(field: localizedField))
         .accessibilityIdentifier(DateFieldControl.picker.identifier(field: key))
     }
 
@@ -163,7 +164,7 @@ struct DateFieldEditor: View {
     ) -> some View {
         if control == .add || control == .clear {
             NativeDateButtonIdentity(
-                identifier: control.identifier(field: key), label: control.accessibilityLabel(field: field),
+                identifier: control.identifier(field: key), label: control.accessibilityLabel(field: localizedField),
                 action: action
             ) {
                 styledButton(control, title: title, prominent: prominent, action: action)
@@ -177,13 +178,13 @@ struct DateFieldEditor: View {
     private func styledButton(
         _ control: DateFieldControl, title: String, prominent: Bool, action: @escaping () -> Void
     ) -> some View {
-        Button(title, action: action)
+        Button(AppL10n.text(title), action: action)
             .buttonStyle(
                 PillStyle(prominent: prominent, disabledReason: draft.visibleIssue?.message ?? "Fix the date first.")
             )
             .fixedSize()
             .focused($focus, equals: control)
-            .accessibilityLabel(control.accessibilityLabel(field: field))
+            .accessibilityLabel(control.accessibilityLabel(field: localizedField))
             .accessibilityIdentifier(control.identifier(field: key))
     }
 

@@ -34,7 +34,7 @@ struct DashboardView: View {
     var body: some View {
         VStack(spacing: 0) {
             Picker("Dashboard section", selection: $tab) {
-                ForEach(Tab.allCases, id: \.self) { Text($0.rawValue).tag($0) }
+                ForEach(Tab.allCases, id: \.self) { Text(AppL10n.text($0.rawValue)).tag($0) }
             }
             .pickerStyle(.segmented).labelsHidden().frame(width: 420).padding(.top, 34).padding(.bottom, 12)
             Divider()

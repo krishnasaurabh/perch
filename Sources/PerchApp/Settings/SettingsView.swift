@@ -22,6 +22,7 @@ struct SettingsView: View {
         case general = "General", workspace = "Workspace", focus = "Focus timer", agents = "AI agents", system =
             "System"
         var id: String { rawValue }
+        var title: String { AppL10n.text(rawValue) }
         var symbol: String {
             switch self {
             case .general: "gearshape"
@@ -35,7 +36,7 @@ struct SettingsView: View {
 
     var body: some View {
         NavigationSplitView {
-            List(Pane.allCases, selection: $section) { s in Label(s.rawValue, systemImage: s.symbol).tag(s) }
+            List(Pane.allCases, selection: $section) { s in Label(s.title, systemImage: s.symbol).tag(s) }
                 .navigationSplitViewColumnWidth(170)
         } detail: {
             Form {
@@ -78,6 +79,26 @@ struct SettingsView: View {
                             store.lastError = .loginItem(error.localizedDescription)
                         }
                     }))
+        }
+        Section("Language") {
+            LabeledContent(
+                "Interface",
+                value: Locale.current.localizedString(
+                    forLanguageCode: Locale.current.language.languageCode?.identifier ?? "")
+                    ?? AppL10n.text("System language"))
+            LabeledContent("Task entry parser", value: AppL10n.text("English"))
+            Text(
+                "Perch follows the app language for dates, numbers and interface text. Natural-language task entry supports English; other languages never fall back to English or rewrite tasks."
+            )
+            .font(Theme.meta).foregroundStyle(Theme.secondary)
+            .fixedSize(horizontal: false, vertical: true)
+            if TaskParserLanguage.current == nil {
+                Text(
+                    "Task entry is unavailable in this app language. Choose English to add parsed tasks; existing tasks and literal imports are unchanged."
+                )
+                .font(Theme.meta).foregroundStyle(Theme.accent)
+                .fixedSize(horizontal: false, vertical: true)
+            }
         }
         Section("Notch glance") {
             Toggle("Show today's unfinished task count", isOn: pref(\.notchTaskCount))
@@ -132,9 +153,8 @@ struct SettingsView: View {
         Section("Apple Intelligence") {
             Toggle("Auto-sort new tasks", isOn: pref(\.sortWithAI)).disabled(!AISorter.isSupported)
             Text(
-                AISorter.isSupported
-                    ? "Uses the on-device model to suggest a priority and project for new tasks. Your explicit #project and !priority choices take precedence."
-                    : AISorter.unavailableReason
+                Self.appleIntelligenceExplanation(
+                    isSupported: AISorter.isSupported, unavailableReason: AISorter.unavailableReason)
             )
             .font(Theme.meta).foregroundStyle(Theme.secondary)
         }
@@ -164,14 +184,14 @@ struct SettingsView: View {
                         Image(systemName: "chevron.up")
                     }.buttonStyle(PillStyle())
                         .disabled(HomeLayout.ordered(store.prefs.workspaceCardOrder).first == id)
-                        .accessibilityLabel("Move \(cardName(id)) up")
+                        .accessibilityLabel(AppL10n.format("Move %@ up", cardName(id)))
                     Button {
                         moveCard(id, 1)
                     } label: {
                         Image(systemName: "chevron.down")
                     }.buttonStyle(PillStyle())
                         .disabled(HomeLayout.ordered(store.prefs.workspaceCardOrder).last == id)
-                        .accessibilityLabel("Move \(cardName(id)) down")
+                        .accessibilityLabel(AppL10n.format("Move %@ down", cardName(id)))
                 }
             }
             Button("Reset to default") {
@@ -217,7 +237,7 @@ struct SettingsView: View {
     @ViewBuilder var focus: some View {
         Section("Focus timer") {
             Stepper(value: pref(\.defaultFocusMinutes), in: 5...180, step: 5) {
-                LabeledContent("Default length", value: "\(store.prefs.defaultFocusMinutes) min")
+                LabeledContent("Default length", value: AppL10n.format("%lld min", store.prefs.defaultFocusMinutes))
             }
             Text("Tasks with their own time budget use that instead.").font(Theme.meta).foregroundStyle(Theme.secondary)
             Toggle("Chime when the timer ends", isOn: pref(\.focusCompletionSound))
@@ -284,19 +304,31 @@ struct SettingsView: View {
         }
     }
 
+    static func appleIntelligenceExplanation(
+        isSupported: Bool, unavailableReason: String, locale: Locale? = nil
+    ) -> String {
+        isSupported
+            ? AppL10n.text(
+                "Uses the on-device model to suggest a priority and project for new tasks. Your explicit #project and !priority choices take precedence.",
+                locale: locale)
+            : unavailableReason
+    }
+
     /// "Midnight" for 0, otherwise the hour in the user's clock style ("4 AM" or "04:00").
     static func hourLabel(_ hour: Int) -> String {
         guard hour > 0, let d = Calendar.current.date(bySettingHour: hour, minute: 0, second: 0, of: Date()) else {
-            return "Midnight"
+            return AppL10n.text("Midnight")
         }
         return d.formatted(date: .omitted, time: .shortened)
     }
 
-    func cardName(_ id: String) -> String {
-        [
-            "focus": "Focus timer (while running)", "notepad": "Notepad",
-            "events": "Today's agenda (when there are events)",
-        ][id] ?? id
+    func cardName(_ id: String, locale: Locale? = nil) -> String {
+        switch id {
+        case "focus": AppL10n.text("Focus timer (while running)", locale: locale)
+        case "notepad": AppL10n.text("Notepad", locale: locale)
+        case "events": AppL10n.text("Today's agenda (when there are events)", locale: locale)
+        default: id
+        }
     }
 
     func moveCard(_ id: String, _ delta: Int) {

@@ -23,7 +23,9 @@ extension AgentTools {
             try validate(value, schema: schema, tool: name, key: key)
         }
         for key in values.keys.sorted() where properties[key] == nil {
-            throw PlannerError("Unknown argument '\(key)' for \(name).")
+            throw PlannerError(
+                "Unknown argument '%@' for %@.", arguments: [key, name],
+                message: "Unknown argument '\(key)' for \(name).")
         }
         if name == "update_overdue", values["action"]?.string != "carry", values["date"] != nil {
             throw PlannerError("The date argument is only valid when action is carry.")
@@ -47,7 +49,9 @@ extension AgentTools {
         case ("update_overdue", "action"):
             return PlannerError("Choose an overdue action: complete, carry or dismiss.")
         default:
-            return PlannerError("Missing required argument '\(key)' for \(name).")
+            return PlannerError(
+                "Missing required argument '%@' for %@.", arguments: [key, name],
+                message: "Missing required argument '\(key)' for \(name).")
         }
     }
 
@@ -83,7 +87,9 @@ extension AgentTools {
                     throw PlannerError(
                         "Invalid argument 'titles': use 1 to 100 titles, each with 2000 characters or fewer.")
                 }
-                throw PlannerError("Invalid argument '\(key)': enter \(maximum) characters or fewer.")
+                throw PlannerError(
+                    "Invalid argument '%@': enter %@ characters or fewer.", arguments: [key, String(maximum)],
+                    message: "Invalid argument '\(key)': enter \(maximum) characters or fewer.")
             }
             if let minimum = schema["minLength"]?.int, length < minimum {
                 throw invalid(value, schema, tool, key)
@@ -96,7 +102,9 @@ extension AgentTools {
             if let allowed = schema["enum"]?.array?.compactMap(\.string), !allowed.contains(string) {
                 if key == "priority" { throw PlannerError("Choose priority from: none, low, medium, high.") }
                 if key == "mode" { throw PlannerError("Choose note mode: append or replace.") }
-                throw PlannerError("Invalid argument '\(key)': choose one of \(allowed.joined(separator: ", ")).")
+                throw PlannerError(
+                    "Invalid argument '%@': choose one of %@.", arguments: [key, allowed.joined(separator: ", ")],
+                    message: "Invalid argument '\(key)': choose one of \(allowed.joined(separator: ", ")).")
             }
         case "boolean":
             guard value.bool != nil else { throw invalid(value, schema, tool, key) }
@@ -114,14 +122,18 @@ extension AgentTools {
                 if tool == "update_overdue", key == "tasks" {
                     throw PlannerError("Select at least one overdue task id from list_overdue.")
                 }
-                throw PlannerError("Invalid argument '\(key)': enter at least \(minimum) items.")
+                throw PlannerError(
+                    "Invalid argument '%@': enter at least %@ items.", arguments: [key, String(minimum)],
+                    message: "Invalid argument '\(key)': enter at least \(minimum) items.")
             }
             if let maximum = schema["maxItems"]?.int, array.count > maximum {
                 if tool == "add_tasks", key == "titles" {
                     throw PlannerError(
                         "Invalid argument 'titles': use 1 to 100 titles, each with 2000 characters or fewer.")
                 }
-                throw PlannerError("Invalid argument '\(key)': enter at most \(maximum) items.")
+                throw PlannerError(
+                    "Invalid argument '%@': enter at most %@ items.", arguments: [key, String(maximum)],
+                    message: "Invalid argument '\(key)': enter at most \(maximum) items.")
             }
             if let items = schema["items"] {
                 for item in array { try validate(item, schema: items, tool: tool, key: key) }
@@ -138,7 +150,9 @@ extension AgentTools {
             let lower = range?["minimum"]?.int ?? 0
             let upper = range?["maximum"]?.int ?? 0
             let bounds = lower == 0 ? "1 to \(upper), or 0 to clear the limit" : "\(lower) to \(upper)"
-            return PlannerError("Invalid argument 'minutes': enter an integer from \(bounds).")
+            return PlannerError(
+                "Invalid argument 'minutes': enter an integer from %@.", arguments: [bounds],
+                message: "Invalid argument 'minutes': enter an integer from \(bounds).")
         }
         if tool == "add_tasks", key == "titles", value.array == nil {
             return PlannerError("Add at least one task title with text.")
@@ -153,6 +167,8 @@ extension AgentTools {
         if tool == "write_notepad", key == "text" {
             return PlannerError("Enter note text using 20000 characters or fewer.")
         }
-        return PlannerError("Invalid argument '\(key)': expected \(schema["type"]?.string ?? "a valid value").")
+        return PlannerError(
+            "Invalid argument '%@': expected %@.", arguments: [key, schema["type"]?.string ?? "a valid value"],
+            message: "Invalid argument '\(key)': expected \(schema["type"]?.string ?? "a valid value").")
     }
 }

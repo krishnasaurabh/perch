@@ -4,6 +4,13 @@ All notable user-facing changes to Perch. Versions follow [Semantic Versioning](
 
 ## Unreleased
 
+### Changed
+
+- Interface text uses English string catalogs with a pseudolocalization QA mode. Dates, counts
+  and repeat summaries follow the presentation locale without changing stored Gregorian dates.
+- Natural-language task entry declares English support explicitly. Unsupported app languages
+  report an error without adding or rewriting tasks.
+
 ## 1.1.1 (2026-11-10)
 
 ### Added

@@ -212,6 +212,10 @@ func key(_ character: String, code: UInt16, in window: NSWindow) {
 // rather than two programmatic edits inside one event/undo transaction.
 @MainActor
 func typeCaptureText(_ text: String, in window: NSWindow) async {
+    guard let editor = window.firstResponder as? NSTextView else {
+        require(false, "queued capture typing starts in the native editor"); return
+    }
+    let expected = (editor.string as NSString).replacingCharacters(in: editor.selectedRange(), with: text)
     let keyCodes: [String: UInt16] = [
         "a": 0, "s": 1, "d": 2, "f": 3, "h": 4, "g": 5, "z": 6, "x": 7, "c": 8, "v": 9,
         "b": 11, "q": 12, "w": 13, "e": 14, "r": 15, "y": 16, "t": 17, "o": 31, "u": 32,
@@ -232,7 +236,35 @@ func typeCaptureText(_ text: String, in window: NSWindow) async {
             NSApp.postEvent(event, atStart: false)
         }
     }
+    let delivered = await waitForCaptureTyping(expected, editor: editor, in: window)
+    let trace: [String: Any] = [
+        "expected": expected, "observed": editor.string, "delivered": delivered,
+        "keyWindow": window.isKeyWindow, "currentEditor": window.firstResponder === editor,
+    ]
+    let output = URL(fileURLWithPath: ProcessInfo.processInfo.environment["FOCUS_ENTRY_OUTPUT"]!)
+    try! JSONSerialization.data(withJSONObject: trace, options: [.prettyPrinted, .sortedKeys])
+        .write(to: output.appendingPathComponent("capture-\(text.count)-typing.json"))
+    require(delivered, "queued capture typing completes in the same native editor")
+    // Let the trailing key-up and native undo grouping settle after text delivery,
+    // not after merely enqueueing a burst that may still be in flight.
     await settle()
+}
+
+@MainActor
+func waitForCaptureTyping(
+    _ expected: String, editor: NSTextView, in window: NSWindow, timeout: TimeInterval = 5
+) async -> Bool {
+    let deadline = ProcessInfo.processInfo.systemUptime + timeout
+    while true {
+        let field = editor.delegate as? NSTextField
+        if window.isKeyWindow, window.firstResponder === editor, field?.currentEditor() === editor,
+            editor.string == expected
+        {
+            return true
+        }
+        if ProcessInfo.processInfo.systemUptime >= deadline { return false }
+        do { try await Task.sleep(nanoseconds: 20_000_000) } catch { return false }
+    }
 }
 
 // Edits, including Undo, legitimately advance updatedAt. Every other task field
