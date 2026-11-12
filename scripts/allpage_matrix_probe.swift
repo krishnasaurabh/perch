@@ -274,13 +274,98 @@ enum MatrixAXReader {
     }
 }
 
+/// The details fixture must not query its own process through the system AX client:
+/// that path can evaluate SwiftUI bindings on the caller's background thread. Walk
+/// the actual AppKit/accessibility objects synchronously on their owning actor instead.
+@MainActor
+private enum MatrixViewReader {
+    static func handle(_ object: NSObject) -> MatrixElement {
+        MatrixElement(id: UInt(bitPattern: ObjectIdentifier(object)))
+    }
+
+    // Only object-returning getters belong here. Scalars/structs use KVC boxing below.
+    static func value(_ object: NSObject, _ getter: String) -> Any? {
+        let selector = NSSelectorFromString(getter)
+        guard object.responds(to: selector) else { return nil }
+        return object.perform(selector)?.takeUnretainedValue()
+    }
+
+    static func read() -> MatrixAXSnapshot {
+        precondition(Thread.isMainThread, "view snapshot requires the main thread")
+        var result = MatrixAXSnapshot()
+        let windows = NSApp.windows.filter { $0.isVisible }
+        var root = MatrixAXNode()
+        root.edges[kAXWindowsAttribute as String] = windows.map(handle)
+        root.edges[kAXChildrenAttribute as String] = windows.map(handle)
+        result.nodes[result.app] = root
+        var stack: [(NSObject, Int)] = windows.map { ($0, 0) }
+        // Native subviews and accessibility children can expose the same object (or
+        // a back edge). Publish each object once, as a tree, just as system AX does.
+        var discovered = Set(windows.map(handle))
+        // A field editor's delegate is the control whose accessible identity it edits.
+        if let responder = NSApp.keyWindow?.firstResponder {
+            let owner =
+                (responder as? NSTextView).flatMap { $0.isFieldEditor ? $0.delegate as? NSObject : nil }
+                ?? responder
+            result.focused = handle(owner)
+            mxLog("matrix view focus: responder=\(type(of: responder)) owner=\(type(of: owner))")
+        }
+        while let (object, depth) = stack.popLast() {
+            let key = handle(object)
+            guard result.nodes[key] == nil else { continue }
+            if result.nodes.count >= 3000 { break }
+            var node = MatrixAXNode()
+            for (attribute, getter) in [
+                (kAXRoleAttribute, "accessibilityRole"),
+                (kAXIdentifierAttribute, "accessibilityIdentifier"),
+                (kAXDescriptionAttribute, "accessibilityLabel"),
+                (kAXTitleAttribute, "accessibilityTitle"),
+                (kAXValueAttribute, "accessibilityValue"),
+                (kAXHelpAttribute, "accessibilityHelp"),
+            ] {
+                if let string = value(object, getter) as? String, !string.isEmpty {
+                    node.strings[attribute as String] = string
+                }
+            }
+            if object.responds(to: NSSelectorFromString("isAccessibilityEnabled")) {
+                node.enabled = object.value(forKey: "accessibilityEnabled") as? Bool
+            }
+            if object.responds(to: NSSelectorFromString("accessibilityFrame")),
+                let frame = object.value(forKey: "accessibilityFrame") as? NSValue
+            {
+                node.frame = frame.rectValue
+            }
+            var children = (value(object, "accessibilityChildren") as? [NSObject]) ?? []
+            children += (value(object, "accessibilityContents") as? [NSObject]) ?? []
+            if let window = object as? NSWindow {
+                node.strings[kAXTitleAttribute as String] = window.title
+                if let content = window.contentView { children.append(content) }
+                children += window.sheets
+            }
+            if let view = object as? NSView { children += view.subviews }
+            children = children.filter { handle($0) != key && discovered.insert(handle($0)).inserted }
+            node.edges[kAXChildrenAttribute as String] = children.map(handle)
+            result.nodes[key] = node
+            if depth < 40 { stack.append(contentsOf: children.reversed().map { ($0, depth + 1) }) }
+        }
+        return result
+    }
+}
+
 @MainActor
 enum MatrixAX {
     static var snapshot = MatrixAXSnapshot()
+    static var useViewTree = false
     static func refresh() async {
         MatrixMark.firstAccessibilityRead()
         mxLog("matrix snapshot: begin")
-        snapshot = await MatrixAXReader.snapshot()
+        if useViewTree {
+            mxLog("matrix snapshot: main-actor view tree begin")
+            snapshot = MatrixViewReader.read()
+            mxLog("matrix snapshot: main-actor view tree complete")
+        } else {
+            snapshot = await MatrixAXReader.snapshot()
+        }
         mxLog("matrix snapshot: complete nodes=\(snapshot.nodes.count)")
     }
 }
@@ -1282,6 +1367,10 @@ final class AllPageMatrix {
     // MARK: Details: historical and error states
 
     func detailsStates() async throws {
+        // Keep this backend scoped even when an assertion throws. No self-AX request
+        // may cause the details fixture's SwiftUI graph to update off its actor.
+        MatrixAX.useViewTree = true
+        defer { MatrixAX.useViewTree = false }
         let fixture = try MatrixFixture()
         defer { fixture.close() }
         guard let past = try fixture.history(["Matrix past task"], daysAgo: 1).first else {

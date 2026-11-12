@@ -47,7 +47,8 @@ def run(label, extra):
     command = [binary, '-AppleKeyboardUIMode', '3'] + extra
     # Opt in only on the diagnostic branch. Unset GITHUB_REF and all other refs
     # retain the normal child invocation, including after a cherry-pick.
-    if os.environ.get('GITHUB_REF') == 'refs/heads/t_7ef2077d-clickfix' and label == 'matrix':
+    if os.environ.get('GITHUB_REF') in (
+            'refs/heads/t_7ef2077d-clickfix', 'refs/heads/t_7ef2077d-clickfix3') and label == 'matrix':
         command = [
             'lldb', '--batch', '-o', 'settings set target.disable-aslr false',
             '-o', 'run',
