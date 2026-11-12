@@ -368,6 +368,8 @@ struct ControlGallery: View {
 }
 
 MainActor.assumeIsolated {
+    // Unbuffered output: a native crash must not swallow the PASS lines printed before it.
+    setvbuf(stdout, nil, _IONBF, 0)
     require(
         UserDefaults.standard.integer(forKey: "AppleKeyboardUIMode") == 3,
         "Probe process explicitly enables keyboard navigation")
@@ -805,6 +807,7 @@ func pageContrast(_ a: [Int], _ b: [Int]) -> Double {
             .environment(\._colorSchemeContrast, contrast)
             .environment(\.accessibilityEnabled, true)
             let label = "\(page.name) [\(state.name)]"
+            fputs("measured stage: render \(label)\n", stderr)
             let (window, host) = render(root, size: page.size, appearance: appearance)
             window.makeKeyAndOrderFront(nil)
             app.activate(ignoringOtherApps: true)
@@ -827,7 +830,9 @@ func pageContrast(_ a: [Int], _ b: [Int]) -> Double {
             }
             await wakeControlAccessibility()
             await settle(250_000_000)
+            fputs("measured stage: pixels \(label)\n", stderr)
             let measured = measureInk(host)
+            fputs("measured stage: accessibility frames \(label)\n", stderr)
             let frames = pageTextFrames(host, window: window)
             ink[state.name] = measured
             text[state.name] = frames
@@ -849,6 +854,7 @@ func pageContrast(_ a: [Int], _ b: [Int]) -> Double {
             Measured.check(
                 observed == (state.increased ? "increased" : "standard"),
                 "\(label): SwiftUI resolves the \(state.increased ? "increased" : "standard") contrast (\(observed))")
+            fputs("measured stage: status label frames \(label)\n", stderr)
             let status = statusLabelFrames(host)
             if !status.isEmpty {
                 let tallest = status.map(\.height).max() ?? 0
