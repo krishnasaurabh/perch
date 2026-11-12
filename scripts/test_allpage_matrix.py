@@ -127,8 +127,14 @@ print("Matrix assertion plumbing check passed")
         self.assertIn('exit(hasWindow ? 0 : 1)', consumers)
 
     def test_focus_membership_compiles_with_snapshot_values(self):
-        declaration = re.search(r"struct MatrixElement[^\n]+", self.source).group(0)
-        expression = re.search(r"let inWorkspace = [^\n]+", self.source).group(0)
+        declaration_match = re.search(r"struct MatrixElement[^\n]+", self.source)
+        expression_match = re.search(r"let inWorkspace = [^\n]+", self.source)
+        assert declaration_match is not None
+        assert expression_match is not None
+        declaration = declaration_match.group(0)
+        expression = expression_match.group(0)
+        swift = shutil.which("swiftc")
+        assert swift is not None, "Swift is required to verify snapshot membership"
         program = "import Foundation\nimport CoreFoundation\n" + declaration + "\n" + '''
 func mxTree(_ root: MatrixElement) -> [MatrixElement] { [root] }
 func check(_ root: MatrixElement, _ focused: MatrixElement) -> Bool {
@@ -145,7 +151,7 @@ print("Snapshot focus membership positive and negative controls passed")
             binary = pathlib.Path(directory) / "membership"
             source.write_text(program)
             compile_result = subprocess.run(
-                [shutil.which("swiftc"), "-swift-version", "6", str(source), "-o", str(binary)],
+                [swift, "-swift-version", "6", str(source), "-o", str(binary)],
                 capture_output=True, text=True,
             )
             self.assertEqual(compile_result.returncode, 0, compile_result.stderr)
@@ -155,7 +161,7 @@ print("Snapshot focus membership positive and negative controls passed")
             # The exact stale CF consumer from the failed native head must not compile.
             source.write_text(program.replace("$0 == focused", "CFEqual($0, focused)"))
             broken = subprocess.run(
-                [shutil.which("swiftc"), "-swift-version", "6", str(source), "-o", str(binary)],
+                [swift, "-swift-version", "6", str(source), "-o", str(binary)],
                 capture_output=True, text=True,
             )
             self.assertNotEqual(broken.returncode, 0)
