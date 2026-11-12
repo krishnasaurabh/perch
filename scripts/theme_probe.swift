@@ -715,16 +715,29 @@ private extension Int {
 /// In-process AX walk (the same NSAccessibility path the gallery's AX press uses).
 @MainActor func pageNodes(_ host: NSView) -> [NSObject] {
     var seen = Set<ObjectIdentifier>()
-    return (controlNodes(host) + host.subviews.flatMap({ controlNodes($0) })).filter {
-        seen.insert(ObjectIdentifier($0)).inserted
+    var nodes: [NSObject] = []
+    @MainActor func walk(_ node: NSObject, depth: Int) {
+        guard depth < 60, seen.insert(ObjectIdentifier(node)).inserted else { return }
+        nodes.append(node)
+        // Scroll containers can publish contents separately from children, and
+        // nested hosting views are not necessarily direct children of the root.
+        let children =
+            ((controlAttribute(node, "accessibilityChildren") as? [NSObject]) ?? [])
+            + ((controlAttribute(node, "accessibilityContents") as? [NSObject]) ?? [])
+            + ((node as? NSView)?.subviews ?? [])
+        for child in children { walk(child, depth: depth + 1) }
     }
+    walk(host, depth: 0)
+    return nodes
 }
 
 @MainActor func nodeFrame(_ node: NSObject) -> CGRect? {
-    // A selector check alone does not make an arbitrary SwiftUI child KVC-safe.
-    // Use the typed protocol accessor so CGRect follows the correct native ABI.
-    guard let accessible = node as? any NSAccessibilityProtocol else { return nil }
-    let frame = accessible.accessibilityFrame()
+    // SwiftUI AX proxies can expose the getter without adopting the protocol.
+    // AnyObject's typed optional Objective-C dispatch preserves CGRect's ABI;
+    // neither KVC nor object-returning perform is safe for this value.
+    guard node.responds(to: NSSelectorFromString("accessibilityFrame")),
+        let frame = (node as AnyObject).accessibilityFrame?()
+    else { return nil }
     guard frame.origin.x.isFinite, frame.origin.y.isFinite,
         frame.width.isFinite, frame.height.isFinite
     else { return nil }
@@ -749,7 +762,10 @@ private extension Int {
     let titles = Set(PermissionState.allCases.map(\.title))
     var frames: [CGRect] = []
     for node in pageNodes(host) {
-        guard let label = controlAttribute(node, "accessibilityLabel") as? String, titles.contains(label),
+        let names = ["accessibilityLabel", "accessibilityValue"].compactMap {
+            controlAttribute(node, $0) as? String
+        }
+        guard names.contains(where: { titles.contains($0) }),
             let frame = nodeFrame(node), frame.height > 0
         else { continue }
         frames.append(frame)
