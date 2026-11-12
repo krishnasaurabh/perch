@@ -1165,7 +1165,7 @@ func clipsMenuAction(
     /// Child entry point: launched with -AppleKeyboardUIMode 3 so Tab reaches every control.
     @MainActor
     func runClipsKeyboardChild(out: URL) async -> Never {
-        let budget = ProcessInfo.processInfo.environment["CLIPS_KEYBOARD_NEGATIVES"] == "1" ? 600.0 : 60.0
+        let budget = 600.0
         DispatchQueue.global().asyncAfter(deadline: .now() + budget) {
             FileHandle.standardError.write(Data("Clips keyboard: watchdog expired\n".utf8))
             exit(3)
@@ -1195,7 +1195,7 @@ func clipsMenuAction(
         setenv("PERCH_DATA", directory.appendingPathComponent("unused-planner.json").path, 1)
         // nil is the unbroken tree. Negative-control mode (scratch runs only) then breaks each
         // assertion once, on the probe side, and requires exactly that assertion to go red.
-        let negatives = ProcessInfo.processInfo.environment["CLIPS_KEYBOARD_NEGATIVES"] == "1"
+        let negatives = true  // SCRATCH ONLY
         let brokenRuns: [String?] = [nil] + (negatives ? clipsKeyboardAssertions.map { Optional($0) } : [])
         for broken in brokenRuns {
             let run = ClipsKeyboardRun(broken: broken)
