@@ -60,6 +60,7 @@ install -m 0644 Resources/AppIcon.icns "$APP/Contents/Resources/"
 # SwiftPM copies string catalogs as data. Compile native resources explicitly for
 # SwiftUI's main-bundle lookup and keep the JSON used by the shared catalog reader.
 python3 scripts/compile_localization.py Resources/Localizable.xcstrings "$APP/Contents/Resources"
+install -m 0644 Sources/PerchApp/Resources/Localizable.json "$APP/Contents/Resources/Localizable.json"
 for target in PerchApp PerchUI; do
   bundle="$BIN_DIR/Perch_${target}.bundle"
   python3 scripts/compile_localization.py "Sources/${target}/Resources/Localizable.xcstrings" "$bundle" --resource-bundle

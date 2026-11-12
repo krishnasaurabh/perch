@@ -159,6 +159,12 @@ class LocalizationTests(unittest.TestCase):
         self.assertIn('onPreferenceChange(StatusLabel.LayoutMetricsKey.self)', native)
         self.assertIn('XCTAssertGreaterThan(enlargedLabelFrame.height, standardLabelFrame.height)', native)
 
+    def test_runtime_catalog_lookup_never_uses_the_trapping_module_accessor(self):
+        for relative in ('Sources/PerchApp/App/AppLocalization.swift',
+                         'Sources/PerchUI/LocalizedStringCatalog.swift',
+                         'Sources/PerchUI/LocalizationResources.swift'):
+            self.assertNotIn('.module', (ROOT / relative).read_text(), relative)
+
     def test_native_catalog_test_selects_an_explicit_language_bundle(self):
         native = (ROOT / 'Tests/PerchAppTests/LocalizationTests.swift').read_text()
         self.assertIn('Set(generated.keys), Set(catalogStrings.keys)', native)

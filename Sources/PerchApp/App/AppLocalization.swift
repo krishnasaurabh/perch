@@ -5,7 +5,7 @@ import PlannerCore
 /// App-layer strings use the same catalog in SwiftPM probes and the bundled app.
 enum AppL10n {
     static func text(_ key: String, locale: Locale? = nil) -> String {
-        LocalizedStringCatalog.text(key, locale: locale, bundle: .module)
+        LocalizedStringCatalog.text(key, locale: locale, resourceBundleName: "Perch_PerchApp.bundle")
     }
 
     static func format(_ key: String, locale: Locale? = nil, _ arguments: CVarArg...) -> String {
@@ -16,7 +16,8 @@ enum AppL10n {
         case let value as Double: numeric = Int(value)
         default: numeric = nil
         }
-        let template = LocalizedStringCatalog.text(key, locale: locale, bundle: .module, numericArgument: numeric)
+        let template = LocalizedStringCatalog.text(
+            key, locale: locale, resourceBundleName: "Perch_PerchApp.bundle", numericArgument: numeric)
         return String(format: template, locale: locale, arguments: arguments)
     }
 

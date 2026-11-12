@@ -233,6 +233,8 @@ if sys.argv[1:3] == ["notarytool", "submit"]:
         self.assertEqual((app / "Contents" / "Resources" / "AppIcon.icns").read_bytes(),
                          (self.root / "Resources" / "AppIcon.icns").read_bytes())
         resources = app / "Contents" / "Resources"
+        self.assertEqual((resources / "Localizable.json").read_bytes(),
+                         (self.root / "Sources/PerchApp/Resources/Localizable.json").read_bytes())
         english = (resources / "en.lproj" / "Localizable.strings").read_text()
         pseudo = (resources / "zz.lproj" / "Localizable.strings").read_text()
         self.assertIn('"General" = "General";', english)

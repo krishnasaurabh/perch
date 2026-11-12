@@ -5,10 +5,16 @@ import Foundation
 /// depend on Xcode-only catalog compilation.
 public enum LocalizedStringCatalog {
     public static func text(
-        _ key: String, locale: Locale? = nil, bundle: Bundle? = nil, numericArgument: Int? = nil
+        _ key: String, locale: Locale? = nil, bundle: Bundle? = nil,
+        resourceBundleName: String = "Perch_PerchUI.bundle", numericArgument: Int? = nil
     ) -> String {
-        portableText(
-            key, locale: locale, bundle: bundle ?? .module, numericArgument: numericArgument)
+        let url: URL?
+        if let bundle {
+            url = bundle.resourceURL.flatMap { LocalizationResources.catalogURL(in: $0) }
+        } else {
+            url = LocalizationResources.catalogURL(bundleName: resourceBundleName)
+        }
+        return portableText(key, locale: locale, catalogURL: url, numericArgument: numericArgument)
     }
 
     private struct Document: Decodable { let strings: [String: Entry] }
@@ -23,18 +29,17 @@ public enum LocalizedStringCatalog {
 
     private final class Cache: @unchecked Sendable {
         private let lock = NSLock()
-        private var documents: [ObjectIdentifier: Document] = [:]
+        private var documents: [URL: Document] = [:]
 
-        func document(for bundle: Bundle) -> Document? {
-            let identifier = ObjectIdentifier(bundle)
+        func document(at url: URL) -> Document? {
+            let identifier = url.standardizedFileURL
             lock.lock()
             if let cached = documents[identifier] {
                 lock.unlock()
                 return cached
             }
             lock.unlock()
-            guard let url = bundle.url(forResource: "Localizable", withExtension: "json"),
-                let data = try? Data(contentsOf: url),
+            guard let data = try? Data(contentsOf: url),
                 let decoded = try? JSONDecoder().decode(Document.self, from: data)
             else { return nil }
             lock.lock()
@@ -46,9 +51,11 @@ public enum LocalizedStringCatalog {
     private static let cache = Cache()
 
     private static func portableText(
-        _ key: String, locale: Locale?, bundle: Bundle, numericArgument: Int?
+        _ key: String, locale: Locale?, catalogURL: URL?, numericArgument: Int?
     ) -> String {
-        guard let document = cache.document(for: bundle), let entry = document.strings[key] else { return key }
+        guard let catalogURL, let document = cache.document(at: catalogURL),
+            let entry = document.strings[key]
+        else { return key }
         let identifier = locale?.language.languageCode?.identifier ?? Locale.current.language.languageCode?.identifier
         let language = identifier == "zz" ? "zz" : "en"
         guard let localization = entry.localizations[language] else { return key }
