@@ -135,18 +135,23 @@ struct MatrixAXSnapshot: Sendable {
 
 /// All native AX calls are confined to this nonisolated reader.
 enum MatrixAXReader {
-    static func raw(_ element: AXUIElement, _ attribute: String, trace: Bool = false) -> CFTypeRef? {
+    static func raw(
+        _ element: AXUIElement, _ attribute: String, trace: Bool = false, context: String = ""
+    ) -> CFTypeRef? {
         precondition(!Thread.isMainThread, "self-addressed AX read on the main thread")
+        if trace { mxLog("AX before \(context) attribute=\(attribute)") }
         var value: CFTypeRef?
         let error = AXUIElementCopyAttributeValue(element, attribute as CFString, &value)
         if trace || error != .success {
-            mxLog("AX copy \(attribute) error=\(error.rawValue)")
+            mxLog("AX copy \(context) \(attribute) error=\(error.rawValue)")
         }
         return error == .success ? value : nil
     }
 
-    static func elements(_ element: AXUIElement, _ attribute: String, trace: Bool = false) -> [AXUIElement] {
-        (raw(element, attribute, trace: trace) as? [AXUIElement]) ?? []
+    static func elements(
+        _ element: AXUIElement, _ attribute: String, trace: Bool = false, context: String = ""
+    ) -> [AXUIElement] {
+        (raw(element, attribute, trace: trace, context: context) as? [AXUIElement]) ?? []
     }
 
     static func handle(_ element: AXUIElement) -> MatrixElement { MatrixElement(id: CFHash(element)) }
@@ -158,9 +163,10 @@ enum MatrixAXReader {
         var result = MatrixAXSnapshot()
         result.app = handle(app)
         if smoke { mxLog("ax smoke: reading the window list") }
-        let windows = elements(app, kAXWindowsAttribute as String, trace: smoke)
+        let windows = elements(app, kAXWindowsAttribute as String, trace: true, context: "node=0 role=AXApplication")
         if smoke { mxLog("ax smoke: windows \(windows.count)") }
-        let focusRaw = raw(app, kAXFocusedUIElementAttribute as String, trace: smoke)
+        let focusRaw = raw(
+            app, kAXFocusedUIElementAttribute as String, trace: true, context: "node=0 role=AXApplication")
         var focused: AXUIElement?
         if let focusRaw, CFGetTypeID(focusRaw) == AXUIElementGetTypeID() {
             focused = unsafeBitCast(focusRaw, to: AXUIElement.self)
@@ -176,8 +182,13 @@ enum MatrixAXReader {
             let key = handle(element)
             if result.nodes[key] != nil { continue }
             if result.nodes.count >= 3000 { break }
+            let index = result.nodes.count
+            let trace = smoke || index < 25
+            var role = "<unread>"
             var names: CFArray?
+            if trace { mxLog("AX before node=\(index) role=\(role) attribute=attributeNames") }
             let namesError = AXUIElementCopyAttributeNames(element, &names)
+            if trace { mxLog("AX names node=\(index) error=\(namesError.rawValue)") }
             if namesError != .success { mxLog("AX names error=\(namesError.rawValue)") }
             let supported = Set((names as? [String]) ?? [])
             var node = MatrixAXNode()
@@ -186,28 +197,39 @@ enum MatrixAXReader {
                 kAXTitleAttribute, kAXValueAttribute, kAXHelpAttribute,
             ] {
                 let name = attribute as String
-                if supported.contains(name), let value = raw(element, name) as? String, !value.isEmpty {
+                if supported.contains(name),
+                    let value = raw(element, name, trace: trace, context: "node=\(index) role=\(role)") as? String,
+                    !value.isEmpty
+                {
                     node.strings[name] = value
+                    if name == kAXRoleAttribute as String { role = value }
                 }
             }
             if supported.contains(kAXEnabledAttribute as String) {
-                node.enabled = raw(element, kAXEnabledAttribute as String) as? Bool
+                node.enabled =
+                    raw(element, kAXEnabledAttribute as String, trace: trace, context: "node=\(index) role=\(role)")
+                    as? Bool
             }
             var origin = CGPoint.zero
             var size = CGSize.zero
             if supported.contains(kAXPositionAttribute as String),
-                let value = raw(element, kAXPositionAttribute as String), CFGetTypeID(value) == AXValueGetTypeID()
+                let value = raw(
+                    element, kAXPositionAttribute as String, trace: trace, context: "node=\(index) role=\(role)"),
+                CFGetTypeID(value) == AXValueGetTypeID()
             {
                 _ = AXValueGetValue(unsafeBitCast(value, to: AXValue.self), .cgPoint, &origin)
             }
             if supported.contains(kAXSizeAttribute as String),
-                let value = raw(element, kAXSizeAttribute as String), CFGetTypeID(value) == AXValueGetTypeID()
+                let value = raw(
+                    element, kAXSizeAttribute as String, trace: trace, context: "node=\(index) role=\(role)"),
+                CFGetTypeID(value) == AXValueGetTypeID()
             {
                 _ = AXValueGetValue(unsafeBitCast(value, to: AXValue.self), .cgSize, &size)
             }
             node.frame = CGRect(origin: origin, size: size)
             if supported.contains(kAXChildrenAttribute as String) {
-                let children = elements(element, kAXChildrenAttribute as String, trace: smoke)
+                let children = elements(
+                    element, kAXChildrenAttribute as String, trace: trace, context: "node=\(index) role=\(role)")
                 node.edges[kAXChildrenAttribute as String] = children.map(handle)
                 if depth < 40 { stack.append(contentsOf: children.reversed().map { ($0, depth + 1) }) }
             }
