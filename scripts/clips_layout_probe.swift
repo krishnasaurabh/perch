@@ -1177,7 +1177,15 @@ func clipsMenuAction(
             let calendar = EKEventStore.authorizationStatus(for: .event)
             try requireClips(
                 calendar != .fullAccess && calendar != .writeOnly, "Keyboard probe refuses a calendar-enabled host")
-            try requireClips(NSApp.isFullKeyboardAccessEnabled, "Keyboard probe needs full keyboard access")
+            // Same mechanism as the green workspace navigation probe: the argument-domain override,
+            // made explicit in the volatile domain. NSApp.isFullKeyboardAccessEnabled reads only the
+            // global preference, which this probe must never write, so it is not the gate here.
+            var arguments = UserDefaults.standard.volatileDomain(forName: UserDefaults.argumentDomain)
+            arguments["AppleKeyboardUIMode"] = 3
+            UserDefaults.standard.setVolatileDomain(arguments, forName: UserDefaults.argumentDomain)
+            try requireClips(
+                UserDefaults.standard.integer(forKey: "AppleKeyboardUIMode") == 3,
+                "Keyboard probe needs full keyboard access in the argument domain")
         } catch {
             fputs("Clips keyboard precondition failed: \(error)\n", stderr)
             exit(1)
