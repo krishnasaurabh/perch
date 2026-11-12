@@ -637,7 +637,15 @@ final class AllPageMatrix {
             mxClick(host: host, window: window, at: mxHostRect(row, window: window, host: host))
             return
         }
-        throw MatrixFailure(label: "no settings sidebar row for \(title) (\(rows.count) rows)")
+        // A sidebar row may only expose its label as a child static text: click that instead.
+        let nodes = mxNodes(root)
+        for node in nodes where mxLabel(node) == title {
+            let rect = mxHostRect(node, window: window, host: host)
+            guard rect.width > 0, rect.height > 0 else { continue }
+            mxClick(host: host, window: window, at: rect)
+            return
+        }
+        throw MatrixFailure(label: "no settings sidebar control for \(title) (\(rows.count) rows)")
     }
 
     // MARK: Settings: a synthetic failure path per pane
@@ -709,7 +717,7 @@ final class AllPageMatrix {
         await mxSettle(0.7)
         try report.require(!AppInfo.isInApplications, "matrix probe is not installed in Applications")
         try report.require(
-            mxHas(host, "Agent setup requires Perch to be installed in Applications."),
+            mxHas(host, AppL10n.text("Agent setup requires Perch to be installed in Applications.")),
             "agents pane shows the not-installed failure path", "texts \(mxText(host).prefix(16))")
         try report.require(
             AgentConnector.App.allCases.map { AgentConnector.status($0) } == agentStatuses,
@@ -783,10 +791,12 @@ final class AllPageMatrix {
             (.projects, AppL10n.text("No projects yet. Add #project to a new task."), "Matrix history task"),
         ]
         for (tab, marker, foreign) in markers {
-            let radio = mxNodes(host).filter {
-                mxRole($0) == "AXRadioButton" && mxLabel($0) == AppL10n.text(tab.rawValue)
-            }
-            guard let segment = radio.first else {
+            let wanted = AppL10n.text(tab.rawValue)
+            let radio = mxNodes(host).filter { mxRole($0) == "AXRadioButton" && mxLabel($0) == wanted }
+            let segment =
+                radio.first
+                ?? mxNodes(host).first { mxRole($0) == "AXStaticText" && mxLabel($0) == wanted }
+            guard let segment else {
                 throw MatrixFailure(label: "no dashboard segment for \(tab.rawValue)")
             }
             mxClick(host: host, window: window, at: mxHostRect(segment, window: window, host: host))
@@ -1078,7 +1088,7 @@ final class AllPageMatrix {
         let menuID = "week-menu-\(task.id)"
         var menuTraversal: [String] = []
         var menuFocused = false
-        for _ in 0..<32 {
+        for _ in 0..<40 {
             try await mxKey(window, 48, "\t")
             menuTraversal.append(mxFocusIdentity(window) ?? "none")
             if mxFocusIdentity(window) == menuID {
