@@ -63,6 +63,10 @@ func writeClipsAccessibility(_ host: NSView, to url: URL) throws {
         for attribute in ["accessibilityRole", "accessibilityIdentifier"] {
             row[attribute] = clipsAttribute(node, attribute) as? String ?? ""
         }
+        row["actions"] = clipsAttribute(node, "accessibilityActionNames") as? [String] ?? []
+        if let cell = node as? NSCell {
+            row["controlViewClass"] = cell.controlView.map { NSStringFromClass(type(of: $0)) } ?? ""
+        }
         if let frame = try? clipsFrame(node, in: host) { row["frame"] = NSStringFromRect(frame) }
         if let value = clipsAttribute(node, "accessibilityValue") as? NSNumber { row["value"] = value }
         if let value = clipsAttribute(node, "accessibilityValue") as? String { row["value"] = value }
@@ -474,7 +478,10 @@ final class ClipsMenuTracker: NSObject {
 }
 
 @MainActor
-func clipsMenuAction(_ action: String, title: String, host: NSView, expectsOpen: Bool, out: URL) throws {
+func clipsMenuAction(
+    _ action: String, title: String, host: NSView, expectsOpen: Bool, out: URL,
+    beforeAction: @MainActor () throws -> Void = {}
+) throws {
     // Retain the exact kept-row state before the first selector or press can fail.
     let diagnostic = out.appendingPathComponent("kept-file-menu-before.ax.json")
     if !FileManager.default.fileExists(atPath: diagnostic.path) {
@@ -512,6 +519,7 @@ func clipsMenuAction(_ action: String, title: String, host: NSView, expectsOpen:
         throw NSError(
             domain: "ClipsLayout", code: 5, userInfo: [NSLocalizedDescriptionKey: "Missing menu action \(action)"])
     }
+    try beforeAction()
     menu.performActionForItem(at: index)
 }
 
@@ -642,14 +650,32 @@ func clipsMenuAction(_ action: String, title: String, host: NSView, expectsOpen:
                 .environment(\.colorScheme, .dark).padding(24).background(Color.black))
         window.contentView = page
         await settleClips()
-        try clipsMenuAction("Pin", title: kept.title, host: page, expectsOpen: true, out: out)
+        let beforePin = services.clips.clips
+        try clipsMenuAction("Pin", title: kept.title, host: page, expectsOpen: true, out: out) {
+            try requireClips(
+                services.clips.clips.map(\.id) == beforePin.map(\.id)
+                    && services.clips.clips.map(\.pinned) == beforePin.map(\.pinned),
+                "Opening the Pin menu changed the clips")
+        }
         await settleClips()
         try requireClips(services.clips.clips.first?.pinned == true, "Native Pin must pin the kept file")
         try capture(page, to: out.appendingPathComponent("kept-file.png"))
-        try clipsMenuAction("Unpin", title: kept.title, host: page, expectsOpen: true, out: out)
+        let beforeUnpin = services.clips.clips
+        try clipsMenuAction("Unpin", title: kept.title, host: page, expectsOpen: true, out: out) {
+            try requireClips(
+                services.clips.clips.map(\.id) == beforeUnpin.map(\.id)
+                    && services.clips.clips.map(\.pinned) == beforeUnpin.map(\.pinned),
+                "Opening the Unpin menu changed the clips")
+        }
         await settleClips()
         try requireClips(services.clips.clips.first?.pinned == false, "Native Unpin must unpin the kept file")
-        try clipsMenuAction("Remove", title: kept.title, host: page, expectsOpen: true, out: out)
+        let beforeRemove = services.clips.clips
+        try clipsMenuAction("Remove", title: kept.title, host: page, expectsOpen: true, out: out) {
+            try requireClips(
+                services.clips.clips.map(\.id) == beforeRemove.map(\.id)
+                    && services.clips.clips.map(\.pinned) == beforeRemove.map(\.pinned),
+                "Opening the Remove menu changed the clips")
+        }
         await settleClips()
         try requireClips(services.clips.clips.isEmpty, "Native Remove must remove the kept file")
         try pressClips("Undo", in: page)

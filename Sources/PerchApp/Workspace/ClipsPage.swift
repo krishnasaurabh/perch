@@ -217,6 +217,9 @@ private struct ClipsActionsMenu: NSViewRepresentable {
 
     func makeNSView(context: Context) -> NSPopUpButton {
         let button = NSPopUpButton(frame: .zero, pullsDown: true)
+        let cell = ClipsActionsCell(textCell: "", pullsDown: true)
+        button.cell = cell
+        cell.menuButton = button
         // Unlike fixed-height popup bezels, this bezel fills the real 32pt target.
         button.bezelStyle = .regularSquare
         button.font = .systemFont(ofSize: ThemeTokens.TypeSize.meta, weight: .medium)
@@ -263,6 +266,25 @@ private struct ClipsActionsMenu: NSViewRepresentable {
             guard sender.isEnabled, actions.indices.contains(sender.tag) else { return }
             actions[sender.tag]()
         }
+    }
+}
+
+/// Forward the cell's accessibility actions to the same native popup tracking
+/// used for pointer activation. No menu item is selected merely by opening it.
+@MainActor
+private final class ClipsActionsCell: NSPopUpButtonCell {
+    weak var menuButton: NSPopUpButton?
+
+    override func accessibilityPerformPress() -> Bool { showActions() }
+    override func accessibilityPerformShowMenu() -> Bool { showActions() }
+
+    private func showActions() -> Bool {
+        guard let button = menuButton, button.cell === self, button.window != nil,
+            button.isEnabled, button.bounds.width > 0, button.bounds.height > 0,
+            let menu = button.menu, menu.items.contains(where: { $0.isEnabled && $0.action != nil })
+        else { return false }
+        performClick(withFrame: button.bounds, in: button)
+        return true
     }
 }
 
