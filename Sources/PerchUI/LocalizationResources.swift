@@ -18,20 +18,30 @@ enum LocalizationResources {
         bundleName: String, resourceDirectory: URL?, bundleDirectory: URL,
         codeResourceDirectory: URL? = nil, codeBundleDirectory: URL? = nil
     ) -> URL? {
-        // Prefer the module's catalog in Apple's installed-app layout, then the
-        // executable-bundle layout, then the main bundle's compiled catalog.
-        var directories = [
-            resourceDirectory?.appendingPathComponent(bundleName),
-            bundleDirectory.appendingPathComponent(bundleName),
-            resourceDirectory,
-        ].compactMap { $0 }
+        // SwiftPM's module identity is stable, but its resource container can be
+        // either a .bundle or a plain .resources directory, without bundle metadata.
+        let moduleName = (bundleName as NSString).deletingPathExtension
+        let containerNames =
+            [bundleName]
+            + ["bundle", "resources"]
+            .map { "\(moduleName).\($0)" }.filter { $0 != bundleName }
+        func moduleDirectories(in root: URL?) -> [URL] {
+            guard let root else { return [] }
+            return containerNames.map { root.appendingPathComponent($0) }
+        }
+
+        // Exhaust container variants at each location before falling back to a
+        // lower-priority location or the main bundle's compiled catalog.
+        var directories =
+            moduleDirectories(in: resourceDirectory)
+            + moduleDirectories(in: bundleDirectory)
+            + [resourceDirectory].compactMap { $0 }
         if bundleDirectory.pathExtension != "app" {
-            directories.append(bundleDirectory.deletingLastPathComponent().appendingPathComponent(bundleName))
-            directories += [
-                codeResourceDirectory?.appendingPathComponent(bundleName),
-                codeBundleDirectory?.appendingPathComponent(bundleName),
-                codeBundleDirectory?.deletingLastPathComponent().appendingPathComponent(bundleName),
-            ].compactMap { $0 }
+            directories +=
+                moduleDirectories(in: bundleDirectory.deletingLastPathComponent())
+                + moduleDirectories(in: codeResourceDirectory)
+                + moduleDirectories(in: codeBundleDirectory)
+                + moduleDirectories(in: codeBundleDirectory?.deletingLastPathComponent())
         }
         return directories.lazy.compactMap { catalogURL(in: $0) }.first
     }
