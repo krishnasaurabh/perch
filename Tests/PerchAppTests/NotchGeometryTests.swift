@@ -89,6 +89,112 @@ final class NotchGeometryTests: XCTestCase {
         }
     }
 
+    func testClosedPaintedPathsAndHitTestingAgreeForEveryStateAndScale() {
+        let states: [(name: String, timer: NotchTimerPlacement?, activity: Bool, glance: Bool)] = [
+            ("idle", nil, false, false),
+            ("left timer", .left, false, false),
+            ("right timer", .right, false, false),
+            ("activity", nil, true, false),
+            ("opt-in count", nil, false, true),
+        ]
+        for hardware in [true, false] {
+            for scale in [CGFloat(1), 2] {
+                let screen = NotchLayout.Screen(
+                    frame: CGRect(x: 0, y: 0, width: 1512, height: 982),
+                    visibleFrame: CGRect(x: 0, y: 0, width: 1512, height: 950),
+                    safeAreaTop: hardware ? 32 : 0,
+                    auxiliaryLeftWidth: hardware ? 663 : nil, auxiliaryRightWidth: hardware ? 664 : nil)
+                let geometry = NotchGeometry(screen: screen, backingScaleFactor: scale)
+                for state in states {
+                    let label = "\(hardware ? "hardware" : "synthetic") housing, \(state.name), \(scale)x"
+                    let housing = geometry.tuckedNotch
+                    assertRoutedHitsMatchPaintedPath(
+                        geometry.outline(expanded: false).path(in: CGRect(origin: .zero, size: housing.size)),
+                        in: housing, geometry: geometry, state: state, scale: scale,
+                        label: label, pinTopEdge: true)
+
+                    if let side = state.timer {
+                        let capsule = geometry.pill(side: side)
+                        assertRoutedHitsMatchPaintedPath(
+                            Capsule(style: .continuous).path(in: CGRect(origin: .zero, size: capsule.size)),
+                            in: capsule, geometry: geometry, state: state, scale: scale,
+                            label: "\(label) capsule")
+                        let gapX =
+                            side == .left
+                            ? (capsule.maxX + geometry.notchRect.minX) / 2
+                            : (geometry.notchRect.maxX + capsule.minX) / 2
+                        XCTAssertFalse(
+                            geometry.shapeContains(
+                                CGPoint(x: gapX, y: capsule.midY), expanded: false,
+                                timer: side, activity: false),
+                            "The transparent gap beside the housing must not route")
+                    }
+                    if state.glance {
+                        let capsule = geometry.glanceRect
+                        assertRoutedHitsMatchPaintedPath(
+                            Capsule(style: .continuous).path(in: CGRect(origin: .zero, size: capsule.size)),
+                            in: capsule, geometry: geometry, state: state, scale: scale,
+                            label: "\(label) capsule")
+                        let gap = CGPoint(
+                            x: (geometry.notchRect.maxX + capsule.minX) / 2, y: capsule.midY)
+                        XCTAssertFalse(
+                            geometry.shapeContains(
+                                gap, expanded: false, timer: nil, activity: false, glance: true),
+                            "The transparent gap beside the housing must not route")
+                    }
+                    if state.activity {
+                        let strip = geometry.activityRect
+                        assertRoutedHitsMatchPaintedPath(
+                            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                .path(in: CGRect(origin: .zero, size: strip.size)),
+                            in: strip, geometry: geometry, state: state, scale: scale,
+                            label: "\(label) strip")
+                    }
+                }
+            }
+        }
+    }
+
+    private func assertRoutedHitsMatchPaintedPath(
+        _ path: Path, in rect: CGRect, geometry: NotchGeometry,
+        state: (name: String, timer: NotchTimerPlacement?, activity: Bool, glance: Bool),
+        scale: CGFloat, label: String, pinTopEdge: Bool = false,
+        file: StaticString = #filePath, line: UInt = #line
+    ) {
+        var checked = 0
+        var paintedPoints = 0
+        var mismatches: [String] = []
+        for x in Self.sampleOffsets(rect.width, scale: scale) {
+            for y in Self.sampleOffsets(rect.height, scale: scale) {
+                let point = CGPoint(x: rect.minX + x, y: rect.maxY - y)
+                let painted = path.contains(CGPoint(x: x, y: pinTopEdge ? max(0.5, y) : y))
+                let routed = geometry.shapeContains(
+                    point, expanded: false, timer: state.timer,
+                    activity: state.activity, glance: state.glance)
+                checked += 1
+                paintedPoints += painted ? 1 : 0
+                if painted != routed, mismatches.count < 4 {
+                    mismatches.append(
+                        "x=\(x), yDown=\(y): painted=\(painted), routed=\(routed)")
+                }
+            }
+        }
+        XCTAssertGreaterThan(checked, 20, label, file: file, line: line)
+        XCTAssertGreaterThan(paintedPoints, 0, "The fixture must include painted housing", file: file, line: line)
+        XCTAssertTrue(
+            mismatches.isEmpty,
+            "\(label): routed hits differ from the painted path at \(mismatches)",
+            file: file, line: line)
+    }
+
+    private static func sampleOffsets(_ length: CGFloat, scale: CGFloat) -> [CGFloat] {
+        var offsets: Set<CGFloat> = [0.5, 1, length / 2, length - 1, length - 0.5]
+        for offset in stride(from: 0.5 / scale, to: length, by: 0.5 / scale) {
+            offsets.insert(offset)
+        }
+        return offsets.filter { $0 >= 0 && $0 < length }.sorted()
+    }
+
     func testActivityDoesNotPaintOrCaptureTheMenuBarBesideHousing() {
         for hardware in [true, false] {
             let screen = NotchLayout.Screen(
