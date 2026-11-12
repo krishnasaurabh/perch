@@ -126,6 +126,41 @@ print("Matrix assertion plumbing check passed")
         self.assertIn('struct MatrixElement: Hashable, Sendable', self.source)
         self.assertIn('exit(hasWindow ? 0 : 1)', consumers)
 
+    def test_focus_membership_compiles_with_snapshot_values(self):
+        declaration = re.search(r"struct MatrixElement[^\n]+", self.source).group(0)
+        expression = re.search(r"let inWorkspace = [^\n]+", self.source).group(0)
+        program = "import Foundation\nimport CoreFoundation\n" + declaration + "\n" + '''
+func mxTree(_ root: MatrixElement) -> [MatrixElement] { [root] }
+func check(_ root: MatrixElement, _ focused: MatrixElement) -> Bool {
+''' + expression + '''
+    return inWorkspace
+}
+let root = MatrixElement(id: 5)
+precondition(check(root, MatrixElement(id: 5)))
+precondition(!check(root, MatrixElement(id: 6)))
+print("Snapshot focus membership positive and negative controls passed")
+'''
+        with tempfile.TemporaryDirectory() as directory:
+            source = pathlib.Path(directory) / "main.swift"
+            binary = pathlib.Path(directory) / "membership"
+            source.write_text(program)
+            compile_result = subprocess.run(
+                [shutil.which("swiftc"), "-swift-version", "6", str(source), "-o", str(binary)],
+                capture_output=True, text=True,
+            )
+            self.assertEqual(compile_result.returncode, 0, compile_result.stderr)
+            result = subprocess.run([str(binary)], capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn("positive and negative controls passed", result.stdout)
+            # The exact stale CF consumer from the failed native head must not compile.
+            source.write_text(program.replace("$0 == focused", "CFEqual($0, focused)"))
+            broken = subprocess.run(
+                [shutil.which("swiftc"), "-swift-version", "6", str(source), "-o", str(binary)],
+                capture_output=True, text=True,
+            )
+            self.assertNotEqual(broken.returncode, 0)
+            self.assertIn("class", broken.stderr)
+
     def test_negative_controls_cover_the_measured_groups(self):
         self.assertIn("negative control: a fixed-size control does not grow", self.source)
         self.assertIn("negative control: a low-contrast label is detected", self.source)

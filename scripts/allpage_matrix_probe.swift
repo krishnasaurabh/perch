@@ -1247,7 +1247,7 @@ final class AllPageMatrix {
         try await mxKey(window, 48, "\t")
         await mxSettle(0.3)
         if let focused = mxFocusedElement() {
-            let inWorkspace = mxTree(root).contains { CFEqual($0, focused) }
+            let inWorkspace = mxTree(root).contains { $0 == focused }
             try report.require(
                 inWorkspace, "focus returns into the workspace after dismiss",
                 "focused \(mxName(focused) ?? mxRole(focused) ?? "unknown")")
