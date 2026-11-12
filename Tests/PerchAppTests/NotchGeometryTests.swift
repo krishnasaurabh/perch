@@ -1,6 +1,7 @@
 import AppKit
 import PerchUI
 import PlannerCore
+import SwiftUI
 import XCTest
 @testable import PerchApp
 
