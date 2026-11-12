@@ -111,6 +111,21 @@ print("Matrix assertion plumbing check passed")
         self.assertNotIn("accessibilityChildren", self.source)
         self.assertIn("kAXFocusedUIElementAttribute", self.source)
 
+    def test_ax_reads_run_off_main_and_only_snapshots_cross_the_actor(self):
+        reader = self.source.split("enum MatrixAXReader {", 1)[1].split("@MainActor\nenum MatrixAX", 1)[0]
+        consumers = self.source.split("@MainActor\nenum MatrixAX", 1)[1]
+        self.assertIn('precondition(!Thread.isMainThread', reader)
+        self.assertIn('AXUIElementCopyAttributeValue', reader)
+        self.assertIn('AX copy \\(attribute) error=\\(error.rawValue)', reader)
+        self.assertIn('trace: smoke', reader)
+        self.assertIn('Task.detached { MatrixAXReader.read() }.value', consumers)
+        self.assertIn('await MatrixAX.refresh()', consumers)
+        self.assertNotIn('AXUIElementCopy', consumers)
+        self.assertNotIn('AXUIElementSetMessagingTimeout', self.source)
+        self.assertIn('struct MatrixAXSnapshot: Sendable', self.source)
+        self.assertIn('struct MatrixElement: Hashable, Sendable', self.source)
+        self.assertIn('exit(hasWindow ? 0 : 1)', consumers)
+
     def test_negative_controls_cover_the_measured_groups(self):
         self.assertIn("negative control: a fixed-size control does not grow", self.source)
         self.assertIn("negative control: a low-contrast label is detected", self.source)
