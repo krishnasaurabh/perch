@@ -723,7 +723,7 @@ private extension Int {
 @MainActor func nodeFrame(_ node: NSObject) -> CGRect? {
     // A selector check alone does not make an arbitrary SwiftUI child KVC-safe.
     // Use the typed protocol accessor so CGRect follows the correct native ABI.
-    guard let accessible = node as? any NSAccessibility else { return nil }
+    guard let accessible = node as? any NSAccessibilityProtocol else { return nil }
     let frame = accessible.accessibilityFrame()
     guard frame.origin.x.isFinite, frame.origin.y.isFinite,
         frame.width.isFinite, frame.height.isFinite
