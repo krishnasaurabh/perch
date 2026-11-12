@@ -64,6 +64,8 @@ func writeClipsAccessibility(_ host: NSView, to url: URL) throws {
             row[attribute] = clipsAttribute(node, attribute) as? String ?? ""
         }
         if let frame = try? clipsFrame(node, in: host) { row["frame"] = NSStringFromRect(frame) }
+        if let value = clipsAttribute(node, "accessibilityValue") as? NSNumber { row["value"] = value }
+        if let value = clipsAttribute(node, "accessibilityValue") as? String { row["value"] = value }
         return row
     }
     try JSONSerialization.data(withJSONObject: rows, options: [.prettyPrinted, .sortedKeys]).write(to: url)
@@ -74,7 +76,29 @@ func matchesClipsControl(role: String?, names: [String], title: String) -> Bool 
         && names.contains(title)
 }
 
+func clipsToggleState(role: String?, value: Any?) -> Bool? {
+    if let label = value as? String {
+        if label == "On" { return true }
+        if label == "Off" { return false }
+    }
+    // SwiftUI can expose the Toggle's native checkbox state instead of the
+    // styled button's string value. Reject mixed or missing checkbox states.
+    if ["AXCheckBox", "AXSwitch"].contains(role ?? ""), let number = value as? NSNumber {
+        if number.doubleValue == 0 { return false }
+        if number.doubleValue == 1 { return true }
+    }
+    return nil
+}
+
 func checkClipsControlMatching() throws {
+    try requireClips(clipsToggleState(role: "AXButton", value: "On") == true, "Missing On state")
+    try requireClips(clipsToggleState(role: "AXButton", value: "Off") == false, "Missing Off state")
+    try requireClips(clipsToggleState(role: "AXCheckBox", value: NSNumber(value: 1)) == true, "Missing checked state")
+    try requireClips(
+        clipsToggleState(role: "AXCheckBox", value: NSNumber(value: 0)) == false, "Missing unchecked state")
+    try requireClips(clipsToggleState(role: "AXCheckBox", value: NSNumber(value: 2)) == nil, "Mixed state accepted")
+    try requireClips(clipsToggleState(role: "AXButton", value: NSNumber(value: 1)) == nil, "Wrong role accepted")
+    try requireClips(clipsToggleState(role: "AXCheckBox", value: nil) == nil, "Missing state accepted")
     for role in ["AXButton", "AXCheckBox", "AXSwitch", "AXPopUpButton", "AXMenuButton"] {
         try requireClips(
             matchesClipsControl(role: role, names: ["Add screenshots"], title: "Add screenshots"),
@@ -216,6 +240,43 @@ func checkClipsGeometryMatching() throws {
     try checkClipsToolbarFrames(singleRow, in: NSRect(x: 0, y: 0, width: 820, height: 360))
 }
 
+// Compare encoded RGB samples, just like measure_clips_bounds.py. Converting to
+// deviceRGB changes the numeric meaning of the fixed pixel threshold.
+func clipsRopeRow(firstY: Int, lastY: Int, scale: CGFloat, pixel: (Int, Int) -> [Int]) -> Int? {
+    for y in firstY..<lastY {
+        for x in Int(43 * scale)..<Int(50 * scale) {
+            let rgb = Array(pixel(x, y).prefix(3))
+            if rgb.count == 3 && rgb.min()! > 45 && rgb.max()! - rgb.min()! < 5 { return y }
+        }
+    }
+    return nil
+}
+
+func checkClipsRopeMatching() throws {
+    for scale in [1, 2] {
+        let width = 100 * scale
+        var pixels = Array(repeating: [29, 29, 29, 255], count: width * 180 * scale)
+        let firstY = 118 * scale
+        let lastY = 158 * scale
+        let ropeY = 131 * scale
+        for y in ropeY..<(ropeY + 2 * scale) {
+            for x in (43 * scale)..<(50 * scale) { pixels[y * width + x] = [85, 85, 85, 255] }
+        }
+        func row() -> Int? {
+            clipsRopeRow(firstY: firstY, lastY: lastY, scale: CGFloat(scale)) { pixels[$1 * width + $0] }
+        }
+        try requireClips(row() == ropeY, "Raw RGB detector missed the rope at \(scale)x")
+        for y in (ropeY - 2 * scale)..<(ropeY + 14 * scale) {
+            for x in (43 * scale)..<(50 * scale) { pixels[y * width + x] = [0, 0, 0, 255] }
+        }
+        try requireClips(row() == nil, "Raw RGB detector accepted erased rope at \(scale)x")
+        pixels[ropeY * width + 44 * scale] = [45, 45, 45, 255]
+        try requireClips(row() == nil, "Raw RGB detector weakened its brightness threshold")
+        pixels[ropeY * width + 44 * scale] = [85, 90, 85, 255]
+        try requireClips(row() == nil, "Raw RGB detector weakened its neutrality threshold")
+    }
+}
+
 // Recognize each complete label on ONE rendered line. Joining OCR lines (or checking AX
 // labels alone) would wrongly accept the old "Add / screenshot / s" narrow layout.
 @MainActor
@@ -259,26 +320,54 @@ func checkClipsToolbar(_ url: URL, host: NSView) throws -> [String: Any] {
     // toolbar. Only translate the scanner's existing 7 x 34pt ROI; do not widen it.
     let firstY = Int(ceil((bottom + Theme.gutter) * scale))
     let lastY = min(bitmap.pixelsHigh, firstY + Int(ClipsLineLayout.bandHeight * scale))
+    try requireClips(
+        bitmap.bitsPerSample == 8 && !bitmap.isPlanar
+            && bitmap.colorSpace.colorSpaceModel == .rgb
+            && [3, 4].contains(bitmap.samplesPerPixel),
+        "Rope capture must decode as packed 8-bit RGB or RGBA")
+    @MainActor func rawPixel(_ image: NSBitmapImageRep, x: Int, y: Int) -> [Int] {
+        var samples = [Int](repeating: 0, count: image.samplesPerPixel)
+        image.getPixel(&samples, atX: x, y: y)
+        return samples
+    }
     @MainActor func ropeRow(in image: NSBitmapImageRep) -> Int? {
-        for y in firstY..<lastY {
-            let ink = (Int(43 * scale)..<Int(50 * scale)).filter { x in
-                guard let c = image.colorAt(x: x, y: y)?.usingColorSpace(.deviceRGB) else { return false }
-                let rgb = [c.redComponent, c.greenComponent, c.blueComponent].map { $0 * 255 }
-                return rgb.min()! > 45 && rgb.max()! - rgb.min()! < 5
-            }.count
-            if ink > 0 { return y }
+        clipsRopeRow(firstY: firstY, lastY: lastY, scale: scale) { x, y in
+            rawPixel(image, x: x, y: y)
         }
-        return nil
     }
     let ropeY = ropeRow(in: bitmap)
+    let legacyRow = (firstY..<lastY).first { y in
+        (Int(43 * scale)..<Int(50 * scale)).contains { x in
+            guard let color = bitmap.colorAt(x: x, y: y)?.usingColorSpace(.deviceRGB) else { return false }
+            let rgb = [color.redComponent, color.greenComponent, color.blueComponent].map { $0 * 255 }
+            return rgb.min()! > 45 && rgb.max()! - rgb.min()! < 5
+        }
+    }
+    let diagnosticURL = url.deletingPathExtension().appendingPathExtension("rope.json")
+    var diagnostics: [String: Any] = [
+        "firstY": firstY, "lastY": lastY, "ropeY": ropeY ?? -1,
+        "legacyDeviceRGBFirstRow": legacyRow ?? -1,
+        "backgroundRGB": rawPixel(bitmap, x: Int(44 * scale), y: firstY),
+    ]
+    try JSONSerialization.data(withJSONObject: diagnostics, options: [.prettyPrinted, .sortedKeys])
+        .write(to: diagnosticURL)
     try requireClips(ropeY != nil, "No rope below toolbar in actual capture")
     // Negative control for anchor discovery itself: erase only the rope strip
     // in an in-memory copy, leaving other header/content pixels untouched.
     let noRope = NSBitmapImageRep(data: try Data(contentsOf: url))!
+    var black = [0, 0, 0, 255]
     for y in max(firstY, ropeY! - Int(2 * scale))..<min(lastY, ropeY! + Int(14 * scale)) {
-        for x in Int(43 * scale)..<Int(50 * scale) { noRope.setColor(.black, atX: x, y: y) }
+        for x in Int(43 * scale)..<Int(50 * scale) { noRope.setPixel(&black, atX: x, y: y) }
     }
-    try requireClips(ropeRow(in: noRope) == nil, "Rope anchor detector accepted a rope-less capture")
+    let erasedRow = ropeRow(in: noRope)
+    diagnostics["erasedFirstRow"] = erasedRow ?? -1
+    diagnostics["ropeRGB"] = rawPixel(bitmap, x: Int(44 * scale), y: ropeY!)
+    diagnostics["erasedRGB"] = rawPixel(noRope, x: Int(44 * scale), y: ropeY!)
+    try JSONSerialization.data(withJSONObject: diagnostics, options: [.prettyPrinted, .sortedKeys])
+        .write(to: diagnosticURL)
+    try noRope.representation(using: .png, properties: [:])!
+        .write(to: url.deletingPathExtension().appendingPathExtension("rope-removed.png"))
+    try requireClips(erasedRow == nil, "Rope anchor detector accepted a rope-less capture")
     return ["toolbarBottom": bottom, "toolbarLines": lines, "ropeY": CGFloat(ropeY!) / scale]
 }
 
@@ -337,8 +426,11 @@ func checkClipsToolbar(_ url: URL, host: NSView) throws -> [String: Any] {
                     try requireClips(
                         !store.prefs[keyPath: otherKey] && !persisted[keyPath: otherKey],
                         "Native capture control changed the other preference")
-                    let value = clipsAttribute(try clipsControl(title, in: view), "accessibilityValue") as? String
-                    try requireClips(value == (enabled ? "On" : "Off"), "Capture control did not expose its state")
+                    let node = try clipsControl(title, in: view)
+                    let state = clipsToggleState(
+                        role: clipsAttribute(node, "accessibilityRole") as? String,
+                        value: clipsAttribute(node, "accessibilityValue"))
+                    try requireClips(state == enabled, "Capture control did not expose its state")
                     checks.append(["width": width, "control": title, "enabled": enabled, "passed": true])
                 }
             }
@@ -569,6 +661,7 @@ MainActor.assumeIsolated {
             do {
                 try checkClipsControlMatching()
                 try checkClipsGeometryMatching()
+                try checkClipsRopeMatching()
                 var captures: [[String: Any]] = []
                 // Start with the regression width; both widths retain all four states.
                 for width in [640, 820] {
