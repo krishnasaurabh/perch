@@ -3563,6 +3563,23 @@
         }
       }
     },
+    "English": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "English"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Ënglïsh ·~⟧"
+          }
+        }
+      }
+    },
     "Enter a yyyy-MM-dd date or use today, tomorrow, yesterday.": {
       "extractionState": "manual",
       "localizations": {
@@ -8224,6 +8241,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "⟦Systëm ·~⟧"
+          }
+        }
+      }
+    },
+    "System language": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "System language"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Systëm làngüàgë ·~⟧"
           }
         }
       }

@@ -8,6 +8,7 @@ public enum PerchL10n {
     }
 
     public static func format(_ key: String, locale: Locale? = nil, _ arguments: CVarArg...) -> String {
+        let locale = locale ?? .current
         let numeric: Int?
         switch arguments.first {
         case let value as Int: numeric = value

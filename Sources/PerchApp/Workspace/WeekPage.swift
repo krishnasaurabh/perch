@@ -23,7 +23,7 @@ struct WeekPage: View {
                     Text(AppL10n.text(anchor == 0 ? "This week" : "Week")).font(Theme.heading)
                     Text(
                         AppL10n.format(
-                            "%@ – %@", label(days[0], format: "MMM d"), label(days[6], format: "MMM d, yyyy"))
+                            "%@ – %@", label(days[0], template: "MMMd"), label(days[6], template: "yMMMd"))
                     )
                     .font(Theme.meta).foregroundStyle(Theme.secondary).fixedSize()
                 }
@@ -69,7 +69,7 @@ struct WeekPage: View {
                             HStack(alignment: .top, spacing: Theme.gutter) {
                                 ForEach(days, id: \.self) { day in
                                     column(
-                                        title: label(day, format: "EEE"), subtitle: label(day, format: "MMM d"),
+                                        title: label(day, template: "EEE"), subtitle: label(day, template: "MMMd"),
                                         ref: .day(day), isToday: day == store.today, past: day < store.today
                                     )
                                     .frame(width: WeekColumnLayout.columnWidth(available: geometry.size.width))
@@ -100,13 +100,9 @@ struct WeekPage: View {
         }
     }
 
-    private func label(_ day: DayKey, format: String) -> String {
-        let formatter = DateFormatter()
-        formatter.locale = .autoupdatingCurrent
-        formatter.calendar = store.engine.calendar
-        formatter.timeZone = store.engine.calendar.timeZone
-        formatter.dateFormat = format
-        return formatter.string(from: day.date(calendar: store.engine.calendar))
+    private func label(_ day: DayKey, template: String) -> String {
+        WeekColumnLayout.dateLabel(
+            day, template: template, calendar: store.engine.calendar, locale: .autoupdatingCurrent)
     }
 
     private func go(_ week: Int) {

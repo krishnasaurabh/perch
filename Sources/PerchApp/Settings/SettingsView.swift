@@ -84,8 +84,9 @@ struct SettingsView: View {
             LabeledContent(
                 "Interface",
                 value: Locale.current.localizedString(
-                    forLanguageCode: Locale.current.language.languageCode?.identifier ?? "") ?? "System language")
-            LabeledContent("Task entry parser", value: "English")
+                    forLanguageCode: Locale.current.language.languageCode?.identifier ?? "")
+                    ?? AppL10n.text("System language"))
+            LabeledContent("Task entry parser", value: AppL10n.text("English"))
             Text(
                 "Perch follows the app language for dates, numbers and interface text. Natural-language task entry supports English; other languages never fall back to English or rewrite tasks."
             )

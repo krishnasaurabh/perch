@@ -35,6 +35,30 @@ final class LocalizationTests: XCTestCase {
         XCTAssertTrue(error.message.contains("fr"))
     }
 
+    func testAppFormattingResolvesCurrentAndExplicitLocale() {
+        for locale in [Locale.current, Locale(identifier: "fr_FR")] {
+            let expected = String(format: "%.1f", locale: locale, arguments: [1234.5])
+            XCTAssertEqual(AppL10n.format("%.1f", locale: locale, 1234.5), expected)
+        }
+        XCTAssertEqual(
+            AppL10n.format("%.1f", 1234.5),
+            String(format: "%.1f", locale: Locale.current, arguments: [1234.5]))
+        XCTAssertEqual(
+            AppL10n.format("Removed %lld clips", 1234),
+            String(format: "Removed %lld clips", locale: Locale.current, arguments: [1234]))
+    }
+
+    func testSettingsLanguageNamesHaveEnglishAndPseudoCatalogEntries() {
+        let english = Locale(identifier: "en")
+        let pseudo = Locale(identifier: "zz")
+        for (key, expanded) in [
+            ("English", "⟦Ënglïsh ·~⟧"), ("System language", "⟦Systëm làngüàgë ·~⟧"),
+        ] {
+            XCTAssertEqual(AppL10n.text(key, locale: english), key)
+            XCTAssertEqual(AppL10n.text(key, locale: pseudo), expanded)
+        }
+    }
+
     func testOwnedStorageAndRecoveryErrorsMapThroughCatalog() {
         let english = Locale(identifier: "en")
         let pseudo = Locale(identifier: "zz")

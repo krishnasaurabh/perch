@@ -14,6 +14,18 @@ public enum WeekColumnLayout {
         return (0..<7).map { start.adding(days: $0, calendar: calendar) }
     }
 
+    /// Format a stored civil day for display without changing its calendar conversion.
+    public static func dateLabel(
+        _ day: DayKey, template: String, calendar: Calendar, locale: Locale = .current
+    ) -> String {
+        let formatter = DateFormatter()
+        formatter.locale = locale
+        formatter.calendar = calendar
+        formatter.timeZone = calendar.timeZone
+        formatter.setLocalizedDateFormatFromTemplate(template)
+        return formatter.string(from: day.date(calendar: calendar))
+    }
+
     /// Scroll rather than squeeze the text or reduce its font size. Inbox is a
     /// separate view and never consumes one of the seven calendar columns.
     public static func columnWidth(available: Double) -> Double {

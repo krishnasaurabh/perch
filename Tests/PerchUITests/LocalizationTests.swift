@@ -58,6 +58,44 @@ final class LocalizationTests: XCTestCase {
         XCTAssertEqual(days, ["2026-11-11", "2026-11-13"])
     }
 
+    func testFormattingWithoutLocaleUsesCurrentLocaleForNumbers() {
+        let value = 1234
+        XCTAssertEqual(
+            PerchL10n.format("%lld min", value),
+            String(format: "%lld min", locale: Locale.current, arguments: [value]))
+        XCTAssertEqual(
+            PerchL10n.format("%.1f", 1234.5),
+            String(format: "%.1f", locale: Locale.current, arguments: [1234.5]))
+    }
+
+    func testFormattingUsesExplicitNonUSLocale() {
+        let locale = Locale(identifier: "fr_FR")
+        XCTAssertEqual(
+            PerchL10n.format("%.1f", locale: locale, 1234.5),
+            String(format: "%.1f", locale: locale, arguments: [1234.5]))
+        XCTAssertTrue(PerchL10n.format("%.1f", locale: locale, 1234.5).contains(",5"))
+    }
+
+    func testWeekDatesFollowLocaleOrderWithoutChangingGregorianDay() throws {
+        let day: DayKey = "2026-11-09"
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = try XCTUnwrap(TimeZone(identifier: "Pacific/Kiritimati"))
+        let originalDate = day.date(calendar: calendar)
+        let british = Locale(identifier: "en_GB")
+        let american = Locale(identifier: "en_US")
+        XCTAssertEqual(
+            WeekColumnLayout.dateLabel(day, template: "MMMd", calendar: calendar, locale: british), "9 Nov")
+        XCTAssertEqual(
+            WeekColumnLayout.dateLabel(day, template: "yMMMd", calendar: calendar, locale: british), "9 Nov 2026")
+        XCTAssertEqual(
+            WeekColumnLayout.dateLabel(day, template: "MMMd", calendar: calendar, locale: american), "Nov 9")
+        XCTAssertEqual(
+            WeekColumnLayout.dateLabel(day, template: "EEE", calendar: calendar, locale: british), "Mon")
+        XCTAssertEqual(day.date(calendar: calendar), originalDate)
+        XCTAssertEqual(day.raw, "2026-11-09")
+        XCTAssertEqual(String(data: try JSONEncoder().encode(day), encoding: .utf8), "\"2026-11-09\"")
+    }
+
     func testValidationAndErrorsUseCatalogEntries() {
         let required = PerchL10n.text("Choose a date.", locale: pseudo)
         XCTAssertEqual(required, "⟦Chöösë à dàtë. ·~⟧")

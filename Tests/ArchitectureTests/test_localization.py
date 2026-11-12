@@ -193,6 +193,30 @@ class LocalizationTests(unittest.TestCase):
         self.assertIn('case english = "en"', language)
         self.assertIn('throw UnsupportedTaskParserLanguage', language)
 
+    def test_language_status_values_are_extracted_and_localized(self):
+        from scripts.update_localization import human_app_strings, pseudo
+
+        settings = (ROOT / 'Sources/PerchApp/Settings/SettingsView.swift').read_text()
+        app = json.loads((ROOT / 'Sources/PerchApp/Resources/Localizable.xcstrings').read_text())['strings']
+        extracted = human_app_strings()
+        for key in ('English', 'System language'):
+            with self.subTest(key=key):
+                self.assertIn(f'AppL10n.text("{key}")', settings)
+                self.assertIn(key, extracted)
+                self.assertIn(key, app)
+                self.assertEqual(app[key]['localizations']['en']['stringUnit']['value'], key)
+                self.assertEqual(app[key]['localizations']['zz']['stringUnit']['value'], pseudo(key))
+        self.assertIn('Locale.current.localizedString(', settings)
+        self.assertIn('forLanguageCode: Locale.current.language.languageCode?.identifier', settings)
+
+    def test_week_date_labels_use_localized_templates_and_original_calendar(self):
+        source = (ROOT / 'Sources/PerchApp/Workspace/WeekPage.swift').read_text()
+        self.assertNotIn('formatter.dateFormat =', source)
+        self.assertIn('WeekColumnLayout.dateLabel(', source)
+        self.assertIn('calendar: store.engine.calendar', source)
+        for template in ('MMMd', 'yMMMd', 'EEE'):
+            self.assertIn(f'template: "{template}"', source)
+
     def test_language_status_and_long_localized_help_wrap(self):
         settings = (ROOT / 'Sources/PerchApp/Settings/SettingsView.swift').read_text()
         self.assertIn('Section("Language")', settings)
