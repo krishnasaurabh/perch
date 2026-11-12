@@ -10,6 +10,7 @@ trap 'rm -rf "$PROBE"' EXIT
 cp "$ROOT/Package.swift" "$PROBE/"
 cp -R "$ROOT/Sources" "$ROOT/Tests" "$PROBE/"
 cp "$ROOT/scripts/integration_probe.swift" "$PROBE/Sources/Perch/main.swift"
+python3 "$ROOT/scripts/negctl.py" "$PROBE"
 swift build -Xswiftc -DPERCH_TESTING -Xswiftc -enable-testing --package-path "$PROBE" -c release --product Perch
 python3 - "$PROBE/.build/release/Perch" "$OUT" <<'PY'
 import json, os, pathlib, subprocess, sys
