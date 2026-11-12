@@ -213,6 +213,7 @@ private struct FolderWatchStatus: View {
 private struct ClipsActionsMenu: NSViewRepresentable {
     let clip: ClipsService.Clip
     let clips: ClipsService
+    let keyboard: ClipsMenuKeyboardTarget
     @Environment(\.isEnabled) private var isEnabled
 
     func makeCoordinator() -> Coordinator { Coordinator() }
@@ -226,10 +227,12 @@ private struct ClipsActionsMenu: NSViewRepresentable {
         button.bezelStyle = .regularSquare
         button.font = .systemFont(ofSize: ThemeTokens.TypeSize.meta, weight: .medium)
         button.controlSize = .regular
+        keyboard.button = button
         return button
     }
 
     func updateNSView(_ button: NSPopUpButton, context: Context) {
+        keyboard.button = button
         let menu = NSMenu()
         menu.autoenablesItems = false
         let title = NSMenuItem(title: AppL10n.text("More"), action: nil, keyEquivalent: "")
@@ -290,11 +293,30 @@ private final class ClipsActionsCell: NSPopUpButtonCell {
     }
 }
 
+/// The SwiftUI Tab stop and ring belong to the launcher; Space forwards to
+/// its existing native menu rather than creating a second action surface.
+@MainActor
+private final class ClipsMenuKeyboardTarget {
+    weak var button: NSPopUpButton?
+
+    func open() -> Bool {
+        guard let button, button.window != nil, button.isEnabled,
+            !button.isHiddenOrHasHiddenAncestor,
+            button.bounds.width > 0, button.bounds.height > 0,
+            let menu = button.menu, menu.items.contains(where: { $0.isEnabled && $0.action != nil })
+        else { return false }
+        button.performClick(nil)
+        return true
+    }
+}
+
 private struct ClipCard: View {
     let clip: ClipsService.Clip
     let clips: ClipsService
     @State private var copied = false
     @FocusState private var copyFocused: Bool
+    @FocusState private var menuFocused: Bool
+    @State private var menuKeyboard = ClipsMenuKeyboardTarget()
     @Environment(\.isEnabled) private var enabled
 
     private func copyClip() {
@@ -331,8 +353,20 @@ private struct ClipCard: View {
                         Label("Pinned", systemImage: "pin.fill").font(Theme.meta).foregroundStyle(Theme.secondary)
                     }
                     Spacer(minLength: 0)
-                    ClipsActionsMenu(clip: clip, clips: clips)
+                    ClipsActionsMenu(clip: clip, clips: clips, keyboard: menuKeyboard)
                         .frame(width: 80, height: 32)
+                        .focusable(enabled)
+                        .focused($menuFocused).focusEffectDisabled()
+                        .onKeyPress(.space, phases: .down) { _ in
+                            guard enabled && menuFocused else { return .ignored }
+                            return menuKeyboard.open() ? .handled : .ignored
+                        }
+                        .overlay(
+                            ControlFocusRing(
+                                shape: RoundedRectangle(cornerRadius: Theme.controlRadius), focused: menuFocused)
+                        )
+                        .accessibilityLabel(AppL10n.format("Actions for %@", clip.title))
+                        .accessibilityIdentifier("clips.actions.\(clip.id)")
                 }.frame(width: 132)
             }
             .padding(6)
