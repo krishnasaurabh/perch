@@ -774,20 +774,30 @@ private extension Int {
 @MainActor func measureEffectiveStates(
     store: PlannerStore, services: Services, detailsTask: UUID, geometry: NotchGeometry, output: URL
 ) async {
+    let measurementStarted = ProcessInfo.processInfo.systemUptime
+    func setupStage(_ label: String) {
+        print("measured setup: \(label)")
+        fflush(stdout)
+    }
+    setupStage("entry and appearance")
     let app = NSApplication.shared
     let appearance = NSAppearance(named: .aqua)!
     app.appearance = appearance
     let model = NotchModel(motionPolicy: MotionPolicy(reduceMotion: true))
     model.screenID = 1
     model.geometry = geometry
+    setupStage("model initialized; history mutation")
     // Historical fixture for Dashboard History, written to the synthetic store only.
     _ = try? store.file.mutate { planner in
         planner.tasks.append(
             PlanTask(title: "Measured history task", day: store.today.adding(days: -2), done: true))
     }
+    setupStage("history mutated; reload")
     store.reloadFromDisk(external: false)
+    setupStage("history reloaded; clip fixture")
     services.clips.add(.text("Measured clip text"), source: "copied")
 
+    setupStage("clip added; construct pages")
     typealias Page = (name: String, size: CGSize, settingsPane: Int?, view: AnyView)
     let settings = AnyView(SettingsView().environmentObject(store).environmentObject(services))
     var pages: [Page] = SettingsView.Pane.allCases.enumerated().map { index, pane -> Page in
@@ -830,11 +840,15 @@ private extension Int {
                     .background(Color.black))
         ))
 
+    setupStage("pages constructed; initialize states")
+    let states = PageStates.all
+    setupStage("states initialized: \(states.count)")
     var statusGrowth: [String: (Double, Double)] = [:]
     for page in pages {
         var ink: [String: PageInk] = [:]
         var text: [String: [(String, CGRect)]] = [:]
-        for state in PageStates.all {
+        for state in states {
+            let stateStarted = ProcessInfo.processInfo.systemUptime
             let observation = ContrastObservation()
             // NEGATIVE-CONTROL SITE (type): the enlarged state requests accessibility3.
             let typeSize: DynamicTypeSize = state.enlarged ? .accessibility3 : .large
@@ -918,6 +932,9 @@ private extension Int {
                 "effective_appearance": window.effectiveAppearance.name.rawValue,
             ])
             window.close()
+            let elapsed = ProcessInfo.processInfo.systemUptime - stateStarted
+            print("measured elapsed: \(label) \(elapsed) seconds")
+            fflush(stdout)
         }
         // Enlarged type: measured from both rendered ink and real AX frame heights.
         if let base = ink["standard"], let big = ink["enlarged-type"] {
@@ -947,4 +964,5 @@ private extension Int {
     try? JSONSerialization.data(withJSONObject: payload, options: [.prettyPrinted, .sortedKeys])
         .write(to: output.appendingPathComponent("measured-states.json"))
     print("Measured states: \(Measured.rows.count) captures, \(Measured.failed.count) failed")
+    print("measured elapsed: total \(ProcessInfo.processInfo.systemUptime - measurementStarted) seconds")
 }
