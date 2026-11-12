@@ -27,7 +27,7 @@ If you would rather not run a downloaded app, [build it yourself](#build-it-your
 
 ### "Perch.app" Not Opened
 
-Release builds are not notarized by Apple, so the first launch shows
+Release builds are ad-hoc signed and not notarized by Apple, so the first launch shows
 **"Perch.app" Not Opened: Apple could not verify "Perch.app" is free of malware…** with the
 buttons **Move to Trash** and **Done**. Click **Done**, not Move to Trash, then use either option.
 
