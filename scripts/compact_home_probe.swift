@@ -80,6 +80,192 @@ func recordFocus(delegate: AppDelegate, scenario: String, output: URL) {
     delegate.notch.snapshot(into: output.appendingPathComponent("capture-focus-\(scenario)"))
 }
 
+/// The exact condition the scenario guard asserts: the key window's first responder is a field editor.
+@MainActor
+func captureEditorFocused(_ delegate: AppDelegate) -> Bool {
+    guard let panel = NSApp.keyWindow, panel.contentView != nil,
+        let editor = panel.firstResponder as? NSTextView, editor.isFieldEditor, delegate.model.geometry != nil
+    else { return false }
+    return true
+}
+
+func address(_ object: AnyObject?) -> String {
+    object.map { String(describing: Unmanaged.passUnretained($0).toOpaque()) } ?? "nil"
+}
+
+func rounded(_ seconds: Double) -> Double { (seconds * 1000).rounded() / 1000 }
+
+/// Focus can briefly enter an incoming field before its layout finishes. Require continuous native
+/// ownership, not the first positive sample. The deadline and the original focus assertion stay strict.
+struct CaptureFocusReadiness {
+    static let minimumSettle = 0.8
+    static let stableInterval = 0.3
+    static let deadline = 3.0
+    private var candidateSince: Double?
+    private var candidateEditor: String?
+    private(set) var settledFocusAt: Double?
+    private(set) var lostAfterFocus = false
+
+    mutating func observe(time: Double, editorIdentity: String?, editingEndedAt: Double?) {
+        // A begin/end transition can happen between samples, even if the same shared editor returns.
+        if let editingEndedAt, let candidateSince, editingEndedAt >= candidateSince {
+            self.candidateSince = nil
+            candidateEditor = nil
+            if settledFocusAt != nil { lostAfterFocus = true }
+        }
+        guard let editorIdentity else {
+            candidateSince = nil
+            candidateEditor = nil
+            if settledFocusAt != nil { lostAfterFocus = true }
+            return
+        }
+        if candidateEditor != editorIdentity {
+            if settledFocusAt != nil { lostAfterFocus = true }
+            candidateEditor = editorIdentity
+            candidateSince = time
+        }
+        if settledFocusAt == nil, let candidateSince,
+            time >= Self.minimumSettle, time <= Self.deadline,
+            time - candidateSince >= Self.stableInterval
+        {
+            settledFocusAt = time
+        }
+    }
+}
+
+/// Exclude an outgoing editor while the explicit open is still being processed. Inspect the current
+/// native owner without requesting focus or changing the window's key status.
+@MainActor
+func captureEditorIdentity(_ delegate: AppDelegate) -> String? {
+    guard captureEditorFocused(delegate), delegate.model.expanded, delegate.model.captureFocusRequest != nil,
+        let panel = NSApp.keyWindow, let root = panel.contentView,
+        let editor = panel.firstResponder as? NSTextView, let field = editor.delegate as? NSTextField,
+        field.window === panel, field.currentEditor() === editor,
+        field.isDescendant(of: root), field.isEditable, !field.isHiddenOrHasHiddenAncestor
+    else { return nil }
+    return address(field)
+}
+
+/// One focus sample: app activation, key window, the panel's first responder and which editable field owns
+/// the field editor (an outgoing workspace can still contribute a second capture field).
+@MainActor
+func focusState(_ delegate: AppDelegate) -> [String: Any] {
+    let panel = NSApp.windows.first { $0 is NotchPanel && $0.isVisible }
+    let editor = panel?.firstResponder as? NSTextView
+    let owner = editor.flatMap { $0.isFieldEditor ? $0.delegate as? NSTextField : nil }
+    let fields =
+        panel?.contentView.map { descendants($0).compactMap { $0 as? NSTextField }.filter { $0.isEditable } } ?? []
+    return [
+        "appActive": NSApp.isActive,
+        "appKeyWindow": NSApp.keyWindow.map { String(describing: type(of: $0)) } ?? "nil",
+        "appKeyIsPanel": panel != nil && NSApp.keyWindow === panel,
+        "panelIsKey": panel?.isKeyWindow ?? false,
+        "firstResponder": panel?.firstResponder.map { String(describing: type(of: $0)) } ?? "nil",
+        "fieldEditor": editor?.isFieldEditor ?? false,
+        "editorOwner": address(owner),
+        "editableFields": fields.map {
+            address($0) + " " + NSStringFromRect($0.convert($0.bounds, to: nil))
+                + ($0.isHiddenOrHasHiddenAncestor ? " hidden" : "")
+        },
+        "expanded": delegate.model.expanded,
+        "captureRequest": delegate.model.captureFocusRequest != nil,
+        "page": String(describing: delegate.model.page),
+        "guard": captureEditorFocused(delegate),
+    ]
+}
+
+/// Timestamped key, activation and editing notifications for one explicit open.
+@MainActor
+final class FocusTrace {
+    private let start = ProcessInfo.processInfo.systemUptime
+    private(set) var events: [[String: Any]] = []
+    private(set) var editingEndedAt: Double?
+    private var observers: [NSObjectProtocol] = []
+    var elapsed: Double { ProcessInfo.processInfo.systemUptime - start }
+
+    init() {
+        let names: [Notification.Name] = [
+            NSWindow.didBecomeKeyNotification, NSWindow.didResignKeyNotification,
+            NSApplication.didBecomeActiveNotification, NSApplication.didResignActiveNotification,
+            NSText.didBeginEditingNotification, NSText.didEndEditingNotification,
+            NSControl.textDidBeginEditingNotification, NSControl.textDidEndEditingNotification,
+        ]
+        for name in names {
+            let raw = name.rawValue
+            observers.append(
+                NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { [weak self] note in
+                    let object = note.object.map { String(describing: type(of: $0)) } ?? "nil"
+                    MainActor.assumeIsolated { self?.record(raw, object) }
+                })
+        }
+    }
+
+    func record(_ name: String, _ object: String) {
+        let time = elapsed
+        events.append(["t": rounded(time), "event": name, "object": object])
+        if name == NSText.didEndEditingNotification.rawValue
+            || name == NSControl.textDidEndEditingNotification.rawValue
+        {
+            editingEndedAt = time
+        }
+    }
+
+    func stop() {
+        for observer in observers { NotificationCenter.default.removeObserver(observer) }
+        observers = []
+    }
+}
+
+/// Every traced open, rewritten after each one so an early exit keeps the diagnostics.
+@MainActor
+enum FocusTraceLog {
+    static var opens: [[String: Any]] = []
+    static func append(_ open: [String: Any], output: URL) {
+        opens.append(open)
+        try! JSONSerialization.data(withJSONObject: opens, options: [.prettyPrinted, .sortedKeys]).write(
+            to: output.appendingPathComponent("capture-focus-trace.json"))
+    }
+}
+
+/// Observes the real explicit-open path without assigning focus. Allow at most 3 s for 300 ms of
+/// continuous native capture ownership after the usual 0.8 s minimum; dense opens trace the full deadline.
+@MainActor
+func openHomeTraced(_ delegate: AppDelegate, label: String, full: Bool) async -> [String: Any] {
+    let trace = FocusTrace()
+    var samples: [[String: Any]] = []
+    var firstFocused: Double?
+    var focusedAtSettle: Bool?
+    var readiness = CaptureFocusReadiness()
+    var focused = false
+    NotificationCenter.default.post(name: .perchOpenWorkspace, object: NotchPage.home)
+    while true {
+        var state = focusState(delegate)
+        let identity = captureEditorIdentity(delegate)
+        let t = trace.elapsed
+        focused = identity != nil
+        state["t"] = rounded(t)
+        state["captureOwner"] = identity ?? "nil"
+        samples.append(state)
+        if focused && firstFocused == nil { firstFocused = t }
+        if t >= CaptureFocusReadiness.minimumSettle && focusedAtSettle == nil { focusedAtSettle = focused }
+        readiness.observe(time: t, editorIdentity: identity, editingEndedAt: trace.editingEndedAt)
+        if t >= CaptureFocusReadiness.deadline || (!full && readiness.settledFocusAt != nil) { break }
+        try? await Task.sleep(nanoseconds: 20_000_000)
+    }
+    trace.stop()
+    let first = firstFocused.map { String(format: "%.3f", $0) } ?? "never"
+    let summary =
+        "TRACE \(label): firstFocused=\(first) focusedAt0.8s=\(focusedAtSettle ?? false) "
+        + "focusedAtEnd=\(focused) lostAfterFocus=\(readiness.lostAfterFocus) end=\(String(format: "%.3f", trace.elapsed))\n"
+    FileHandle.standardError.write(Data(summary.utf8))
+    return [
+        "label": label, "firstFocusedAt": first, "focusedAt800ms": focusedAtSettle ?? false,
+        "focusedAtEnd": focused, "lostAfterFocus": readiness.lostAfterFocus, "end": rounded(trace.elapsed),
+        "settledFocusAt": readiness.settledFocusAt.map(rounded) ?? -1,
+        "samples": samples, "events": trace.events,
+    ]
+}
+
 MainActor.assumeIsolated {
     let app = NSApplication.shared
     let delegate = AppDelegate()
@@ -121,9 +307,13 @@ MainActor.assumeIsolated {
                         }
                         if scenario == "timer-notepad" { e.planner.preferences.hiddenWorkspaceCards = [] }
                     }
-                    NotificationCenter.default.post(name: .perchOpenWorkspace, object: NotchPage.home)
-                    await settle()
+                    let open = await openHomeTraced(delegate, label: scenario, full: scenario == "dense")
+                    FocusTraceLog.append(open, output: output)
                     recordFocus(delegate: delegate, scenario: scenario, output: output)
+                    require(
+                        (open["settledFocusAt"] as? Double ?? -1) >= 0 && open["focusedAtEnd"] as? Bool == true
+                            && open["lostAfterFocus"] as? Bool == false,
+                        "\(scenario): capture editor acquires stable focus within 3 s")
                     guard let panel = NSApp.keyWindow, let root = panel.contentView,
                         let editor = panel.firstResponder as? NSTextView, editor.isFieldEditor,
                         let geometry = delegate.model.geometry
@@ -218,6 +408,51 @@ MainActor.assumeIsolated {
                         require(
                             visibleCapture.height >= 12 && shell.contains(visibleCapture),
                             "multi-line capture viewport remains fully visible")
+                    }
+                }
+                if !baseline {
+                    // Regression check for the explicit-open focus race: close, reseed and reopen the dense
+                    // Home repeatedly, tracing a full 3 s each time. Assert only after every repeat is recorded.
+                    var repeats: [[String: Any]] = []
+                    for iteration in 1...20 {
+                        // Odd repeats leave a long draft in the open editor first, as long-title does before dense.
+                        if iteration % 2 == 1, let editor = NSApp.keyWindow?.firstResponder as? NSTextView,
+                            editor.isFieldEditor
+                        {
+                            editor.insertText(
+                                String(repeating: "A multi-line capture draft with more release notes. ", count: 12),
+                                replacementRange: NSRange(location: NSNotFound, length: 0))
+                            await settle()
+                        }
+                        delegate.model.close()
+                        delegate.store.seedFixture { e in
+                            e.planner.tasks = []
+                            e.planner.focus = nil
+                            e.planner.preferences.hiddenWorkspaceCards = ["notepad"]
+                            _ = try e.addTasks(
+                                (1...24).map { "Review item \($0) for the release checklist" }, on: .day(e.today))
+                        }
+                        let open = await openHomeTraced(delegate, label: "dense-repeat-\(iteration)", full: true)
+                        FocusTraceLog.append(open, output: output)
+                        repeats.append(open)
+                    }
+                    let summary = repeats.map { open -> [String: Any] in
+                        open.filter {
+                            [
+                                "label", "firstFocusedAt", "focusedAt800ms", "settledFocusAt", "focusedAtEnd",
+                                "lostAfterFocus",
+                            ]
+                            .contains($0.key)
+                        }
+                    }
+                    try! JSONSerialization.data(withJSONObject: summary, options: [.prettyPrinted, .sortedKeys]).write(
+                        to: output.appendingPathComponent("capture-focus-dense-repeats.json"))
+                    for open in repeats {
+                        let label = open["label"] as! String
+                        require(
+                            (open["settledFocusAt"] as? Double ?? -1) >= 0 && open["focusedAtEnd"] as? Bool == true
+                                && open["lostAfterFocus"] as? Bool == false,
+                            "\(label): capture editor is focused and stays focused")
                     }
                 }
                 delegate.model.page = .insights

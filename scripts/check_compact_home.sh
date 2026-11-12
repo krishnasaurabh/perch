@@ -37,7 +37,7 @@ data = pathlib.Path(output) / 'planner.json'
 data.write_text(json.dumps({'preferences': {'welcomeCompleted': True,
                                           'catchCopies': False, 'catchScreenshots': False}}))
 env = dict(os.environ, PERCH_DATA=str(data), COMPACT_HOME_OUTPUT=output)
-subprocess.run([binary], env=env, check=True, timeout=150)
+subprocess.run([binary], env=env, check=True, timeout=300)
 PY
 if [[ -z ${2:-} ]]; then
     # Rebuild the identical real Home with only the cue attachment removed. Compare
