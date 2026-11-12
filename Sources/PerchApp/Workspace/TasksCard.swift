@@ -339,6 +339,8 @@ struct TaskComposer: View {
                 attempts += 1
                 try? await Task.sleep(nanoseconds: 50_000_000)
                 guard !Task.isCancelled, model.expanded, model.page == .home else { return }
+                // The notepad is an AppKit text view outside SwiftUI focus; never take focus back from it.
+                if let text = NSApp.keyWindow?.firstResponder as? NSTextView, !text.isFieldEditor { return }
                 switch focusBinding.wrappedValue {
                 case .capture:
                     held += 1
