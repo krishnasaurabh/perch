@@ -220,6 +220,19 @@ func mxIdentified(_ root: AXUIElement, _ identifier: String) throws -> AXUIEleme
     return element
 }
 
+/// Sheet content is either a child of its parent window or its own window entry; both live in
+/// the application tree, and these strings exist nowhere else.
+@MainActor
+func mxHasInApp(_ root: AXUIElement, _ text: String) -> Bool {
+    mxHas(root, text) || mxHas(mxApp(), text)
+}
+
+@MainActor
+func mxIdentifiedInApp(_ root: AXUIElement, _ identifier: String) -> AXUIElement? {
+    mxTree(root).first { mxIdentifier($0) == identifier }
+        ?? mxTree(mxApp()).first { mxIdentifier($0) == identifier }
+}
+
 @MainActor
 func mxAssertFocused(_ identity: String, _ label: String, report: MatrixReport) throws {
     let observed = mxFocusIdentity()
@@ -1070,12 +1083,12 @@ final class AllPageMatrix {
             throw MatrixFailure(label: "details sheet did not attach for a past task")
         }
         try report.require(
-            mxHas(root, AppL10n.text("Earlier days are read-only. Your history and focus time stay unchanged.")),
+            mxHasInApp(root, AppL10n.text("Earlier days are read-only. Your history and focus time stay unchanged.")),
             "details sheet shows the historical read-only state", "texts \(mxText(root).prefix(20))")
         try report.require(
-            mxTree(root).allSatisfy { mxIdentifier($0) != "details-title" },
+            mxIdentifiedInApp(root, "details-title") == nil,
             "historical details expose no editable title field")
-        if let save = mxTree(root).first(where: { mxIdentifier($0) == "details-save" }) {
+        if let save = mxIdentifiedInApp(root, "details-save") {
             try report.require(mxEnabled(save) == false, "historical details cannot save")
         } else {
             try report.require(false, "historical details expose the save control")
@@ -1106,12 +1119,12 @@ final class AllPageMatrix {
             throw MatrixFailure(label: "details sheet did not attach for a removed task")
         }
         try report.require(
-            mxHas(root, AppL10n.text("Task unavailable")), "removed task shows the unavailable state",
+            mxHasInApp(root, AppL10n.text("Task unavailable")), "removed task shows the unavailable state",
             "texts \(mxText(root).prefix(18))")
         try report.require(
-            mxHas(root, AppL10n.text("This task was removed.")), "removed task explains what happened")
+            mxHasInApp(root, AppL10n.text("This task was removed.")), "removed task explains what happened")
         try report.require(
-            mxTree(root).contains { mxIdentifier($0) == "details-close" },
+            mxIdentifiedInApp(root, "details-close") != nil,
             "removed task offers an explicit close control")
         try mxSave(host, output.appendingPathComponent("details-error-state.png"))
         try await mxKey(errorSheet, 53, "\u{1b}")
@@ -1211,7 +1224,7 @@ final class AllPageMatrix {
             throw MatrixFailure(label: "week details sheet did not attach")
         }
         try report.require(
-            mxHas(root, AppL10n.text("Task details")), "week details sheet shows the editable state",
+            mxHasInApp(root, AppL10n.text("Task details")), "week details sheet shows the editable state",
             "texts \(mxText(root).prefix(18))")
         try await mxKey(sheet, 53, "\u{1b}")
         await mxReady(1.2)
@@ -1405,8 +1418,10 @@ final class AllPageMatrix {
             try report.require(
                 effective == appearanceName.rawValue, "\(mode) window runs in the increased-contrast appearance",
                 "effective \(effective)")
-            let detail = AppL10n.text(
-                "Allow reminder and timer alerts. Delivery also depends on macOS notification and Focus settings.")
+            // The panel renders the reading's own detail when it has one (an unbundled process
+            // cannot get notification access), so measure the line that is actually drawn.
+            let reading = await SettingsPermissionAccess(services: fixture.services).read(.notifications)
+            let detail = reading.detail ?? PermissionFeature.notifications.detail
             guard let detailNode = mxFind(root, name: detail) else {
                 mxDumpAX(root, "contrast-\(mode)")
                 window.close()
