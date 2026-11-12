@@ -148,11 +148,7 @@ func mxTree(_ root: AXUIElement, limit: Int = 3000) -> [AXUIElement] {
         if found.count >= limit { break }
         if found.count % 100 == 0 { MatrixStage.mark("accessibility walk, \(found.count) elements") }
         guard depth < 40 else { continue }
-        for child in mxChildren(element).reversed() {
-            // Child elements do not inherit the parent's messaging timeout.
-            AXUIElementSetMessagingTimeout(child, 5)
-            stack.append((child, depth + 1))
-        }
+        for child in mxChildren(element).reversed() { stack.append((child, depth + 1)) }
     }
     return found
 }
