@@ -10,7 +10,7 @@ enum InsightsPageLayout {
     static let twoColumnMinimumWidth: CGFloat = 740
 
     static func resolve(width: CGFloat) -> Self {
-        .twoColumn
+        width < twoColumnMinimumWidth ? .stacked : .twoColumn
     }
 }
 
