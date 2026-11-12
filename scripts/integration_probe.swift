@@ -247,16 +247,20 @@ private extension PlannerStore {
 // from persisted planner state. No AX press or model call stands in for a key.
 
 @MainActor
-var matrixFailures: [String] = []
+enum MatrixChecks {
+    static var failures: [String] = []
+    static var passed: [String] = []
+}
 
 /// Records every red check, so one hosted run reports the whole matrix; the probe still exits 1.
 @MainActor
 func matrixRequire(_ ok: Bool, _ label: String, _ detail: @autoclosure () -> String = "") {
     guard ok else {
-        matrixFailures.append(label)
+        MatrixChecks.failures.append(label)
         FileHandle.standardError.write(Data("FAIL: matrix: \(label)\n\(detail())\n".utf8))
         return
     }
+    MatrixChecks.passed.append(label)
     print("PASS: matrix: \(label)")
 }
 
@@ -296,10 +300,25 @@ func matrixText(_ view: NSView, name: String, output: URL) throws -> String {
     view.cacheDisplay(in: view.bounds, to: bitmap)
     let directory = output.appendingPathComponent("matrix")
     try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-    if let png = bitmap.representation(using: .png, properties: [:]) {
-        try png.write(to: directory.appendingPathComponent(name + ".png"))
-    }
-    guard let image = bitmap.cgImage else { return "" }
+    guard let captured = bitmap.cgImage,
+        let context = CGContext(
+            data: nil, width: captured.width, height: captured.height, bitsPerComponent: 8,
+            bytesPerRow: 0, space: CGColorSpaceCreateDeviceRGB(),
+            bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue)
+    else { throw NSError(domain: "MatrixCapture", code: 1) }
+    // cacheDisplay omits the window backdrop. Vision reads transparent black as
+    // black, losing dark text that is visible over the real Aqua window.
+    let backdrop =
+        (view.window?.backgroundColor ?? NSColor.windowBackgroundColor)
+        .usingColorSpace(.deviceRGB) ?? .white
+    context.setFillColor(backdrop.cgColor)
+    let pixels = CGRect(x: 0, y: 0, width: captured.width, height: captured.height)
+    context.fill(pixels)
+    context.draw(captured, in: pixels)
+    guard let image = context.makeImage(),
+        let png = NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:])
+    else { throw NSError(domain: "MatrixCapture", code: 2) }
+    try png.write(to: directory.appendingPathComponent(name + ".png"))
     let request = VNRecognizeTextRequest()
     request.recognitionLevel = .accurate
     request.recognitionLanguages = ["en-US"]
@@ -329,6 +348,12 @@ func matrixKey(
     }
     await matrixSettle(0.4)
     print("matrix: key \(code) -> firstResponder \(String(describing: window.firstResponder.map { type(of: $0) }))")
+    if let editor = window.firstResponder as? NSTextView {
+        print(
+            "matrix: editor=\(editor.string) delegate=\(String(describing: editor.delegate)) "
+                + "next=\(String(describing: editor.nextValidKeyView)) previous=\(String(describing: editor.previousValidKeyView))"
+        )
+    }
 }
 
 /// Return or Escape delivered through the window's key-equivalent dispatch, as AppKit does for
@@ -439,9 +464,12 @@ func checkPageMatrix(store _: PlannerStore, output: URL) async throws {
     try await checkDashboardMatrix(fixture, output: output)
     try await checkWelcomeMatrix(fixture, output: output)
     try await checkDetailsMatrix(fixture, output: output)
-    guard matrixFailures.isEmpty else {
+    let report: [String: Any] = ["passed": MatrixChecks.passed, "failed": MatrixChecks.failures]
+    try JSONSerialization.data(withJSONObject: report, options: [.prettyPrinted, .sortedKeys])
+        .write(to: output.appendingPathComponent("integration-matrix.json"))
+    guard MatrixChecks.failures.isEmpty else {
         FileHandle.standardError.write(
-            Data("FAIL: page matrix: \(matrixFailures.count) red: \(matrixFailures)\n".utf8))
+            Data("FAIL: page matrix: \(MatrixChecks.failures.count) red: \(MatrixChecks.failures)\n".utf8))
         exit(1)
     }
     print("Page matrix passed")
