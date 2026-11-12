@@ -1,12 +1,11 @@
 // CI-only all-page matrix probe. Renders the production Settings, Dashboard, Welcome,
-// Workspace (Week), Clips and Details surfaces in a real window and drives them with real
-// NSEvent key events plus measured AX frames and rendered pixels.
+// Workspace (Week), Clips and Details surfaces in real windows and drives them with real
+// NSEvent key events, measured accessibility frames read through the system AX API, and
+// rendered pixels.
 //
 // Nothing here mutates the user's world: the planner is a synthetic file in a temporary
-// directory, the clipboard is a recording fake, permissions are only ever *read* (the probe
-// stays unbundled, so notification access refuses before contacting the OS, and no request
-// button is ever pressed), and every measurement has a probe-local negative control that
-// proves the measurement itself can go red.
+// directory, the clipboard is a recording fake, permissions are only ever read, and every
+// measurement has a probe-local negative control that proves the measurement can go red.
 import AppKit
 import ApplicationServices
 import EventKit
@@ -75,124 +74,172 @@ final class MatrixReport {
     }
 }
 
-// MARK: - Native helpers
+// MARK: - System accessibility layer
+
+// A process may read its own accessibility tree through the system API without any trust
+// prompt. SwiftUI builds that tree on demand, so every query starts from the application
+// element rather than from the hosting view's in-process children.
 
 @MainActor
-func mxAttribute(_ node: NSObject, _ name: String) -> Any? {
-    let selector = NSSelectorFromString(name)
-    return node.responds(to: selector) ? node.perform(selector)?.takeUnretainedValue() : nil
+func mxApp() -> AXUIElement { AXUIElementCreateApplication(getpid()) }
+
+@MainActor
+func mxRaw(_ element: AXUIElement, _ attribute: String) -> CFTypeRef? {
+    var value: CFTypeRef?
+    guard AXUIElementCopyAttributeValue(element, attribute as CFString, &value) == .success else { return nil }
+    return value
 }
 
 @MainActor
-func mxNodes(_ root: NSObject) -> [NSObject] {
-    var seen = Set<ObjectIdentifier>()
-    @MainActor func walk(_ node: NSObject, _ depth: Int) -> [NSObject] {
-        guard depth < 80, seen.insert(ObjectIdentifier(node)).inserted else { return [] }
-        var children = ["accessibilityChildren", "accessibilityContents", "accessibilityChildrenInNavigationOrder"]
-            .flatMap { (mxAttribute(node, $0) as? [NSObject]) ?? [] }
-        if let view = node as? NSView { children += view.subviews }
-        if let window = node as? NSWindow, let content = window.contentView { children.append(content) }
-        if let window = node as? NSWindow, let sheet = window.attachedSheet { children.append(sheet) }
-        return [node] + children.flatMap { walk($0, depth + 1) }
+func mxString(_ element: AXUIElement, _ attribute: String) -> String? {
+    guard let value = mxRaw(element, attribute) as? String, !value.isEmpty else { return nil }
+    return value
+}
+
+@MainActor
+func mxElements(_ element: AXUIElement, _ attribute: String) -> [AXUIElement] {
+    (mxRaw(element, attribute) as? [AXUIElement]) ?? []
+}
+
+@MainActor
+func mxEnabled(_ element: AXUIElement) -> Bool? { mxRaw(element, kAXEnabledAttribute as String) as? Bool }
+
+@MainActor
+func mxChildren(_ element: AXUIElement) -> [AXUIElement] { mxElements(element, kAXChildrenAttribute as String) }
+
+@MainActor
+func mxTree(_ root: AXUIElement, limit: Int = 3000) -> [AXUIElement] {
+    var found: [AXUIElement] = []
+    var stack: [(AXUIElement, Int)] = [(root, 0)]
+    while let (element, depth) = stack.popLast() {
+        found.append(element)
+        if found.count >= limit { break }
+        guard depth < 40 else { continue }
+        for child in mxChildren(element).reversed() { stack.append((child, depth + 1)) }
     }
-    return walk(root, 0)
+    return found
 }
 
 @MainActor
-func mxIdentifier(_ node: NSObject) -> String? { mxAttribute(node, "accessibilityIdentifier") as? String }
+func mxRole(_ element: AXUIElement) -> String? { mxString(element, kAXRoleAttribute as String) }
 
 @MainActor
-func mxLabel(_ node: NSObject) -> String? {
-    for name in ["accessibilityLabel", "accessibilityTitle", "accessibilityValue"] {
-        if let value = mxAttribute(node, name) as? String, !value.isEmpty { return value }
+func mxIdentifier(_ element: AXUIElement) -> String? { mxString(element, kAXIdentifierAttribute as String) }
+
+/// Every name a control is known by. Static text carries its string in the value attribute,
+/// buttons in the title, and SwiftUI labels in the description.
+@MainActor
+func mxNames(_ element: AXUIElement) -> [String] {
+    [
+        kAXDescriptionAttribute as String, kAXTitleAttribute as String,
+        kAXValueAttribute as String, kAXHelpAttribute as String,
+    ].compactMap { mxString(element, $0) }
+}
+
+@MainActor
+func mxName(_ element: AXUIElement) -> String? { mxNames(element).first }
+
+@MainActor
+func mxFrame(_ element: AXUIElement) -> NSRect {
+    func point(_ attribute: String) -> CGPoint? {
+        guard let raw = mxRaw(element, attribute), CFGetTypeID(raw) == AXValueGetTypeID() else { return nil }
+        var value = CGPoint.zero
+        guard AXValueGetValue(unsafeBitCast(raw, to: AXValue.self), .cgPoint, &value) else { return nil }
+        return value
     }
-    return nil
-}
-
-@MainActor
-func mxRole(_ node: NSObject) -> String? { mxAttribute(node, "accessibilityRole") as? String }
-
-@MainActor
-func mxBool(_ node: NSObject, _ name: String) throws -> Bool {
-    let selector = NSSelectorFromString(name)
-    guard node.responds(to: selector), let implementation = node.method(for: selector) else {
-        throw MatrixFailure(label: "\(type(of: node)) does not answer \(name)")
+    func size(_ attribute: String) -> CGSize? {
+        guard let raw = mxRaw(element, attribute), CFGetTypeID(raw) == AXValueGetTypeID() else { return nil }
+        var value = CGSize.zero
+        guard AXValueGetValue(unsafeBitCast(raw, to: AXValue.self), .cgSize, &value) else { return nil }
+        return value
     }
-    typealias Getter = @convention(c) (AnyObject, Selector) -> Bool
-    return unsafeBitCast(implementation, to: Getter.self)(node, selector)
-}
-
-@MainActor
-func mxFrame(_ node: NSObject) -> NSRect {
-    guard node.responds(to: NSSelectorFromString("accessibilityFrame")),
-        let value = node.value(forKey: "accessibilityFrame") as? NSValue
-    else { return .zero }
-    return value.rectValue
-}
-
-@MainActor
-func mxIdentified(_ root: NSObject, _ identifier: String) throws -> NSObject {
-    let matches = mxNodes(root).filter { mxIdentifier($0) == identifier }
-    guard matches.count == 1, let node = matches.first else {
-        throw MatrixFailure(label: "expected one \(identifier), saw \(matches.count)")
+    guard let origin = point(kAXPositionAttribute as String), let area = size(kAXSizeAttribute as String) else {
+        return .zero
     }
-    return node
+    return NSRect(origin: origin, size: area)
 }
 
 @MainActor
-func mxFind(_ root: NSObject, label: String) -> NSObject? {
-    mxNodes(root).first { mxLabel($0) == label }
+func mxRoot(_ title: String) throws -> AXUIElement {
+    let windows = mxElements(mxApp(), kAXWindowsAttribute as String)
+    for window in windows where mxString(window, kAXTitleAttribute as String) == title { return window }
+    throw MatrixFailure(label: "no accessibility window titled \(title) (\(windows.count) windows)")
 }
 
 @MainActor
-func mxText(_ root: NSObject) -> [String] {
-    mxNodes(root).compactMap { mxLabel($0) }
+func mxFocusedElement() -> AXUIElement? {
+    guard let value = mxRaw(mxApp(), kAXFocusedUIElementAttribute as String) else { return nil }
+    return unsafeBitCast(value, to: AXUIElement.self)
 }
 
 @MainActor
-func mxHas(_ root: NSObject, _ text: String) -> Bool { mxText(root).contains(text) }
+func mxFocusIdentity() -> String? {
+    guard let element = mxFocusedElement() else { return nil }
+    return mxIdentifier(element) ?? mxName(element) ?? mxRole(element)
+}
 
 @MainActor
-func mxHasContaining(_ root: NSObject, _ fragment: String) -> Bool {
+func mxFocusedRole() -> String? {
+    guard let element = mxFocusedElement() else { return nil }
+    return mxRole(element)
+}
+
+@MainActor
+func mxPress(_ element: AXUIElement) throws {
+    let error = AXUIElementPerformAction(element, kAXPressAction as CFString)
+    guard error == .success else { throw MatrixFailure(label: "AX press refused (\(error.rawValue))") }
+}
+
+@MainActor
+func mxText(_ root: AXUIElement) -> [String] { mxTree(root).flatMap { mxNames($0) } }
+
+@MainActor
+func mxHas(_ root: AXUIElement, _ text: String) -> Bool { mxText(root).contains(text) }
+
+@MainActor
+func mxHasContaining(_ root: AXUIElement, _ fragment: String) -> Bool {
     mxText(root).contains { $0.contains(fragment) }
 }
 
-/// Labels of rendered static text only: typing into a search field must not be mistaken for a
-/// matching task line.
 @MainActor
-func mxStaticTexts(_ root: NSObject) -> [String] {
-    mxNodes(root).filter { mxRole($0) == "AXStaticText" }.compactMap { mxLabel($0) }
+func mxStaticText(_ root: AXUIElement) -> [String] {
+    mxTree(root).filter { mxRole($0) == "AXStaticText" }.compactMap { mxName($0) }
 }
 
 @MainActor
-func mxPress(_ node: NSObject) throws {
-    let selector = NSSelectorFromString("accessibilityPerformPress")
-    guard node.responds(to: selector), let implementation = node.method(for: selector) else {
-        throw MatrixFailure(label: "\(type(of: node)) does not support AX press")
+func mxFind(_ root: AXUIElement, name: String) -> AXUIElement? {
+    mxTree(root).first { mxNames($0).contains(name) }
+}
+
+@MainActor
+func mxIdentified(_ root: AXUIElement, _ identifier: String) throws -> AXUIElement {
+    let matches = mxTree(root).filter { mxIdentifier($0) == identifier }
+    guard matches.count == 1, let element = matches.first else {
+        throw MatrixFailure(label: "expected one \(identifier), saw \(matches.count)")
     }
-    typealias Press = @convention(c) (AnyObject, Selector) -> Bool
-    let performed = unsafeBitCast(implementation, to: Press.self)(node, selector)
-    guard performed else { throw MatrixFailure(label: "AX press refused by \(mxIdentifier(node) ?? "control")") }
+    return element
 }
 
 @MainActor
-func mxFocusedNode(_ window: NSWindow) -> NSObject? {
-    mxNodes(window).first { (try? mxBool($0, "isAccessibilityFocused")) == true }
-}
-
-@MainActor
-func mxFocusIdentity(_ window: NSWindow) -> String? {
-    guard let node = mxFocusedNode(window) else { return nil }
-    return mxIdentifier(node) ?? mxLabel(node) ?? mxRole(node)
-}
-
-@MainActor
-func mxAssertFocused(
-    _ window: NSWindow, _ identity: String, _ label: String, report: MatrixReport
-) throws {
-    let observed = mxFocusIdentity(window)
+func mxAssertFocused(_ identity: String, _ label: String, report: MatrixReport) throws {
+    let observed = mxFocusIdentity()
     try report.require(observed == identity, label, "observed \(observed ?? "none")")
 }
+
+@MainActor
+func mxDumpAX(_ root: AXUIElement, _ tag: String) {
+    let lines: [String] = mxTree(root).compactMap { element in
+        guard let role = mxRole(element) else { return nil }
+        let identifier = mxIdentifier(element) ?? ""
+        let name = mxName(element) ?? ""
+        guard !identifier.isEmpty || !name.isEmpty || role != "AXGroup" else { return nil }
+        return "\(role)|\(identifier)|\(name)"
+    }
+    print("AXDUMP \(tag) count=\(lines.count)")
+    for line in lines.prefix(160) { print("AXDUMP \(tag) \(line)") }
+}
+
+// MARK: - Key, pixel and window helpers
 
 @MainActor
 func mxKeyEvent(
@@ -229,10 +276,20 @@ func mxSettle(_ seconds: Double = 0.2) async {
     NSApp.windows.forEach { $0.contentView?.layoutSubtreeIfNeeded() }
 }
 
+/// Settle, then read the application tree once so AppKit materialises the accessibility tree.
 @MainActor
-func mxClick(host: NSView, window: NSWindow, at rect: NSRect) {
-    let local = CGPoint(x: rect.midX, y: host.isFlipped ? rect.midY : host.bounds.height - rect.midY)
-    let location = host.convert(local, to: nil)
+func mxReady(_ seconds: Double = 1.0) async {
+    await mxSettle(seconds)
+    _ = mxElements(mxApp(), kAXWindowsAttribute as String)
+    await mxSettle(0.2)
+}
+
+@MainActor
+func mxClick(host: NSView, window: NSWindow, screenRect: NSRect) {
+    let inWindow = window.convertFromScreen(screenRect)
+    let local = host.convert(inWindow, from: nil)
+    let point = CGPoint(x: local.midX, y: host.isFlipped ? local.midY : host.bounds.height - local.midY)
+    let location = host.convert(point, to: nil)
     for type in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
         guard
             let event = NSEvent.mouseEvent(
@@ -262,21 +319,23 @@ func mxSave(_ host: NSView, _ url: URL) throws {
     try png.write(to: url)
 }
 
-/// Host-space rectangle for an accessibility frame reported in screen coordinates.
+/// FNV-1a over the rendered PNG: a pane that never changed cannot produce a new signature.
 @MainActor
-func mxHostRect(_ node: NSObject, window: NSWindow, host: NSView) -> NSRect {
-    let screen = mxFrame(node)
-    guard screen != .zero else { return .zero }
-    return host.convert(window.convertFromScreen(screen), from: nil)
+func mxSignature(_ host: NSView) throws -> String {
+    let bitmap = try mxBitmap(host)
+    guard let data = bitmap.representation(using: .png, properties: [:]) else {
+        throw MatrixFailure(label: "no signature for host")
+    }
+    var hash: UInt64 = 0xcbf2_9ce4_8422_2325
+    for byte in data { hash = (hash ^ UInt64(byte)) &* 0x0000_0100_0000_01b3 }
+    return String(hash, radix: 16)
 }
 
-/// Top-down bitmap row for a host-space y coordinate, matching the coordinate space that
-/// NSHostingView reports to accessibility.
+/// Host-space rectangle for a screen-space accessibility frame.
 @MainActor
-func mxRow(_ y: CGFloat, host: NSView, bitmap: NSBitmapImageRep) -> Int {
-    let scale = CGFloat(bitmap.pixelsWide) / max(1, host.bounds.width)
-    let flipped = host.isFlipped ? y : host.bounds.height - y
-    return min(bitmap.pixelsHigh - 1, max(0, Int(flipped * scale)))
+func mxHostRect(_ screenRect: NSRect, window: NSWindow, host: NSView) -> NSRect {
+    guard screenRect != .zero else { return .zero }
+    return host.convert(window.convertFromScreen(screenRect), from: nil)
 }
 
 @MainActor
@@ -284,8 +343,15 @@ func mxScale(_ host: NSView, _ bitmap: NSBitmapImageRep) -> CGFloat {
     CGFloat(bitmap.pixelsWide) / max(1, host.bounds.width)
 }
 
-/// Opaque sRGB colour for a shared palette token. Probes measure the pixel a known ink paints,
-/// so the reference must not be resolved through the current app appearance.
+/// Top-down bitmap row for a host-space y coordinate.
+@MainActor
+func mxRow(_ y: CGFloat, host: NSView, bitmap: NSBitmapImageRep) -> Int {
+    let flipped = host.isFlipped ? y : host.bounds.height - y
+    return min(bitmap.pixelsHigh - 1, max(0, Int(flipped * mxScale(host, bitmap))))
+}
+
+/// Opaque sRGB colour for a shared palette token. The probe looks for the pixel a known ink
+/// paints, so the reference must not be resolved through the current app appearance.
 @MainActor
 func mxTokenColor(_ value: UInt32) -> NSColor {
     NSColor(
@@ -488,8 +554,10 @@ final class MatrixFixture {
         try? FileManager.default.removeItem(at: directory)
     }
 
-    /// Deliberately authored fixture setup, not a production mutation entry point.
-    func rewrite(_ body: (inout Planner) -> Void) throws {
+    /// Deliberately authored fixture setup, not a production mutation entry point. A closed day
+    /// can never be seeded through the command layer, so history is written directly, exactly as
+    /// the integration probe authors its fixtures.
+    func write(_ body: (inout Planner) -> Void) throws {
         _ = try file.mutate { planner in body(&planner) }
         store.reloadFromDisk(external: false)
     }
@@ -501,10 +569,23 @@ final class MatrixFixture {
         }
         return created
     }
+
+    @discardableResult
+    func history(_ titles: [String], daysAgo: Int) throws -> [PlanTask] {
+        let day = store.today.adding(days: -daysAgo)
+        try write { planner in
+            for title in titles {
+                planner.tasks.append(PlanTask(title: title, day: day, done: false))
+            }
+        }
+        let seeded = store.planner.tasks.filter { $0.day == day && titles.contains($0.title) }
+        guard seeded.count == titles.count else { throw MatrixFailure(label: "could not author history \(titles)") }
+        return seeded
+    }
 }
 
 @MainActor
-func matrixWindow<V: View>(_ view: V, size: NSSize, appearance: NSAppearance? = nil) throws -> (
+func matrixWindow<V: View>(_ title: String, _ view: V, size: NSSize, appearance: NSAppearance? = nil) throws -> (
     NSWindow, NSHostingView<V>
 ) {
     let host = NSHostingView(rootView: view)
@@ -512,6 +593,7 @@ func matrixWindow<V: View>(_ view: V, size: NSSize, appearance: NSAppearance? = 
     let window = NSWindow(
         contentRect: NSRect(origin: .zero, size: size), styleMask: [.titled], backing: .buffered, defer: false)
     window.isReleasedWhenClosed = false
+    window.title = title
     window.appearance = appearance
     window.contentView = host
     window.setContentSize(size)
@@ -560,6 +642,13 @@ final class AllPageMatrix {
     init(output: URL) { self.output = output }
 
     func run() async {
+        await report.group("probe preconditions") { [self] in
+            // The runner passes -AppleKeyboardUIMode 3 in the argument domain; without it macOS
+            // only tabs between text fields and every traversal below would be meaningless.
+            try report.require(
+                UserDefaults.standard.integer(forKey: "AppleKeyboardUIMode") == 3,
+                "probe process runs with full keyboard access enabled")
+        }
         await report.group("settings panes") { [self] in try await settingsPanes() }
         await report.group("settings failure paths") { [self] in try await settingsFailurePaths() }
         await report.group("dashboard tabs") { [self] in try await dashboardTabs() }
@@ -573,17 +662,34 @@ final class AllPageMatrix {
         report.finish(output: output)
     }
 
-    func writeAX(_ root: NSObject, _ url: URL) throws {
-        let rows: [[String: Any]] = mxNodes(root).compactMap { node in
-            guard let role = mxRole(node) else { return nil }
+    func writeAX(_ root: AXUIElement, _ url: URL) throws {
+        let rows: [[String: Any]] = mxTree(root).compactMap { element in
+            guard let role = mxRole(element) else { return nil }
             return [
-                "role": role, "id": mxIdentifier(node) ?? "", "label": mxLabel(node) ?? "",
-                "frame": NSStringFromRect(mxFrame(node)),
-                "enabled": (try? mxBool(node, "isAccessibilityEnabled")) ?? false,
+                "role": role, "id": mxIdentifier(element) ?? "", "name": mxName(element) ?? "",
+                "frame": NSStringFromRect(mxFrame(element)), "enabled": mxEnabled(element) ?? false,
             ]
         }
         let data = try JSONSerialization.data(withJSONObject: rows, options: [.prettyPrinted, .sortedKeys])
         try data.write(to: url)
+    }
+
+    /// Tab until the focused element matches, reporting the whole traversal either way.
+    func tabUntil(
+        _ window: NSWindow, limit: Int, tag: String, _ match: @MainActor (String, String?) -> Bool
+    ) async throws -> String {
+        var traversal: [String] = []
+        for _ in 0..<limit {
+            try await mxKey(window, 48, "\t")
+            let identity = mxFocusIdentity() ?? "none"
+            traversal.append("\(identity)|\(mxFocusedRole() ?? "?")")
+            if match(identity, mxFocusedRole()) {
+                report.record(tag, traversal)
+                return identity
+            }
+        }
+        report.record(tag, traversal)
+        throw MatrixFailure(label: "traversal never reached the target: \(traversal)")
     }
 
     // MARK: Settings: five panes
@@ -593,9 +699,10 @@ final class AllPageMatrix {
         defer { fixture.close() }
         let view = SettingsView().environmentObject(fixture.store).environmentObject(fixture.services)
             .environment(\.colorScheme, .dark)
-        let (window, host) = try matrixWindow(view, size: NSSize(width: 760, height: 640))
+        let (window, host) = try matrixWindow("Matrix Settings", view, size: NSSize(width: 760, height: 640))
         defer { window.close() }
-        await mxSettle(1.0)
+        await mxReady(1.4)
+        let root = try mxRoot("Matrix Settings")
 
         // Two markers per pane that exist nowhere else in Settings, and never collide with the
         // sidebar row titles ("General", "Workspace", "Focus timer", "AI agents", "System").
@@ -607,45 +714,53 @@ final class AllPageMatrix {
             (.system, "Your data", "Apple Reminders"),
         ]
         var observed: [String: Int] = [:]
+        var signatures: [String: String] = [:]
         for (pane, marker, second) in markers {
-            try selectPane(pane, window: window, host: host, root: host)
-            await mxSettle(0.7)
-            let texts = mxText(host)
+            try selectPane(pane, window: window, host: host, root: root)
+            await mxReady(0.9)
+            let texts = mxText(root)
+            observed[pane.rawValue] = texts.count
+            signatures[pane.rawValue] = try mxSignature(host)
+            try report.require(
+                texts.count >= 5, "settings \(pane.rawValue) detail exposes its text to accessibility",
+                "labels \(texts.prefix(12))")
             try report.require(
                 texts.contains(AppL10n.text(marker)), "settings \(pane.rawValue) pane shows \(marker)",
                 "present \(texts.prefix(14))")
             try report.require(
                 texts.contains(AppL10n.text(second)), "settings \(pane.rawValue) pane shows \(second)",
                 "present \(texts.prefix(14))")
-            observed[pane.rawValue] = texts.count
             try mxSave(host, output.appendingPathComponent("settings-\(pane.rawValue.lowercased()).png"))
-            try writeAX(host, output.appendingPathComponent("settings-\(pane.rawValue.lowercased()).ax.json"))
+            try writeAX(root, output.appendingPathComponent("settings-\(pane.rawValue.lowercased()).ax.json"))
         }
         // Selecting System must retire the General detail: the sidebar really drives the pane.
         try report.require(
-            !mxHas(host, AppL10n.text("Apple Intelligence")),
+            !mxHas(root, AppL10n.text("Apple Intelligence")),
             "settings detail is replaced when the pane changes")
+        // A pane that never changed cannot render different pixels: all five must differ.
+        try report.require(
+            Set(signatures.values).count == markers.count, "each settings pane renders its own detail",
+            "signatures \(signatures)")
         report.record("settingsPaneNodeCounts", observed)
+        report.record("settingsPaneSignatures", signatures)
     }
 
-    func selectPane(_ pane: SettingsView.Pane, window: NSWindow, host: NSView, root: NSObject) throws {
+    func selectPane(_ pane: SettingsView.Pane, window: NSWindow, host: NSView, root: AXUIElement) throws {
         let title = pane.title
-        let rows = mxNodes(root).filter { (mxRole($0) ?? "").contains("Row") }
-        for row in rows {
-            let labels = mxText(row)
-            guard mxLabel(row) == title || labels.contains(title) else { continue }
-            mxClick(host: host, window: window, at: mxHostRect(row, window: window, host: host))
+        let nodes = mxTree(root)
+        let rows = nodes.filter { (mxRole($0) ?? "").contains("Row") }
+        for row in rows
+        where mxNames(row).contains(title) || mxTree(row).contains(where: { mxNames($0).contains(title) }) {
+            mxClick(host: host, window: window, screenRect: mxFrame(row))
             return
         }
-        // A sidebar row may only expose its label as a child static text: click that instead.
-        let nodes = mxNodes(root)
-        for node in nodes where mxLabel(node) == title {
-            let rect = mxHostRect(node, window: window, host: host)
-            guard rect.width > 0, rect.height > 0 else { continue }
-            mxClick(host: host, window: window, at: rect)
+        // A sidebar row may expose its label only on a child static text: click that frame.
+        for label in nodes where mxRole(label) == "AXStaticText" && mxNames(label).contains(title) {
+            mxClick(host: host, window: window, screenRect: mxFrame(label))
             return
         }
-        throw MatrixFailure(label: "no settings sidebar control for \(title) (\(rows.count) rows)")
+        mxDumpAX(root, "settings-\(pane.rawValue)")
+        throw MatrixFailure(label: "no settings sidebar control for \(title) (\(nodes.count) nodes)")
     }
 
     // MARK: Settings: a synthetic failure path per pane
@@ -655,42 +770,43 @@ final class AllPageMatrix {
         defer { fixture.close() }
         let view = SettingsView().environmentObject(fixture.store).environmentObject(fixture.services)
             .environment(\.colorScheme, .dark)
-        let (window, host) = try matrixWindow(view, size: NSSize(width: 760, height: 640))
+        let (window, host) = try matrixWindow(
+            "Matrix Settings Failure", view, size: NSSize(width: 760, height: 640))
         defer { window.close() }
-        await mxSettle(1.0)
+        await mxReady(1.4)
+        let root = try mxRoot("Matrix Settings Failure")
 
         // General: the Apple Intelligence control must present the real availability reason and
         // follow the real availability; nothing may touch the login item.
-        try selectPane(.general, window: window, host: host, root: host)
-        await mxSettle(0.7)
+        try selectPane(.general, window: window, host: host, root: root)
+        await mxReady(0.8)
         let loginStatus = SMAppService.mainApp.status
         let expectedExplanation = SettingsView.appleIntelligenceExplanation(
             isSupported: AISorter.isSupported, unavailableReason: AISorter.unavailableReason)
         try report.require(
-            mxHas(host, AppL10n.text("Auto-sort new tasks")),
-            "general pane exposes the auto-sort control", "texts \(mxText(host).prefix(14))")
+            mxHas(root, AppL10n.text("Auto-sort new tasks")), "general pane exposes the auto-sort control",
+            "texts \(mxText(root).prefix(16))")
         try report.require(
-            mxHas(host, expectedExplanation),
-            "general pane explains the AI failure state", "isSupported=\(AISorter.isSupported)")
-        if let aiCheckbox = mxFind(host, label: AppL10n.text("Auto-sort new tasks")) {
-            let enabled = try mxBool(aiCheckbox, "isAccessibilityEnabled")
+            mxHas(root, expectedExplanation), "general pane explains the AI failure state",
+            "isSupported=\(AISorter.isSupported)")
+        if let checkbox = mxFind(root, name: AppL10n.text("Auto-sort new tasks")) {
+            let enabled = mxEnabled(checkbox) ?? false
             try report.require(
                 enabled == AISorter.isSupported, "auto-sort enablement follows real AI availability",
                 "enabled=\(enabled) supported=\(AISorter.isSupported)")
         } else {
             try report.require(false, "general pane exposes the auto-sort checkbox")
         }
-        try report.require(
-            SMAppService.mainApp.status == loginStatus, "general pane never mutates the login item")
+        try report.require(SMAppService.mainApp.status == loginStatus, "general pane never mutates the login item")
 
         // Workspace: the calendar row must report the state the system actually holds, and
         // reading it must not request access.
         let calendarBefore = EKEventStore.authorizationStatus(for: .event)
         let calendarState = SettingsPermissionAccess.eventState(calendarBefore).state
-        try selectPane(.workspace, window: window, host: host, root: host)
-        await mxSettle(1.0)
+        try selectPane(.workspace, window: window, host: host, root: root)
+        await mxReady(1.0)
         try report.require(
-            mxHas(host, calendarState.title), "workspace pane reports the real calendar permission state",
+            mxHas(root, calendarState.title), "workspace pane reports the real calendar permission state",
             "expected \(calendarState.title)")
         try report.require(
             EKEventStore.authorizationStatus(for: .event) == calendarBefore,
@@ -700,12 +816,12 @@ final class AllPageMatrix {
             "workspace pane calendar access matches the reported state")
 
         // Focus: a corrupted persisted length must be surfaced, not silently rewritten.
-        try fixture.rewrite { $0.preferences.defaultFocusMinutes = 0 }
-        try selectPane(.focus, window: window, host: host, root: host)
-        await mxSettle(0.7)
+        try fixture.write { $0.preferences.defaultFocusMinutes = 0 }
+        try selectPane(.focus, window: window, host: host, root: root)
+        await mxReady(0.8)
         try report.require(
-            mxHas(host, AppL10n.format("%lld min", 0)), "focus pane surfaces the out-of-range length",
-            "texts \(mxText(host).prefix(16))")
+            mxHas(root, AppL10n.format("%lld min", 0)), "focus pane surfaces the out-of-range length",
+            "texts \(mxText(root).prefix(18))")
         try report.require(
             (try fixture.file.load()).preferences.defaultFocusMinutes == 0,
             "focus pane does not silently repair the persisted length")
@@ -713,12 +829,12 @@ final class AllPageMatrix {
         // Agents: an unbundled probe cannot install agents, so the warning must be shown and no
         // connector may change state.
         let agentStatuses = AgentConnector.App.allCases.map { AgentConnector.status($0) }
-        try selectPane(.agents, window: window, host: host, root: host)
-        await mxSettle(0.7)
+        try selectPane(.agents, window: window, host: host, root: root)
+        await mxReady(0.8)
         try report.require(!AppInfo.isInApplications, "matrix probe is not installed in Applications")
         try report.require(
-            mxHas(host, AppL10n.text("Agent setup requires Perch to be installed in Applications.")),
-            "agents pane shows the not-installed failure path", "texts \(mxText(host).prefix(16))")
+            mxHas(root, AppL10n.text("Agent setup requires Perch to be installed in Applications.")),
+            "agents pane shows the not-installed failure path", "texts \(mxText(root).prefix(18))")
         try report.require(
             AgentConnector.App.allCases.map { AgentConnector.status($0) } == agentStatuses,
             "agents pane never mutates a connector")
@@ -728,14 +844,14 @@ final class AllPageMatrix {
         let reminderBefore = EKEventStore.authorizationStatus(for: .reminder)
         let reminderState = SettingsPermissionAccess.eventState(reminderBefore).state
         let tasksBefore = fixture.store.planner.tasks.count
-        try selectPane(.system, window: window, host: host, root: host)
-        await mxSettle(1.0)
+        try selectPane(.system, window: window, host: host, root: root)
+        await mxReady(1.0)
         try report.require(
-            mxHas(host, reminderState.title), "system pane reports the real reminders permission state",
+            mxHas(root, reminderState.title), "system pane reports the real reminders permission state",
             "expected \(reminderState.title)")
-        if let phoneToggle = mxFind(host, label: AppL10n.text("Alert on iPhone and Apple Watch too")) {
+        if let phoneToggle = mxFind(root, name: AppL10n.text("Alert on iPhone and Apple Watch too")) {
             try report.require(
-                try mxBool(phoneToggle, "isAccessibilityEnabled") == fixture.store.prefs.remindersSync,
+                (mxEnabled(phoneToggle) ?? true) == fixture.store.prefs.remindersSync,
                 "phone alert stays disabled while mirroring is off")
         } else {
             try report.require(false, "system pane exposes the phone alert control")
@@ -743,8 +859,7 @@ final class AllPageMatrix {
         try report.require(
             EKEventStore.authorizationStatus(for: .reminder) == reminderBefore,
             "system pane never requests reminders access")
-        try report.require(
-            fixture.store.planner.tasks.count == tasksBefore, "system pane never mutates the planner")
+        try report.require(fixture.store.planner.tasks.count == tasksBefore, "system pane never mutates the planner")
         try mxSave(host, output.appendingPathComponent("settings-system.png"))
     }
 
@@ -754,7 +869,7 @@ final class AllPageMatrix {
         let fixture = try MatrixFixture()
         defer { fixture.close() }
         try fixture.seed(["Matrix upcoming task"], day: .day(fixture.store.today.adding(days: 1)))
-        try fixture.seed(["Matrix history task"], day: .day(fixture.store.today.adding(days: -1)))
+        try fixture.history(["Matrix history task"], daysAgo: 1)
         try fixture.seed(["Matrix today task"], day: .day(fixture.store.today))
 
         let destinations = MatrixFocusDestinations()
@@ -764,24 +879,15 @@ final class AllPageMatrix {
                 .environment(\.accessibilityEnabled, true)
                 .frame(width: 880, height: 560)
         }
-        let (window, host) = try matrixWindow(view, size: NSSize(width: 900, height: 620))
+        let (window, host) = try matrixWindow("Matrix Dashboard", view, size: NSSize(width: 900, height: 620))
         defer { window.close() }
-        await mxSettle(1.0)
+        await mxReady(1.4)
+        let root = try mxRoot("Matrix Dashboard")
         try report.require(window.makeFirstResponder(destinations.before), "dashboard fixture starts from a field")
 
         // One keyboard-reachability assertion for the tab group itself.
-        var traversal: [String] = []
-        var reached = false
-        for _ in 0..<16 {
-            try await mxKey(window, 48, "\t")
-            traversal.append(mxFocusIdentity(window) ?? "none")
-            if mxFocusedRole(window) == "AXRadioButton" {
-                reached = true
-                break
-            }
-        }
-        report.record("dashboardTabTraversal", traversal)
-        try report.require(reached, "Tab reaches the dashboard tab controls", "traversal \(traversal)")
+        _ = try await tabUntil(window, limit: 16, tag: "dashboardTabTraversal") { _, role in role == "AXRadioButton" }
+        try report.require(true, "Tab reaches the dashboard tab controls")
 
         // Every tab is exercised through the real segmented control.
         let markers: [(DashboardView.Tab, String, String)] = [
@@ -792,29 +898,25 @@ final class AllPageMatrix {
         ]
         for (tab, marker, foreign) in markers {
             let wanted = AppL10n.text(tab.rawValue)
-            let radio = mxNodes(host).filter { mxRole($0) == "AXRadioButton" && mxLabel($0) == wanted }
+            let nodes = mxTree(root)
             let segment =
-                radio.first
-                ?? mxNodes(host).first { mxRole($0) == "AXStaticText" && mxLabel($0) == wanted }
+                nodes.first { mxRole($0) == "AXRadioButton" && mxNames($0).contains(wanted) }
+                ?? nodes.first { mxRole($0) == "AXStaticText" && mxNames($0).contains(wanted) }
             guard let segment else {
+                mxDumpAX(root, "dashboard-\(tab.rawValue)")
                 throw MatrixFailure(label: "no dashboard segment for \(tab.rawValue)")
             }
-            mxClick(host: host, window: window, at: mxHostRect(segment, window: window, host: host))
-            await mxSettle(0.7)
-            let texts = mxText(host)
+            mxClick(host: host, window: window, screenRect: mxFrame(segment))
+            await mxReady(0.8)
+            let texts = mxText(root)
             try report.require(
-                texts.contains(marker) || mxHasContaining(host, marker),
-                "dashboard \(tab.rawValue) tab renders its own content", "present \(texts.prefix(10))")
+                texts.contains(marker) || mxHasContaining(root, marker),
+                "dashboard \(tab.rawValue) tab renders its own content", "present \(texts.prefix(12))")
             try report.require(
                 !texts.contains(foreign), "dashboard \(tab.rawValue) tab retires the other panes",
                 "leaked \(foreign)")
         }
         try mxSave(host, output.appendingPathComponent("dashboard-tabs.png"))
-    }
-
-    func mxFocusedRole(_ window: NSWindow) -> String? {
-        guard let node = mxFocusedNode(window) else { return nil }
-        return mxRole(node)
     }
 
     // MARK: Dashboard: task-line and project actions from real key events
@@ -825,8 +927,7 @@ final class AllPageMatrix {
         guard fixture.store.addTasks(["Matrix project task #Matrix"], on: .day(fixture.store.today)) != nil,
             let project = fixture.store.planner.projects.first
         else { throw MatrixFailure(label: "could not seed a project through the parser") }
-        try fixture.seed(["Matrix history alpha"], day: .day(fixture.store.today.adding(days: -1)))
-        try fixture.seed(["Matrix history beta"], day: .day(fixture.store.today.adding(days: -1)))
+        try fixture.history(["Matrix history alpha", "Matrix history beta"], daysAgo: 1)
 
         let destinations = MatrixFocusDestinations()
         let projectView = MatrixHarness(destinations: destinations) {
@@ -835,27 +936,20 @@ final class AllPageMatrix {
                 .environment(\.accessibilityEnabled, true)
                 .frame(width: 880, height: 560)
         }
-        let (window, _) = try matrixWindow(projectView, size: NSSize(width: 900, height: 620))
+        let (window, _) = try matrixWindow(
+            "Matrix Dashboard Project", projectView, size: NSSize(width: 900, height: 620))
         defer { window.close() }
-        await mxSettle(1.0)
+        await mxReady(1.4)
         try report.require(window.makeFirstResponder(destinations.before), "project fixture starts from a field")
 
         let deleteLabel = AppL10n.text("Delete project")
-        var traversal: [String] = []
-        var reached = false
-        for _ in 0..<24 {
-            try await mxKey(window, 48, "\t")
-            traversal.append(mxFocusIdentity(window) ?? "none")
-            if mxFocusIdentity(window) == deleteLabel {
-                reached = true
-                break
-            }
+        _ = try await tabUntil(window, limit: 24, tag: "projectActionTraversal") { identity, _ in
+            identity == deleteLabel
         }
-        report.record("projectActionTraversal", traversal)
-        try report.require(reached, "Tab reaches the delete-project action", "traversal \(traversal)")
+        try report.require(true, "Tab reaches the delete-project action")
         let taskCount = fixture.store.planner.tasks.count
         try await mxKey(window, 49, " ")
-        await mxSettle(0.7)
+        await mxReady(0.7)
         try report.require(
             !fixture.store.planner.projects.contains { $0.id == project.id },
             "Space on the project action deletes that project")
@@ -870,35 +964,29 @@ final class AllPageMatrix {
                 .environment(\.accessibilityEnabled, true)
                 .frame(width: 880, height: 560)
         }
-        let (historyWindow, historyHost) = try matrixWindow(historyView, size: NSSize(width: 900, height: 620))
+        let (historyWindow, historyHost) = try matrixWindow(
+            "Matrix Dashboard History", historyView, size: NSSize(width: 900, height: 620))
         defer { historyWindow.close() }
-        await mxSettle(1.0)
+        await mxReady(1.4)
+        let historyRoot = try mxRoot("Matrix Dashboard History")
         try report.require(
             historyWindow.makeFirstResponder(destinations.before), "history fixture starts from a field")
-        var searchTraversal: [String] = []
-        var focused = false
-        for _ in 0..<16 {
-            try await mxKey(historyWindow, 48, "\t")
-            searchTraversal.append(mxFocusIdentity(historyWindow) ?? "none")
-            if mxFocusedRole(historyWindow) == "AXTextField" {
-                focused = true
-                break
-            }
+        _ = try await tabUntil(historyWindow, limit: 16, tag: "historySearchTraversal") { _, role in
+            role == "AXTextField"
         }
-        report.record("historySearchTraversal", searchTraversal)
-        try report.require(focused, "Tab reaches the history search field", "traversal \(searchTraversal)")
-        let before = mxStaticTexts(historyHost).filter { $0.contains("Matrix history") }.count
+        try report.require(true, "Tab reaches the history search field")
+        let before = mxStaticText(historyRoot).filter { $0.contains("Matrix history") }.count
         try report.require(before == 2, "history lists both seeded task lines", "count \(before)")
         for character in "Matrix history alpha".map(String.init) {
             let scalar = character.unicodeScalars.first?.value ?? 0
-            try await mxKey(
-                historyWindow, 0, character, modifiers: scalar >= 65 && scalar <= 90 ? .shift : [])
+            try await mxKey(historyWindow, 0, character, modifiers: scalar >= 65 && scalar <= 90 ? .shift : [])
         }
-        await mxSettle(0.9)
-        let typed = mxFocusedNode(historyWindow).flatMap { mxAttribute($0, "accessibilityValue") as? String }
+        await mxReady(0.9)
+        let typed = mxFocusedElement().flatMap { mxString($0, kAXValueAttribute as String) }
         try report.require(
-            typed == "Matrix history alpha", "typed keys land in the history search field", "value \(typed ?? "none")")
-        let after = mxStaticTexts(historyHost).filter { $0.contains("Matrix history") }.count
+            typed == "Matrix history alpha", "typed keys land in the history search field",
+            "value \(typed ?? "none")")
+        let after = mxStaticText(historyRoot).filter { $0.contains("Matrix history") }.count
         try report.require(after == 1, "typed search filters the task lines", "count \(after)")
         try mxSave(historyHost, output.appendingPathComponent("dashboard-history-search.png"))
     }
@@ -912,12 +1000,14 @@ final class AllPageMatrix {
         let view = WelcomeView(done: { opened += 1 })
             .environmentObject(fixture.store).environmentObject(fixture.services)
             .environment(\.colorScheme, .dark)
-        let (window, host) = try matrixWindow(view, size: NSSize(width: 560, height: 900))
+        let (window, host) = try matrixWindow("Matrix Welcome", view, size: NSSize(width: 560, height: 900))
         defer { window.close() }
-        await mxSettle(1.4)
+        await mxReady(1.6)
+        let root = try mxRoot("Matrix Welcome")
 
         try report.require(
-            mxHas(host, AppL10n.text("Your plan, close at hand.")), "welcome renders its heading")
+            mxHas(root, AppL10n.text("Your plan, close at hand.")), "welcome renders its heading",
+            "texts \(mxText(root).prefix(16))")
         // Every permission row must show the state the system actually holds: with no grant, the
         // failure state is what the user sees, and the CTA must still work.
         var states: [String: String] = [:]
@@ -926,11 +1016,11 @@ final class AllPageMatrix {
             let reading = await access.read(feature)
             states[feature.rawValue] = reading.state.rawValue
             try report.require(
-                mxHas(host, reading.state.title), "welcome shows \(feature.rawValue) as \(reading.state.title)",
-                "texts \(mxText(host).prefix(24))")
+                mxHas(root, reading.state.title), "welcome shows \(feature.rawValue) as \(reading.state.title)",
+                "texts \(mxText(root).prefix(24))")
         }
         report.record("welcomePermissionStates", states)
-        let allowedRows = mxText(host).filter { $0 == PermissionState.allowed.title }.count
+        let allowedRows = mxText(root).filter { $0 == PermissionState.allowed.title }.count
         let allowedStates = states.values.filter { $0 == PermissionState.allowed.rawValue }.count
         try report.require(
             allowedRows == allowedStates, "welcome never claims access the system did not grant",
@@ -939,20 +1029,21 @@ final class AllPageMatrix {
         // A keybinding registration failure is a real error surface: the view must re-read and
         // keep rendering instead of dropping the shortcut line.
         NotificationCenter.default.post(name: ShortcutStore.didFail, object: nil)
-        await mxSettle(0.6)
+        await mxReady(0.6)
         let display = ShortcutStore.load().display
         try report.require(
-            mxHasContaining(host, display), "welcome keeps the shortcut line after a registration failure",
+            mxHasContaining(root, display), "welcome keeps the shortcut line after a registration failure",
             "display \(display)")
         try report.require(
-            mxHas(host, AppL10n.text("Skip any permission. You can review it later in Settings.")),
+            mxHas(root, AppL10n.text("Skip any permission. You can review it later in Settings.")),
             "welcome keeps the skip promise in the failure state")
 
-        guard let cta = mxFind(host, label: AppL10n.text("Open workspace")) else {
+        guard let cta = mxFind(root, name: AppL10n.text("Open workspace")) else {
+            mxDumpAX(root, "welcome")
             throw MatrixFailure(label: "welcome has no Open workspace action")
         }
         try mxPress(cta)
-        await mxSettle(0.5)
+        await mxReady(0.5)
         try report.require(opened == 1, "welcome opens the workspace without any permission")
         try mxSave(host, output.appendingPathComponent("welcome-failure-state.png"))
     }
@@ -962,33 +1053,35 @@ final class AllPageMatrix {
     func detailsStates() async throws {
         let fixture = try MatrixFixture()
         defer { fixture.close() }
-        let past = try fixture.seed(["Matrix past task"], day: .day(fixture.store.today.adding(days: -1))).first
+        guard let past = try fixture.history(["Matrix past task"], daysAgo: 1).first else {
+            throw MatrixFailure(label: "could not author the historical task")
+        }
         try fixture.seed(["Matrix today task"], day: .day(fixture.store.today))
-        guard let past else { throw MatrixFailure(label: "could not seed the historical task") }
-        let (window, host) = try matrixWindow(workspaceFixture(fixture), size: NSSize(width: 880, height: 520))
+        let (window, host) = try matrixWindow(
+            "Matrix Details", workspaceFixture(fixture), size: NSSize(width: 880, height: 520))
         defer { window.close() }
-        await mxSettle(1.1)
+        await mxReady(1.4)
+        let root = try mxRoot("Matrix Details")
 
         // Historical task: a read-only sheet, never an editable one.
         fixture.model.detailsTaskID = past.id
-        await mxSettle(1.4)
+        await mxReady(1.4)
         guard let sheet = window.attachedSheet else {
             throw MatrixFailure(label: "details sheet did not attach for a past task")
         }
         try report.require(
-            mxHas(sheet, AppL10n.text("Earlier days are read-only. Your history and focus time stay unchanged.")),
-            "details sheet shows the historical read-only state", "texts \(mxText(sheet).prefix(16))")
+            mxHas(root, AppL10n.text("Earlier days are read-only. Your history and focus time stay unchanged.")),
+            "details sheet shows the historical read-only state", "texts \(mxText(root).prefix(20))")
         try report.require(
-            mxNodes(sheet).allSatisfy { mxIdentifier($0) != "details-title" },
+            mxTree(root).allSatisfy { mxIdentifier($0) != "details-title" },
             "historical details expose no editable title field")
-        if let save = mxNodes(sheet).first(where: { mxIdentifier($0) == "details-save" }) {
-            try report.require(
-                try mxBool(save, "isAccessibilityEnabled") == false, "historical details cannot save")
+        if let save = mxTree(root).first(where: { mxIdentifier($0) == "details-save" }) {
+            try report.require(mxEnabled(save) == false, "historical details cannot save")
         } else {
             try report.require(false, "historical details expose the save control")
         }
         try await mxKey(sheet, 53, "\u{1b}")
-        await mxSettle(1.2)
+        await mxReady(1.2)
         try report.require(window.attachedSheet == nil, "Escape dismisses the historical details sheet")
         try report.require(
             fixture.store.planner.tasks.contains { $0.id == past.id && $0.title == "Matrix past task" },
@@ -996,31 +1089,33 @@ final class AllPageMatrix {
         try report.require(window.isKeyWindow, "workspace keeps the key window after dismiss")
         // Keyboard focus must be usable in the workspace again, not stranded on a dead sheet.
         try await mxKey(window, 48, "\t")
-        if let focused = mxFocusedNode(window) {
+        await mxSettle(0.3)
+        if let focused = mxFocusedElement() {
+            let inWorkspace = mxTree(root).contains { CFEqual($0, focused) }
             try report.require(
-                mxNodes(host).contains { $0 === focused }, "focus returns into the workspace after dismiss",
-                "focused \(mxRole(focused) ?? "unknown")")
+                inWorkspace, "focus returns into the workspace after dismiss",
+                "focused \(mxName(focused) ?? mxRole(focused) ?? "unknown")")
         } else {
             try report.require(false, "focus returns into the workspace after dismiss")
         }
 
         // Removed task: the error state, not a blank sheet.
         fixture.model.detailsTaskID = UUID()
-        await mxSettle(1.4)
+        await mxReady(1.4)
         guard let errorSheet = window.attachedSheet else {
             throw MatrixFailure(label: "details sheet did not attach for a removed task")
         }
         try report.require(
-            mxHas(errorSheet, AppL10n.text("Task unavailable")), "removed task shows the unavailable state",
-            "texts \(mxText(errorSheet).prefix(14))")
+            mxHas(root, AppL10n.text("Task unavailable")), "removed task shows the unavailable state",
+            "texts \(mxText(root).prefix(18))")
         try report.require(
-            mxHas(errorSheet, AppL10n.text("This task was removed.")), "removed task explains what happened")
+            mxHas(root, AppL10n.text("This task was removed.")), "removed task explains what happened")
         try report.require(
-            mxNodes(errorSheet).contains { mxIdentifier($0) == "details-close" },
+            mxTree(root).contains { mxIdentifier($0) == "details-close" },
             "removed task offers an explicit close control")
         try mxSave(host, output.appendingPathComponent("details-error-state.png"))
         try await mxKey(errorSheet, 53, "\u{1b}")
-        await mxSettle(1.2)
+        await mxReady(1.2)
         try report.require(window.attachedSheet == nil, "Escape dismisses the removed-task sheet")
         try report.require(
             fixture.store.planner.tasks.count == 2, "no task is created or removed by the error state")
@@ -1054,50 +1149,35 @@ final class AllPageMatrix {
                 .environment(\.colorScheme, .dark)
                 .frame(width: 820, height: 420)
         }
-        let (window, host) = try matrixWindow(view, size: NSSize(width: 880, height: 520))
+        let (window, host) = try matrixWindow("Matrix Week", view, size: NSSize(width: 880, height: 520))
         defer { window.close() }
-        await mxSettle(1.1)
+        await mxReady(1.4)
+        let root = try mxRoot("Matrix Week")
         try report.require(window.makeFirstResponder(destinations.before), "week fixture starts from a field")
 
         // The Inbox toggle is a real keyboard action with a visible consequence.
         let inboxTitle = AppL10n.format("Inbox (%lld)", fixture.store.engine.tasks(on: .inbox).count)
-        var traversal: [String] = []
-        var reached = false
-        for _ in 0..<24 {
-            try await mxKey(window, 48, "\t")
-            traversal.append(mxFocusIdentity(window) ?? "none")
-            if mxFocusIdentity(window) == "week-inbox" {
-                reached = true
-                break
-            }
+        _ = try await tabUntil(window, limit: 28, tag: "weekKeyboardTraversal") { identity, _ in
+            identity == "week-inbox"
         }
-        report.record("weekKeyboardTraversal", traversal)
-        try report.require(reached, "Tab reaches the Inbox toggle", "traversal \(traversal)")
-        try report.require(mxHas(host, inboxTitle), "week header shows the Inbox count", "expected \(inboxTitle)")
+        try report.require(true, "Tab reaches the Inbox toggle")
+        try report.require(mxHas(root, inboxTitle), "week header shows the Inbox count", "expected \(inboxTitle)")
         try await mxKey(window, 49, " ")
-        await mxSettle(0.8)
+        await mxReady(0.8)
         try report.require(
-            mxHas(host, AppL10n.text("Back to week")), "Space on the Inbox toggle swaps the week for the Inbox",
-            "texts \(mxText(host).prefix(14))")
+            mxHas(root, AppL10n.text("Back to week")), "Space on the Inbox toggle swaps the week for the Inbox",
+            "texts \(mxText(root).prefix(18))")
         try await mxKey(window, 49, " ")
-        await mxSettle(0.8)
-        try report.require(mxHas(host, inboxTitle), "Space returns to the week view")
+        await mxReady(0.8)
+        try report.require(mxHas(root, inboxTitle), "Space returns to the week view")
 
         // The task-line menu: a real key press opens a real native menu, Escape closes it, and
         // focus returns to the control that opened it.
         let menuID = "week-menu-\(task.id)"
-        var menuTraversal: [String] = []
-        var menuFocused = false
-        for _ in 0..<40 {
-            try await mxKey(window, 48, "\t")
-            menuTraversal.append(mxFocusIdentity(window) ?? "none")
-            if mxFocusIdentity(window) == menuID {
-                menuFocused = true
-                break
-            }
+        _ = try await tabUntil(window, limit: 40, tag: "weekMenuTraversal") { identity, _ in
+            identity == menuID
         }
-        report.record("weekMenuTraversal", menuTraversal)
-        try report.require(menuFocused, "Tab reaches the task-line actions menu", "traversal \(menuTraversal)")
+        try report.require(true, "Tab reaches the task-line actions menu")
         let tasksBefore = fixture.store.planner.tasks.map { "\($0.id)-\($0.title)-\($0.done)" }
 
         let observation = MatrixMenuObservation()
@@ -1105,20 +1185,20 @@ final class AllPageMatrix {
         defer { observation.stop() }
         try await mxKey(window, 49, " ")
         guard let menu = await observation.waitForMenu() else {
+            mxDumpAX(root, "week-menu")
             throw MatrixFailure(label: "Space did not open the task-line menu")
         }
         let titles = menu.items.map { $0.title }
         try report.require(
             titles.contains(AppL10n.text("Details…")), "task-line menu opens with Details", "items \(titles)")
-        try report.require(
-            titles.contains(AppL10n.text("Move to day")), "task-line menu opens with Move to day")
+        try report.require(titles.contains(AppL10n.text("Move to day")), "task-line menu opens with Move to day")
         try report.require(
             menu.items.contains { $0.title == AppL10n.text("Delete") && $0.isEnabled },
             "task-line menu opens with an enabled Delete")
         try await mxKey(window, 53, "\u{1b}")
         observation.cancel()
-        await mxSettle(0.7)
-        try mxAssertFocused(window, menuID, "Escape returns focus to the task-line menu control", report: report)
+        await mxReady(0.7)
+        try mxAssertFocused(menuID, "Escape returns focus to the task-line menu control", report: report)
         try report.require(
             fixture.store.planner.tasks.map { "\($0.id)-\($0.title)-\($0.done)" } == tasksBefore,
             "opening and cancelling the menu never mutates the task")
@@ -1126,15 +1206,15 @@ final class AllPageMatrix {
         // Nested Escape: the task line opens a sheet over the page; Escape dismisses it and the
         // task line stays intact with keyboard focus usable again.
         fixture.model.detailsTaskID = task.id
-        await mxSettle(1.4)
+        await mxReady(1.4)
         guard let sheet = window.attachedSheet else {
             throw MatrixFailure(label: "week details sheet did not attach")
         }
         try report.require(
-            mxHas(sheet, AppL10n.text("Task details")), "week details sheet shows the editable state",
-            "texts \(mxText(sheet).prefix(14))")
+            mxHas(root, AppL10n.text("Task details")), "week details sheet shows the editable state",
+            "texts \(mxText(root).prefix(18))")
         try await mxKey(sheet, 53, "\u{1b}")
-        await mxSettle(1.2)
+        await mxReady(1.2)
         try report.require(window.attachedSheet == nil, "nested Escape dismisses the details sheet")
         try report.require(window.isKeyWindow, "week panel returns to key after the sheet closes")
         try report.require(
@@ -1163,27 +1243,20 @@ final class AllPageMatrix {
                 .environment(\.colorScheme, .dark)
                 .frame(width: 820, height: 360)
         }
-        let (window, host) = try matrixWindow(view, size: NSSize(width: 880, height: 440))
+        let (window, host) = try matrixWindow("Matrix Clips", view, size: NSSize(width: 880, height: 440))
         defer { window.close() }
-        await mxSettle(1.1)
+        await mxReady(1.4)
+        let root = try mxRoot("Matrix Clips")
         try report.require(window.makeFirstResponder(destinations.before), "clips fixture starts from a field")
 
         // Keyboard copy: Space on the focused copy control, into the recording pasteboard.
         let copyLabel = AppL10n.format("Copy %@", first.title)
-        var traversal: [String] = []
-        var reached = false
-        for _ in 0..<24 {
-            try await mxKey(window, 48, "\t")
-            traversal.append(mxFocusIdentity(window) ?? "none")
-            if mxFocusIdentity(window) == copyLabel {
-                reached = true
-                break
-            }
+        _ = try await tabUntil(window, limit: 28, tag: "clipsCopyTraversal") { identity, _ in
+            identity == copyLabel
         }
-        report.record("clipsCopyTraversal", traversal)
-        try report.require(reached, "Tab reaches the clip copy control", "traversal \(traversal)")
+        try report.require(true, "Tab reaches the clip copy control")
         try await mxKey(window, 49, " ")
-        await mxSettle(0.6)
+        await mxReady(0.6)
         try report.require(
             pasteboard.writes.count == 1, "Space copies the clip once", "writes \(pasteboard.writes.count)")
         if case .text(let value)? = pasteboard.writes.first {
@@ -1197,24 +1270,17 @@ final class AllPageMatrix {
 
         // Actions menu: real key presses open and cancel a real NSMenu, and focus comes back.
         let actionsID = "clips.actions.\(first.id)"
-        var menuTraversal: [String] = []
-        var menuReached = false
-        for _ in 0..<24 {
-            try await mxKey(window, 48, "\t")
-            menuTraversal.append(mxFocusIdentity(window) ?? "none")
-            if mxFocusIdentity(window) == actionsID {
-                menuReached = true
-                break
-            }
+        _ = try await tabUntil(window, limit: 28, tag: "clipsMenuTraversal") { identity, _ in
+            identity == actionsID
         }
-        report.record("clipsMenuTraversal", menuTraversal)
-        try report.require(menuReached, "Tab reaches the clip actions menu", "traversal \(menuTraversal)")
+        try report.require(true, "Tab reaches the clip actions menu")
         let pinnedBefore = clips.clips.map { $0.pinned }
         let observation = MatrixMenuObservation()
         observation.start()
         defer { observation.stop() }
         try await mxKey(window, 49, " ")
         guard let menu = await observation.waitForMenu() else {
+            mxDumpAX(root, "clips-menu")
             throw MatrixFailure(label: "Space did not open the clip actions menu")
         }
         let titles = menu.items.map { $0.title }
@@ -1222,8 +1288,8 @@ final class AllPageMatrix {
         try report.require(titles.contains(AppL10n.text("Remove")), "clip actions menu opens with Remove")
         try await mxKey(window, 53, "\u{1b}")
         observation.cancel()
-        await mxSettle(0.7)
-        try mxAssertFocused(window, actionsID, "Escape returns focus to the clip actions menu", report: report)
+        await mxReady(0.7)
+        try mxAssertFocused(actionsID, "Escape returns focus to the clip actions menu", report: report)
         try report.require(clips.clips.map { $0.pinned } == pinnedBefore, "opening and cancelling never pins a clip")
         try mxSave(host, output.appendingPathComponent("clips-keyboard.png"))
     }
@@ -1249,17 +1315,21 @@ final class AllPageMatrix {
             .environment(\.dynamicTypeSize, size)
             .environment(\.colorScheme, .dark)
             .frame(width: 420, height: 200)
-            let (window, host) = try matrixWindow(view, size: NSSize(width: 440, height: 230))
-            await mxSettle(1.2)
+            let (window, host) = try matrixWindow(
+                "Matrix Enlarged \(name)", view, size: NSSize(width: 440, height: 230))
+            await mxReady(1.4)
+            let root = try mxRoot("Matrix Enlarged \(name)")
             let statusTitle = PermissionState.unavailable.title
-            guard let status = mxFind(host, label: statusTitle) else {
+            guard let status = mxFind(root, name: statusTitle) else {
+                mxDumpAX(root, "enlarged-\(name)")
                 window.close()
                 throw MatrixFailure(label: "no \(statusTitle) status label at \(name)")
             }
-            let frame = mxHostRect(status, window: window, host: host)
+            let frame = mxHostRect(mxFrame(status), window: window, host: host)
             let bitmap = try mxBitmap(host)
             let rows = mxInkRows(bitmap, host: host, band: frame, ink: warningInk)
-            let fixedFrame = mxHostRect(try mxIdentified(host, "matrix-fixed-label"), window: window, host: host)
+            let fixedFrame = mxHostRect(
+                mxFrame(try mxIdentified(root, "matrix-fixed-label")), window: window, host: host)
             let fixedRows = mxInkRows(bitmap, host: host, band: fixedFrame, ink: warningInk)
             try mxSave(host, output.appendingPathComponent("enlarged-\(name).png"))
             measurements[name] = [
@@ -1300,6 +1370,9 @@ final class AllPageMatrix {
     func contrastStates() async throws {
         let fixture = try MatrixFixture()
         defer { fixture.close() }
+        let increased = UserDefaults(suiteName: "com.apple.universalaccess")?.bool(forKey: "increaseContrast") ?? false
+        report.record("increaseContrastPreference", increased)
+        try report.require(increased, "the runner is in the system increase-contrast state")
         var rows: [[String: Any]] = []
         for (mode, appearanceName, scheme, bodyInk, lowInk) in [
             (
@@ -1324,20 +1397,23 @@ final class AllPageMatrix {
             .padding(12)
             .environment(\.colorScheme, scheme)
             .frame(width: 420, height: 190)
-            let (window, host) = try matrixWindow(view, size: NSSize(width: 440, height: 220), appearance: appearance)
-            await mxSettle(1.2)
+            let (window, host) = try matrixWindow(
+                "Matrix Contrast \(mode)", view, size: NSSize(width: 440, height: 220), appearance: appearance)
+            await mxReady(1.4)
+            let root = try mxRoot("Matrix Contrast \(mode)")
             let effective = window.effectiveAppearance.name.rawValue
             try report.require(
                 effective == appearanceName.rawValue, "\(mode) window runs in the increased-contrast appearance",
                 "effective \(effective)")
             let detail = AppL10n.text(
                 "Allow reminder and timer alerts. Delivery also depends on macOS notification and Focus settings.")
-            guard let detailNode = mxFind(host, label: detail) else {
+            guard let detailNode = mxFind(root, name: detail) else {
+                mxDumpAX(root, "contrast-\(mode)")
                 window.close()
                 throw MatrixFailure(label: "no permission detail text at \(mode)")
             }
             let bitmap = try mxBitmap(host)
-            let detailRect = mxHostRect(detailNode, window: window, host: host)
+            let detailRect = mxHostRect(mxFrame(detailNode), window: window, host: host)
             guard let background = mxDominant(bitmap, host: host, band: detailRect),
                 let ink = mxInkSample(bitmap, host: host, band: detailRect, near: bodyInk)
             else {
@@ -1346,11 +1422,11 @@ final class AllPageMatrix {
             }
             let ratio = mxContrast(ink, background)
             try report.require(
-                ratio >= 4.5, "\(mode) renders body text above 4.5:1",
-                "measured \(String(format: "%.2f", ratio))")
+                ratio >= 4.5, "\(mode) renders body text above 4.5:1", "measured \(String(format: "%.2f", ratio))")
 
             // Negative control: the same measurement must flag a genuinely low-contrast label.
-            let lowRect = mxHostRect(try mxIdentified(host, "matrix-low-contrast"), window: window, host: host)
+            let lowRect = mxHostRect(
+                mxFrame(try mxIdentified(root, "matrix-low-contrast")), window: window, host: host)
             if let lowBackground = mxDominant(bitmap, host: host, band: lowRect),
                 let lowSample = mxInkSample(bitmap, host: host, band: lowRect, near: lowInk)
             {
