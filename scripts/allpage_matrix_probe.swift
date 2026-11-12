@@ -113,48 +113,154 @@ final class MatrixReport {
 
 // MARK: - System accessibility layer
 
-// A process may read its own accessibility tree through the system API without any trust
-// prompt. SwiftUI builds that tree on demand, so every query starts from the application
-// element rather than from the hosting view's in-process children.
+// Self-addressed AX requests must run while the main runloop is free to answer them.
+// Only Sendable value snapshots cross back; no CF/AX object leaves the detached task.
+struct MatrixElement: Hashable, Sendable { let id: UInt }
 
-@MainActor
-func mxApp() -> AXUIElement {
-    let app = AXUIElementCreateApplication(getpid())
-    // A self-addressed accessibility request must fail fast rather than wait for a runloop
-    // that this thread is holding.
-    AXUIElementSetMessagingTimeout(app, 5)
-    return app
+struct MatrixAXNode: Sendable {
+    var strings: [String: String] = [:]
+    var edges: [String: [MatrixElement]] = [:]
+    var enabled: Bool?
+    var frame: CGRect = .zero
+}
+
+struct MatrixAXSnapshot: Sendable {
+    var app = MatrixElement(id: 0)
+    var focused: MatrixElement?
+    var nodes: [MatrixElement: MatrixAXNode] = [:]
+}
+
+/// All native AX calls are confined to this nonisolated reader.
+enum MatrixAXReader {
+    static func raw(_ element: AXUIElement, _ attribute: String, trace: Bool = false) -> CFTypeRef? {
+        precondition(!Thread.isMainThread, "self-addressed AX read on the main thread")
+        var value: CFTypeRef?
+        let error = AXUIElementCopyAttributeValue(element, attribute as CFString, &value)
+        if trace || error != .success {
+            mxLog("AX copy \(attribute) error=\(error.rawValue)")
+        }
+        return error == .success ? value : nil
+    }
+
+    static func elements(_ element: AXUIElement, _ attribute: String, trace: Bool = false) -> [AXUIElement] {
+        (raw(element, attribute, trace: trace) as? [AXUIElement]) ?? []
+    }
+
+    static func handle(_ element: AXUIElement) -> MatrixElement { MatrixElement(id: CFHash(element)) }
+
+    static func read(smoke: Bool = false) -> MatrixAXSnapshot {
+        precondition(!Thread.isMainThread, "self-addressed AX snapshot on the main thread")
+        if smoke { mxLog("ax smoke: creating the application element off-main") }
+        let app = AXUIElementCreateApplication(getpid())
+        var result = MatrixAXSnapshot()
+        result.app = handle(app)
+        if smoke { mxLog("ax smoke: reading the window list") }
+        let windows = elements(app, kAXWindowsAttribute as String, trace: smoke)
+        if smoke { mxLog("ax smoke: windows \(windows.count)") }
+        let focusRaw = raw(app, kAXFocusedUIElementAttribute as String, trace: smoke)
+        var focused: AXUIElement?
+        if let focusRaw, CFGetTypeID(focusRaw) == AXUIElementGetTypeID() {
+            focused = unsafeBitCast(focusRaw, to: AXUIElement.self)
+            result.focused = focused.map(handle)
+        }
+        var root = MatrixAXNode()
+        root.edges[kAXWindowsAttribute as String] = windows.map(handle)
+        root.edges[kAXChildrenAttribute as String] = windows.map(handle)
+        result.nodes[result.app] = root
+        var stack = windows.map { ($0, 0) }
+        if let focused { stack.append((focused, 0)) }
+        while let (element, depth) = stack.popLast() {
+            let key = handle(element)
+            if result.nodes[key] != nil { continue }
+            if result.nodes.count >= 3000 { break }
+            var names: CFArray?
+            let namesError = AXUIElementCopyAttributeNames(element, &names)
+            if namesError != .success { mxLog("AX names error=\(namesError.rawValue)") }
+            let supported = Set((names as? [String]) ?? [])
+            var node = MatrixAXNode()
+            for attribute in [
+                kAXRoleAttribute, kAXIdentifierAttribute, kAXDescriptionAttribute,
+                kAXTitleAttribute, kAXValueAttribute, kAXHelpAttribute,
+            ] {
+                let name = attribute as String
+                if supported.contains(name), let value = raw(element, name) as? String, !value.isEmpty {
+                    node.strings[name] = value
+                }
+            }
+            if supported.contains(kAXEnabledAttribute as String) {
+                node.enabled = raw(element, kAXEnabledAttribute as String) as? Bool
+            }
+            var origin = CGPoint.zero
+            var size = CGSize.zero
+            if supported.contains(kAXPositionAttribute as String),
+                let value = raw(element, kAXPositionAttribute as String), CFGetTypeID(value) == AXValueGetTypeID()
+            {
+                _ = AXValueGetValue(unsafeBitCast(value, to: AXValue.self), .cgPoint, &origin)
+            }
+            if supported.contains(kAXSizeAttribute as String),
+                let value = raw(element, kAXSizeAttribute as String), CFGetTypeID(value) == AXValueGetTypeID()
+            {
+                _ = AXValueGetValue(unsafeBitCast(value, to: AXValue.self), .cgSize, &size)
+            }
+            node.frame = CGRect(origin: origin, size: size)
+            if supported.contains(kAXChildrenAttribute as String) {
+                let children = elements(element, kAXChildrenAttribute as String, trace: smoke)
+                node.edges[kAXChildrenAttribute as String] = children.map(handle)
+                if depth < 40 { stack.append(contentsOf: children.reversed().map { ($0, depth + 1) }) }
+            }
+            result.nodes[key] = node
+        }
+        if smoke { mxLog("ax smoke: snapshot nodes \(result.nodes.count), done") }
+        return result
+    }
+
+    // Used only by the existing Welcome CTA check, never to substitute for a key event.
+    static func press(_ target: MatrixElement) -> Int32 {
+        let app = AXUIElementCreateApplication(getpid())
+        var stack = elements(app, kAXWindowsAttribute as String)
+        var visited: Set<MatrixElement> = []
+        while let element = stack.popLast() {
+            let key = handle(element)
+            guard visited.insert(key).inserted, visited.count <= 3000 else { continue }
+            if key == target { return AXUIElementPerformAction(element, kAXPressAction as CFString).rawValue }
+            stack.append(contentsOf: elements(element, kAXChildrenAttribute as String))
+        }
+        return AXError.invalidUIElement.rawValue
+    }
 }
 
 @MainActor
-func mxRaw(_ element: AXUIElement, _ attribute: String) -> CFTypeRef? {
-    MatrixMark.firstAccessibilityRead()
-    var value: CFTypeRef?
-    guard AXUIElementCopyAttributeValue(element, attribute as CFString, &value) == .success else { return nil }
-    return value
+enum MatrixAX {
+    static var snapshot = MatrixAXSnapshot()
+    static func refresh() async {
+        MatrixMark.firstAccessibilityRead()
+        snapshot = await Task.detached { MatrixAXReader.read() }.value
+    }
 }
 
 @MainActor
-func mxString(_ element: AXUIElement, _ attribute: String) -> String? {
-    guard let value = mxRaw(element, attribute) as? String, !value.isEmpty else { return nil }
-    return value
+func mxApp() -> MatrixElement { MatrixAX.snapshot.app }
+
+@MainActor
+func mxString(_ element: MatrixElement, _ attribute: String) -> String? {
+    MatrixAX.snapshot.nodes[element]?.strings[attribute]
 }
 
 @MainActor
-func mxElements(_ element: AXUIElement, _ attribute: String) -> [AXUIElement] {
-    (mxRaw(element, attribute) as? [AXUIElement]) ?? []
+func mxElements(_ element: MatrixElement, _ attribute: String) -> [MatrixElement] {
+    MatrixAX.snapshot.nodes[element]?.edges[attribute] ?? []
 }
 
 @MainActor
-func mxEnabled(_ element: AXUIElement) -> Bool? { mxRaw(element, kAXEnabledAttribute as String) as? Bool }
+func mxEnabled(_ element: MatrixElement) -> Bool? { MatrixAX.snapshot.nodes[element]?.enabled }
 
 @MainActor
-func mxChildren(_ element: AXUIElement) -> [AXUIElement] { mxElements(element, kAXChildrenAttribute as String) }
+func mxChildren(_ element: MatrixElement) -> [MatrixElement] { mxElements(element, kAXChildrenAttribute as String) }
 
 @MainActor
-func mxTree(_ root: AXUIElement, limit: Int = 3000) -> [AXUIElement] {
-    var found: [AXUIElement] = []
-    var stack: [(AXUIElement, Int)] = [(root, 0)]
+func mxTree(_ root: MatrixElement, limit: Int = 3000) -> [MatrixElement] {
+    var found: [MatrixElement] = []
+    var stack: [(MatrixElement, Int)] = [(root, 0)]
     while let (element, depth) = stack.popLast() {
         found.append(element)
         if found.count >= limit { break }
@@ -166,15 +272,15 @@ func mxTree(_ root: AXUIElement, limit: Int = 3000) -> [AXUIElement] {
 }
 
 @MainActor
-func mxRole(_ element: AXUIElement) -> String? { mxString(element, kAXRoleAttribute as String) }
+func mxRole(_ element: MatrixElement) -> String? { mxString(element, kAXRoleAttribute as String) }
 
 @MainActor
-func mxIdentifier(_ element: AXUIElement) -> String? { mxString(element, kAXIdentifierAttribute as String) }
+func mxIdentifier(_ element: MatrixElement) -> String? { mxString(element, kAXIdentifierAttribute as String) }
 
 /// Every name a control is known by. Static text carries its string in the value attribute,
 /// buttons in the title, and SwiftUI labels in the description.
 @MainActor
-func mxNames(_ element: AXUIElement) -> [String] {
+func mxNames(_ element: MatrixElement) -> [String] {
     [
         kAXDescriptionAttribute as String, kAXTitleAttribute as String,
         kAXValueAttribute as String, kAXHelpAttribute as String,
@@ -182,40 +288,20 @@ func mxNames(_ element: AXUIElement) -> [String] {
 }
 
 @MainActor
-func mxName(_ element: AXUIElement) -> String? { mxNames(element).first }
+func mxName(_ element: MatrixElement) -> String? { mxNames(element).first }
 
 @MainActor
-func mxFrame(_ element: AXUIElement) -> NSRect {
-    func point(_ attribute: String) -> CGPoint? {
-        guard let raw = mxRaw(element, attribute), CFGetTypeID(raw) == AXValueGetTypeID() else { return nil }
-        var value = CGPoint.zero
-        guard AXValueGetValue(unsafeBitCast(raw, to: AXValue.self), .cgPoint, &value) else { return nil }
-        return value
-    }
-    func size(_ attribute: String) -> CGSize? {
-        guard let raw = mxRaw(element, attribute), CFGetTypeID(raw) == AXValueGetTypeID() else { return nil }
-        var value = CGSize.zero
-        guard AXValueGetValue(unsafeBitCast(raw, to: AXValue.self), .cgSize, &value) else { return nil }
-        return value
-    }
-    guard let origin = point(kAXPositionAttribute as String), let area = size(kAXSizeAttribute as String) else {
-        return .zero
-    }
-    return NSRect(origin: origin, size: area)
-}
+func mxFrame(_ element: MatrixElement) -> NSRect { MatrixAX.snapshot.nodes[element]?.frame ?? .zero }
 
 @MainActor
-func mxRoot(_ title: String) throws -> AXUIElement {
+func mxRoot(_ title: String) throws -> MatrixElement {
     let windows = mxElements(mxApp(), kAXWindowsAttribute as String)
     for window in windows where mxString(window, kAXTitleAttribute as String) == title { return window }
     throw MatrixFailure(label: "no accessibility window titled \(title) (\(windows.count) windows)")
 }
 
 @MainActor
-func mxFocusedElement() -> AXUIElement? {
-    guard let value = mxRaw(mxApp(), kAXFocusedUIElementAttribute as String) else { return nil }
-    return unsafeBitCast(value, to: AXUIElement.self)
-}
+func mxFocusedElement() -> MatrixElement? { MatrixAX.snapshot.focused }
 
 @MainActor
 func mxFocusIdentity() -> String? {
@@ -230,35 +316,35 @@ func mxFocusedRole() -> String? {
 }
 
 @MainActor
-func mxPress(_ element: AXUIElement) throws {
+func mxPress(_ element: MatrixElement) async throws {
     MatrixStage.mark("AX press \(mxIdentifier(element) ?? mxRole(element) ?? "control")")
-    let error = AXUIElementPerformAction(element, kAXPressAction as CFString)
-    guard error == .success else { throw MatrixFailure(label: "AX press refused (\(error.rawValue))") }
+    let error = await Task.detached { MatrixAXReader.press(element) }.value
+    guard error == AXError.success.rawValue else { throw MatrixFailure(label: "AX press refused (\(error))") }
 }
 
 @MainActor
-func mxText(_ root: AXUIElement) -> [String] { mxTree(root).flatMap { mxNames($0) } }
+func mxText(_ root: MatrixElement) -> [String] { mxTree(root).flatMap { mxNames($0) } }
 
 @MainActor
-func mxHas(_ root: AXUIElement, _ text: String) -> Bool { mxText(root).contains(text) }
+func mxHas(_ root: MatrixElement, _ text: String) -> Bool { mxText(root).contains(text) }
 
 @MainActor
-func mxHasContaining(_ root: AXUIElement, _ fragment: String) -> Bool {
+func mxHasContaining(_ root: MatrixElement, _ fragment: String) -> Bool {
     mxText(root).contains { $0.contains(fragment) }
 }
 
 @MainActor
-func mxStaticText(_ root: AXUIElement) -> [String] {
+func mxStaticText(_ root: MatrixElement) -> [String] {
     mxTree(root).filter { mxRole($0) == "AXStaticText" }.compactMap { mxName($0) }
 }
 
 @MainActor
-func mxFind(_ root: AXUIElement, name: String) -> AXUIElement? {
+func mxFind(_ root: MatrixElement, name: String) -> MatrixElement? {
     mxTree(root).first { mxNames($0).contains(name) }
 }
 
 @MainActor
-func mxIdentified(_ root: AXUIElement, _ identifier: String) throws -> AXUIElement {
+func mxIdentified(_ root: MatrixElement, _ identifier: String) throws -> MatrixElement {
     let matches = mxTree(root).filter { mxIdentifier($0) == identifier }
     guard matches.count == 1, let element = matches.first else {
         throw MatrixFailure(label: "expected one \(identifier), saw \(matches.count)")
@@ -269,12 +355,12 @@ func mxIdentified(_ root: AXUIElement, _ identifier: String) throws -> AXUIEleme
 /// Sheet content is either a child of its parent window or its own window entry; both live in
 /// the application tree, and these strings exist nowhere else.
 @MainActor
-func mxHasInApp(_ root: AXUIElement, _ text: String) -> Bool {
+func mxHasInApp(_ root: MatrixElement, _ text: String) -> Bool {
     mxHas(root, text) || mxHas(mxApp(), text)
 }
 
 @MainActor
-func mxIdentifiedInApp(_ root: AXUIElement, _ identifier: String) -> AXUIElement? {
+func mxIdentifiedInApp(_ root: MatrixElement, _ identifier: String) -> MatrixElement? {
     mxTree(root).first { mxIdentifier($0) == identifier }
         ?? mxTree(mxApp()).first { mxIdentifier($0) == identifier }
 }
@@ -286,7 +372,7 @@ func mxAssertFocused(_ identity: String, _ label: String, report: MatrixReport) 
 }
 
 @MainActor
-func mxDumpAX(_ root: AXUIElement, _ tag: String) {
+func mxDumpAX(_ root: MatrixElement, _ tag: String) {
     let lines: [String] = mxTree(root).compactMap { element in
         guard let role = mxRole(element) else { return nil }
         let identifier = mxIdentifier(element) ?? ""
@@ -335,6 +421,7 @@ func mxKey(_ window: NSWindow, _ code: UInt16, _ characters: String, modifiers: 
 func mxSettle(_ seconds: Double = 0.2) async {
     try? await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
     NSApp.windows.forEach { $0.contentView?.layoutSubtreeIfNeeded() }
+    await MatrixAX.refresh()
 }
 
 /// Settle, then read the application tree once so AppKit materialises the accessibility tree.
@@ -731,7 +818,7 @@ final class AllPageMatrix {
         report.finish(output: output)
     }
 
-    func writeAX(_ root: AXUIElement, _ url: URL) throws {
+    func writeAX(_ root: MatrixElement, _ url: URL) throws {
         let rows: [[String: Any]] = mxTree(root).compactMap { element in
             guard let role = mxRole(element) else { return nil }
             return [
@@ -814,7 +901,7 @@ final class AllPageMatrix {
         report.record("settingsPaneSignatures", signatures)
     }
 
-    func selectPane(_ pane: SettingsView.Pane, window: NSWindow, host: NSView, root: AXUIElement) throws {
+    func selectPane(_ pane: SettingsView.Pane, window: NSWindow, host: NSView, root: MatrixElement) throws {
         let title = pane.title
         let nodes = mxTree(root)
         let rows = nodes.filter { (mxRole($0) ?? "").contains("Row") }
@@ -1111,7 +1198,7 @@ final class AllPageMatrix {
             mxDumpAX(root, "welcome")
             throw MatrixFailure(label: "welcome has no Open workspace action")
         }
-        try mxPress(cta)
+        try await mxPress(cta)
         await mxReady(0.5)
         try report.require(opened == 1, "welcome opens the workspace without any permission")
         try mxSave(host, output.appendingPathComponent("welcome-failure-state.png"))
@@ -1552,30 +1639,22 @@ UserDefaults.standard.setVolatileDomain(matrixArguments, forName: UserDefaults.a
 /// One accessibility read per API, nothing else: if the process traps here the fault is the AX
 /// API itself rather than any measurement.
 @MainActor
-func matrixAccessibilitySmoke() -> Never {
-    mxLog("ax smoke: creating the application element")
-    let app = mxApp()
-    mxLog("ax smoke: reading the window list")
-    let windows = mxElements(app, kAXWindowsAttribute as String)
-    mxLog("ax smoke: windows \(windows.count)")
-    guard let first = windows.first else {
-        mxLog("ax smoke: no windows to read")
-        exit(0)
-    }
-    mxLog("ax smoke: reading the window title")
-    mxLog("ax smoke: title \(mxString(first, kAXTitleAttribute as String) ?? "none")")
-    mxLog("ax smoke: reading the window children")
-    let children = mxElements(first, kAXChildrenAttribute as String)
-    mxLog("ax smoke: children \(children.count)")
-    if let element = children.first {
-        mxLog("ax smoke: first child role \(mxRole(element) ?? "none")")
-    }
-    mxLog("ax smoke: done")
-    exit(0)
+func matrixAccessibilitySmoke() async -> Never {
+    // A real visible window makes an empty snapshot a failure, not a passing smoke.
+    let (window, _) = try! matrixWindow(
+        "Matrix AX smoke", Text("Matrix AX smoke control"), size: NSSize(width: 320, height: 160))
+    await Task.yield()
+    MatrixMark.firstAccessibilityRead()
+    let snapshot = await Task.detached { MatrixAXReader.read(smoke: true) }.value
+    let windows = snapshot.nodes[snapshot.app]?.edges[kAXWindowsAttribute as String] ?? []
+    let hasWindow = windows.contains { snapshot.nodes[$0]?.strings[kAXTitleAttribute as String] == window.title }
+    mxLog("ax smoke: expected window observed=\(hasWindow)")
+    window.close()
+    exit(hasWindow ? 0 : 1)
 }
 
 Task { @MainActor in
-    if CommandLine.arguments.contains("--ax-smoke") { matrixAccessibilitySmoke() }
+    if CommandLine.arguments.contains("--ax-smoke") { await matrixAccessibilitySmoke() }
     MatrixStage.startWatchdog()
     let output =
         ProcessInfo.processInfo.environment["MATRIX_OUTPUT"].map { URL(fileURLWithPath: $0) }
