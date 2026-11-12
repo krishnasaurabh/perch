@@ -10,6 +10,22 @@ import SwiftUI
 /// All storage is synthetic; this fixture refuses permission-enabled hosts.
 private final class WorkspaceNavigationProbe {
     @MainActor
+    func testTabEventConstruction() throws {
+        for type in [NSEvent.EventType.keyDown, .keyUp] {
+            let forward = try workspaceKeyEvent(48, "\t", type: type, modifiers: [], windowNumber: 0)
+            let backward = try workspaceKeyEvent(48, "\t", type: type, modifiers: .shift, windowNumber: 0)
+            try requireEqual(forward.characters, "\t")
+            try requireEqual(forward.charactersIgnoringModifiers, "\t")
+            try requireEqual(backward.characters, "\u{19}")
+            try requireEqual(backward.charactersIgnoringModifiers, "\u{19}")
+            try requireFalse(backward.characters == forward.characters, "Back-tab must not encode forward Tab")
+            try requireEqual(backward.modifierFlags, .shift)
+            try requireEqual(backward.type, type)
+            try requireEqual(backward.keyCode, 48)
+        }
+    }
+
+    @MainActor
     func testKeyboardGroupSelectionTargetsAndMeasuredFocusAtCompactAndWideWidths() async throws {
         for width in [760.0, 1024.0] {
             let fixture = try WorkspaceNavigationFixture(width: width)
@@ -63,6 +79,7 @@ private final class WorkspaceNavigationProbe {
             try requireEqual(fixture.model.page, .home, "Tab does not activate another page")
             try await fixture.key(48, "\t", modifiers: .shift)
             try fixture.assertFocused("workspace-page-home")
+            try fixture.assertFocusRing(.home)
             try await fixture.key(48, "\t", modifiers: .shift)
             try require(fixture.destinations.before.currentEditor() === fixture.window.firstResponder)
             try await fixture.key(48, "\t")
@@ -72,6 +89,7 @@ private final class WorkspaceNavigationProbe {
             try fixture.assertFocused("workspace-more")
             try await fixture.key(48, "\t", modifiers: .shift)
             try fixture.assertFocused("workspace-page-insights")
+            try fixture.assertFocusRing(.insights)
 
             // Space activates the focused page, not the neighbouring menu or page.
             try await fixture.key(49, " ")
@@ -207,12 +225,12 @@ private final class WorkspaceNavigationFixture {
 
     func key(_ code: UInt16, _ characters: String, modifiers: NSEvent.ModifierFlags = []) async throws {
         for type in [NSEvent.EventType.keyDown, .keyUp] {
-            let event = try unwrap(
-                NSEvent.keyEvent(
-                    with: type, location: .zero, modifierFlags: modifiers,
-                    timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber,
-                    context: nil, characters: characters, charactersIgnoringModifiers: characters,
-                    isARepeat: false, keyCode: code))
+            let event = try workspaceKeyEvent(
+                code, characters, type: type, modifiers: modifiers, windowNumber: window.windowNumber)
+            report(
+                "Workspace key event code=\(code) type=\(type.rawValue) modifiers=\(modifiers.rawValue) "
+                    + "characters=\(event.characters?.unicodeScalars.map(\.value) ?? []) "
+                    + "ignoringModifiers=\(event.charactersIgnoringModifiers?.unicodeScalars.map(\.value) ?? [])")
             NSApp.sendEvent(event)
         }
         await settle()
@@ -497,6 +515,22 @@ private struct WorkspaceNavigationHost: View {
     }
 }
 
+@MainActor
+private func workspaceKeyEvent(
+    _ code: UInt16, _ characters: String, type: NSEvent.EventType,
+    modifiers: NSEvent.ModifierFlags, windowNumber: Int
+) throws -> NSEvent {
+    // AppKit represents Shift-Tab with the back-tab character in BOTH fields.
+    // charactersIgnoringModifiers still preserves Shift; flags alone are insufficient.
+    let eventCharacters = code == 48 && modifiers.contains(.shift) ? "\u{19}" : characters
+    return try unwrap(
+        NSEvent.keyEvent(
+            with: type, location: .zero, modifierFlags: modifiers,
+            timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: windowNumber,
+            context: nil, characters: eventCharacters, charactersIgnoringModifiers: eventCharacters,
+            isARepeat: false, keyCode: code))
+}
+
 private func failure(_ message: String, file: StaticString, line: UInt) -> WorkspaceNavigationError {
     .assertion(message, String(describing: file), line)
 }
@@ -569,6 +603,8 @@ let application = NSApplication.shared
 Task { @MainActor in
     do {
         let probe = WorkspaceNavigationProbe()
+        try probe.testTabEventConstruction()
+        report("PASS: workspace native forward/back-tab event construction")
         try await probe.testKeyboardGroupSelectionTargetsAndMeasuredFocusAtCompactAndWideWidths()
         report("PASS: workspace keyboard, selection, targets, layout and focus rings at 760pt and 1024pt")
         try await probe.testPassivePresentationAndPageActivationDoNotStealKeyWindow()

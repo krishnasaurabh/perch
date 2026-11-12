@@ -57,6 +57,95 @@ print("Workspace assertion positive and negative controls passed")
             result = subprocess.run([str(binary)], check=True, capture_output=True, text=True)
             self.assertIn("positive and negative controls passed", result.stdout)
 
+    def test_tab_event_characters_and_reject_either_forward_tab_field(self):
+        source = (ROOT / "scripts/workspace_navigation_probe.swift").read_text()
+        constructor = source.split("@MainActor\nprivate func workspaceKeyEvent(", 1)[1].split("private func failure(", 1)[0]
+        helpers = source.split("private func failure(", 1)[1].split("let application =", 1)[0]
+        # Compile the actual event constructor with a data-only NSEvent adapter.
+        # The native preflight and UI traversal separately exercise real AppKit.
+        adapter = r"""
+import Foundation
+private struct NSEvent {
+    enum EventType { case keyDown, keyUp }
+    struct ModifierFlags: OptionSet, Sendable {
+        let rawValue: UInt
+        static let shift = Self(rawValue: 1 << 17)
+    }
+    let type: EventType
+    let modifierFlags: ModifierFlags
+    let windowNumber: Int
+    let characters: String?
+    let charactersIgnoringModifiers: String?
+    let isARepeat: Bool
+    let keyCode: UInt16
+    static func keyEvent(
+        with type: EventType, location: CGPoint, modifierFlags: ModifierFlags,
+        timestamp: TimeInterval, windowNumber: Int, context: Int?,
+        characters: String, charactersIgnoringModifiers: String,
+        isARepeat: Bool, keyCode: UInt16
+    ) -> NSEvent? {
+        Self(type: type, modifierFlags: modifierFlags, windowNumber: windowNumber,
+             characters: characters, charactersIgnoringModifiers: charactersIgnoringModifiers,
+             isARepeat: isARepeat, keyCode: keyCode)
+    }
+}
+private enum WorkspaceNavigationError: Error {
+    case assertion(String, String, UInt)
+}
+"""
+        checks = r"""
+for type in [NSEvent.EventType.keyDown, .keyUp] {
+    for flags in [NSEvent.ModifierFlags(), .shift] {
+        let event = try workspaceKeyEvent(48, "\t", type: type, modifiers: flags, windowNumber: 7)
+        let expected = flags.contains(.shift) ? "\u{19}" : "\t"
+        try requireEqual(event.characters, expected, "characters payload")
+        try requireEqual(event.charactersIgnoringModifiers, expected, "unmodified payload")
+        try requireEqual(event.type, type)
+        try requireEqual(event.modifierFlags, flags)
+        try requireEqual(event.windowNumber, 7)
+        try requireEqual(event.keyCode, 48)
+        try requireFalse(event.isARepeat)
+        try requireEqual(event.characters == "\t", !flags.contains(.shift))
+    }
+    // Shift must not turn a different key into back-tab.
+    let other = try workspaceKeyEvent(49, " ", type: type, modifiers: .shift, windowNumber: 7)
+    try requireEqual(other.characters, " ")
+    try requireEqual(other.charactersIgnoringModifiers, " ")
+}
+print("Tab event construction controls passed")
+"""
+        variants = {
+            "correct": constructor,
+            "forward_characters": constructor.replace("characters: eventCharacters,", "characters: characters,"),
+            "forward_ignoring_modifiers": constructor.replace(
+                "charactersIgnoringModifiers: eventCharacters,", "charactersIgnoringModifiers: characters,"),
+            "missing_shift_translation": constructor.replace('"\\u{19}" : characters', '"\\t" : characters'),
+        }
+        swift = shutil.which("swiftc")
+        if swift is None:
+            self.fail("Swift is required to verify event construction")
+        with tempfile.TemporaryDirectory() as directory:
+            for name, body in variants.items():
+                with self.subTest(name=name):
+                    if name != "correct":
+                        self.assertNotEqual(body, constructor, "Negative control must mutate the constructor")
+                    main = pathlib.Path(directory) / "main.swift"
+                    main.write_text(adapter + "\n@MainActor\nprivate func workspaceKeyEvent(" + body
+                                    + "private func failure(" + helpers + checks)
+                    binary = pathlib.Path(directory) / name
+                    compiled = subprocess.run(
+                        [swift, "-swift-version", "6", str(main), "-o", str(binary)],
+                        capture_output=True, text=True,
+                    )
+                    self.assertEqual(compiled.returncode, 0, compiled.stderr)
+                    result = subprocess.run([str(binary)], capture_output=True, text=True)
+                    if name == "correct":
+                        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                        self.assertIn("Tab event construction controls passed", result.stdout)
+                    else:
+                        self.assertNotEqual(result.returncode, 0, "Malformed forward-Tab payload passed")
+                        self.assertNotIn("Tab event construction controls passed", result.stdout)
+
     def test_roving_focus_lifecycle_with_delayed_native_registration(self):
         source = (ROOT / "Sources/PerchApp/Workspace/WorkspaceView.swift").read_text()
         methods = source.split("    private func selectPage(", 1)[1].split("    private struct WorkspacePageStyle", 1)[0]
