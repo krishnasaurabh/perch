@@ -87,7 +87,16 @@ else:
             continue
         bundle = out / name
         bundle.mkdir(exist_ok=True)
-        (bundle / "Localizable.json").write_text("{}")
+        resources = bundle
+        if os.environ.get("FAKE_BUNDLE_LAYOUT") == "contents":
+            resources = bundle / "Contents" / "Resources"
+        resources.mkdir(parents=True, exist_ok=True)
+        if os.environ.get("FAKE_EMPTY_CATALOG") != name:
+            (resources / "Localizable.json").write_text("{}")
+        if os.environ.get("FAKE_DUPLICATE_CATALOG") == name:
+            duplicate = resources / "duplicate"
+            duplicate.mkdir(exist_ok=True)
+            (duplicate / "Localizable.json").write_text("{}")
 ''')
         self._write("PlistBuddy", '''import plistlib, sys
 from fake_common import record
@@ -390,6 +399,45 @@ if sys.argv[1:3] == ["notarytool", "submit"]:
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("Perch_PerchUI.bundle", result.stderr)
         self.assertFalse(self.calls("codesign"))
+
+    def test_runtime_catalog_layouts_ship_native_resources_beside_the_catalog(self):
+        for layout, relative in (("flat", Path()), ("contents", Path("Contents/Resources"))):
+            with self.subTest(layout=layout):
+                shutil.rmtree(self.build_bin, ignore_errors=True)
+                result = self.run_bundle(FAKE_BUNDLE_LAYOUT=layout)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                resources = self.root / "dist/Perch.app/Contents/Resources"
+                for name in ("Perch_PerchApp.bundle", "Perch_PerchUI.bundle"):
+                    directory = resources / name / relative
+                    self.assertEqual(json.loads((directory / "Localizable.json").read_text()), {})
+                    for language in ("en", "zz"):
+                        strings = (directory / f"{language}.lproj/Localizable.strings").read_text()
+                        self.assertIn('"%lld tasks" = ', strings)
+                        with (directory / f"{language}.lproj/Localizable.stringsdict").open("rb") as stream:
+                            plural = plistlib.load(stream)
+                        self.assertIn("%lld tasks", plural)
+
+    def test_missing_catalog_in_existing_bundle_fails_before_signing(self):
+        for layout in ("flat", "contents"):
+            for name in ("Perch_PerchApp.bundle", "Perch_PerchUI.bundle"):
+                with self.subTest(layout=layout, target=name):
+                    shutil.rmtree(self.build_bin, ignore_errors=True)
+                    self.log.unlink(missing_ok=True)
+                    result = self.run_bundle(FAKE_BUNDLE_LAYOUT=layout, FAKE_EMPTY_CATALOG=name)
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertIn(name, result.stderr)
+                    self.assertFalse(self.calls("codesign"))
+
+    def test_duplicate_runtime_catalogs_fail_before_signing(self):
+        for layout in ("flat", "contents"):
+            for name in ("Perch_PerchApp.bundle", "Perch_PerchUI.bundle"):
+                with self.subTest(layout=layout, target=name):
+                    shutil.rmtree(self.build_bin, ignore_errors=True)
+                    self.log.unlink(missing_ok=True)
+                    result = self.run_bundle(FAKE_BUNDLE_LAYOUT=layout, FAKE_DUPLICATE_CATALOG=name)
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertIn(name, result.stderr)
+                    self.assertFalse(self.calls("codesign"))
 
     def test_release_workflow_is_manual_capable_but_never_publishes(self):
         self.assertTrue(WORKFLOW.is_file(), "dedicated release workflow is missing")

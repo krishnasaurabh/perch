@@ -62,9 +62,7 @@ install -m 0644 Resources/AppIcon.icns "$APP/Contents/Resources/"
 python3 scripts/compile_localization.py Resources/Localizable.xcstrings "$APP/Contents/Resources"
 for target in PerchApp PerchUI; do
   bundle="$BIN_DIR/Perch_${target}.bundle"
-  [ -d "$bundle" ] || { echo "Missing localization resource bundle: $bundle" >&2; exit 1; }
-  [ -f "$bundle/Localizable.json" ] || { echo "Missing runtime catalog: $bundle/Localizable.json" >&2; exit 1; }
-  python3 scripts/compile_localization.py "Sources/${target}/Resources/Localizable.xcstrings" "$bundle"
+  python3 scripts/compile_localization.py "Sources/${target}/Resources/Localizable.xcstrings" "$bundle" --resource-bundle
   cp -R "$bundle" "$APP/Contents/Resources/"
 done
 for localization in en zz; do

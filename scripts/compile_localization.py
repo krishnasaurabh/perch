@@ -61,11 +61,34 @@ def compile_catalog(source, destination):
         plistlib.dump(info, stream, sort_keys=True)
 
 
+def runtime_resource_directory(bundle):
+    """Locate the one runtime catalog, independent of SwiftPM's bundle layout."""
+    if not bundle.is_dir():
+        raise ValueError(f"Missing localization resource bundle: {bundle}")
+    entries = sorted(bundle.rglob("*"))
+    print(f"Localization resource bundle: {bundle}", file=sys.stderr)
+    for path in entries:
+        suffix = "/" if path.is_dir() else ""
+        print(f"  {path.relative_to(bundle)}{suffix}", file=sys.stderr)
+    catalogs = [path for path in entries if path.name == "Localizable.json" and path.is_file()]
+    if len(catalogs) != 1:
+        raise ValueError(f"Expected exactly one runtime catalog in {bundle}; found {len(catalogs)}")
+    print(f"Runtime catalog: {catalogs[0]}", file=sys.stderr)
+    return catalogs[0].parent
+
+
 def main():
-    if len(sys.argv) != 3:
-        raise SystemExit("usage: compile_localization.py CATALOG OUTPUT_DIRECTORY")
-    source = Path(sys.argv[1])
-    destination = Path(sys.argv[2])
+    arguments = sys.argv[1:]
+    is_bundle = len(arguments) == 3 and arguments[-1] == "--resource-bundle"
+    if len(arguments) != 2 and not is_bundle:
+        raise SystemExit("usage: compile_localization.py CATALOG OUTPUT_DIRECTORY [--resource-bundle]")
+    source = Path(arguments[0])
+    destination = Path(arguments[1])
+    if is_bundle:
+        try:
+            destination = runtime_resource_directory(destination)
+        except ValueError as error:
+            raise SystemExit(str(error)) from error
     compile_catalog(source, destination)
 
 
