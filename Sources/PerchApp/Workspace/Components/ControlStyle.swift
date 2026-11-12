@@ -35,24 +35,40 @@ struct ControlFocusRing<S: InsettableShape>: View {
 struct PillStyle: PrimitiveButtonStyle {
     var prominent = false
     var disabledReason: String = "This action is currently unavailable."
+    /// Opt into a Tab stop whose native focus also drives the shared ring.
+    var focus: FocusState<Bool>.Binding? = nil
 
     func makeBody(configuration: Configuration) -> some View {
-        FocusablePill(configuration: configuration, prominent: prominent, disabledReason: disabledReason)
+        FocusablePill(
+            configuration: configuration, prominent: prominent, disabledReason: disabledReason, externalFocus: focus)
     }
 
     private struct FocusablePill: View {
         let configuration: PrimitiveButtonStyleConfiguration
         let prominent: Bool
         let disabledReason: String
+        let externalFocus: FocusState<Bool>.Binding?
+        @Environment(\.isEnabled) private var enabled
         @FocusState private var focused: Bool
 
         var body: some View {
-            // Bind to the native button itself. A label's isFocused environment
-            // need not describe the AppKit button that owns keyboard focus.
-            Button(configuration)
-                .buttonStyle(VisualStyle(prominent: prominent, disabledReason: disabledReason, focused: focused))
-                .focused($focused)
-                .focusEffectDisabled()
+            // Register focus on the actual button, not the primitive-style wrapper.
+            if let externalFocus {
+                Button(configuration)
+                    .buttonStyle(
+                        VisualStyle(
+                            prominent: prominent, disabledReason: disabledReason, focused: externalFocus.wrappedValue)
+                    )
+                    .focusable(enabled)
+                    .focused(externalFocus)
+                    .focusEffectDisabled()
+            } else {
+                // Preserve existing callers' native focus behavior.
+                Button(configuration)
+                    .buttonStyle(VisualStyle(prominent: prominent, disabledReason: disabledReason, focused: focused))
+                    .focused($focused)
+                    .focusEffectDisabled()
+            }
         }
     }
 

@@ -5314,6 +5314,23 @@
         }
       }
     },
+    "Not selected": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Not selected"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Nöt sëlëctëd ·~⟧"
+          }
+        }
+      }
+    },
     "Notch glance": {
       "extractionState": "manual",
       "localizations": {
@@ -7697,6 +7714,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "⟦Sëlëct ëàch övërdüë tàsk önly öncë. ·~⟧"
+          }
+        }
+      }
+    },
+    "Selected": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Selected"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Sëlëctëd ·~⟧"
           }
         }
       }
