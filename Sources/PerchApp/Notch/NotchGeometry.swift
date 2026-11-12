@@ -130,28 +130,6 @@ struct NotchGeometry: Equatable {
         return NotchShape(topRadius: k.top, bottomRadius: k.bottom, attached: !expanded || workspaceAttached)
     }
 
-    /// Test a global pointer against the same local SwiftUI path that paints a component.
-    private func paintedPathContains(
-        _ p: NSPoint, in rect: NSRect, path: Path, pinTopEdge: Bool = false
-    ) -> Bool {
-        guard NotchLayout.contains(rect, pointer: p) else { return false }
-        let y = rect.maxY - p.y
-        // SwiftUI paths are y-down. Pull a pointer pinned to the housing's top edge just inside.
-        return path.contains(CGPoint(x: p.x - rect.minX, y: pinTopEdge ? max(0.5, y) : y))
-    }
-
-    /// The closed housing always uses the painted outline, including its concave shoulders and bottom corners.
-    private func closedHousingContains(_ p: NSPoint) -> Bool {
-        let rect = tuckedNotch
-        let path = outline(expanded: false).path(in: CGRect(origin: .zero, size: rect.size))
-        return paintedPathContains(p, in: rect, path: path, pinTopEdge: true)
-    }
-
-    private func capsuleContains(_ p: NSPoint, in rect: NSRect) -> Bool {
-        let path = Capsule(style: .continuous).path(in: CGRect(origin: .zero, size: rect.size))
-        return paintedPathContains(p, in: rect, path: path)
-    }
-
     /// Exact hit test against the drawn shape (not its bounding box). Global coordinates, y up.
     func shapeContains(
         _ p: NSPoint, expanded: Bool, timer: NotchTimerPlacement?, activity: Bool, glance: Bool = false
@@ -162,18 +140,24 @@ struct NotchGeometry: Equatable {
             let rect = activityRect
             let path = RoundedRectangle(cornerRadius: 12, style: .continuous)
                 .path(in: CGRect(origin: .zero, size: rect.size))
-            return paintedPathContains(p, in: rect, path: path) || closedHousingContains(p)
+            let inStrip =
+                NotchLayout.contains(rect, pointer: p)
+                && path.contains(CGPoint(x: p.x - rect.minX, y: rect.maxY - p.y))
+            return inStrip || NotchLayout.contains(tuckedNotch, pointer: p)
         }
         if !expanded, let side = timer {
-            return capsuleContains(p, in: pill(side: side)) || closedHousingContains(p)
+            return NotchLayout.capsuleContains(pill(side: side), pointer: p)
+                || NotchLayout.contains(tuckedNotch, pointer: p)
         }
         if !expanded, glance {
-            return capsuleContains(p, in: glanceRect) || closedHousingContains(p)
+            return NotchLayout.capsuleContains(glanceRect, pointer: p)
+                || NotchLayout.contains(tuckedNotch, pointer: p)
         }
-        if !expanded { return closedHousingContains(p) }
         let r = shape(expanded: expanded, timer: timer, activity: activity)
+        guard NotchLayout.contains(r, pointer: p) else { return false }
         let path = outline(expanded: expanded).path(in: CGRect(origin: .zero, size: r.size))
-        return paintedPathContains(p, in: r, path: path, pinTopEdge: true)
+        // SwiftUI paths are y-down. Pull a pointer pinned to the top edge just inside.
+        return path.contains(CGPoint(x: p.x - r.minX, y: max(0.5, r.maxY - p.y)))
     }
 }
 
