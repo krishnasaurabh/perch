@@ -18,3 +18,9 @@ data = pathlib.Path(out) / 'planner.json'
 data.write_text(json.dumps({'preferences': {'welcomeCompleted': True, 'catchCopies': False, 'catchScreenshots': False}}))
 subprocess.run([binary], env=dict(os.environ, PERCH_DATA=str(data), INTEGRATION_OUTPUT=out), check=True, timeout=60)
 PY
+# All-page native matrix (Settings panes and their failure paths, Dashboard tabs and keyboard
+# actions, Welcome and Details error/history states, Week and Clips keyboard including Escape
+# and focus return, effective enlarged type and contrast). Its own package copy and its own
+# synthetic planner, so the two probes never share state. Reuses this job's existing step.
+bash "$ROOT/scripts/check_allpage_matrix.sh" "$OUT/allpage"
+

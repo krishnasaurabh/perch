@@ -1,0 +1,139 @@
+"""Portable failure controls for the all-page native matrix probe, not UI execution.
+
+The probe itself needs macOS and SwiftUI; these tests keep the parts that can be checked
+anywhere honest: the assertion plumbing really can go red, every required surface stays in
+the probe, the runner stays macOS-guarded and synthetic, and the probe never requests system
+access or presses a capture/monitor toggle.
+"""
+import os
+import pathlib
+import re
+import shutil
+import subprocess
+import tempfile
+import unittest
+
+ROOT = pathlib.Path(__file__).resolve().parents[1]
+PROBE = ROOT / "scripts/allpage_matrix_probe.swift"
+RUNNER = ROOT / "scripts/check_allpage_matrix.sh"
+INTEGRATION = ROOT / "scripts/check_integration.sh"
+
+REQUIRED_GROUPS = [
+    "settings panes",
+    "settings failure paths",
+    "dashboard tabs",
+    "dashboard task and project actions",
+    "welcome states",
+    "details historical and error states",
+    "week keyboard",
+    "clips keyboard",
+    "effective enlarged type",
+    "effective contrast states",
+]
+
+
+class AllPageMatrixProbeTests(unittest.TestCase):
+    def setUp(self):
+        self.source = PROBE.read_text()
+
+    def test_every_required_group_runs_and_the_assertion_set_is_large(self):
+        for group in REQUIRED_GROUPS:
+            self.assertIn(f'await report.group("{group}")', self.source, group)
+        self.assertGreaterEqual(self.source.count("report.require("), 80)
+        self.assertNotIn("XCTSkip", self.source)
+        # Two settling waits only: no retry-by-sleep anywhere in the probe.
+        self.assertEqual(self.source.count("Task.sleep"), 2)
+        self.assertLessEqual(self.source.count("for _ in 0..<"), 8)
+
+    def test_assertion_plumbing_can_go_red(self):
+        plumbing = self.source.split("struct MatrixFailure", 1)[1].split("// MARK: - Native helpers", 1)[0]
+        program = (
+            "import Foundation\n\nstruct MatrixFailure"
+            + plumbing
+            + """
+let report = MatrixReport()
+func rejects(_ action: () throws -> Void) throws {
+    do { try action() } catch { return }
+    throw MatrixFailure(label: "negative control passed when it had to fail")
+}
+try report.require(true, "passes")
+try rejects { try report.require(false, "fails") }
+try rejects { try report.require(false, "fails", "detail") }
+await report.group("caught group") { throw MatrixFailure(label: "group body red") }
+print("passed=\\(report.passed.count) failed=\\(report.failed.count)")
+if report.passed.count != 1 || report.failed.count != 1 { exit(1) }
+if !report.failed.first!.hasPrefix("caught group: group body red") { exit(1) }
+print("Matrix assertion plumbing check passed")
+"""
+        )
+        swift = shutil.which("swiftc")
+        if swift is None:
+            self.fail("Swift is required to verify the assertion plumbing")
+        with tempfile.TemporaryDirectory() as directory:
+            main = pathlib.Path(directory) / "main.swift"
+            main.write_text(program)
+            binary = pathlib.Path(directory) / "plumbing"
+            compiled = subprocess.run(
+                [swift, "-swift-version", "6", str(main), "-o", str(binary)],
+                capture_output=True, text=True,
+            )
+            self.assertEqual(compiled.returncode, 0, compiled.stderr)
+            result = subprocess.run([str(binary)], check=True, capture_output=True, text=True)
+            self.assertIn("Matrix assertion plumbing check passed", result.stdout)
+
+    def test_probe_never_requests_access_or_presses_a_monitor(self):
+        for forbidden in (
+            "requestAccess",
+            "requestAuthorization",
+            "requestFullAccessToReminders",
+            "SMAppService.mainApp.register",
+            "EKEventStore().request",
+            "NSPasteboard.general.clearContents",
+            "NSPasteboard.general.setString",
+            "clips.copy(",
+        ):
+            self.assertNotIn(forbidden, self.source, forbidden)
+        # The only AX presses are the Welcome call to action and none of them is a permission or
+        # capture control.
+        presses = re.findall(r"(?<!func )mxPress\(([^)]*)\)", self.source)
+        self.assertEqual(len(presses), 1, presses)
+        for hit in presses:
+            self.assertNotIn("Allow", hit)
+            self.assertNotIn("screenshots", hit)
+            self.assertNotIn("copied items", hit)
+
+    def test_negative_controls_cover_the_measured_groups(self):
+        self.assertIn("negative control: a fixed-size control does not grow", self.source)
+        self.assertIn("negative control: a low-contrast label is detected", self.source)
+
+    def test_runner_rejects_non_macos_before_building(self):
+        with tempfile.TemporaryDirectory() as directory:
+            uname = pathlib.Path(directory) / "uname"
+            uname.write_text("#!/bin/sh\nprintf '%s\\n' Linux\n")
+            uname.chmod(0o755)
+            result = subprocess.run(
+                ["bash", str(RUNNER), directory],
+                env=dict(os.environ, PATH=directory + os.pathsep + os.environ["PATH"]),
+                capture_output=True, text=True, check=False,
+            )
+            self.assertEqual(result.returncode, 2)
+            self.assertIn("requires macOS", result.stderr)
+            self.assertFalse((pathlib.Path(directory) / "planner.json").exists())
+
+    def test_runner_is_synthetic_and_wired_into_an_existing_job(self):
+        runner = RUNNER.read_text()
+        self.assertIn("mktemp -d", runner)
+        self.assertIn("cp -R \"$ROOT/Sources\" \"$ROOT/Tests\"", runner)
+        self.assertIn("Sources/Perch/main.swift", runner)
+        self.assertIn("MATRIX_OUTPUT", runner)
+        self.assertIn("PERCH_DATA", runner)
+        self.assertIn("catchCopies': False", runner)
+        self.assertIn("catchScreenshots': False", runner)
+        # Reuses the existing behaviour-probe job through its integration step: no new CI job.
+        self.assertIn("check_allpage_matrix.sh", INTEGRATION.read_text())
+        workflow = (ROOT / ".github/workflows/ci.yml").read_text()
+        self.assertEqual(workflow.count("check_allpage_matrix.sh"), 0)
+
+
+if __name__ == "__main__":
+    unittest.main()
