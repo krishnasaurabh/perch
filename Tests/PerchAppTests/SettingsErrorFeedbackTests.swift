@@ -104,7 +104,9 @@ final class SettingsErrorFeedbackTests: XCTestCase {
         try press("Repeat", in: fixture.window)
         await settle()
         XCTAssertNil(fixture.store.lastError)
-        XCTAssertEqual(try Data(contentsOf: fixture.exportURL), original)
+        let exported = try PlannerFile(url: fixture.exportURL, preferences: MemoryPlannerPreferences()).load()
+        XCTAssertEqual(exported.tasks, fixture.store.planner.tasks)
+        XCTAssertEqual(exported.notes, fixture.store.planner.notes)
         XCTAssertEqual(try Data(contentsOf: fixture.store.file.url), original)
         XCTAssertEqual(fixture.pane, .focus)
         XCTAssertEqual(fixture.draft, "Keep this form text")
@@ -157,7 +159,10 @@ final class SettingsErrorFeedbackTests: XCTestCase {
     @MainActor
     private func press(_ title: String, in window: NSWindow) throws {
         let buttons = named(title, in: window).filter { attribute($0, "accessibilityRole") as? String == "AXButton" }
-        XCTAssertEqual(buttons.count, 1, "Expected exactly one \(title) button")
+        let diagnostics = nodes(window.contentView!).map {
+            "\(type(of: $0)) role=\(attribute($0, "accessibilityRole") ?? "?") label=\(attribute($0, "accessibilityLabel") ?? "?") title=\(attribute($0, "accessibilityTitle") ?? "?") value=\(attribute($0, "accessibilityValue") ?? "?")"
+        }.joined(separator: "\n")
+        XCTAssertEqual(buttons.count, 1, "Expected exactly one \(title) button\n\(diagnostics)")
         let button = try XCTUnwrap(buttons.first)
         let selector = NSSelectorFromString("accessibilityPerformPress")
         let implementation = try XCTUnwrap(button.responds(to: selector) ? button.method(for: selector) : nil)
@@ -170,6 +175,7 @@ final class SettingsErrorFeedbackTests: XCTestCase {
         nodes(window.contentView!).filter {
             attribute($0, "accessibilityLabel") as? String == text
                 || attribute($0, "accessibilityValue") as? String == text
+                || attribute($0, "accessibilityTitle") as? String == text
                 || ($0 as? NSButton)?.title == text
         }
     }
@@ -181,7 +187,7 @@ final class SettingsErrorFeedbackTests: XCTestCase {
             guard depth < 80, result.count < 10000, visited.insert(ObjectIdentifier(node)).inserted else { return }
             result.append(node)
             if let view = node as? NSView { for child in view.subviews { visit(child, depth: depth + 1) } }
-            for key in ["accessibilityChildren", "accessibilityContents"] {
+            for key in ["accessibilityChildren", "accessibilityContents", "accessibilityChildrenInNavigationOrder"] {
                 for child in attribute(node, key) as? [NSObject] ?? [] { visit(child, depth: depth + 1) }
             }
         }
@@ -231,6 +237,11 @@ private final class SettingsFailureFixture: ObservableObject {
         let file = PlannerFile(url: url, preferences: MemoryPlannerPreferences())
         var planner = Planner()
         planner.preferences.defaultFocusMinutes = 35
+        planner.tasks = [
+            PlanTask(
+                title: "Inspect synthetic seedlings", day: nil, createdAt: Date(timeIntervalSince1970: 1_800_000_000),
+                notes: "Retain this task")
+        ]
         try file.save(planner)
         store = PlannerStore(file: file, watching: false)
         self.pane = pane
@@ -259,7 +270,7 @@ private final class SettingsFailureFixture: ObservableObject {
     }
 
     func status(_ app: AgentConnector.App) -> AgentConnector.Status {
-        if app == .claudeApp { return shouldFail ? .connected : .notConnected }
+        if app == .claudeApp { return disconnectRequests.isEmpty ? .connected : .notConnected }
         return .notInstalled
     }
 
