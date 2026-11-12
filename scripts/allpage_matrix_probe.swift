@@ -123,7 +123,7 @@ final class MatrixReport {
 // MARK: - System accessibility layer
 
 // Self-addressed AX requests must run while the main runloop is free to answer them.
-// Only Sendable value snapshots cross back; no CF/AX object leaves the detached task.
+// Only Sendable value snapshots cross back; no CF/AX object leaves the reader queue.
 struct MatrixElement: Hashable, Sendable { let id: UInt }
 
 struct MatrixAXNode: Sendable {
@@ -141,6 +141,20 @@ struct MatrixAXSnapshot: Sendable {
 
 /// All native AX calls are confined to this nonisolated reader.
 enum MatrixAXReader {
+    private static let queue = DispatchQueue(label: "app.perch.matrix-ax-reader")
+
+    // A self-addressed AX query can synchronously update SwiftUI's view graph. Keep
+    // that callback outside Swift's cooperative-task executor while main services UI.
+    static func snapshot(smoke: Bool = false) async -> MatrixAXSnapshot {
+        await withCheckedContinuation { continuation in
+            queue.async {
+                let hasTask = withUnsafeCurrentTask { $0 != nil }
+                mxLog("matrix snapshot: reader mainThread=\(Thread.isMainThread) swiftTask=\(hasTask)")
+                continuation.resume(returning: read(smoke: smoke))
+            }
+        }
+    }
+
     static func raw(
         _ element: AXUIElement, _ attribute: String, trace: Bool = false, context: String = ""
     ) -> CFTypeRef? {
@@ -266,7 +280,7 @@ enum MatrixAX {
     static func refresh() async {
         MatrixMark.firstAccessibilityRead()
         mxLog("matrix snapshot: begin")
-        snapshot = await Task.detached { MatrixAXReader.read() }.value
+        snapshot = await MatrixAXReader.snapshot()
         mxLog("matrix snapshot: complete nodes=\(snapshot.nodes.count)")
     }
 }
@@ -1706,7 +1720,7 @@ func matrixAccessibilitySmoke() async -> Never {
         "Matrix AX smoke", Text("Matrix AX smoke control"), size: NSSize(width: 320, height: 160))
     await Task.yield()
     MatrixMark.firstAccessibilityRead()
-    let snapshot = await Task.detached { MatrixAXReader.read(smoke: true) }.value
+    let snapshot = await MatrixAXReader.snapshot(smoke: true)
     let windows = snapshot.nodes[snapshot.app]?.edges[kAXWindowsAttribute as String] ?? []
     let hasWindow = windows.contains { snapshot.nodes[$0]?.strings[kAXTitleAttribute as String] == window.title }
     mxLog("ax smoke: expected window observed=\(hasWindow)")
