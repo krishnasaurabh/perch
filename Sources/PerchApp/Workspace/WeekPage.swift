@@ -264,6 +264,7 @@ struct WeekChip: View {
                     .overlay(RoundedRectangle(cornerRadius: Theme.controlRadius).strokeBorder(Theme.inputStroke))
             }
             .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
+            .focusable()
             .focused($menuFocused).focusEffectDisabled()
             .overlay(ControlFocusRing(shape: RoundedRectangle(cornerRadius: Theme.controlRadius), focused: menuFocused))
             .accessibilityLabel(AppL10n.format("Task actions: %@", task.title))
