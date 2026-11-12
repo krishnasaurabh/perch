@@ -798,7 +798,7 @@ func pageContrast(_ a: [Int], _ b: [Int]) -> Double {
             // NEGATIVE-CONTROL SITE (contrast): the increased state requests .increased.
             let contrast: ColorSchemeContrast = state.increased ? .increased : .standard
             let root = ZStack(alignment: .topLeading) {
-                page.view
+                page.view.opacity(state.increased ? 0.2 : 1)  // NEGATIVE CONTROL: lowered contrast
                 ContrastReader(observation: observation)
             }
             .environment(\.dynamicTypeSize, typeSize)
