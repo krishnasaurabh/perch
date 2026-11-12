@@ -44,10 +44,11 @@ print('increase-contrast prior=%r now=%r' % (prior, read_contrast()))
 try:
     # -AppleKeyboardUIMode 3 is an argument-domain override: real Tab traversal reaches buttons
     # and menus instead of text fields only, and nothing is written to the user's preferences.
+    print('running all-page matrix probe')
     subprocess.run(
         [binary, '-AppleKeyboardUIMode', '3'],
         env=dict(os.environ, PERCH_DATA=str(data), MATRIX_OUTPUT=out),
-        check=True, timeout=600)
+        check=True, timeout=300)
 finally:
     if prior in ('0', '1'):
         write_contrast('true' if prior == '1' else 'false')
