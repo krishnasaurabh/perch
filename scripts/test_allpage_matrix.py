@@ -103,16 +103,36 @@ print("Matrix assertion plumbing check passed")
             self.assertNotIn("copied items", hit)
 
     def test_measurements_read_the_system_accessibility_tree(self):
-        # In-window accessibilityChildren stay empty until something asks, so every measurement
-        # goes through the application element of the system AX API.
-        self.assertIn("AXUIElementCreateApplication(getpid())", self.source)
-        self.assertIn("kAXWindowsAttribute", self.source)
-        self.assertIn("kAXChildrenAttribute", self.source)
-        self.assertNotIn("accessibilityChildren", self.source)
-        self.assertIn("kAXFocusedUIElementAttribute", self.source)
+        # Other groups retain the system reader; the workspace graphs are read on
+        # main through native accessibility objects, never self-addressed AX IPC.
+        reader = self.source.split("enum MatrixAXReader {", 1)[1].split("private enum MatrixViewReader", 1)[0]
+        for attribute in ("AXUIElementCreateApplication(getpid())", "kAXWindowsAttribute",
+                          "kAXChildrenAttribute", "kAXFocusedUIElementAttribute"):
+            self.assertIn(attribute, reader)
+        self.assertNotIn("accessibilityChildren", reader)
+        view_reader = self.source.split("private enum MatrixViewReader {", 1)[1].split("@MainActor\nenum MatrixAX", 1)[0]
+        self.assertIn("@MainActor\nprivate enum MatrixViewReader", self.source)
+        self.assertIn('precondition(Thread.isMainThread', view_reader)
+        for getter in ("accessibilityChildren", "accessibilityContents", "accessibilityRole",
+                       "accessibilityLabel", "accessibilityValue", "accessibilityFrame"):
+            self.assertIn(getter, view_reader)
+        for native_path in ("NSApp.windows", "window.contentView", "view.subviews", "firstResponder"):
+            self.assertIn(native_path, view_reader)
+        self.assertIn("result.nodes.count >= 3000", view_reader)
+        self.assertNotIn("AXUIElement", view_reader)
+        # A silent fallback to the trapping backend must fail this guard.
+        for start, end in (("func detailsStates()", "func workspaceFixture"),
+                           ("func weekKeyboard()", "func clipsKeyboard")):
+            group = self.source.split(start, 1)[1].split(end, 1)[0]
+            self.assertIn("MatrixAX.useViewTree = true", group)
+            self.assertIn("defer { MatrixAX.useViewTree = false }", group)
+            self.assertLess(group.index("MatrixAX.useViewTree = true"), group.index("await mxReady"))
+        refresh = self.source.split("static var useViewTree", 1)[1].split("func mxApp()", 1)[0]
+        self.assertRegex(refresh, r"if useViewTree\s*\{[^}]*snapshot = MatrixViewReader\.read\(\)")
+        self.assertRegex(refresh, r"else\s*\{\s*snapshot = await MatrixAXReader\.snapshot\(\)")
 
     def test_ax_reads_run_off_main_and_only_snapshots_cross_the_actor(self):
-        reader = self.source.split("enum MatrixAXReader {", 1)[1].split("@MainActor\nenum MatrixAX", 1)[0]
+        reader = self.source.split("enum MatrixAXReader {", 1)[1].split("private enum MatrixViewReader", 1)[0]
         consumers = self.source.split("@MainActor\nenum MatrixAX", 1)[1]
         self.assertIn('precondition(!Thread.isMainThread', reader)
         self.assertIn('AXUIElementCopyAttributeValue', reader)
@@ -120,7 +140,11 @@ print("Matrix assertion plumbing check passed")
         self.assertIn('AX before \\(context) attribute=\\(attribute)', reader)
         self.assertIn('let trace = smoke || index < 25', reader)
         self.assertIn('node=\\(index) role=\\(role)', reader)
-        self.assertIn('Task.detached { MatrixAXReader.read() }.value', consumers)
+        self.assertIn('private static let queue = DispatchQueue(', reader)
+        self.assertIn('await withCheckedContinuation', reader)
+        self.assertIn('queue.async {', reader)
+        self.assertIn('continuation.resume(returning: read(smoke: smoke))', reader)
+        self.assertNotIn('MainActor.assumeIsolated', reader)
         self.assertIn('await MatrixAX.refresh()', consumers)
         self.assertNotIn('AXUIElementCopy', consumers)
         self.assertNotIn('AXUIElementSetMessagingTimeout', self.source)

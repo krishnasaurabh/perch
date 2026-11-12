@@ -274,7 +274,7 @@ enum MatrixAXReader {
     }
 }
 
-/// The details fixture must not query its own process through the system AX client:
+/// These workspace fixtures must not query their own process through the system AX client:
 /// that path can evaluate SwiftUI bindings on the caller's background thread. Walk
 /// the actual AppKit/accessibility objects synchronously on their owning actor instead.
 @MainActor
@@ -1455,6 +1455,10 @@ final class AllPageMatrix {
     // MARK: Week: real key events, nested Escape, focus return
 
     func weekKeyboard() async throws {
+        // This workspace also materializes TasksCard bindings while publishing AX.
+        // Keep its snapshot on main, including snapshots taken after real key events.
+        MatrixAX.useViewTree = true
+        defer { MatrixAX.useViewTree = false }
         let fixture = try MatrixFixture()
         defer { fixture.close() }
         guard let task = try fixture.seed(["Matrix week task"], day: .day(fixture.store.today)).first else {
