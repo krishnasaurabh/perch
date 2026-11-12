@@ -311,6 +311,7 @@ private struct ClipCard: View {
                     }.contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
+                .focusable()
                 .focused($copyFocused)
                 .focusEffectDisabled()
                 .overlay(

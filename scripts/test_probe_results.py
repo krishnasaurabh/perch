@@ -141,6 +141,18 @@ class ProbeReportTests(unittest.TestCase):
                          patch("subprocess.run", side_effect=failure), self.assertRaises(type(failure)):
                         exec(compile(code, str(path), "exec"), {})
 
+    def test_keyboard_products_opt_into_concrete_focus_registration(self):
+        projects = (ROOT / "Sources/PerchApp/Settings/ProjectsList.swift").read_text()
+        clips = (ROOT / "Sources/PerchApp/Workspace/ClipsPage.swift").read_text()
+        style = (ROOT / "Sources/PerchApp/Workspace/Components/ControlStyle.swift").read_text()
+        self.assertIn("ProjectDeleteButton {", projects)
+        self.assertIn("@FocusState private var focused: Bool", projects)
+        self.assertIn(".buttonStyle(PillStyle(focus: $focused))", projects)
+        self.assertIn(".focusable(enabled)\n                    .focused(externalFocus)", style)
+        self.assertIn(".focusable()\n                .focused($copyFocused)", clips)
+        self.assertIn("focused: copyFocused", clips)
+        self.assertIn("clips.copy(clip)", clips)
+
     def test_integration_accumulator_keeps_every_failure(self):
         swift = shutil.which("swiftc")
         assert swift is not None, "Swift is required for accumulator controls"

@@ -18,9 +18,9 @@ struct ProjectsList: View {
                         Text(AppL10n.format("%lld open · %lld done", open.count, tasks.filter(\.done).count))
                             .foregroundStyle(Theme.secondary)
                         Spacer()
-                        Button("Delete project", role: .destructive) {
+                        ProjectDeleteButton {
                             store.apply { try $0.deleteProject(p.id) }
-                        }.buttonStyle(PillStyle())
+                        }
                     }
                     ForEach(open) { t in DashboardTaskLine(task: t) }
                 }
@@ -30,5 +30,16 @@ struct ProjectsList: View {
                     .foregroundStyle(Theme.secondary)
             }
         }.frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+/// Each row owns its own Tab stop; the concrete styled button draws that focus.
+private struct ProjectDeleteButton: View {
+    let action: () -> Void
+    @FocusState private var focused: Bool
+
+    var body: some View {
+        Button("Delete project", role: .destructive, action: action)
+            .buttonStyle(PillStyle(focus: $focused))
     }
 }
