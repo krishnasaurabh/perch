@@ -877,7 +877,7 @@ private extension Int {
                 ContrastReader(observation: observation)
             }
             .environment(\.dynamicTypeSize, typeSize)
-            .environment(\._colorSchemeContrast, contrast)
+            .environment(\._colorSchemeContrast, state.increased ? .standard : .increased)
             .environment(\.accessibilityEnabled, true)
             .transaction {
                 $0.animation = nil
