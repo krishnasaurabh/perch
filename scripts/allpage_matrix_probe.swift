@@ -130,6 +130,8 @@ struct MatrixAXNode: Sendable {
     var strings: [String: String] = [:]
     var edges: [String: [MatrixElement]] = [:]
     var enabled: Bool?
+    var focused: Bool?
+    var nativeClass = ""
     var frame: CGRect = .zero
 }
 
@@ -290,6 +292,13 @@ private enum MatrixViewReader {
         return object.perform(selector)?.takeUnretainedValue()
     }
 
+    static func boolean(_ object: NSObject, _ getter: String) -> Bool? {
+        let selector = NSSelectorFromString(getter)
+        guard object.responds(to: selector), let implementation = object.method(for: selector) else { return nil }
+        typealias Getter = @convention(c) (AnyObject, Selector) -> Bool
+        return unsafeBitCast(implementation, to: Getter.self)(object, selector)
+    }
+
     static func read() -> MatrixAXSnapshot {
         precondition(Thread.isMainThread, "view snapshot requires the main thread")
         var result = MatrixAXSnapshot()
@@ -315,6 +324,8 @@ private enum MatrixViewReader {
             guard result.nodes[key] == nil else { continue }
             if result.nodes.count >= 3000 { break }
             var node = MatrixAXNode()
+            node.nativeClass = String(describing: type(of: object))
+            node.focused = boolean(object, "isAccessibilityFocused")
             for (attribute, getter) in [
                 (kAXRoleAttribute, "accessibilityRole"),
                 (kAXIdentifierAttribute, "accessibilityIdentifier"),
@@ -327,9 +338,7 @@ private enum MatrixViewReader {
                     node.strings[attribute as String] = string
                 }
             }
-            if object.responds(to: NSSelectorFromString("isAccessibilityEnabled")) {
-                node.enabled = object.value(forKey: "accessibilityEnabled") as? Bool
-            }
+            node.enabled = boolean(object, "isAccessibilityEnabled")
             if object.responds(to: NSSelectorFromString("accessibilityFrame")),
                 let frame = object.value(forKey: "accessibilityFrame") as? NSValue
             {
@@ -337,6 +346,7 @@ private enum MatrixViewReader {
             }
             var children = (value(object, "accessibilityChildren") as? [NSObject]) ?? []
             children += (value(object, "accessibilityContents") as? [NSObject]) ?? []
+            children += (value(object, "accessibilityChildrenInNavigationOrder") as? [NSObject]) ?? []
             if let window = object as? NSWindow {
                 node.strings[kAXTitleAttribute as String] = window.title
                 if let content = window.contentView { children.append(content) }
@@ -348,6 +358,15 @@ private enum MatrixViewReader {
             result.nodes[key] = node
             if depth < 40 { stack.append(contentsOf: children.reversed().map { ($0, depth + 1) }) }
         }
+        // SwiftUI's native first responder is often a KeyViewProxy with no semantic
+        // identity. Its accessible node, not the proxy, owns the focused getter.
+        let semanticFocus = result.nodes.filter { _, node in
+            node.focused == true && node.strings[kAXRoleAttribute as String] != "AXUnknown"
+                && [kAXIdentifierAttribute, kAXDescriptionAttribute, kAXTitleAttribute, kAXValueAttribute]
+                    .contains { node.strings[$0 as String] != nil }
+        }
+        if semanticFocus.count == 1 { result.focused = semanticFocus.first?.key }
+        mxLog("matrix semantic focus: candidates=\(semanticFocus.map { "\($0.key.id):\($0.value.strings)" }.sorted())")
         return result
     }
 }
@@ -568,7 +587,9 @@ func mxReady(_ seconds: Double = 1.0) async {
 func mxClick(host: NSView, window: NSWindow, screenRect: NSRect) throws {
     let inWindow = window.convertFromScreen(screenRect)
     let local = host.convert(inWindow, from: nil)
-    let point = CGPoint(x: local.midX, y: host.isFlipped ? local.midY : host.bounds.height - local.midY)
+    // Native accessibilityFrame and convertFromScreen both use AppKit screen coordinates.
+    // A point converted into the host is already in its (possibly flipped) coordinate space.
+    let point = CGPoint(x: local.midX, y: local.midY)
     // A click outside the content view can start a window drag loop, which no synthetic mouse-up
     // can end. Refuse it instead of hanging.
     guard host.bounds.contains(point) else {
@@ -901,9 +922,9 @@ final class MatrixFixture {
 
 @MainActor
 func matrixWindow<V: View>(_ title: String, _ view: V, size: NSSize, appearance: NSAppearance? = nil) throws -> (
-    NSWindow, NSHostingView<V>
+    NSWindow, NSHostingView<AnyView>
 ) {
-    let host = NSHostingView(rootView: view)
+    let host = NSHostingView(rootView: AnyView(view.environment(\.accessibilityEnabled, true)))
     host.safeAreaRegions = []
     let window = NSWindow(
         contentRect: NSRect(origin: .zero, size: size), styleMask: [.titled], backing: .buffered, defer: false)
@@ -911,6 +932,9 @@ func matrixWindow<V: View>(_ title: String, _ view: V, size: NSSize, appearance:
     window.title = title
     window.appearance = appearance
     window.contentView = host
+    // Host attachment can derive a standard appearance from colorScheme. Apply the
+    // requested native appearance after attachment, never replace it with a scheme.
+    if let appearance { window.appearance = appearance; host.appearance = appearance }
     window.setContentSize(size)
     window.makeKeyAndOrderFront(nil)
     NSApp.activate(ignoringOtherApps: true)
@@ -994,8 +1018,10 @@ final class AllPageMatrix {
         _ window: NSWindow, limit: Int, tag: String, _ match: @MainActor (String, String?) -> Bool
     ) async throws -> String {
         var traversal: [String] = []
-        for _ in 0..<limit {
+        for index in 0..<limit {
+            traceFocus(window, "\(tag) before Tab \(index)")
             try await mxKey(window, 48, "\t")
+            traceFocus(window, "\(tag) after Tab \(index)")
             let identity = mxFocusIdentity() ?? "none"
             traversal.append("\(identity)|\(mxFocusedRole() ?? "?")")
             if match(identity, mxFocusedRole()) {
@@ -1007,9 +1033,39 @@ final class AllPageMatrix {
         throw MatrixFailure(label: "traversal never reached the target: \(traversal)")
     }
 
+    func traceFocus(_ window: NSWindow, _ tag: String) {
+        @MainActor func describe(_ object: NSObject?) -> String {
+            guard let object else { return "nil" }
+            let attributes = [
+                "accessibilityRole", "accessibilityLabel", "accessibilityIdentifier", "accessibilityValue",
+            ]
+            .map { "\($0)=\(String(describing: MatrixViewReader.value(object, $0)))" }.joined(separator: " ")
+            return "\(type(of: object))@\(MatrixViewReader.handle(object).id) \(attributes)"
+        }
+        mxLog(
+            "FOCUS \(tag) key=\(window.isKeyWindow) responder=\(describe(window.firstResponder)) resolved=\(mxFocusIdentity() ?? "nil")"
+        )
+        var view = window.firstResponder as? NSView
+        var seen = Set<ObjectIdentifier>()
+        var chain: [String] = []
+        while let current = view, seen.insert(ObjectIdentifier(current)).inserted, chain.count < 40 {
+            chain.append(describe(current))
+            view = current.nextValidKeyView
+        }
+        mxLog("FOCUS chain \(tag): \(chain)")
+        for (element, node) in MatrixAX.snapshot.nodes.sorted(by: { $0.key.id < $1.key.id })
+        where node.focused == true || element == MatrixAX.snapshot.focused {
+            mxLog(
+                "FOCUS node \(tag) id=\(element.id) class=\(node.nativeClass) focused=\(String(describing: node.focused)) strings=\(node.strings) roleFallback=\(mxRole(element) == nil) identityFallback=\(mxIdentifier(element) == nil && mxName(element) == nil)"
+            )
+        }
+    }
+
     // MARK: Settings: five panes
 
     func settingsPanes() async throws {
+        MatrixAX.useViewTree = true
+        defer { MatrixAX.useViewTree = false }
         let fixture = try MatrixFixture()
         defer { fixture.close() }
         let view = SettingsView().environmentObject(fixture.store).environmentObject(fixture.services)
@@ -1034,6 +1090,8 @@ final class AllPageMatrix {
             try selectPane(pane, window: window, host: host, root: root)
             await mxReady(0.9)
             let texts = mxText(root)
+            mxDumpAX(root, "settings-\(pane.rawValue)")
+            try mxSave(host, output.appendingPathComponent("settings-before-\(pane.rawValue).png"))
             observed[pane.rawValue] = texts.count
             signatures[pane.rawValue] = try mxSignature(host)
             try report.require(
@@ -1082,6 +1140,8 @@ final class AllPageMatrix {
     // MARK: Settings: a synthetic failure path per pane
 
     func settingsFailurePaths() async throws {
+        MatrixAX.useViewTree = true
+        defer { MatrixAX.useViewTree = false }
         let fixture = try MatrixFixture()
         defer { fixture.close() }
         let view = SettingsView().environmentObject(fixture.store).environmentObject(fixture.services)
@@ -1121,6 +1181,8 @@ final class AllPageMatrix {
         let calendarState = SettingsPermissionAccess.eventState(calendarBefore).state
         try selectPane(.workspace, window: window, host: host, root: root)
         await mxReady(1.0)
+        mxDumpAX(root, "workspace-permissions")
+        try mxSave(host, output.appendingPathComponent("workspace-permissions.png"))
         try report.require(
             mxHas(root, calendarState.title), "workspace pane reports the real calendar permission state",
             "expected \(calendarState.title)")
@@ -1182,6 +1244,8 @@ final class AllPageMatrix {
     // MARK: Dashboard: four tabs
 
     func dashboardTabs() async throws {
+        MatrixAX.useViewTree = true
+        defer { MatrixAX.useViewTree = false }
         let fixture = try MatrixFixture()
         defer { fixture.close() }
         try fixture.seed(["Matrix upcoming task"], day: .day(fixture.store.today.adding(days: 1)))
@@ -1238,6 +1302,8 @@ final class AllPageMatrix {
     // MARK: Dashboard: task-line and project actions from real key events
 
     func dashboardActions() async throws {
+        MatrixAX.useViewTree = true
+        defer { MatrixAX.useViewTree = false }
         let fixture = try MatrixFixture()
         defer { fixture.close() }
         guard fixture.store.addTasks(["Matrix project task #Matrix"], on: .day(fixture.store.today)) != nil,
@@ -1310,6 +1376,8 @@ final class AllPageMatrix {
     // MARK: Welcome
 
     func welcomeStates() async throws {
+        MatrixAX.useViewTree = true
+        defer { MatrixAX.useViewTree = false }
         let fixture = try MatrixFixture()
         defer { fixture.close() }
         var opened = 0
@@ -1324,6 +1392,8 @@ final class AllPageMatrix {
         try report.require(
             mxHas(root, AppL10n.text("Your plan, close at hand.")), "welcome renders its heading",
             "texts \(mxText(root).prefix(16))")
+        mxDumpAX(root, "welcome-permissions")
+        try mxSave(host, output.appendingPathComponent("welcome-permissions.png"))
         // Every permission row must show the state the system actually holds: with no grant, the
         // failure state is what the user sees, and the CTA must still work.
         var states: [String: String] = [:]
@@ -1550,6 +1620,8 @@ final class AllPageMatrix {
     // MARK: Clips: real key events, menu Escape, focus return
 
     func clipsKeyboard() async throws {
+        MatrixAX.useViewTree = true
+        defer { MatrixAX.useViewTree = false }
         let fixture = try MatrixFixture()
         defer { fixture.close() }
         let pasteboard = MatrixPasteboard()
@@ -1621,6 +1693,8 @@ final class AllPageMatrix {
     // MARK: Effective enlarged type, measured on pixels and AX frames
 
     func enlargedType() async throws {
+        MatrixAX.useViewTree = true
+        defer { MatrixAX.useViewTree = false }
         let fixture = try MatrixFixture()
         defer { fixture.close() }
         var measurements: [String: Any] = [:]
@@ -1643,6 +1717,7 @@ final class AllPageMatrix {
                 "Matrix Enlarged \(name)", view, size: NSSize(width: 440, height: 230))
             await mxReady(1.4)
             let root = try mxRoot("Matrix Enlarged \(name)")
+            try mxSave(host, output.appendingPathComponent("enlarged-before-\(name).png"))
             let statusTitle = PermissionState.unavailable.title
             guard let status = mxFind(root, name: statusTitle) else {
                 mxDumpAX(root, "enlarged-\(name)")
@@ -1692,6 +1767,8 @@ final class AllPageMatrix {
     // MARK: Effective contrast states, measured on rendered pixels
 
     func contrastStates() async throws {
+        MatrixAX.useViewTree = true
+        defer { MatrixAX.useViewTree = false }
         let fixture = try MatrixFixture()
         defer { fixture.close() }
         let increased = UserDefaults(suiteName: "com.apple.universalaccess")?.bool(forKey: "increaseContrast") ?? false
@@ -1719,7 +1796,6 @@ final class AllPageMatrix {
                     .accessibilityIdentifier("matrix-low-contrast")
             }
             .padding(12)
-            .environment(\.colorScheme, scheme)
             .frame(width: 420, height: 190)
             let (window, host) = try matrixWindow(
                 "Matrix Contrast \(mode)", view, size: NSSize(width: 440, height: 220), appearance: appearance)

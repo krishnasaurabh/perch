@@ -48,7 +48,8 @@ def run(label, extra):
     # Opt in only on the diagnostic branch. Unset GITHUB_REF and all other refs
     # retain the normal child invocation, including after a cherry-pick.
     if os.environ.get('GITHUB_REF') in (
-            'refs/heads/t_7ef2077d-clickfix', 'refs/heads/t_7ef2077d-clickfix3') and label == 'matrix':
+            'refs/heads/t_7ef2077d-clickfix', 'refs/heads/t_7ef2077d-clickfix3',
+            'refs/heads/t_95290d75-matrixreds') and label == 'matrix':
         command = [
             'lldb', '--batch', '-o', 'settings set target.disable-aslr false',
             '-o', 'run',

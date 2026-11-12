@@ -45,6 +45,26 @@ class AllPageMatrixProbeTests(unittest.TestCase):
         self.assertEqual(self.source.count("Task.sleep"), 2)
         self.assertLessEqual(self.source.count("for _ in 0..<"), 4)
 
+    def test_native_reader_retains_semantics_and_focus_diagnostics(self):
+        for getter in ("accessibilityChildrenInNavigationOrder", "isAccessibilityFocused", "isAccessibilityEnabled"):
+            self.assertIn(getter, self.source)
+        self.assertIn("@convention(c) (AnyObject, Selector) -> Bool", self.source)
+        self.assertIn("if semanticFocus.count == 1", self.source)
+        self.assertIn("node.focused == true", self.source)
+        for trace in ("before Tab", "after Tab", "nextValidKeyView", "roleFallback=", "identityFallback="):
+            self.assertIn(trace, self.source)
+        self.assertIn("view.environment(\\.accessibilityEnabled, true)", self.source)
+        self.assertIn("let point = CGPoint(x: local.midX, y: local.midY)", self.source)
+        self.assertNotIn("host.bounds.height - local.midY", self.source)
+
+    def test_native_contrast_uses_the_requested_appearance_without_competing_scheme(self):
+        section = self.source.split("func contrastStates()", 1)[1]
+        self.assertNotIn(".environment(\\.colorScheme, scheme)", section)
+        self.assertIn("effective == appearanceName.rawValue", section)
+        self.assertIn("ratio >= 4.5", section)
+        self.assertIn("lowRatio < 4.5", section)
+        self.assertIn("host.appearance = appearance", self.source)
+
     def test_assertion_plumbing_can_go_red(self):
         plumbing = self.source.split("struct MatrixFailure", 1)[1].split("// MARK: - System accessibility layer", 1)[0]
         program = (
