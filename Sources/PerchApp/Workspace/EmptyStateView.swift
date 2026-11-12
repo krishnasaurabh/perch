@@ -18,10 +18,10 @@ struct EmptyStateView: View {
                 .font(.system(size: compact ? 10 : 13, weight: .regular))
                 .foregroundStyle(Theme.tertiary)
                 .accessibilityHidden(true)
-            Text(message)
+            Text(AppL10n.text(message))
                 .font(.system(size: compact ? 10 : 12))
                 .foregroundStyle(Theme.secondary)
-                .lineLimit(1)
+                .fixedSize(horizontal: false, vertical: true)
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, compact ? 6 : 12)

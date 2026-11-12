@@ -6,14 +6,14 @@ public enum PermissionState: String, CaseIterable, Sendable {
 
     public var title: String {
         switch self {
-        case .checking: "Checking"
-        case .notDetermined: "Not requested"
-        case .allowed: "Allowed"
-        case .denied: "Denied"
-        case .restricted: "Restricted"
-        case .limited: "Limited access"
-        case .unavailable: "Unavailable"
-        case .revoked: "Revoked"
+        case .checking: PerchL10n.text("Checking")
+        case .notDetermined: PerchL10n.text("Not requested")
+        case .allowed: PerchL10n.text("Allowed")
+        case .denied: PerchL10n.text("Denied")
+        case .restricted: PerchL10n.text("Restricted")
+        case .limited: PerchL10n.text("Limited access")
+        case .unavailable: PerchL10n.text("Unavailable")
+        case .revoked: PerchL10n.text("Revoked")
         }
     }
 }
@@ -23,22 +23,27 @@ public enum PermissionFeature: String, CaseIterable, Identifiable, Sendable {
     public var id: String { rawValue }
     public var title: String {
         switch self {
-        case .calendar: "Calendar"
-        case .notifications: "Notifications"
-        case .speech: "Speech Recognition"
-        case .microphone: "Microphone"
-        case .reminders: "Apple Reminders"
+        case .calendar: PerchL10n.text("Calendar")
+        case .notifications: PerchL10n.text("Notifications")
+        case .speech: PerchL10n.text("Speech Recognition")
+        case .microphone: PerchL10n.text("Microphone")
+        case .reminders: PerchL10n.text("Apple Reminders")
         }
     }
     public var detail: String {
         switch self {
-        case .calendar: "Show events beside your tasks. Perch only reads your calendars."
+        case .calendar: PerchL10n.text("Show events beside your tasks. Perch only reads your calendars.")
         case .notifications:
-            "Allow reminder and timer alerts. Delivery also depends on macOS notification and Focus settings."
-        case .speech: "Voice entry needs Speech Recognition, Microphone access and an available on-device language."
-        case .microphone: "Voice entry cannot record without microphone access."
+            PerchL10n.text(
+                "Allow reminder and timer alerts. Delivery also depends on macOS notification and Focus settings.")
+        case .speech:
+            PerchL10n.text(
+                "Voice entry needs Speech Recognition, Microphone access and an available on-device language.")
+        case .microphone: PerchL10n.text("Voice entry cannot record without microphone access.")
         case .reminders:
-            "Access alone does not enable sync. Turn on mirroring in Settings; cross-device delivery depends on your Reminders account."
+            PerchL10n.text(
+                "Access alone does not enable sync. Turn on mirroring in Settings; cross-device delivery depends on your Reminders account."
+            )
         }
     }
     public var settingsURL: URL {
@@ -103,7 +108,7 @@ public final class PermissionWorkflow {
         errors[feature] = nil
         defer { requesting = nil }
         do { try await access.request(feature) } catch {
-            errors[feature] = "The request could not be completed. Try again in System Settings."
+            errors[feature] = PerchL10n.text("The request could not be completed. Try again in System Settings.")
         }
         await refresh()
     }

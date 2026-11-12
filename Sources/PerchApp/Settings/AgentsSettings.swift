@@ -33,7 +33,7 @@ struct AgentsSettings: View {
                     case .notConnected:
                         Button("Connect") {
                             do { message = try AgentConnector.connect(app) } catch {
-                                message = (error as? PlannerError)?.message ?? error.localizedDescription
+                                message = error.perchPresentationDetail
                             }
                             refresh()
                         }
@@ -51,7 +51,9 @@ struct AgentsSettings: View {
                     .enabled
                 ).lineLimit(2)
                 Spacer()
-                Button(copied == "cmd" ? "Copied" : "Copy") { copy(AgentConnector.terminalCommand, "cmd") }
+                Button(AppL10n.text(copied == "cmd" ? "Copied" : "Copy")) {
+                    copy(AgentConnector.terminalCommand, "cmd")
+                }
             }
             Text("Scripts can also open perch://add?title=Your%20task").font(Theme.meta).foregroundStyle(
                 Theme.secondary)
@@ -62,7 +64,8 @@ struct AgentsSettings: View {
                     copy(p, p)
                 } label: {
                     HStack {
-                        Text(p); Spacer(); if copied == p { Text("Copied").foregroundStyle(Theme.secondary) }
+                        Text(AppL10n.text(p)); Spacer();
+                        if copied == p { Text("Copied").foregroundStyle(Theme.secondary) }
                     }
                 }.buttonStyle(PillStyle())
             }

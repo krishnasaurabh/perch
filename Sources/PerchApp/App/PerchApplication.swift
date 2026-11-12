@@ -12,6 +12,17 @@ public enum PerchApplication {
             FileHandle.standardError.write(Data("Unsupported or invalid launch configuration.\n".utf8))
             exit(64)
         }
+        #if DEBUG || PERCH_TESTING
+            if CommandLine.arguments.contains("--check-localization") {
+                do {
+                    try AppLocalizationCheck.run()
+                    exit(0)
+                } catch {
+                    FileHandle.standardError.write(Data("Localization check failed.\n".utf8))
+                    exit(1)
+                }
+            }
+        #endif
         // One binary, two modes:
         //   Perch.app/Contents/MacOS/Perch          -> the notch app
         //   Perch.app/Contents/MacOS/Perch --mcp    -> stdio MCP server for Claude Code / Claude app / Cursor

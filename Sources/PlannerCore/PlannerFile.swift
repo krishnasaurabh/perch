@@ -347,7 +347,11 @@ public final class PlannerFile: Sendable {
             guard try io.read(copy) == data else { throw PlannerError("Recovery copy verification failed.") }
         } catch {
             throw PlannerError(
-                "Unable to preserve corrupt planner data: \(error.localizedDescription). The original was not changed.")
+                "Unable to preserve corrupt planner data: %@. The original was not changed.",
+                arguments: [error.localizedDescription],
+                message:
+                    "Unable to preserve corrupt planner data: \(error.localizedDescription). The original was not changed."
+            )
         }
         return copy
     }
@@ -496,7 +500,9 @@ public final class PlannerFile: Sendable {
             _ = try decode(copied)
         } catch {
             try? io.remove(backup)
-            throw PlannerError("Planner backup failed: \(error.localizedDescription). The original was not changed.")
+            throw PlannerError(
+                "Planner backup failed: %@. The original was not changed.", arguments: [error.localizedDescription],
+                message: "Planner backup failed: \(error.localizedDescription). The original was not changed.")
         }
         try pruneLocked(Array(previous.dropFirst(Self.backupLimit - 1)))
     }
@@ -508,7 +514,10 @@ public final class PlannerFile: Sendable {
             // Keep the verified copy on disk if pruning fails, and stop the save.
             // A retry must finish pruning before any further current-file replacement.
             throw PlannerError(
-                "Planner backup retention failed: \(error.localizedDescription). The original was not changed.")
+                "Planner backup retention failed: %@. The original was not changed.",
+                arguments: [error.localizedDescription],
+                message: "Planner backup retention failed: \(error.localizedDescription). The original was not changed."
+            )
         }
     }
 

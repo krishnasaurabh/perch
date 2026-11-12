@@ -36,7 +36,7 @@ do {
                         environment.pop(key)
                 for args in ([], ["--mcp"]):
                     self.assertEqual(subprocess.run([binary, *args], env=environment).returncode, 0)
-                for args in (["--demo"], ["--scenario", "three"], ["--motion-script", "out"]):
+                for args in (["--demo"], ["--scenario", "three"], ["--motion-script", "out"], ["--check-localization"]):
                     self.assertEqual(subprocess.run([binary, *args], env=environment).returncode, 64)
                     with_data = dict(environment, PERCH_DATA=str(root / "planner.json"))
                     self.assertEqual(subprocess.run([binary, *args], env=with_data).returncode,

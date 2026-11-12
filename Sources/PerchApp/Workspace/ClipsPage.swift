@@ -16,7 +16,7 @@ struct ClipsBody: View {
         VStack(alignment: .leading, spacing: Theme.gutter) {
             ViewThatFits(in: .horizontal) {
                 HStack {
-                    CardHeading("Clips", symbol: "paperclip").fixedSize()
+                    CardHeading(AppL10n.text("Clips"), symbol: "paperclip").fixedSize()
                     Spacer(minLength: Theme.gutter)
                     captureControls
                     removeUnpinned.fixedSize()
@@ -26,7 +26,7 @@ struct ClipsBody: View {
                 .frame(minWidth: 640)
                 VStack(alignment: .leading, spacing: Theme.gutter) {
                     HStack {
-                        CardHeading("Clips", symbol: "paperclip"); Spacer(); removeUnpinned
+                        CardHeading(AppL10n.text("Clips"), symbol: "paperclip"); Spacer(); removeUnpinned
                     }
                     captureControls
                 }
@@ -82,14 +82,14 @@ struct ClipsBody: View {
                     get: { store.prefs.catchScreenshots },
                     set: { value in store.updatePrefs { $0.catchScreenshots = value } })
             )
-            .toggleStyle(ClipsCaptureToggleStyle(title: "Add screenshots"))
+            .toggleStyle(ClipsCaptureToggleStyle(title: AppL10n.text("Add screenshots")))
             .fixedSize()
             Toggle(
                 "Add copied items",
                 isOn: Binding(
                     get: { store.prefs.catchCopies }, set: { value in store.updatePrefs { $0.catchCopies = value } })
             )
-            .toggleStyle(ClipsCaptureToggleStyle(title: "Add copied items"))
+            .toggleStyle(ClipsCaptureToggleStyle(title: AppL10n.text("Add copied items")))
             .fixedSize()
         }
         .font(Theme.meta)
@@ -131,7 +131,7 @@ private struct ClipsCaptureToggleStyle: ToggleStyle {
         }
         .buttonStyle(PillStyle(prominent: configuration.isOn))
         .accessibilityLabel(title)
-        .accessibilityValue(configuration.isOn ? "On" : "Off")
+        .accessibilityValue(AppL10n.text(configuration.isOn ? "On" : "Off"))
     }
 }
 
@@ -160,7 +160,7 @@ private struct LetGoToast: View {
     var body: some View {
         VStack(spacing: 4) {
             HStack(spacing: Theme.gutter) {
-                Text(banner.count == 1 ? "Removed 1 clip" : "Removed \(banner.count) clips")
+                Text(AppL10n.format("Removed %lld clips", banner.count))
                     .font(Theme.meta).foregroundStyle(Theme.text)
                 Spacer(minLength: Theme.gutter)
                 Button("Undo", action: undo).buttonStyle(PillStyle(prominent: true))
@@ -188,9 +188,9 @@ private struct FolderWatchStatus: View {
         case .off:
             EmptyView()
         case .watching(let url):
-            Label("Watching \(url.lastPathComponent)", systemImage: "eye")
+            Label(AppL10n.format("Watching %@", url.lastPathComponent), systemImage: "eye")
                 .font(Theme.meta).foregroundStyle(Theme.secondary)
-                .help("New screenshots in \(url.path) appear here.")
+                .help(AppL10n.format("New screenshots in %@ appear here.", url.path))
         case .unreadable(let url):
             Button {
                 NSWorkspace.shared.open(
@@ -200,7 +200,9 @@ private struct FolderWatchStatus: View {
             }
             .buttonStyle(PillStyle())
             .help(
-                "Allow Perch to access \(url.path) in Privacy & Security › Files and Folders. Only Spotlight is active until then."
+                AppL10n.format(
+                    "Allow Perch to access %@ in Privacy & Security › Files and Folders. Only Spotlight is active until then.",
+                    url.path)
             )
         }
     }
@@ -230,7 +232,7 @@ private struct ClipsActionsMenu: NSViewRepresentable {
     func updateNSView(_ button: NSPopUpButton, context: Context) {
         let menu = NSMenu()
         menu.autoenablesItems = false
-        let title = NSMenuItem(title: "More", action: nil, keyEquivalent: "")
+        let title = NSMenuItem(title: AppL10n.text("More"), action: nil, keyEquivalent: "")
         title.image = NSImage(systemSymbolName: "ellipsis", accessibilityDescription: nil)
         menu.addItem(title)
         context.coordinator.actions = []
@@ -242,17 +244,17 @@ private struct ClipsActionsMenu: NSViewRepresentable {
             context.coordinator.actions.append(action)
             menu.addItem(item)
         }
-        add(clip.pinned ? "Unpin" : "Pin") { clips.togglePin(clip.id) }
-        add("Copy") { clips.copy(clip) }
+        add(AppL10n.text(clip.pinned ? "Unpin" : "Pin")) { clips.togglePin(clip.id) }
+        add(AppL10n.text("Copy")) { clips.copy(clip) }
         if let url = clips.clipURL(clip) {
-            add("Open") { clips.open(clip) }
-            add("Show in Finder") { NSWorkspace.shared.activateFileViewerSelecting([url]) }
+            add(AppL10n.text("Open")) { clips.open(clip) }
+            add(AppL10n.text("Show in Finder")) { NSWorkspace.shared.activateFileViewerSelecting([url]) }
         }
         menu.addItem(.separator())
-        add("Remove") { clips.letGo(clip.id) }
+        add(AppL10n.text("Remove")) { clips.letGo(clip.id) }
         button.menu = menu
         button.isEnabled = isEnabled
-        let label = "Actions for \(clip.title)"
+        let label = AppL10n.format("Actions for %@", clip.title)
         let identifier = "clips.actions.\(clip.id)"
         button.setAccessibilityLabel(label)
         button.setAccessibilityIdentifier(identifier)
@@ -304,7 +306,7 @@ private struct ClipCard: View {
                 } label: {
                     VStack(alignment: .leading, spacing: 5) {
                         ClipPreview(content: clip.content, thumbnail: clip.thumbnail)
-                        Text(copied ? "Copied" : clip.title).font(Theme.meta).lineLimit(1)
+                        Text(clip.displayTitle(copied: copied)).font(Theme.meta).lineLimit(1)
                             .foregroundStyle(Theme.text).frame(width: 132, alignment: .leading)
                     }.contentShape(Rectangle())
                 }
@@ -314,7 +316,7 @@ private struct ClipCard: View {
                 .overlay(
                     ControlFocusRing(shape: RoundedRectangle(cornerRadius: Theme.controlRadius), focused: copyFocused)
                 )
-                .accessibilityLabel("Copy \(clip.title)")
+                .accessibilityLabel(AppL10n.format("Copy %@", clip.title))
                 HStack {
                     if clip.pinned {
                         Label("Pinned", systemImage: "pin.fill").font(Theme.meta).foregroundStyle(Theme.secondary)
@@ -347,7 +349,7 @@ private struct ClipCard: View {
     }
 
     @ViewBuilder private var clipActions: some View {
-        Button(clip.pinned ? "Unpin" : "Pin") { clips.togglePin(clip.id) }
+        Button(AppL10n.text(clip.pinned ? "Unpin" : "Pin")) { clips.togglePin(clip.id) }
         Button("Copy") { clips.copy(clip) }
         if let url = clips.clipURL(clip) {
             Button("Open") { clips.open(clip) }

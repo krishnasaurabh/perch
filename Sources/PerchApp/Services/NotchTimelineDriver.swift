@@ -122,7 +122,7 @@ final class NotchTimelineDriver {
     }
 
     static func countdown(to start: Date, now: Date) -> String {
-        "Starts in \(max(1, Int((start.timeIntervalSince(now) / 60).rounded(.up)))) min"
+        AppL10n.format("Starts in %lld min", max(1, Int((start.timeIntervalSince(now) / 60).rounded(.up))))
     }
 
     private func card(for a: Activity, now: Date) -> PresentedNotchActivity? {
@@ -135,17 +135,19 @@ final class NotchTimelineDriver {
             return PresentedNotchActivity(
                 kind: .eventSoon(a.id), title: a.title, subtitle: Self.countdown(to: start, now: now))
         case .eventNow:
-            return PresentedNotchActivity(kind: .eventSoon(a.id), title: a.title, subtitle: "Starting now")
+            return PresentedNotchActivity(
+                kind: .eventSoon(a.id), title: a.title, subtitle: AppL10n.text("Starting now"))
         case .screenshot:
             guard let url = a.fileURL else { return nil }
-            return PresentedNotchActivity(kind: .clip(url), title: "On the line", subtitle: a.title)
+            return PresentedNotchActivity(kind: .clip(url), title: AppL10n.text("On the line"), subtitle: a.title)
         }
     }
 
     private func body(for a: Activity) -> String {
         let task = a.taskID.flatMap { id in store.planner.tasks.first { $0.id == id } }
-        return task?.minutes.map { "A \($0)-minute reminder for \(a.title). Choose an action below." }
-            ?? "Reminder for \(a.title). Choose an action below."
+        return task?.minutes.map {
+            AppL10n.format("A %lld-minute reminder for %@. Choose an action below.", $0, a.title)
+        } ?? AppL10n.format("Reminder for %@. Choose an action below.", a.title)
     }
 
 }

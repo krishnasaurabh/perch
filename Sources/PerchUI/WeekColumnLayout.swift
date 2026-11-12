@@ -3,8 +3,8 @@ import PlannerCore
 
 /// Copy and overflow rules for a Week day column, kept here so they are testable on Linux.
 public enum WeekColumnLayout {
-    public static let dragHint = "Drag to move. Double-click for details."
-    public static let pastHint = "Older days stay unchanged in your history."
+    public static var dragHint: String { PerchL10n.text("Drag to move. Double-click for details.") }
+    public static var pastHint: String { PerchL10n.text("Older days stay unchanged in your history.") }
 
     /// Seven civil days beginning on the user's first weekday, based on the
     /// engine's logical today (already adjusted for its reset hour).
@@ -12,6 +12,18 @@ public enum WeekColumnLayout {
         let distance = (today.weekday(calendar: calendar) - calendar.firstWeekday + 7) % 7
         let start = today.adding(days: weekOffset * 7 - distance, calendar: calendar)
         return (0..<7).map { start.adding(days: $0, calendar: calendar) }
+    }
+
+    /// Format a stored civil day for display without changing its calendar conversion.
+    public static func dateLabel(
+        _ day: DayKey, template: String, calendar: Calendar, locale: Locale = .current
+    ) -> String {
+        let formatter = DateFormatter()
+        formatter.locale = locale
+        formatter.calendar = calendar
+        formatter.timeZone = calendar.timeZone
+        formatter.setLocalizedDateFormatFromTemplate(template)
+        return formatter.string(from: day.date(calendar: calendar))
     }
 
     /// Scroll rather than squeeze the text or reduce its font size. Inbox is a
@@ -57,5 +69,7 @@ public enum WeekColumnLayout {
     }
 
     /// The quiet overflow line under a busy column, or nil when everything fits.
-    public static func overflowLabel(hidden: Int) -> String? { hidden > 0 ? "+\(hidden) more" : nil }
+    public static func overflowLabel(hidden: Int) -> String? {
+        hidden > 0 ? PerchL10n.format("+%lld more", hidden) : nil
+    }
 }

@@ -22,14 +22,17 @@ struct HistoryList: View {
                 }.frame(width: 150)
             }
             if groups.isEmpty {
-                Text(query.isEmpty ? "Finished days show up here." : "No matches. Change the search text.")
-                    .foregroundStyle(Theme.secondary)
+                Text(
+                    AppL10n.text(query.isEmpty ? "Finished days show up here." : "No matches. Change the search text.")
+                )
+                .foregroundStyle(Theme.secondary)
             }
             ForEach(groups, id: \.key) { day, tasks in
                 VStack(alignment: .leading, spacing: 4) {
                     HStack {
                         Text(day.date().formatted(.dateTime.weekday(.wide).month().day())).font(Theme.heading)
-                        Text("\(tasks.filter(\.done).count)/\(tasks.count) done").foregroundStyle(Theme.secondary)
+                        Text(AppL10n.format("%lld/%lld done", tasks.filter(\.done).count, tasks.count)).foregroundStyle(
+                            Theme.secondary)
                     }
                     ForEach(tasks) { t in DashboardTaskLine(task: t) }
                     let note = store.engine.notepad(on: day)

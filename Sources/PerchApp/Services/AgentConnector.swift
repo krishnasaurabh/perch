@@ -17,6 +17,27 @@ enum AgentConnector {
     }
 
     enum Status: Equatable { case connected, notConnected, notInstalled }
+    enum ConnectionMessage: CaseIterable { case alreadyConnected, claudeCodeReady, claudeAppReady, cursorReady }
+
+    static func connectionMessage(_ message: ConnectionMessage, locale: Locale? = nil) -> String {
+        switch message {
+        case .alreadyConnected:
+            AppL10n.text("Perch is already connected to Claude Code.", locale: locale)
+        case .claudeCodeReady:
+            AppL10n.text("Open a fresh Claude Code session, then ask it something like:", locale: locale)
+        case .claudeAppReady:
+            AppL10n.text("Quit and reopen the Claude app, then ask it something like:", locale: locale)
+        case .cursorReady:
+            AppL10n.text("Cursor loads Perch when it restarts.", locale: locale)
+        }
+    }
+
+    static func claudeCodeConnectionError(_ detail: String) -> PlannerError {
+        let detail = detail.trimmingCharacters(in: .whitespacesAndNewlines)
+        return PlannerError(
+            "Adding Perch to Claude Code failed. %@", arguments: [detail],
+            message: "Adding Perch to Claude Code failed. \(detail)")
+    }
 
     static let serverName = "perch"
     static var home: URL { FileManager.default.homeDirectoryForCurrentUser }
@@ -77,17 +98,16 @@ enum AgentConnector {
                 "connect app=\(app.rawValue, privacy: .public) status=\(p.terminationStatus, privacy: .public)")
             if p.terminationStatus != 0 {
                 let msg = String(decoding: err.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
-                if msg.contains("already exists") { return "Perch is already connected to Claude Code." }
-                throw PlannerError(
-                    "Adding Perch to Claude Code failed. \(msg.trimmingCharacters(in: .whitespacesAndNewlines))")
+                if msg.contains("already exists") { return connectionMessage(.alreadyConnected) }
+                throw claudeCodeConnectionError(msg)
             }
-            return "Open a fresh Claude Code session, then ask it something like:"
+            return connectionMessage(.claudeCodeReady)
         case .claudeApp:
             try addServer(to: claudeDesktopConfig)
-            return "Quit and reopen the Claude app, then ask it something like:"
+            return connectionMessage(.claudeAppReady)
         case .cursor:
             try addServer(to: cursorConfig)
-            return "Cursor loads Perch when it restarts."
+            return connectionMessage(.cursorReady)
         }
     }
 
@@ -142,7 +162,9 @@ enum AgentConnector {
         if data.isEmpty { return [:] }
         guard let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
             PlatformLog.agents.error("config decode failed reason=invalidJSON")
-            throw PlannerError("\(url.lastPathComponent) couldn't be read, so Perch left it unchanged.")
+            throw PlannerError(
+                "%@ couldn't be read, so Perch left it unchanged.", arguments: [url.lastPathComponent],
+                message: "\(url.lastPathComponent) couldn't be read, so Perch left it unchanged.")
         }
         return obj
     }

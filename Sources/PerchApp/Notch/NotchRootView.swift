@@ -151,8 +151,11 @@ struct TimerPillLayer: View {
                     }
                 }
                 .accessibilityElement(children: .ignore)
-                .accessibilityLabel("\(f.state == .running ? "Running" : "Paused") timer, \(face.fullText)")
-                .help("\(face.fullText) \(f.limit == nil ? "elapsed" : "remaining")")
+                .accessibilityLabel(
+                    AppL10n.format(
+                        "%@ timer, %@", AppL10n.text(f.state == .running ? "Running" : "Paused"), face.fullText)
+                )
+                .help(AppL10n.format("%@ %@", face.fullText, AppL10n.text(f.limit == nil ? "elapsed" : "remaining")))
             }
         }
     }
@@ -205,12 +208,12 @@ struct ActivityStrip: View {
     }
 
     private func subtitle(at now: Date) -> String {
-        if actionFailed { return "Action failed. Please try again." }
+        if actionFailed { return AppL10n.text("Action failed. Please try again.") }
         if case .reminder(let id) = activity.kind,
             NotchReminderPresentation.isMissed(
                 task: store.planner.tasks.first { $0.id == id }, records: services.reminders.records, now: now)
         {
-            return "Missed reminder · delivery unconfirmed"
+            return AppL10n.text("Missed reminder · delivery unconfirmed")
         }
         return services.timeline.subtitle(for: activity, now: now)
     }
@@ -267,7 +270,7 @@ struct ActivityStrip: View {
     }
 
     private func pill(_ title: String, identifier: String, _ action: @escaping () -> Void) -> some View {
-        Button(title, action: action)
+        Button(AppL10n.text(title), action: action)
             .buttonStyle(PillStyle())
             .accessibilityIdentifier(identifier)
     }

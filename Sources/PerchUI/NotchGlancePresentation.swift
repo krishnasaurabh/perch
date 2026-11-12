@@ -4,17 +4,22 @@ import PlannerCore
 /// A deliberately count-only glance: no task text enters the visible or accessible presentation.
 public struct NotchGlancePresentation: Equatable, Sendable {
     public let count: Int
-    public var text: String { "\(count > 999 ? "999+" : String(count)) \(count == 1 ? "task" : "tasks")" }
+    public let locale: Locale
+    public var text: String { PerchL10n.tasks(count: count, capped: true, locale: locale) }
     public var accessibilityLabel: String {
-        "\(count) unfinished \(count == 1 ? "task" : "tasks") today. Open Today"
+        PerchL10n.format("%lld unfinished tasks today. Open Today", locale: locale, count)
     }
 
-    public init?(planner: Planner, today: DayKey, expanded: Bool = false, activityVisible: Bool = false) {
+    public init?(
+        planner: Planner, today: DayKey, expanded: Bool = false, activityVisible: Bool = false,
+        locale: Locale = .current
+    ) {
         guard planner.preferences.notchTaskCount, !expanded, !activityVisible,
             planner.focus == nil || planner.focus?.state == .finished
         else { return nil }
         let count = planner.tasks.lazy.filter { $0.day == today && !$0.done }.count
         guard count > 0 else { return nil }
         self.count = count
+        self.locale = locale
     }
 }

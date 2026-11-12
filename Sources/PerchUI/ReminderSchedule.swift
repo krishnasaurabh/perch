@@ -17,7 +17,7 @@ public struct ScheduledReminder: Codable, Equatable, Sendable, Identifiable {
         date = task.remindAt!
         id = Self.prefix + task.id.uuidString + "." + String(date.timeIntervalSinceReferenceDate)
         title = task.title
-        body = "Reminder for \(task.title)."
+        body = PerchL10n.format("Reminder for %@.", task.title)
     }
 }
 

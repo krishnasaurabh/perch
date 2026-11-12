@@ -52,8 +52,8 @@ struct ClipPreview: View {
 
     private var filename: String {
         if case .file(let url) = content { return url.lastPathComponent }
-        if case .image = content { return "Image preview unavailable" }
-        return "Empty text clip"
+        if case .image = content { return AppL10n.text("Image preview unavailable") }
+        return AppL10n.text("Empty text clip")
     }
 
     private var fileSymbol: String {

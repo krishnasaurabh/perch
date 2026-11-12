@@ -22,7 +22,8 @@ final class SettingsPermissionAccess: PermissionAccess {
         case .reminders: return Self.eventState(EKEventStore.authorizationStatus(for: .reminder))
         case .notifications:
             guard Bundle.main.bundleIdentifier != nil else {
-                return PermissionReading(.unavailable, detail: "Notification access requires the installed Perch app.")
+                return PermissionReading(
+                    .unavailable, detail: AppL10n.text("Notification access requires the installed Perch app."))
             }
             let settings = await UNUserNotificationCenter.current().notificationSettings()
             switch settings.authorizationStatus {
@@ -32,12 +33,14 @@ final class SettingsPermissionAccess: PermissionAccess {
                 guard settings.alertSetting == .enabled else {
                     return PermissionReading(
                         .limited,
-                        detail: "Permission is granted, but notification alerts are disabled in System Settings.")
+                        detail: AppL10n.text(
+                            "Permission is granted, but notification alerts are disabled in System Settings."))
                 }
                 return PermissionReading(.allowed)
             case .provisional:
                 return PermissionReading(
-                    .limited, detail: "Full notification alerts are not authorized. Review notification settings.")
+                    .limited,
+                    detail: AppL10n.text("Full notification alerts are not authorized. Review notification settings."))
             @unknown default: return PermissionReading(.unavailable)
             }
         case .speech:
@@ -52,13 +55,16 @@ final class SettingsPermissionAccess: PermissionAccess {
             guard state == .allowed else { return PermissionReading(state) }
             guard let recognizer = SFSpeechRecognizer(), recognizer.isAvailable else {
                 return PermissionReading(
-                    .unavailable, detail: "Speech recognition is not currently available for this language.")
+                    .unavailable,
+                    detail: AppL10n.text("Speech recognition is not currently available for this language."))
             }
             guard recognizer.supportsOnDeviceRecognition else {
                 return PermissionReading(
                     .unavailable,
                     detail:
-                        "Install this language under System Settings › Keyboard › Dictation. Perch requires on-device recognition."
+                        AppL10n.text(
+                            "Install this language under System Settings › Keyboard › Dictation. Perch requires on-device recognition."
+                        )
                 )
             }
             return PermissionReading(.allowed)
@@ -77,7 +83,8 @@ final class SettingsPermissionAccess: PermissionAccess {
         switch state {
         case .notDetermined: PermissionReading(.notDetermined)
         case .fullAccess: PermissionReading(.allowed)
-        case .writeOnly: PermissionReading(.limited, detail: "Full access is required to read existing items.")
+        case .writeOnly:
+            PermissionReading(.limited, detail: AppL10n.text("Full access is required to read existing items."))
         case .denied: PermissionReading(.denied)
         case .restricted: PermissionReading(.restricted)
         @unknown default: PermissionReading(.unavailable)
@@ -181,18 +188,20 @@ struct PermissionPanel: View {
 
     @ViewBuilder private func action(_ feature: PermissionFeature, _ state: PermissionState) -> some View {
         if state == .notDetermined {
-            Button(model.requesting == feature ? "Requesting…" : "Allow") { Task { await model.request(feature) } }
-                .buttonStyle(PillStyle(disabledReason: "Wait for the current permission request."))
-                .disabled(model.requesting != nil)
-                .accessibilityLabel("Allow \(feature.title)")
+            Button(AppL10n.text(model.requesting == feature ? "Requesting…" : "Allow")) {
+                Task { await model.request(feature) }
+            }
+            .buttonStyle(PillStyle(disabledReason: "Wait for the current permission request."))
+            .disabled(model.requesting != nil)
+            .accessibilityLabel(AppL10n.format("Allow %@", feature.title))
         } else if state != .checking {
             Button("Settings…") {
                 if !NSWorkspace.shared.open(feature.settingsURL) {
-                    settingsError = "Open System Settings manually and select \(feature.title)."
+                    settingsError = AppL10n.format("Open System Settings manually and select %@.", feature.title)
                 }
             }
             .buttonStyle(PillStyle())
-            .accessibilityLabel("Open \(feature.title) settings")
+            .accessibilityLabel(AppL10n.format("Open %@ settings", feature.title))
         }
     }
 }

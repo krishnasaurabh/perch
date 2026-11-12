@@ -9,9 +9,35 @@ import PlannerCore
     import PerchMCP
 #endif
 
+// This fixture owns the proposal. Content-derived window constraints must not
+// silently replace it with the view's ideal height before a snapshot is taken.
 @MainActor
-func capture(_ view: NSView, to url: URL) throws {
+func installClipsFixture(_ root: some View, in window: NSWindow, size: NSSize) -> NSView {
+    let host = NSHostingView(rootView: root)
+    host.sizingOptions = []
+    window.contentView = host
+    window.setContentSize(size)
+    return host
+}
+
+@MainActor
+func capture(_ view: NSView, size expectedSize: NSSize, to url: URL) throws {
     view.layoutSubtreeIfNeeded()
+    let contentSize = view.window.map { $0.contentRect(forFrameRect: $0.frame).size } ?? .zero
+    let geometry: [String: Any] = [
+        "requestedSize": NSStringFromSize(expectedSize),
+        "viewBounds": NSStringFromRect(view.bounds),
+        "windowContentSize": NSStringFromSize(contentSize),
+        "windowContentMinSize": NSStringFromSize(view.window?.contentMinSize ?? .zero),
+        "windowContentMaxSize": NSStringFromSize(view.window?.contentMaxSize ?? .zero),
+    ]
+    try JSONSerialization.data(withJSONObject: geometry, options: [.prettyPrinted, .sortedKeys])
+        .write(to: url.deletingPathExtension().appendingPathExtension("geometry.json"))
+    guard view.bounds.size == expectedSize, contentSize == expectedSize else {
+        throw NSError(
+            domain: "ClipsLayout", code: 1,
+            userInfo: [NSLocalizedDescriptionKey: "Native fixture size differs from the requested capture size"])
+    }
     guard let bitmap = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { fatalError("No bitmap") }
     view.cacheDisplay(in: view.bounds, to: bitmap)
     guard let png = bitmap.representation(using: .png, properties: [:]) else { fatalError("No PNG") }
@@ -403,13 +429,12 @@ func checkClipsToolbar(_ url: URL, host: NSView) throws -> [String: Any] {
         ]
         var checks: [[String: Any]] = []
         for width in [640, 820] {
-            window.setContentSize(NSSize(width: width, height: 360))
+            let size = NSSize(width: width, height: 360)
             window.appearance = NSAppearance(named: .darkAqua)
-            let view = NSHostingView(
-                rootView: ClipsBody(clips: clips).environmentObject(store)
+            let view = installClipsFixture(
+                ClipsBody(clips: clips).environmentObject(store)
                     .environment(\.accessibilityEnabled, true).environment(\.colorScheme, .dark)
-                    .padding(24).background(Color.black))
-            window.contentView = view
+                    .padding(24).background(Color.black), in: window, size: size)
             await settleClips()
             for (index, control) in controls.enumerated() {
                 let (title, key) = control
@@ -420,7 +445,7 @@ func checkClipsToolbar(_ url: URL, host: NSView) throws -> [String: Any] {
                     try pressClips(title, in: view)
                     await settleClips()
                     let url = out.appendingPathComponent("\(prefix).png")
-                    try capture(view, to: url)
+                    try capture(view, size: size, to: url)
                     try writeClipsAccessibility(view, to: url.deletingPathExtension().appendingPathExtension("ax.json"))
                     _ = try checkClipsToolbar(url, host: view)
                     let persisted = try file.load().preferences
@@ -485,7 +510,8 @@ func clipsMenuAction(
     // Retain the exact kept-row state before the first selector or press can fail.
     let diagnostic = out.appendingPathComponent("kept-file-menu-before.ax.json")
     if !FileManager.default.fileExists(atPath: diagnostic.path) {
-        try capture(host, to: out.appendingPathComponent("kept-file-menu-before.png"))
+        try capture(
+            host, size: NSSize(width: 820, height: 360), to: out.appendingPathComponent("kept-file-menu-before.png"))
         try writeClipsAccessibility(host, to: diagnostic)
     }
     let control = try clipsControl("Actions for \(title)", in: host)
@@ -591,18 +617,17 @@ func clipsMenuAction(
         var checks: [[String: Any]] = []
         var baselines: [String: Double] = [:]
         var inlineVariances: [String: Double] = [:]
-        window.setContentSize(NSSize(width: 180, height: 140))
+        let previewSize = NSSize(width: 180, height: 140)
         for (appearance, scheme) in [("dark", ColorScheme.dark), ("light", ColorScheme.light)] {
             window.appearance = NSAppearance(named: appearance == "dark" ? .darkAqua : .aqua)
             for (name, root) in cases {
-                let view = NSHostingView(
-                    rootView: root.environment(\.colorScheme, scheme)
-                        .padding(24).background(Color.black))
-                window.contentView = view
+                let view = installClipsFixture(
+                    root.environment(\.colorScheme, scheme)
+                        .padding(24).background(Color.black), in: window, size: previewSize)
                 await settleClips()
                 let filename = "preview-\(appearance)-\(name).png"
                 let url = out.appendingPathComponent(filename)
-                try capture(view, to: url)
+                try capture(view, size: previewSize, to: url)
                 let pixels = try previewPixels(url, box: NSRect(x: 30, y: 30, width: 120, height: 80))
                 let icon = try previewPixels(url, box: NSRect(x: 70, y: 38, width: 40, height: 35))
                 if name == "empty-tile" { baselines[appearance] = pixels.variance }
@@ -643,12 +668,12 @@ func clipsMenuAction(
                 domain: "ClipPreview", code: 3,
                 userInfo: [NSLocalizedDescriptionKey: "Kept text fixture was not copied into the vault"])
         }
-        window.setContentSize(NSSize(width: 820, height: 360))
-        let page = NSHostingView(
-            rootView: ClipsPage().environmentObject(store).environmentObject(services)
+        let pageSize = NSSize(width: 820, height: 360)
+        let page = installClipsFixture(
+            ClipsPage().environmentObject(store).environmentObject(services)
                 .environment(\.accessibilityEnabled, true)
-                .environment(\.colorScheme, .dark).padding(24).background(Color.black))
-        window.contentView = page
+                .environment(\.colorScheme, .dark).padding(24).background(Color.black),
+            in: window, size: pageSize)
         await settleClips()
         let beforePin = services.clips.clips
         try clipsMenuAction("Pin", title: kept.title, host: page, expectsOpen: true, out: out) {
@@ -659,7 +684,7 @@ func clipsMenuAction(
         }
         await settleClips()
         try requireClips(services.clips.clips.first?.pinned == true, "Native Pin must pin the kept file")
-        try capture(page, to: out.appendingPathComponent("kept-file.png"))
+        try capture(page, size: pageSize, to: out.appendingPathComponent("kept-file.png"))
         let beforeUnpin = services.clips.clips
         try clipsMenuAction("Unpin", title: kept.title, host: page, expectsOpen: true, out: out) {
             try requireClips(
@@ -712,15 +737,14 @@ MainActor.assumeIsolated {
                 for width in [640, 820] {
                     for (appearance, scheme) in [("dark", ColorScheme.dark), ("light", ColorScheme.light)] {
                         let services = Services(store: store)
-                        window.setContentSize(NSSize(width: width, height: 360))
+                        let size = NSSize(width: width, height: 360)
                         window.appearance = NSAppearance(named: appearance == "dark" ? .darkAqua : .aqua)
-                        let view = NSHostingView(
-                            rootView: ClipsPage()
+                        let view = installClipsFixture(
+                            ClipsPage()
                                 .environmentObject(store).environmentObject(services)
                                 .environment(\.accessibilityEnabled, true)
                                 .environment(\.colorScheme, scheme)
-                                .padding(24).background(Color.black))
-                        window.contentView = view
+                                .padding(24).background(Color.black), in: window, size: size)
                         await settleClips()
                         for state in ["empty", "one", "populated", "cleared"] {
                             switch state {
@@ -741,7 +765,8 @@ MainActor.assumeIsolated {
                                 try requireClips(
                                     undo.height >= 28 && view.bounds.insetBy(dx: 24, dy: 24).contains(undo),
                                     "Undo target must be inside the card and at least 28pt high")
-                                try capture(view, to: out.appendingPathComponent("\(appearance)-\(width)-undo.png"))
+                                try capture(
+                                    view, size: size, to: out.appendingPathComponent("\(appearance)-\(width)-undo.png"))
                                 try pressClips("Undo", in: view)
                                 await settleClips()
                                 try requireClips(
@@ -752,7 +777,7 @@ MainActor.assumeIsolated {
                             await settleClips()
                             let name = "\(appearance)-\(width)-\(state).png"
                             let url = out.appendingPathComponent(name)
-                            try capture(view, to: url)
+                            try capture(view, size: size, to: url)
                             try writeClipsAccessibility(
                                 view, to: url.deletingPathExtension().appendingPathExtension("ax.json"))
                             let toolbar = try checkClipsToolbar(url, host: view)

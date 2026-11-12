@@ -21,7 +21,7 @@ class TodayInteractionTests(unittest.TestCase):
         path = WORKSPACE / "TaskRow.swift"
         source = path.read_text() if path.exists() else (WORKSPACE / "TasksCard.swift").read_text()
         self.assertIn("task.priority != .none", source)
-        self.assertIn("task.priority.rawValue.capitalized", source)
+        self.assertIn("AppL10n.priority(task.priority)", source)
         self.assertIn("Theme.priority(task.priority)", source)
         self.assertNotIn("lineLimit(compact ? 1 : 2)", source)
 
@@ -309,13 +309,13 @@ class TodayInteractionTests(unittest.TestCase):
         for expected in ('accessibilityIdentifier("task-row-\\(task.id)")',
                          '.accessibilityLabel(task.title)', '.accessibilityValue(accessibilitySummary)',
                          '.accessibilityHint(', '.accessibilityActions {',
-                         'Button(task.done ? "Reopen" : "Complete", action: toggle)',
+                         'Button(AppL10n.text(task.done ? "Reopen" : "Complete"), action: toggle)',
                          'Button("Details") { model.detailsTaskID = task.id }',
                          'Button("Delete", role: .destructive, action: delete)',
                          'if canFocus { Button("Focus", action: startFocus) }'):
             self.assertIn(expected, row)
-        self.assertIn('task.done || ticked ? "Completed" : "Not completed"', source)
-        self.assertIn('priority.rawValue.capitalized', source)
+        self.assertIn('task.done || ticked ? AppL10n.text("Completed") : AppL10n.text("Not completed")', source)
+        self.assertIn('AppL10n.priority(', source)
         self.assertIn('private func startFocus()', source)
 
     def test_native_last_row_delete_undo_uses_notch_panel_keyboard(self):
