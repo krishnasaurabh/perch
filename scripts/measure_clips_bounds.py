@@ -28,7 +28,11 @@ def measure(folder):
         outside = sum(max(pixel) > 8 for box in regions for pixel in rgb.crop(box).getdata())
         # The first 6pt after the rope's cap, before a clip's paper body, cannot
         # contain header text or the centered empty message. It must contain line ink.
-        rope_roi = (round(43 * sx), round(76 * sx), round(50 * sx), round(110 * sx))
+        # The native probe measures the rope's left end from each actual-view
+        # capture after toolbar reflow. Translate the original 7 x 34pt ROI only.
+        rope_y = record['rope_y']
+        rope_roi = (round(43 * sx), round((rope_y - 15) * sx),
+                    round(50 * sx), round((rope_y + 19) * sx))
         rope_ink = sum(min(p) > 45 and max(p) - min(p) < 5 for p in rgb.crop(rope_roi).getdata())
         results.append(dict(file=record['file'], exterior_painted_pixels=outside,
                             left_rope_ink_pixels=rope_ink, scale=sx))

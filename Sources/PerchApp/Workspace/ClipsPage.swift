@@ -8,7 +8,7 @@ struct ClipsPage: View {
     var body: some View { ClipsBody(clips: services.clips) }
 }
 
-private struct ClipsBody: View {
+struct ClipsBody: View {
     @ObservedObject var clips: ClipsService
     @EnvironmentObject var store: PlannerStore
 
@@ -16,11 +16,14 @@ private struct ClipsBody: View {
         VStack(alignment: .leading, spacing: Theme.gutter) {
             ViewThatFits(in: .horizontal) {
                 HStack {
-                    CardHeading(AppL10n.text("Clips"), symbol: "paperclip")
+                    CardHeading(AppL10n.text("Clips"), symbol: "paperclip").fixedSize()
                     Spacer(minLength: Theme.gutter)
                     captureControls
-                    removeUnpinned
+                    removeUnpinned.fixedSize()
                 }
+                // Leave room for whole, minimum-size controls on a single row.
+                // Compact cards put the capture controls below the heading.
+                .frame(minWidth: 640)
                 VStack(alignment: .leading, spacing: Theme.gutter) {
                     HStack {
                         CardHeading(AppL10n.text("Clips"), symbol: "paperclip"); Spacer(); removeUnpinned
@@ -77,13 +80,22 @@ private struct ClipsBody: View {
                 "Add screenshots",
                 isOn: Binding(
                     get: { store.prefs.catchScreenshots },
-                    set: { value in store.updatePrefs { $0.catchScreenshots = value } }))
+                    set: { value in store.updatePrefs { $0.catchScreenshots = value } })
+            )
+            .toggleStyle(ClipsCaptureToggleStyle(title: AppL10n.text("Add screenshots")))
+            .fixedSize()
             Toggle(
                 "Add copied items",
                 isOn: Binding(
-                    get: { store.prefs.catchCopies }, set: { value in store.updatePrefs { $0.catchCopies = value } }))
+                    get: { store.prefs.catchCopies }, set: { value in store.updatePrefs { $0.catchCopies = value } })
+            )
+            .toggleStyle(ClipsCaptureToggleStyle(title: AppL10n.text("Add copied items")))
+            .fixedSize()
         }
-        .toggleStyle(.switch).controlSize(.small).font(Theme.meta)
+        .font(Theme.meta)
+        // Refuse label compression so ViewThatFits moves these whole controls
+        // below the heading instead of fitting a row of broken-up words.
+        .fixedSize(horizontal: true, vertical: false)
         .frame(minHeight: Theme.minimumTarget)
     }
 
@@ -99,6 +111,27 @@ private struct ClipsBody: View {
             Text("Click to copy · Drag to share · More for clip actions")
                 .font(Theme.meta).foregroundStyle(Theme.secondary)
         }
+    }
+}
+
+/// Keep the label and state inside one native action target, rather than a
+/// small switch whose separate text is not part of its accessibility frame.
+private struct ClipsCaptureToggleStyle: ToggleStyle {
+    let title: String
+
+    func makeBody(configuration: Configuration) -> some View {
+        Button {
+            configuration.isOn.toggle()
+        } label: {
+            HStack(spacing: Theme.gutter) {
+                Image(systemName: configuration.isOn ? "checkmark.circle.fill" : "circle")
+                    .accessibilityHidden(true)
+                configuration.label
+            }
+        }
+        .buttonStyle(PillStyle(prominent: configuration.isOn))
+        .accessibilityLabel(title)
+        .accessibilityValue(AppL10n.text(configuration.isOn ? "On" : "Off"))
     }
 }
 
@@ -175,6 +208,88 @@ private struct FolderWatchStatus: View {
     }
 }
 
+/// Assign identity to the AppKit launcher itself. A SwiftUI Menu's outer
+/// accessibility label does not label its native popup cell on macOS.
+private struct ClipsActionsMenu: NSViewRepresentable {
+    let clip: ClipsService.Clip
+    let clips: ClipsService
+    @Environment(\.isEnabled) private var isEnabled
+
+    func makeCoordinator() -> Coordinator { Coordinator() }
+
+    func makeNSView(context: Context) -> NSPopUpButton {
+        let button = NSPopUpButton(frame: .zero, pullsDown: true)
+        let cell = ClipsActionsCell(textCell: "", pullsDown: true)
+        button.cell = cell
+        cell.menuButton = button
+        // Unlike fixed-height popup bezels, this bezel fills the real 32pt target.
+        button.bezelStyle = .regularSquare
+        button.font = .systemFont(ofSize: ThemeTokens.TypeSize.meta, weight: .medium)
+        button.controlSize = .regular
+        return button
+    }
+
+    func updateNSView(_ button: NSPopUpButton, context: Context) {
+        let menu = NSMenu()
+        menu.autoenablesItems = false
+        let title = NSMenuItem(title: AppL10n.text("More"), action: nil, keyEquivalent: "")
+        title.image = NSImage(systemSymbolName: "ellipsis", accessibilityDescription: nil)
+        menu.addItem(title)
+        context.coordinator.actions = []
+        @MainActor func add(_ title: String, action: @escaping () -> Void) {
+            let item = NSMenuItem(title: title, action: #selector(Coordinator.performAction(_:)), keyEquivalent: "")
+            item.target = context.coordinator
+            item.tag = context.coordinator.actions.count
+            item.isEnabled = isEnabled
+            context.coordinator.actions.append(action)
+            menu.addItem(item)
+        }
+        add(AppL10n.text(clip.pinned ? "Unpin" : "Pin")) { clips.togglePin(clip.id) }
+        add(AppL10n.text("Copy")) { clips.copy(clip) }
+        if let url = clips.clipURL(clip) {
+            add(AppL10n.text("Open")) { clips.open(clip) }
+            add(AppL10n.text("Show in Finder")) { NSWorkspace.shared.activateFileViewerSelecting([url]) }
+        }
+        menu.addItem(.separator())
+        add(AppL10n.text("Remove")) { clips.letGo(clip.id) }
+        button.menu = menu
+        button.isEnabled = isEnabled
+        let label = AppL10n.format("Actions for %@", clip.title)
+        let identifier = "clips.actions.\(clip.id)"
+        button.setAccessibilityLabel(label)
+        button.setAccessibilityIdentifier(identifier)
+        button.cell?.setAccessibilityLabel(label)
+        button.cell?.setAccessibilityIdentifier(identifier)
+    }
+
+    @MainActor final class Coordinator: NSObject {
+        var actions: [() -> Void] = []
+        @objc func performAction(_ sender: NSMenuItem) {
+            guard sender.isEnabled, actions.indices.contains(sender.tag) else { return }
+            actions[sender.tag]()
+        }
+    }
+}
+
+/// Forward the cell's accessibility actions to the same native popup tracking
+/// used for pointer activation. No menu item is selected merely by opening it.
+@MainActor
+private final class ClipsActionsCell: NSPopUpButtonCell {
+    weak var menuButton: NSPopUpButton?
+
+    override func accessibilityPerformPress() -> Bool { showActions() }
+    override func accessibilityPerformShowMenu() -> Bool { showActions() }
+
+    private func showActions() -> Bool {
+        guard let button = menuButton, button.cell === self, button.window != nil,
+            button.isEnabled, button.bounds.width > 0, button.bounds.height > 0,
+            let menu = button.menu, menu.items.contains(where: { $0.isEnabled && $0.action != nil })
+        else { return false }
+        performClick(withFrame: button.bounds, in: button)
+        return true
+    }
+}
+
 private struct ClipCard: View {
     let clip: ClipsService.Clip
     let clips: ClipsService
@@ -207,15 +322,8 @@ private struct ClipCard: View {
                         Label("Pinned", systemImage: "pin.fill").font(Theme.meta).foregroundStyle(Theme.secondary)
                     }
                     Spacer(minLength: 0)
-                    Menu {
-                        clipActions
-                    } label: {
-                        Label("More", systemImage: "ellipsis")
-                            .font(Theme.meta).frame(minHeight: Theme.minimumTarget)
-                    }
-                    .menuStyle(.borderlessButton)
-                    .fixedSize()
-                    .accessibilityLabel(AppL10n.format("Actions for %@", clip.title))
+                    ClipsActionsMenu(clip: clip, clips: clips)
+                        .frame(width: 80, height: 32)
                 }.frame(width: 132)
             }
             .padding(6)
