@@ -287,7 +287,7 @@ private struct SettingsFailureFixtureView: View {
     var body: some View {
         // Same stable parent as SettingsView; no notch or permission-backed Services is constructed.
         SettingsDetail(feedback: fixture.feedback) {
-            Form {
+            VStack(alignment: .leading, spacing: 12) {
                 if fixture.pane == .agents {
                     AgentsSettings(
                         statuses: $fixture.statuses, feedback: fixture.feedback,
@@ -304,7 +304,7 @@ private struct SettingsFailureFixtureView: View {
                     }
                 }
             }
-            .formStyle(.grouped)
+            .padding(12)
         }
         .font(Theme.body).foregroundStyle(Theme.text)
         .buttonStyle(PillStyle())
