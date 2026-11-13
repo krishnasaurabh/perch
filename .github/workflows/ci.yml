@@ -307,6 +307,11 @@ jobs:
         if: ${{ !cancelled() && steps.restore.outcome == 'success' }}
         run: |
           bash scripts/check_compact_home.sh "$RUNNER_TEMP/notch/compact-home"
+      - name: Compact Insights stacked render (668pt page, the branch a 1024x768 display never shows)
+        if: ${{ !cancelled() && steps.restore.outcome == 'success' }}
+        run: |
+          pip3 install --quiet --break-system-packages Pillow
+          bash scripts/check_compact_insights.sh "$RUNNER_TEMP/notch/compact-insights"
       - name: Larger flat desktop (best effort; the runner's virtual display defaults to 1024x768)
         if: ${{ !cancelled() && steps.restore.outcome == 'success' }}
         run: |
