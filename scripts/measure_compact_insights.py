@@ -155,6 +155,21 @@ def measure(folder, entry):
     if entry['layout'] == 'stacked':
         result['same_column'] = abs(chart['left'] - momentum['left']) <= 2 and abs(
             chart['right'] - momentum['right']) <= 2
+        # Additive diagnostic: paired stats share a y band, so measure each third separately.
+        # These are pixel sampling regions, not expected text positions or pass/fail gates.
+        inset, gutter = round(14 * scale), round(12 * scale)
+        left, right = momentum['left'] + inset, momentum['right'] - inset
+        column_width = (right - left - 2 * gutter) / 3
+        columns = []
+        for index in range(3):
+            x0 = round(left + index * (column_width + gutter))
+            x1 = round(left + index * (column_width + gutter) + column_width)
+            bands = ink_bands(gray, x0, x1, momentum['top'] + 12,
+                              min(momentum['bottom'], height) - 12)
+            columns.append(dict(left=x0, right=x1, rows=[
+                dict(top=top, bottom=bottom + 1, height=bottom - top + 1)
+                for top, bottom in bands]))
+        result['momentum_detail'] = dict(fill=found['momentum'], columns=columns)
     return result
 
 
@@ -190,6 +205,14 @@ def main():
         for row in r['rows']:
             print(f"    ink y {row['top']}..{row['bottom']} ({row['height']}px)")
         print(f"  momentum text lines drawn: {len(r['rows'])}")
+        if 'momentum_detail' in r:
+            detail = r['momentum_detail']
+            fill = detail['fill']
+            print(f"  momentum fill x {fill['left']}..{fill['right']} "
+                  f"y {fill['top']}..{fill['bottom']}")
+            for index, column in enumerate(detail['columns'], 1):
+                print(f"    column {index} x {column['left']}..{column['right']}: "
+                      + ', '.join(f"ink y {row['top']}..{row['bottom']}" for row in column['rows']))
 
     for r in compact:
         if abs(r['page_width'] - 668) > 0.5:
