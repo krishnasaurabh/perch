@@ -6,6 +6,7 @@ import SwiftUI
 /// A calendar week. Inbox has its own full-width view, not an eighth day.
 struct WeekPage: View {
     @EnvironmentObject var store: PlannerStore
+    @Environment(\.isEnabled) private var enabled
     @State private var anchor = 0
     @State private var showInbox = false
     @FocusState private var inboxFocused: Bool
@@ -40,9 +41,14 @@ struct WeekPage: View {
                         ? AppL10n.text("Back to week")
                         : AppL10n.format("Inbox (%lld)", store.engine.tasks(on: .inbox).count)
                 ) {
-                    Motion.animate(Motion.page) { showInbox.toggle() }
+                    toggleInbox()
                 }
                 .buttonStyle(PillStyle(focus: $inboxFocused))
+                .onKeyPress(.space, phases: .down) { _ in
+                    guard inboxFocused, enabled else { return .ignored }
+                    toggleInbox()
+                    return .handled
+                }
                 .keyboardShortcut("i", modifiers: [.command, .option])
                 .accessibilityIdentifier("week-inbox")
                 .help(
@@ -104,6 +110,10 @@ struct WeekPage: View {
     private func label(_ day: DayKey, template: String) -> String {
         WeekColumnLayout.dateLabel(
             day, template: template, calendar: store.engine.calendar, locale: .autoupdatingCurrent)
+    }
+
+    private func toggleInbox() {
+        Motion.animate(Motion.page) { showInbox.toggle() }
     }
 
     private func go(_ week: Int) {
