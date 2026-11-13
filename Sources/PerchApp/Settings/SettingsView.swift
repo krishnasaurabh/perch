@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import PerchUI
 import PlannerCore
 import ServiceManagement
@@ -18,6 +19,8 @@ struct SettingsView: View {
     @EnvironmentObject var store: PlannerStore
     @EnvironmentObject var services: Services
     @State private var section: Pane = .general
+    @State private var agentStatuses: [AgentConnector.App: AgentConnector.Status] = [:]
+    @StateObject private var feedback = SettingsFailureFeedback()
     enum Pane: String, CaseIterable, Identifiable {
         case general = "General", workspace = "Workspace", focus = "Focus timer", agents = "AI agents", system =
             "System"
@@ -39,16 +42,18 @@ struct SettingsView: View {
             List(Pane.allCases, selection: $section) { s in Label(s.title, systemImage: s.symbol).tag(s) }
                 .navigationSplitViewColumnWidth(170)
         } detail: {
-            Form {
-                switch section {
-                case .general: general
-                case .workspace: workspace
-                case .focus: focus
-                case .agents: AgentsSettings()
-                case .system: system
+            SettingsDetail(feedback: feedback) {
+                Form {
+                    switch section {
+                    case .general: general
+                    case .workspace: workspace
+                    case .focus: focus
+                    case .agents: AgentsSettings(statuses: $agentStatuses, feedback: feedback)
+                    case .system: system
+                    }
                 }
+                .formStyle(.grouped)
             }
-            .formStyle(.grouped)
             .font(Theme.body)
             .foregroundStyle(Theme.text)
             .buttonStyle(PillStyle())
@@ -75,9 +80,7 @@ struct SettingsView: View {
                 isOn: Binding(
                     get: { SMAppService.mainApp.status == .enabled },
                     set: { on in
-                        do { on ? try SMAppService.mainApp.register() : try SMAppService.mainApp.unregister() } catch {
-                            store.lastError = .loginItem(error.localizedDescription)
-                        }
+                        feedback.updateLoginItem(on, store: store)
                     }))
         }
         Section("Language") {
@@ -347,7 +350,129 @@ struct SettingsView: View {
         panel.nameFieldStringValue = "Perch-\(store.today).json"
         panel.allowedContentTypes = [.json]
         if panel.runModal() == .OK, let url = panel.url {
-            do { try store.file.export(to: url) } catch { store.lastError = .planner(error.perchPresentationDetail) }
+            feedback.exportBackup(to: url, store: store)
+        }
+    }
+}
+
+/// Retains only the failed Settings operation, never a guessed retry for an unrelated store error.
+@MainActor
+final class SettingsFailureFeedback: ObservableObject {
+    @Published private(set) var retryError: PerchAppError?
+    var failedAgentDisconnects: Set<AgentConnector.App> = []
+    private var retryAction: (() -> Void)?
+    private var retryID: UUID?
+    private weak var observedStore: PlannerStore?
+    private var errorObservation: AnyCancellable?
+
+    func canRetry(_ error: PerchAppError) -> Bool {
+        retryID != nil && retryError == error && retryAction != nil
+    }
+
+    private func invalidateRetry() {
+        retryID = nil
+        retryAction = nil
+        retryError = nil
+    }
+
+    private func observeErrors(in store: PlannerStore) {
+        guard observedStore !== store else { return }
+        errorObservation?.cancel()
+        observedStore = store
+        // Observe every publication synchronously, including nil and equal-valued errors.
+        // A render-time onChange can coalesce those distinct failure events.
+        errorObservation = store.$lastError.sink { [weak self] _ in self?.invalidateRetry() }
+    }
+
+    func retry(_ error: PerchAppError) {
+        guard canRetry(error) else { return }
+        retryAction?()
+    }
+
+    @discardableResult
+    func perform(
+        store: PlannerStore, failure: @escaping (Error) -> PerchAppError,
+        operation: @escaping () throws -> Void
+    ) -> Bool {
+        observeErrors(in: store)
+        let previousRetryID = retryID
+        do {
+            try operation()
+            if let previousRetryID, retryID == previousRetryID { store.lastError = nil }
+            invalidateRetry()
+            return true
+        } catch {
+            let presented = failure(error)
+            // Publishing ends any previous event's ownership before arming this operation.
+            store.lastError = presented
+            retryID = UUID()
+            retryAction = { [weak self, weak store] in
+                guard let self, let store else { return }
+                self.perform(store: store, failure: failure, operation: operation)
+            }
+            retryError = presented
+            return false
+        }
+    }
+
+    func updateLoginItem(
+        _ enabled: Bool, store: PlannerStore,
+        change: @escaping (Bool) throws -> Void = { enabled in
+            enabled ? try SMAppService.mainApp.register() : try SMAppService.mainApp.unregister()
+        }
+    ) {
+        perform(store: store, failure: { .loginItem($0.perchPresentationDetail) }) { try change(enabled) }
+    }
+
+    func exportBackup(
+        to url: URL, store: PlannerStore, export: ((URL) throws -> Void)? = nil
+    ) {
+        let write = export ?? { try store.file.export(to: $0) }
+        perform(store: store, failure: { .planner($0.perchPresentationDetail) }) { try write(url) }
+    }
+}
+
+struct SettingsErrorRow: View {
+    let error: PerchAppError
+    var retry: (() -> Void)?
+    var status: StatusLabel { StatusLabel(title: error.perchPresentationDetail, tone: .danger) }
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 8) {
+            status.textSelection(.enabled)
+            Spacer(minLength: 0)
+            if let retry {
+                Button("Repeat", systemImage: "arrow.clockwise", action: retry)
+                    .help("Action failed. Please try again.")
+                    .buttonStyle(PillStyle())
+                    .accessibilityIdentifier("settings.error.retry")
+            }
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Theme.danger.opacity(0.08))
+    }
+}
+
+/// The detail surface is stable while the selected form changes.
+struct SettingsDetail<Content: View>: View {
+    @EnvironmentObject var store: PlannerStore
+    @ObservedObject var feedback: SettingsFailureFeedback
+    @ViewBuilder var content: () -> Content
+
+    var body: some View {
+        VStack(spacing: 0) {
+            if let error = store.lastError {
+                SettingsErrorRow(
+                    error: error,
+                    retry: feedback.canRetry(error) ? { feedback.retry(error) } : nil
+                )
+                .padding([.horizontal, .top], 12)
+                .layoutPriority(1)
+            }
+            content()
+                .frame(maxWidth: .infinity, minHeight: 0, maxHeight: .infinity, alignment: .top)
+                .clipped()
         }
     }
 }
