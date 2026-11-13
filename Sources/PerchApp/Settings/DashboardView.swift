@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 enum DashboardWindow {
@@ -53,5 +54,55 @@ struct DashboardView: View {
         .foregroundStyle(Theme.text)
         .environment(\.controlSurface, Color(nsColor: .windowBackgroundColor))
         .frame(minWidth: 720, minHeight: 520)
+        .background(DashboardKeyLoopBridge(selection: tab))
+    }
+}
+
+/// Rebuild the native loop when a dashboard page changes. History's editor is
+/// hosted separately by AppKit, so leaving these links implicit traps back-tab.
+@MainActor
+enum DashboardKeyLoop {
+    static let searchIdentifier = "dashboard-history-search"
+
+    static func install(in window: NSWindow) {
+        guard let root = window.contentView else { return }
+        window.recalculateKeyViewLoop()
+        let views = descendants(root)
+        guard
+            let tabs = views.compactMap({ $0 as? NSSegmentedControl }).first(where: {
+                $0.segmentCount == DashboardView.Tab.allCases.count
+            }),
+            let search = views.compactMap({ $0 as? NSTextField }).first(where: {
+                $0.identifier?.rawValue == searchIdentifier
+            })
+        else { return }
+        let following = search.nextValidKeyView
+        tabs.nextKeyView = search
+        search.nextKeyView = following === search ? tabs : (following ?? tabs)
+    }
+
+    private static func descendants(_ root: NSView) -> [NSView] {
+        [root] + root.subviews.flatMap(descendants)
+    }
+}
+
+private struct DashboardKeyLoopBridge: NSViewRepresentable {
+    let selection: DashboardView.Tab
+
+    func makeNSView(context: Context) -> Anchor { Anchor() }
+    func updateNSView(_ view: Anchor, context: Context) { view.refresh() }
+
+    final class Anchor: NSView {
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            refresh()
+        }
+
+        func refresh() {
+            DispatchQueue.main.async { [weak self] in
+                guard let window = self?.window else { return }
+                DashboardKeyLoop.install(in: window)
+            }
+        }
     }
 }

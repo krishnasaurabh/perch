@@ -1,7 +1,7 @@
 // CI-only entry point: render production views and color pairs, without changing system preferences.
 import AppKit
 import ApplicationServices
-import PlannerCore
+@testable import PlannerCore
 #if canImport(PerchApp)
     @testable import PerchApp
     import PerchUI
@@ -145,9 +145,16 @@ extension Color {
     try! png.write(to: url)
 }
 
+// Names the fixture an assertion belongs to in the printed output, so a rendered
+// focus-ring gallery result can never be read as a production-page result.
+@MainActor enum ProbeScope {
+    static var label: String?
+}
+
 @MainActor func require(_ condition: @autoclosure () -> Bool, _ message: String) {
-    guard condition() else { fputs("FAIL: \(message)\n", stderr); exit(1) }
-    print("PASS: \(message)")
+    let name = ProbeScope.label.map { "\($0): \(message)" } ?? message
+    guard condition() else { fputs("FAIL: \(name)\n", stderr); exit(1) }
+    print("PASS: \(name)")
 }
 
 @MainActor func click(_ point: CGPoint, in host: NSView, window: NSWindow) {
@@ -361,6 +368,8 @@ struct ControlGallery: View {
 }
 
 MainActor.assumeIsolated {
+    // Unbuffered output: a native crash must not swallow the PASS lines printed before it.
+    setvbuf(stdout, nil, _IONBF, 0)
     require(
         UserDefaults.standard.integer(forKey: "AppleKeyboardUIMode") == 3,
         "Probe process explicitly enables keyboard navigation")
@@ -445,6 +454,8 @@ MainActor.assumeIsolated {
             try? await Task.sleep(nanoseconds: 700_000_000)
             save(settingsHost, output.appendingPathComponent("\(mode)-settings.png"))
             settingsWindow.close()
+            print("Rendered focus-ring gallery (fixture, not a production page): \(mode)")
+            ProbeScope.label = "rendered focus-ring gallery"
             for increased in [false, true] {
                 for (toneName, tone) in [("sage", CardTone.tasks), ("lavender", .timer), ("tile", .tile)] {
                     let fixture = ControlFixture()
@@ -505,6 +516,7 @@ MainActor.assumeIsolated {
                                 "focus_evidence": renderedRing ? "rendered-ring" : "native-focus",
                                 "focus_ring_target": state == "focused" ? "continue" : "none",
                                 "keyboardActivation": "unverified-on-this-runner",
+                                "gallery": "rendered-focus-ring-gallery",
                                 "frames": fixture.frames.mapValues { [$0.minX, $0.minY, $0.width, $0.height] },
                             ])
                         }
@@ -533,6 +545,7 @@ MainActor.assumeIsolated {
                     galleryWindow.close()
                 }
             }
+            ProbeScope.label = nil
 
         }
         try! JSONSerialization.data(withJSONObject: manifest, options: [.prettyPrinted, .sortedKeys])
@@ -544,12 +557,430 @@ MainActor.assumeIsolated {
             "nativeContrastAppearance": nativeContrastAppearance,
             "activation": "real-own-process-AX-press-no-model-fallback",
             "screenshots": "own-window-cacheDisplay-not-compositor",
+            "focusRingGallery": "rendered-focus-ring-gallery: fixture ring pixels, not native keyboard focus",
         ]
         try! JSONSerialization.data(withJSONObject: metrics, options: [.prettyPrinted, .sortedKeys])
             .write(to: output.appendingPathComponent("results.json"))
         print("Keyboard activation: \(metrics["keyboardActivation"]!)")
         print("Native contrast appearance: \(metrics["nativeContrastAppearance"]!)")
-        exit(0)
+        print("Focus-ring gallery: \(metrics["focusRingGallery"]!)")
+        await measureEffectiveStates(
+            store: store, services: services, detailsTask: seeded[0].id, geometry: geometry, output: output)
+        exit(Measured.failed.isEmpty ? 0 : 1)
     }
     app.run()
+}
+
+// MARK: - Effective enlarged-type and contrast states, measured per production page
+
+// Measured-state assertions collect every red before exiting, so one run reports all failures.
+@MainActor enum Measured {
+    static var failed: [String] = []
+    static var passed: [String] = []
+    static var rows: [[String: Any]] = []
+    static func check(_ condition: Bool, _ message: String) {
+        if condition {
+            passed.append(message)
+            print("PASS: measured state: \(message)")
+        } else {
+            failed.append(message)
+            fputs("FAIL: measured state: \(message)\n", stderr)
+        }
+    }
+}
+
+struct PageState {
+    let name: String
+    let enlarged: Bool
+    let increased: Bool
+}
+
+enum PageStates {
+    // Static storage is initialized on first access, even while the entry point's
+    // app.run() is blocking. A later top-level let has not been initialized yet.
+    static let all = [
+        PageState(name: "standard", enlarged: false, increased: false),
+        PageState(name: "enlarged-type", enlarged: true, increased: false),
+        PageState(name: "increased-contrast", enlarged: false, increased: true),
+        PageState(name: "enlarged-increased", enlarged: true, increased: true),
+    ]
+}
+
+/// Observes the contrast SwiftUI actually resolved for the hosted page.
+@MainActor final class ContrastObservation: ObservableObject {
+    var value: ColorSchemeContrast?
+    var typeSize: DynamicTypeSize?
+}
+
+struct ContrastReader: View {
+    let observation: ContrastObservation
+    @Environment(\.colorSchemeContrast) private var contrast
+    @Environment(\.dynamicTypeSize) private var typeSize
+    var body: some View {
+        Color.clear.frame(width: 0, height: 0)
+            .onAppear {
+                observation.value = contrast
+                observation.typeSize = typeSize
+            }
+            .onChange(of: contrast) { _, value in observation.value = value }
+            .onChange(of: typeSize) { _, value in observation.typeSize = value }
+    }
+}
+
+struct PageInk {
+    let background: [Int]
+    let inkPixels: Int
+    let inkRows: Int
+    let maxRatio: Double
+}
+
+func pageLuminance(_ c: [Int]) -> Double {
+    let v = c.prefix(3).map { x -> Double in
+        let s = Double(x) / 255
+        return s <= 0.04045 ? s / 12.92 : pow((s + 0.055) / 1.055, 2.4)
+    }
+    return 0.2126 * v[0] + 0.7152 * v[1] + 0.0722 * v[2]
+}
+
+func pageContrast(_ a: [Int], _ b: [Int]) -> Double {
+    let (x, y) = (pageLuminance(a), pageLuminance(b))
+    return (max(x, y) + 0.05) / (min(x, y) + 0.05)
+}
+
+/// Rendered-pixel measurement on a 1x grid. Counts are observed samples,
+/// never extrapolated pixel totals; every existing threshold is unchanged.
+@MainActor func measureInk(_ view: NSView) -> PageInk {
+    view.layoutSubtreeIfNeeded()
+    func invalid(_ reason: String) -> PageInk {
+        fputs("Invalid rendered measurement: \(reason)\n", stderr)
+        return PageInk(background: [0, 0, 0], inkPixels: 0, inkRows: 0, maxRatio: 1)
+    }
+    let size = view.bounds.size
+    guard size.width.isFinite, size.height.isFinite,
+        size.width >= 1, size.height >= 1, size.width <= 8192, size.height <= 8192
+    else { return invalid("invalid view bounds \(view.bounds)") }
+    let (w, h) = (Int(ceil(size.width)), Int(ceil(size.height)))
+    guard
+        let bitmap = NSBitmapImageRep(
+            bitmapDataPlanes: nil, pixelsWide: w, pixelsHigh: h, bitsPerSample: 8,
+            samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
+            colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0),
+        bitmap.pixelsWide == w, bitmap.pixelsHigh == h,
+        bitmap.samplesPerPixel == 4, bitmap.bitsPerSample == 8,
+        !bitmap.isPlanar, bitmap.bytesPerRow >= w * 4, bitmap.bitmapData != nil
+    else { return invalid("cannot allocate a 1x RGBA bitmap") }
+    bitmap.size = size
+    view.cacheDisplay(in: view.bounds, to: bitmap)
+    var counts: [Int: Int] = [:]
+    var samples: [[Int]] = []
+    // Read each sampled pixel once. Reuse the histogram for the contrast math.
+    for y in stride(from: 0, to: h, by: 2) {
+        var row: [Int] = []
+        for x in stride(from: 0, to: w, by: 2) {
+            guard let color = bitmap.colorAt(x: x, y: y)?.usingColorSpace(.sRGB) else {
+                return invalid("cannot read RGB at \(x),\(y)")
+            }
+            let r = Int((color.redComponent * 255).rounded()).clampedByte
+            let g = Int((color.greenComponent * 255).rounded()).clampedByte
+            let b = Int((color.blueComponent * 255).rounded()).clampedByte
+            let key = (r << 16) | (g << 8) | b
+            row.append(key)
+            counts[key, default: 0] += 1
+        }
+        samples.append(row)
+    }
+    // Stable tie-breaking keeps equally prevalent backgrounds deterministic.
+    guard
+        let key = counts.keys.max(by: {
+            counts[$0]! == counts[$1]! ? $0 < $1 : counts[$0]! < counts[$1]!
+        })
+    else { return invalid("empty pixel grid") }
+    let background = [(key >> 16) & 255, (key >> 8) & 255, key & 255]
+    var contrastByColor: [Int: Double] = [:]
+    var ink = 0
+    var best = 1.0
+    for (color, count) in counts {
+        let rgb = [(color >> 16) & 255, (color >> 8) & 255, color & 255]
+        let ratio = pageContrast(rgb, background)
+        contrastByColor[color] = ratio
+        if ratio >= 3 { ink += count }
+        best = max(best, ratio)
+    }
+    let rows = samples.filter { row in row.contains { (contrastByColor[$0] ?? 1) >= 3 } }.count
+    return PageInk(background: background, inkPixels: ink, inkRows: rows, maxRatio: best)
+}
+
+private extension Int {
+    var clampedByte: Int { Swift.min(255, Swift.max(0, self)) }
+}
+
+/// In-process AX walk (the same NSAccessibility path the gallery's AX press uses).
+@MainActor func pageNodes(_ host: NSView) -> [NSObject] {
+    var seen = Set<ObjectIdentifier>()
+    var nodes: [NSObject] = []
+    @MainActor func walk(_ node: NSObject, depth: Int) {
+        guard depth < 60, seen.insert(ObjectIdentifier(node)).inserted else { return }
+        nodes.append(node)
+        // Scroll containers can publish contents separately from children, and
+        // nested hosting views are not necessarily direct children of the root.
+        let children =
+            ((controlAttribute(node, "accessibilityChildren") as? [NSObject]) ?? [])
+            + ((controlAttribute(node, "accessibilityContents") as? [NSObject]) ?? [])
+            + ((node as? NSView)?.subviews ?? [])
+        for child in children { walk(child, depth: depth + 1) }
+    }
+    walk(host, depth: 0)
+    return nodes
+}
+
+@MainActor func nodeFrame(_ node: NSObject) -> CGRect? {
+    // SwiftUI AX proxies can expose the getter without adopting the protocol.
+    // AnyObject's typed optional Objective-C dispatch preserves CGRect's ABI;
+    // neither KVC nor object-returning perform is safe for this value.
+    guard node.responds(to: NSSelectorFromString("accessibilityFrame")),
+        let frame = (node as AnyObject).accessibilityFrame?()
+    else { return nil }
+    guard frame.origin.x.isFinite, frame.origin.y.isFinite,
+        frame.width.isFinite, frame.height.isFinite
+    else { return nil }
+    return frame
+}
+
+@MainActor func pageTextFrames(_ host: NSView, window: NSWindow) -> [(String, CGRect)] {
+    var result: [(String, CGRect)] = []
+    for node in pageNodes(host) where controlAttribute(node, "accessibilityRole") as? String == "AXStaticText" {
+        guard let frame = nodeFrame(node) else { continue }
+        guard frame.width > 0, frame.height > 0 else { continue }
+        let name =
+            (controlAttribute(node, "accessibilityLabel") as? String)
+            ?? (controlAttribute(node, "accessibilityValue") as? String) ?? ""
+        result.append((name, frame))
+    }
+    return result
+}
+
+/// Every node whose accessibility label is a permission state title (a StatusLabel).
+@MainActor func statusLabelFrames(_ host: NSView) -> [CGRect] {
+    let titles = Set(PermissionState.allCases.map(\.title))
+    var frames: [CGRect] = []
+    for node in pageNodes(host) {
+        let names = ["accessibilityLabel", "accessibilityValue"].compactMap {
+            controlAttribute(node, $0) as? String
+        }
+        guard names.contains(where: { titles.contains($0) }),
+            let frame = nodeFrame(node), frame.height > 0
+        else { continue }
+        frames.append(frame)
+    }
+    return frames
+}
+
+@MainActor func settle() async {
+    // Cross the main run-loop boundary once, without retries or fixed sleeps.
+    // The measured subtree has animations disabled and is laid out before capture.
+    await withCheckedContinuation { continuation in
+        DispatchQueue.main.async { continuation.resume() }
+    }
+}
+
+@MainActor func firstTable(_ view: NSView) -> NSTableView? {
+    if let table = view as? NSTableView { return table }
+    for child in view.subviews { if let table = firstTable(child) { return table } }
+    return nil
+}
+
+@MainActor func measureEffectiveStates(
+    store: PlannerStore, services: Services, detailsTask: UUID, geometry: NotchGeometry, output: URL
+) async {
+    let measurementStarted = ProcessInfo.processInfo.systemUptime
+    func setupStage(_ label: String) {
+        print("measured setup: \(label)")
+        fflush(stdout)
+    }
+    setupStage("entry and appearance")
+    let app = NSApplication.shared
+    let appearance = NSAppearance(named: .aqua)!
+    app.appearance = appearance
+    let model = NotchModel(motionPolicy: MotionPolicy(reduceMotion: true))
+    model.screenID = 1
+    model.geometry = geometry
+    setupStage("model initialized; history mutation")
+    // Historical fixture for Dashboard History, written to the synthetic store only.
+    _ = try? store.file.mutate { planner in
+        planner.tasks.append(
+            PlanTask(title: "Measured history task", day: store.today.adding(days: -2), done: true))
+    }
+    setupStage("history mutated; reload")
+    store.reloadFromDisk(external: false)
+    setupStage("history reloaded; clip fixture")
+    services.clips.add(.text("Measured clip text"), source: "copied")
+
+    setupStage("clip added; construct pages")
+    typealias Page = (name: String, size: CGSize, settingsPane: Int?, view: AnyView)
+    let settings = AnyView(SettingsView().environmentObject(store).environmentObject(services))
+    var pages: [Page] = SettingsView.Pane.allCases.enumerated().map { index, pane -> Page in
+        ("settings-\(pane.rawValue)", CGSize(width: 620, height: 560), index, settings)
+    }
+    for tab in DashboardView.Tab.allCases {
+        pages.append(
+            (
+                "dashboard-\(tab.rawValue)", CGSize(width: 900, height: 640), nil,
+                AnyView(DashboardView(tab: tab).environmentObject(store))
+            ))
+    }
+    pages.append(
+        (
+            "welcome", CGSize(width: 560, height: 520), nil,
+            AnyView(WelcomeView(done: {}).environmentObject(store).environmentObject(services))
+        ))
+    pages.append(
+        (
+            "details", CGSize(width: 460, height: 600), nil,
+            AnyView(TaskDetailsSheet(taskID: detailsTask).environmentObject(store))
+        ))
+    pages.append(
+        (
+            "details-removed", CGSize(width: 460, height: 300), nil,
+            AnyView(TaskDetailsSheet(taskID: UUID()).environmentObject(store))
+        ))
+    pages.append(
+        (
+            "week", CGSize(width: 820, height: 320), nil,
+            AnyView(
+                WeekPage().environmentObject(store).environmentObject(model).padding(20)
+                    .background(Color.black))
+        ))
+    pages.append(
+        (
+            "clips", CGSize(width: 820, height: 320), nil,
+            AnyView(
+                ClipsPage().environmentObject(store).environmentObject(services).padding(20)
+                    .background(Color.black))
+        ))
+
+    setupStage("pages constructed; initialize states")
+    let states = PageStates.all
+    setupStage("states initialized: \(states.count)")
+    var statusGrowth: [String: (Double, Double)] = [:]
+    for page in pages {
+        var ink: [String: PageInk] = [:]
+        var text: [String: [(String, CGRect)]] = [:]
+        for state in states {
+            let stateStarted = ProcessInfo.processInfo.systemUptime
+            let observation = ContrastObservation()
+            // NEGATIVE-CONTROL SITE (type): the enlarged state requests accessibility3.
+            let typeSize: DynamicTypeSize = state.enlarged ? .accessibility3 : .large
+            // NEGATIVE-CONTROL SITE (contrast): the increased state requests .increased.
+            let contrast: ColorSchemeContrast = state.increased ? .increased : .standard
+            let root = ZStack(alignment: .topLeading) {
+                page.view
+                ContrastReader(observation: observation)
+            }
+            .environment(\.dynamicTypeSize, typeSize)
+            .environment(\._colorSchemeContrast, contrast)
+            .environment(\.accessibilityEnabled, true)
+            .transaction {
+                $0.animation = nil
+                $0.disablesAnimations = true
+            }
+            let label = "\(page.name) [\(state.name)]"
+            fputs("measured stage: render \(label)\n", stderr)
+            let (window, host) = render(root, size: page.size, appearance: appearance)
+            window.makeKeyAndOrderFront(nil)
+            app.activate(ignoringOtherApps: true)
+            await settle()
+            if let pane = page.settingsPane, pane > 0 {
+                // Real key events on the native sidebar list; never an AX or model substitute.
+                let table = firstTable(host)
+                Measured.check(
+                    table.map { window.makeFirstResponder($0) } == true,
+                    "\(label): the Settings sidebar accepts native keyboard focus")
+                print("MEASURED: \(label) sidebar row before keys \(table?.selectedRow ?? -1)")
+                for _ in 0..<pane {
+                    key(125, String(UnicodeScalar(0xF701)!), in: window, modifiers: [.numericPad, .function])
+                    await settle()
+                }
+                Measured.check(
+                    table?.selectedRow == pane,
+                    "\(label): Down Arrow selects the \(page.name) pane (row \(table?.selectedRow ?? -1))")
+                await settle()
+            }
+            await wakeControlAccessibility()
+            await settle()
+            fputs("measured stage: pixels \(label)\n", stderr)
+            let measured = measureInk(host)
+            fputs("measured stage: accessibility frames \(label)\n", stderr)
+            let frames = pageTextFrames(host, window: window)
+            ink[state.name] = measured
+            text[state.name] = frames
+            save(host, output.appendingPathComponent("measured-\(page.name)-\(state.name).png"))
+            Measured.check(
+                measured.inkPixels >= 150, "\(label): rendered page has text ink (\(measured.inkPixels) px)")
+            Measured.check(
+                measured.maxRatio >= 4.5,
+                "\(label): rendered ink reaches 4.5:1 against the page background (\(measured.maxRatio))")
+            let content = window.convertToScreen(window.contentLayoutRect)
+            Measured.check(
+                frames.contains { content.intersects($0.1) },
+                "\(label): real AX frames expose on-screen static text (\(frames.count) nodes)")
+            let resolvedType = observation.typeSize.map { "\($0)" } ?? "unobserved"
+            Measured.check(
+                observation.typeSize == typeSize,
+                "\(label): SwiftUI resolves the requested type size \(typeSize) (\(resolvedType))")
+            let observed = observation.value.map { $0 == .increased ? "increased" : "standard" } ?? "unobserved"
+            Measured.check(
+                observed == (state.increased ? "increased" : "standard"),
+                "\(label): SwiftUI resolves the \(state.increased ? "increased" : "standard") contrast (\(observed))")
+            fputs("measured stage: status label frames \(label)\n", stderr)
+            let status = statusLabelFrames(host)
+            if !status.isEmpty {
+                let tallest = status.map(\.height).max() ?? 0
+                var entry = statusGrowth[page.name] ?? (0, 0)
+                if state.name == "standard" { entry.0 = tallest }
+                if state.name == "enlarged-type" { entry.1 = tallest }
+                statusGrowth[page.name] = entry
+            }
+            Measured.rows.append([
+                "page": page.name, "state": state.name, "ink_pixels": measured.inkPixels,
+                "ink_rows": measured.inkRows, "max_ratio": measured.maxRatio, "background": measured.background,
+                "ax_static_text": frames.count,
+                "ax_text_height_total": frames.reduce(0) { $0 + $1.1.height },
+                "status_label_heights": status.map(\.height), "contrast_environment": observed,
+                "type_size": resolvedType,
+                "effective_appearance": window.effectiveAppearance.name.rawValue,
+            ])
+            window.close()
+            let elapsed = ProcessInfo.processInfo.systemUptime - stateStarted
+            print("measured elapsed: \(label) \(elapsed) seconds")
+            fflush(stdout)
+        }
+        // Enlarged type: measured from both rendered ink and real AX frame heights.
+        if let base = ink["standard"], let big = ink["enlarged-type"] {
+            let baseText = text["standard"]?.reduce(0) { $0 + $1.1.height } ?? 0
+            let bigText = text["enlarged-type"]?.reduce(0) { $0 + $1.1.height } ?? 0
+            print(
+                "MEASURED: \(page.name) enlarged type ink rows \(base.inkRows) -> \(big.inkRows), AX text height \(baseText) -> \(bigText)"
+            )
+        }
+        // Increased contrast must never render less contrast than the standard state.
+        if let standard = ink["standard"], let increased = ink["increased-contrast"] {
+            Measured.check(
+                increased.maxRatio + 0.01 >= standard.maxRatio,
+                "\(page.name): increased contrast keeps rendered contrast (\(standard.maxRatio) -> \(increased.maxRatio))"
+            )
+        }
+    }
+    // Pages that render a StatusLabel must show the enlarged size in its real AX frame.
+    for name in ["welcome", "settings-System"] {
+        let (base, big) = statusGrowth[name] ?? (0, 0)
+        Measured.check(base > 0, "\(name): a status label's AX frame is measured at the standard size (\(base))")
+        Measured.check(
+            base > 0 && big >= base * 1.4,
+            "\(name): enlarged type grows the status label's real AX frame (\(base) -> \(big))")
+    }
+    let payload: [String: Any] = ["rows": Measured.rows, "passed": Measured.passed, "failed": Measured.failed]
+    try? JSONSerialization.data(withJSONObject: payload, options: [.prettyPrinted, .sortedKeys])
+        .write(to: output.appendingPathComponent("measured-states.json"))
+    print("Measured states: \(Measured.rows.count) captures, \(Measured.failed.count) failed")
+    print("measured elapsed: total \(ProcessInfo.processInfo.systemUptime - measurementStarted) seconds")
 }
