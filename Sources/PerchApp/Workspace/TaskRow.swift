@@ -60,16 +60,9 @@ struct TaskRow: View {
                 } else {
                     // Short titles keep their actions on the title line, so a compact Today shows more
                     // rows. Titles that would wrap beside the actions keep their full width instead.
-                    ViewThatFits(in: .horizontal) {
-                        HStack(alignment: .top, spacing: 8) {
-                            accessibleTitle.fixedSize(horizontal: true, vertical: false)
-                            Spacer(minLength: 0)
-                            actions
-                        }
-                        VStack(alignment: .leading, spacing: 5) {
-                            accessibleTitle
-                            actions
-                        }
+                    TitleActionsLayout {
+                        accessibleTitle
+                        actions
                     }
                 }
                 if !compact { metadata }
@@ -305,5 +298,66 @@ struct TaskRow: View {
         focusBinding.wrappedValue = .task(task.id, .complete)
         guard draft != task.title else { return }
         store.apply { try $0.rename(task.id, on: task.day.map { .day($0) } ?? .inbox, to: draft) }
+    }
+}
+
+/// Title and row actions in one pass: actions sit at the trailing end of the title line when the
+/// title fits beside them on one line, otherwise they drop below a full-width title. Unlike
+/// `ViewThatFits`, each subview is measured a fixed number of times, so long lists stay cheap.
+struct TitleActionsLayout: Layout {
+    var spacing: CGFloat = 8
+    var lineSpacing: CGFloat = 5
+
+    private struct Plan {
+        var inline: Bool
+        var title: CGSize
+        var actions: CGSize
+    }
+
+    private func plan(_ width: CGFloat?, _ subviews: Subviews) -> Plan {
+        guard subviews.count == 2 else {
+            return Plan(inline: false, title: .zero, actions: .zero)
+        }
+        let actions = subviews[1].sizeThatFits(.unspecified)
+        let ideal = subviews[0].sizeThatFits(.unspecified)
+        guard let width, width.isFinite else {
+            return Plan(inline: true, title: ideal, actions: actions)
+        }
+        if ideal.width + spacing + actions.width <= width {
+            return Plan(inline: true, title: ideal, actions: actions)
+        }
+        let wrapped = subviews[0].sizeThatFits(ProposedViewSize(width: width, height: nil))
+        return Plan(inline: false, title: wrapped, actions: actions)
+    }
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let p = plan(proposal.width, subviews)
+        if p.inline {
+            let width = proposal.width ?? (p.title.width + spacing + p.actions.width)
+            return CGSize(width: width, height: max(p.title.height, p.actions.height))
+        }
+        let width = proposal.width ?? max(p.title.width, p.actions.width)
+        return CGSize(width: width, height: p.title.height + lineSpacing + p.actions.height)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        guard subviews.count == 2 else { return }
+        let p = plan(bounds.width, subviews)
+        if p.inline {
+            let titleY = bounds.minY + max(0, (p.actions.height - p.title.height) / 2)
+            subviews[0].place(
+                at: CGPoint(x: bounds.minX, y: titleY), anchor: .topLeading,
+                proposal: ProposedViewSize(width: bounds.width - spacing - p.actions.width, height: p.title.height))
+            subviews[1].place(
+                at: CGPoint(x: bounds.maxX, y: bounds.minY), anchor: .topTrailing,
+                proposal: ProposedViewSize(p.actions))
+        } else {
+            subviews[0].place(
+                at: bounds.origin, anchor: .topLeading,
+                proposal: ProposedViewSize(width: bounds.width, height: p.title.height))
+            subviews[1].place(
+                at: CGPoint(x: bounds.minX, y: bounds.minY + p.title.height + lineSpacing), anchor: .topLeading,
+                proposal: ProposedViewSize(p.actions))
+        }
     }
 }
