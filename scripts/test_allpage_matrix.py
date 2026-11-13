@@ -77,6 +77,23 @@ class AllPageMatrixProbeTests(unittest.TestCase):
         self.assertIn("matrix menu: posted real Escape", self.source)
         self.assertIn("RunLoop.main.add(timer, forMode: .eventTracking)", self.source)
 
+    def test_traversal_measures_appkit_keyboard_access_and_reads_focus_honestly(self):
+        # AppKit's effective full keyboard access is asserted, not inferred from defaults.
+        self.assertIn("NSApp.isFullKeyboardAccessEnabled, \"AppKit reports full keyboard access", self.source)
+        runner = RUNNER.read_text()
+        self.assertIn("'defaults', 'write', '-g', 'AppleKeyboardUIMode', '-int'", runner)
+        self.assertIn("full-keyboard-access restored", runner)
+        self.assertLess(runner.index("write_keyboard_mode('3')"), runner.index("run('matrix', [])"))
+        # Per-Tab census and identity provenance are logged before any assertion.
+        for trace in ("KEYVIEW ", "canBecomeKeyView=", "FOCUS step ", "source=\\(mxFocusIdentitySource())",
+                      "role-fallback", "matrix focus read: source="):
+            self.assertIn(trace, self.source)
+        # Focus objects are attached only after the window walk, never pre-marked discovered.
+        reader = self.source.split("private enum MatrixViewReader", 1)[1].split("enum MatrixAX {", 1)[0]
+        self.assertNotIn('as? NSObject,\n                discovered.insert(handle(focused))', reader)
+        self.assertLess(reader.index("walk()\n        let windowReachable"),
+                        reader.index("for focused in detachedFocus where discovered.insert"))
+
     def test_native_contrast_uses_the_requested_appearance_without_competing_scheme(self):
         section = self.source.split("func contrastStates()", 1)[1]
         self.assertNotIn(".environment(\\.colorScheme, scheme)", section)
