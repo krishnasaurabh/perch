@@ -258,7 +258,12 @@ func openHomeTraced(
         if focused && firstFocused == nil { firstFocused = t }
         if t >= CaptureFocusReadiness.minimumSettle && focusedAtSettle == nil { focusedAtSettle = focused }
         readiness.observe(time: t, editorIdentity: identity, editingEndedAt: trace.editingEndedAt)
-        if t >= readiness.traceDeadline || (!full && readiness.settledFocusAt != nil) { break }
+        // Keep the standard deadline as the floor; dense repeats extend only the observation budget.
+        if (t >= CaptureFocusReadiness.deadline && t >= readiness.traceDeadline)
+            || (!full && readiness.settledFocusAt != nil)
+        {
+            break
+        }
         try? await Task.sleep(nanoseconds: 20_000_000)
     }
     trace.stop()

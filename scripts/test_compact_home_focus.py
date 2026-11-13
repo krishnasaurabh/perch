@@ -167,7 +167,7 @@ class CompactHomeFocusTests(unittest.TestCase):
         self.assertIn("static let deadline = 3.0", self.logic)
         self.assertEqual(source.count("deadline: CaptureFocusReadiness.denseRepeatDeadline"), 1)
         self.assertIn('label: "dense-repeat-\\(iteration)", full: true,', source)
-        self.assertIn("if t >= readiness.traceDeadline ||", source)
+        self.assertIn("if (t >= CaptureFocusReadiness.deadline && t >= readiness.traceDeadline)", source)
         self.assertIn("CaptureFocusReadiness(traceDeadline: deadline)", source)
         self.assertIn("for iteration in 1...20", source)
 
