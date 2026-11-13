@@ -57,6 +57,26 @@ class AllPageMatrixProbeTests(unittest.TestCase):
         self.assertIn("let point = CGPoint(x: local.midX, y: local.midY)", self.source)
         self.assertNotIn("host.bounds.height - local.midY", self.source)
 
+    def test_native_fixture_retains_identity_and_sets_the_measured_page(self):
+        self.assertIn("withExtendedLifetime(retained)", self.source)
+        self.assertIn("if !MatrixAX.publicationPrimed", self.source)
+        activation = self.source.split("static func activateWindowRoots()", 1)[1].split("static func raw(", 1)[0]
+        self.assertIn("elements(app, kAXWindowsAttribute", activation)
+        self.assertIn("elements(window, kAXChildrenAttribute", activation)
+        self.assertNotIn("stack", activation)
+        self.assertIn("retained[handle(child)] = child", self.source)
+        self.assertIn('value(owner, "accessibilityFocusedUIElement")', self.source)
+        self.assertIn('value(object, "accessibilityTitleUIElement")', self.source)
+        self.assertIn("host.sizingOptions = []", self.source)
+        self.assertNotIn("AnyView(view.environment", self.source)
+        week = self.source.split("func weekKeyboard()", 1)[1].split("func clipsKeyboard()", 1)[0]
+        self.assertLess(week.index("fixture.model.page = .week"), week.index("matrixWindow("))
+        clips = self.source.split("func clipsKeyboard()", 1)[1].split("func enlargedType()", 1)[0]
+        self.assertLess(clips.index("guard let first = clips.clips.first"), clips.index('clips.add(.text("Matrix clip two")'))
+        self.assertNotIn("cancelTracking()", self.source)
+        self.assertIn("matrix menu: posted real Escape", self.source)
+        self.assertIn("RunLoop.main.add(timer, forMode: .eventTracking)", self.source)
+
     def test_native_contrast_uses_the_requested_appearance_without_competing_scheme(self):
         section = self.source.split("func contrastStates()", 1)[1]
         self.assertNotIn(".environment(\\.colorScheme, scheme)", section)
