@@ -8,6 +8,7 @@ struct WeekPage: View {
     @EnvironmentObject var store: PlannerStore
     @State private var anchor = 0
     @State private var showInbox = false
+    @FocusState private var inboxFocused: Bool
     @State private var target: String?
 
     private var days: [DayKey] {
@@ -41,7 +42,7 @@ struct WeekPage: View {
                 ) {
                     Motion.animate(Motion.page) { showInbox.toggle() }
                 }
-                .buttonStyle(PillStyle())
+                .buttonStyle(PillStyle(focus: $inboxFocused))
                 .keyboardShortcut("i", modifiers: [.command, .option])
                 .accessibilityIdentifier("week-inbox")
                 .help(
