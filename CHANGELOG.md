@@ -30,7 +30,8 @@ All notable user-facing changes to Perch. Versions follow [Semantic Versioning](
 - Today keeps actions visible on every row and puts short task actions on the title line, so more
   tasks fit. Capture and Undo stay pinned below the list, and overdue tasks open in an on-demand
   review instead of a banner.
-- Insights stacks its cards at narrow widths and shows planned and completed tasks side by side.
+- Insights stacks its cards at narrow widths. The Dashboard chart shows planned and completed
+  tasks side by side instead of stacking them.
 - Screenshot watching for Clips is now an explicit choice in Welcome and stays off until you
   turn it on. Clip actions are always visible.
 - Built-in displays never get a drawn notch. Drawing one on external monitors is off by default.
