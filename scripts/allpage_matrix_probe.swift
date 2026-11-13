@@ -610,6 +610,12 @@ func mxIdentified(_ root: MatrixElement, _ identifier: String) throws -> MatrixE
     return element
 }
 
+/// Permission status assertions are scoped to the feature-owned row, never the whole panel.
+@MainActor
+func mxPermissionRow(_ root: MatrixElement, feature: String) throws -> MatrixElement {
+    try mxIdentified(root, "permission-row.\(feature)")
+}
+
 /// Sheet content is either a child of its parent window or its own window entry; both live in
 /// the application tree, and these strings exist nowhere else.
 @MainActor
@@ -1590,9 +1596,10 @@ final class AllPageMatrix {
         for feature in PermissionFeature.allCases {
             let reading = await access.read(feature)
             states[feature.rawValue] = reading.state.rawValue
+            let row = try mxPermissionRow(root, feature: feature.rawValue)
             try report.require(
-                mxHas(root, reading.state.title), "welcome shows \(feature.rawValue) as \(reading.state.title)",
-                "texts \(mxText(root).prefix(24))")
+                mxHas(row, reading.state.title), "welcome shows \(feature.rawValue) as \(reading.state.title)",
+                "row texts \(mxText(row))")
         }
         report.record("welcomePermissionStates", states)
         let allowedRows = mxText(root).filter { $0 == PermissionState.allowed.title }.count

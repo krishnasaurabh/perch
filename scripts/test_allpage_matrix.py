@@ -285,6 +285,133 @@ print("Matrix assertion plumbing check passed")
             result = subprocess.run([str(binary)], check=True, capture_output=True, text=True)
             self.assertIn("Matrix assertion plumbing check passed", result.stdout)
 
+    def test_permission_rows_scope_status_assertions_to_feature_identity(self):
+        # Compile the actual AX row selector and text predicate with controlled snapshots.
+        # These are behavior controls, not source checks or a model of the production helper.
+        failure = self.source.split("struct MatrixFailure", 1)[1].split("/// Unbuffered", 1)[0]
+        declarations = self.source.split("struct MatrixElement", 1)[1].split("/// All native AX calls", 1)[0]
+        helpers = self.source.split("@MainActor\nfunc mxString", 1)[1].split("/// Sheet content", 1)[0]
+        program = (
+            "import Foundation\n\nstruct MatrixFailure"
+            + failure
+            + "\nstruct MatrixElement"
+            + declarations
+            + "\n@MainActor\nfunc mxString"
+            + helpers
+            + r'''
+let kAXWindowsAttribute = "AXWindows"
+let kAXChildrenAttribute = "AXChildren"
+let kAXRoleAttribute = "AXRole"
+let kAXIdentifierAttribute = "AXIdentifier"
+let kAXDescriptionAttribute = "AXDescription"
+let kAXTitleAttribute = "AXTitle"
+let kAXValueAttribute = "AXValue"
+let kAXHelpAttribute = "AXHelp"
+
+@MainActor enum MatrixStage { static func mark(_ stage: String) {} }
+@MainActor enum MatrixAX { static var snapshot = MatrixAXSnapshot() }
+@MainActor func mxApp() -> MatrixElement { MatrixAX.snapshot.app }
+
+@MainActor
+func permissionFixture(_ rows: [(String, String)]) -> MatrixElement {
+    let root = MatrixElement(id: 1)
+    var snapshot = MatrixAXSnapshot()
+    snapshot.nodes[root] = MatrixAXNode()
+    var children: [MatrixElement] = []
+    var nextID: UInt = 2
+    for (feature, state) in rows {
+        let row = MatrixElement(id: nextID)
+        nextID += 1
+        let title = MatrixElement(id: nextID)
+        nextID += 1
+        var titleNode = MatrixAXNode()
+        titleNode.strings[kAXValueAttribute] = feature
+        snapshot.nodes[title] = titleNode
+        var rowNode = MatrixAXNode()
+        rowNode.strings[kAXIdentifierAttribute] = "permission-row.\(feature)"
+        rowNode.edges[kAXChildrenAttribute] = [title]
+        if !state.isEmpty {
+            let status = MatrixElement(id: nextID)
+            nextID += 1
+            var statusNode = MatrixAXNode()
+            statusNode.strings[kAXValueAttribute] = state
+            snapshot.nodes[status] = statusNode
+            rowNode.edges[kAXChildrenAttribute]?.append(status)
+        }
+        snapshot.nodes[row] = rowNode
+        children.append(row)
+    }
+    snapshot.nodes[root]?.edges[kAXChildrenAttribute] = children
+    MatrixAX.snapshot = snapshot
+    return root
+}
+
+@MainActor
+func assertPermissionRows(_ rows: [(String, String)], expected: [(String, String)]) throws {
+    let root = permissionFixture(rows)
+    for (feature, state) in expected {
+        let row = try mxPermissionRow(root, feature: feature)
+        guard mxHas(row, state) else {
+            throw MatrixFailure(label: "\(feature) lacks its own \(state) status")
+        }
+    }
+}
+
+@MainActor
+func rejects(_ label: String, _ body: () throws -> Void) throws {
+    do { try body() } catch { return }
+    throw MatrixFailure(label: "negative control passed: \(label)")
+}
+
+let valid = [
+    ("calendar", "Not requested"), ("microphone", "Allowed"),
+    ("notifications", "Unavailable"), ("reminders", "Not requested"),
+    ("speech", "Not requested"),
+]
+// Equal statuses on distinct rows must not collapse feature identity.
+try assertPermissionRows(valid, expected: valid)
+let missingRow = valid.filter { $0.0 != "calendar" }
+let missingStatus = valid.map { $0.0 == "calendar" ? ($0.0, "") : $0 }
+let wrongState = valid.map { $0.0 == "microphone" ? ($0.0, "Denied") : $0 }
+let swapped = valid.map {
+    $0.0 == "calendar" ? ($0.0, "Allowed") : $0.0 == "microphone" ? ($0.0, "Not requested") : $0
+}
+precondition(swapped.map { $0.1 }.sorted() == valid.map { $0.1 }.sorted())
+let duplicate = valid + [("calendar", "Not requested")]
+for (label, rows) in [
+    ("missing non-Allowed row", missingRow),
+    ("missing non-Allowed status", missingStatus),
+    ("wrong feature row state", wrongState),
+    ("swapped states with unchanged aggregate counts", swapped),
+    ("duplicate feature row", duplicate),
+] {
+    try rejects(label) { try assertPermissionRows(rows, expected: valid) }
+}
+print("Permission row positive and negative controls passed")
+'''
+        )
+        swift = shutil.which("swiftc")
+        if swift is None:
+            self.fail("Swift is required to verify permission row assertions")
+        with tempfile.TemporaryDirectory() as directory:
+            source = pathlib.Path(directory) / "main.swift"
+            binary = pathlib.Path(directory) / "permission-rows"
+            source.write_text(program)
+            built = subprocess.run(
+                [swift, "-swift-version", "6", str(source), "-o", str(binary)],
+                capture_output=True, text=True,
+            )
+            self.assertEqual(built.returncode, 0, built.stderr)
+            result = subprocess.run([str(binary)], capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn("Permission row positive and negative controls passed", result.stdout)
+
+        welcome = self.source.split("func welcomeStates()", 1)[1].split("func detailsStates()", 1)[0]
+        self.assertIn("mxPermissionRow(root, feature: feature.rawValue)", welcome)
+        self.assertIn("mxHas(row, reading.state.title)", welcome)
+        panel = (ROOT / "Sources/PerchApp/Settings/PermissionPanel.swift").read_text()
+        self.assertIn('.accessibilityIdentifier("permission-row.\\(feature.rawValue)")', panel)
+
     def test_probe_never_requests_access_or_presses_a_monitor(self):
         for forbidden in (
             "requestAccess",

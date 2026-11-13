@@ -180,6 +180,8 @@ struct PermissionPanel: View {
             if let error = model.errors[feature] { Text(error).font(Theme.meta).foregroundStyle(Theme.danger) }
         }
         .foregroundStyle(Theme.text)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("permission-row.\(feature.rawValue)")
     }
 
     private func status(_ state: PermissionState) -> some View {
