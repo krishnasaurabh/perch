@@ -45,6 +45,210 @@ class AllPageMatrixProbeTests(unittest.TestCase):
         self.assertEqual(self.source.count("Task.sleep"), 2)
         self.assertLessEqual(self.source.count("for _ in 0..<"), 4)
 
+    def test_native_reader_retains_semantics_and_focus_diagnostics(self):
+        for getter in ("accessibilityChildrenInNavigationOrder", "isAccessibilityFocused", "isAccessibilityEnabled"):
+            self.assertIn(getter, self.source)
+        self.assertIn("@convention(c) (AnyObject, Selector) -> Bool", self.source)
+        self.assertIn("if semanticFocus.count == 1", self.source)
+        self.assertIn("node.focused == true", self.source)
+        for trace in ("before Tab", "after Tab", "nextValidKeyView", "roleFallback=", "identityFallback="):
+            self.assertIn(trace, self.source)
+        self.assertIn("view.environment(\\.accessibilityEnabled, true)", self.source)
+        self.assertIn("let point = CGPoint(x: local.midX, y: local.midY)", self.source)
+        self.assertNotIn("host.bounds.height - local.midY", self.source)
+
+    def test_native_fixture_retains_identity_and_sets_the_measured_page(self):
+        self.assertIn("withExtendedLifetime(retained)", self.source)
+        self.assertIn("if !MatrixAX.publicationPrimed", self.source)
+        activation = self.source.split("static func activateWindowRoots()", 1)[1].split("static func raw(", 1)[0]
+        self.assertIn("elements(app, kAXWindowsAttribute", activation)
+        self.assertIn("elements(window, kAXChildrenAttribute", activation)
+        self.assertNotIn("stack", activation)
+        self.assertIn("retained[handle(child)] = child", self.source)
+        self.assertIn('value(owner, "accessibilityFocusedUIElement")', self.source)
+        self.assertIn('value(object, "accessibilityTitleUIElement")', self.source)
+        self.assertIn("host.sizingOptions = []", self.source)
+        self.assertNotIn("AnyView(view.environment", self.source)
+        week = self.source.split("func weekKeyboard()", 1)[1].split("func clipsKeyboard()", 1)[0]
+        self.assertLess(week.index("fixture.model.page = .week"), week.index("matrixWindow("))
+        clips = self.source.split("func clipsKeyboard()", 1)[1].split("func enlargedType()", 1)[0]
+        self.assertLess(clips.index("guard let first = clips.clips.first"), clips.index('clips.add(.text("Matrix clip two")'))
+        self.assertNotIn("cancelTracking()", self.source)
+        self.assertIn("matrix menu: posted real Escape", self.source)
+        self.assertIn("RunLoop.main.add(timer, forMode: .eventTracking)", self.source)
+
+    def test_traversal_measures_appkit_keyboard_access_and_reads_focus_honestly(self):
+        # AppKit's effective full keyboard access is asserted, not inferred from defaults.
+        self.assertIn("NSApp.isFullKeyboardAccessEnabled, \"AppKit reports full keyboard access", self.source)
+        runner = RUNNER.read_text()
+        self.assertIn("'defaults', 'write', '-g', 'AppleKeyboardUIMode', '-int'", runner)
+        self.assertIn("full-keyboard-access restored", runner)
+        self.assertLess(runner.index("write_keyboard_mode('3')"), runner.index("run('matrix', [])"))
+        # Per-Tab census and identity provenance are logged before any assertion.
+        for trace in ("KEYVIEW ", "canBecomeKeyView=", "FOCUS step ", "source=\\(mxFocusIdentitySource())",
+                      "role-fallback", "matrix focus read: source="):
+            self.assertIn(trace, self.source)
+        # Duplicate focused semantics collapse to the deepest node; a single candidate is unchanged.
+        self.assertIn('source = "semantic-deepest of', self.source)
+        self.assertIn("!unique.keys.contains { $0 != key && contained.contains($0) }", self.source)
+        self.assertLess(self.source.index("if semanticFocus.count == 1 {\n            result.focused"),
+                        self.source.index("} else if deepest.count == 1 {"))
+        # Focus objects are attached only after the window walk, never pre-marked discovered.
+        reader = self.source.split("private enum MatrixViewReader", 1)[1].split("enum MatrixAX {", 1)[0]
+        self.assertNotIn('as? NSObject,\n                discovered.insert(handle(focused))', reader)
+        self.assertLess(reader.index("walk()\n        let windowReachable"),
+                        reader.index("+ detachedFocus\n"))
+
+    def test_native_contrast_uses_the_requested_appearance_without_competing_scheme(self):
+        section = self.source.split("func contrastStates()", 1)[1]
+        self.assertNotIn(".environment(\\.colorScheme, scheme)", section)
+        self.assertIn("effective == appearanceName.rawValue", section)
+        self.assertIn("ratio >= 4.5", section)
+        self.assertIn("lowRatio < 4.5", section)
+        self.assertIn("host.appearance = appearance", self.source)
+
+    def test_contrast_paints_a_native_surface_and_saves_before_asserting(self):
+        section = self.source.split("func contrastStates()", 1)[1].split("func mxHex(", 1)[0]
+        self.assertIn(".background(Color(nsColor: .windowBackgroundColor))", section)
+        self.assertIn("effectiveBase == baseName", section)
+        self.assertLess(section.index("try mxSave(bitmap,"), section.index("guard let background ="))
+        self.assertLess(section.index('report.record("contrast", rows)'), section.index("ratio >= 4.5"))
+        self.assertIn('"ink": mxHex(ink), "background": mxHex(background)', section)
+        self.assertIn('"ratio": lowRatio, "ink": mxHex(lowSample)', section)
+
+    def test_contrast_samplers_reject_transparency_and_detect_low_contrast(self):
+        # Exercise the exact Swift sampler bodies with a tiny in-memory bitmap adapter.
+        # This is an algorithm control, not a substitute for native rendering on macOS.
+        functions = self.source.split("@MainActor\nfunc mxContrast(", 1)[1].split("// MARK: - Menu tracking", 1)[0]
+        functions = "@MainActor\nfunc mxContrast(" + functions
+        support = '''import Foundation
+struct NSColor {
+    enum Space { case sRGB }
+    let redComponent, greenComponent, blueComponent, alphaComponent: CGFloat
+    func usingColorSpace(_ space: Space) -> NSColor? { self }
+}
+struct NSView {}
+struct NSBitmapImageRep {
+    let pixels: [NSColor]
+    func colorAt(x: Int, y: Int) -> NSColor? { pixels[x] }
+}
+func mxBand(_ band: NSRect, host: NSView, bitmap: NSBitmapImageRep)
+    -> (x0: Int, x1: Int, y0: Int, y1: Int) { (0, bitmap.pixels.count, 0, 1) }
+func color(_ value: CGFloat, alpha: CGFloat = 1) -> NSColor {
+    NSColor(redComponent: value, greenComponent: value, blueComponent: value, alphaComponent: alpha)
+}
+'''
+        checks = '''
+let host = NSView(), band = NSRect.zero
+let transparent = color(0, alpha: 0), black = color(0), white = color(1)
+let unpainted = NSBitmapImageRep(pixels: [transparent, transparent, transparent, white])
+precondition(mxDominant(unpainted, host: host, band: band) == nil)
+let partial = NSBitmapImageRep(pixels: [color(0, alpha: 0.5), black])
+precondition(mxDominant(partial, host: host, band: band) == nil)
+let noInk = NSBitmapImageRep(pixels: [transparent, white])
+precondition(mxInkSample(noInk, host: host, band: band, near: black) == nil)
+for (surface, ink, low) in [(black, white, color(0.32)), (white, black, color(0.72))] {
+    let bitmap = NSBitmapImageRep(pixels: [surface, surface, surface, ink, low])
+    let background = mxDominant(bitmap, host: host, band: band)!
+    let body = mxInkSample(bitmap, host: host, band: band, near: ink)!
+    let negative = mxInkSample(bitmap, host: host, band: band, near: low)!
+    precondition(mxContrast(body, background) >= 4.5)
+    precondition(mxContrast(negative, background) < 4.5)
+}
+print("Opaque contrast sampling controls passed")
+'''
+        swift = shutil.which("swiftc")
+        if swift is None:
+            self.fail("Swift is required to verify the contrast samplers")
+        with tempfile.TemporaryDirectory() as directory:
+            path = pathlib.Path(directory) / "main.swift"
+            binary = pathlib.Path(directory) / "contrast"
+            for name, body in [
+                ("fixed", functions),
+                ("transparent-background", functions.replace("guard rgb.alphaComponent == 1 else { return nil }", "")),
+                ("transparent-ink", functions.replace(", rgb.alphaComponent == 1 else", " else")),
+            ]:
+                path.write_text(support + body + checks)
+                built = subprocess.run([swift, "-swift-version", "6", str(path), "-o", str(binary)],
+                                       capture_output=True, text=True)
+                self.assertEqual(built.returncode, 0, built.stderr)
+                ran = subprocess.run([str(binary)], capture_output=True, text=True)
+                if name == "fixed":
+                    self.assertEqual(ran.returncode, 0, ran.stderr)
+                    self.assertIn("Opaque contrast sampling controls passed", ran.stdout)
+                else:
+                    self.assertNotEqual(ran.returncode, 0, name)
+
+    def test_contrast_reads_the_variant_by_best_match_not_the_base_name(self):
+        section = self.source.split("func contrastStates()", 1)[1].split("func mxHex(", 1)[0]
+        # NSAppearance.name reports the base name even for a high-contrast object, so a
+        # name comparison can never observe the variant; bestMatch(from:) resolves it.
+        self.assertIn("window.effectiveAppearance.bestMatch(from: [baseName, appearanceName])", section)
+        self.assertNotIn("let effective = window.effectiveAppearance.name.rawValue", section)
+        self.assertIn("NSWorkspace.shared.accessibilityDisplayShouldIncreaseContrast", section)
+        # The strict expectation stays: the high-contrast variant must be the resolved match.
+        self.assertIn("effective == appearanceName.rawValue", section)
+        self.assertIn("accessibilityHighContrastDarkAqua", section)
+        self.assertIn("accessibilityHighContrastAqua", section)
+
+    def test_focus_seeds_never_detach_window_content(self):
+        reader = self.source.split("private enum MatrixViewReader {", 1)[1].split("@MainActor\nenum MatrixAX", 1)[0]
+        seeding = reader.split("var detachedFocus", 1)[1].split("func walk()", 1)[0]
+        # The focused getter can return the hosting view itself, so marking a focus object
+        # discovered before the walk would delete the window -> content edge and detach the page.
+        self.assertNotIn("discovered.insert", seeding)
+        self.assertIn("detachedFocus.append(focused)", seeding)
+        # They are attached only after the window walk, as roots the walk never reached.
+        self.assertLess(
+            reader.index("walk()\n        let windowReachable"),
+            reader.index("+ detachedFocus\n"),
+        )
+        self.assertIn("if let content = window.contentView { children.append(content) }", reader)
+        self.assertIn("result.nodes.count >= 3000", reader)
+
+    def test_focus_seed_ordering_control(self):
+        """Model of the reader's two-phase worklist: windows first, then unreached focus roots."""
+        graph = {"window": ["content"], "content": ["status", "detail"], "status": [], "detail": []}
+
+        def read(preseed):
+            nodes, discovered, edges = {}, {"window"}, {}
+
+            def walk(seed):
+                stack = [(seed, 0)]
+                while stack:
+                    key, depth = stack.pop()
+                    if key in nodes:
+                        continue
+                    children = [c for c in graph[key] if c != key and c not in discovered]
+                    discovered.update(children)
+                    edges[key] = children
+                    nodes[key] = True
+                    stack.extend((c, depth + 1) for c in reversed(children))
+
+            if preseed:
+                # The baseline: the focus object was marked discovered before the walk, so the
+                # window edge to its own content was dropped and the page detached.
+                discovered.add("content")
+                walk("content")
+            walk("window")
+            if not preseed and "content" not in discovered:
+                # The measured fix: attach focus roots the window walk never reached.
+                discovered.add("content")
+                walk("content")
+            reachable, queue = [], ["window"]
+            while queue:
+                node = queue.pop()
+                reachable.append(node)
+                queue.extend(edges.get(node, []))
+            return set(nodes), set(reachable)
+
+        old_nodes, old_reachable = read(preseed=True)
+        new_nodes, new_reachable = read(preseed=False)
+        self.assertEqual(old_nodes, set(graph))
+        self.assertNotIn("status", old_reachable)  # the measured red: read, but detached
+        self.assertEqual(new_nodes, set(graph))
+        self.assertEqual(new_reachable, set(graph))
+
     def test_assertion_plumbing_can_go_red(self):
         plumbing = self.source.split("struct MatrixFailure", 1)[1].split("// MARK: - System accessibility layer", 1)[0]
         program = (
@@ -93,26 +297,43 @@ print("Matrix assertion plumbing check passed")
             "clips.copy(",
         ):
             self.assertNotIn(forbidden, self.source, forbidden)
-        # The only AX presses are the Welcome call to action and none of them is a permission or
-        # capture control.
-        presses = re.findall(r"(?<!func )mxPress\(([^)]*)\)", self.source)
-        self.assertEqual(len(presses), 1, presses)
-        for hit in presses:
-            self.assertNotIn("Allow", hit)
-            self.assertNotIn("screenshots", hit)
-            self.assertNotIn("copied items", hit)
+        # Every activation is a real input event, including the Welcome default action.
+        self.assertNotIn("AXUIElementPerformAction", self.source)
+        self.assertNotIn("accessibilityPerformPress", self.source)
+        self.assertNotIn("performClick", self.source)
+        self.assertIn('try await mxKey(window, 36, "\\r")', self.source)
 
     def test_measurements_read_the_system_accessibility_tree(self):
-        # In-window accessibilityChildren stay empty until something asks, so every measurement
-        # goes through the application element of the system AX API.
-        self.assertIn("AXUIElementCreateApplication(getpid())", self.source)
-        self.assertIn("kAXWindowsAttribute", self.source)
-        self.assertIn("kAXChildrenAttribute", self.source)
-        self.assertNotIn("accessibilityChildren", self.source)
-        self.assertIn("kAXFocusedUIElementAttribute", self.source)
+        # Other groups retain the system reader; the workspace graphs are read on
+        # main through native accessibility objects, never self-addressed AX IPC.
+        reader = self.source.split("enum MatrixAXReader {", 1)[1].split("private enum MatrixViewReader", 1)[0]
+        for attribute in ("AXUIElementCreateApplication(getpid())", "kAXWindowsAttribute",
+                          "kAXChildrenAttribute", "kAXFocusedUIElementAttribute"):
+            self.assertIn(attribute, reader)
+        self.assertNotIn("accessibilityChildren", reader)
+        view_reader = self.source.split("private enum MatrixViewReader {", 1)[1].split("@MainActor\nenum MatrixAX", 1)[0]
+        self.assertIn("@MainActor\nprivate enum MatrixViewReader", self.source)
+        self.assertIn('precondition(Thread.isMainThread', view_reader)
+        for getter in ("accessibilityChildren", "accessibilityContents", "accessibilityRole",
+                       "accessibilityLabel", "accessibilityValue", "accessibilityFrame"):
+            self.assertIn(getter, view_reader)
+        for native_path in ("NSApp.windows", "window.contentView", "view.subviews", "firstResponder"):
+            self.assertIn(native_path, view_reader)
+        self.assertIn("result.nodes.count >= 3000", view_reader)
+        self.assertNotIn("AXUIElement", view_reader)
+        # A silent fallback to the trapping backend must fail this guard.
+        for start, end in (("func detailsStates()", "func workspaceFixture"),
+                           ("func weekKeyboard()", "func clipsKeyboard")):
+            group = self.source.split(start, 1)[1].split(end, 1)[0]
+            self.assertIn("MatrixAX.useViewTree = true", group)
+            self.assertIn("defer { MatrixAX.useViewTree = false }", group)
+            self.assertLess(group.index("MatrixAX.useViewTree = true"), group.index("await mxReady"))
+        refresh = self.source.split("static var useViewTree", 1)[1].split("func mxApp()", 1)[0]
+        self.assertRegex(refresh, r"if useViewTree\s*\{[^}]*snapshot = MatrixViewReader\.read\(\)")
+        self.assertRegex(refresh, r"else\s*\{\s*snapshot = await MatrixAXReader\.snapshot\(\)")
 
     def test_ax_reads_run_off_main_and_only_snapshots_cross_the_actor(self):
-        reader = self.source.split("enum MatrixAXReader {", 1)[1].split("@MainActor\nenum MatrixAX", 1)[0]
+        reader = self.source.split("enum MatrixAXReader {", 1)[1].split("private enum MatrixViewReader", 1)[0]
         consumers = self.source.split("@MainActor\nenum MatrixAX", 1)[1]
         self.assertIn('precondition(!Thread.isMainThread', reader)
         self.assertIn('AXUIElementCopyAttributeValue', reader)
@@ -120,13 +341,71 @@ print("Matrix assertion plumbing check passed")
         self.assertIn('AX before \\(context) attribute=\\(attribute)', reader)
         self.assertIn('let trace = smoke || index < 25', reader)
         self.assertIn('node=\\(index) role=\\(role)', reader)
-        self.assertIn('Task.detached { MatrixAXReader.read() }.value', consumers)
+        self.assertIn('private static let queue = DispatchQueue(', reader)
+        self.assertIn('await withCheckedContinuation', reader)
+        self.assertIn('queue.async {', reader)
+        self.assertIn('continuation.resume(returning: read(smoke: smoke))', reader)
+        self.assertNotIn('MainActor.assumeIsolated', reader)
         self.assertIn('await MatrixAX.refresh()', consumers)
         self.assertNotIn('AXUIElementCopy', consumers)
         self.assertNotIn('AXUIElementSetMessagingTimeout', self.source)
         self.assertIn('struct MatrixAXSnapshot: Sendable', self.source)
         self.assertIn('struct MatrixElement: Hashable, Sendable', self.source)
         self.assertIn('exit(hasWindow ? 0 : 1)', consumers)
+
+    def test_system_reader_asks_for_names_the_element_does_not_advertise(self):
+        # SwiftUI section headings and status labels answer AXDescription/AXTitle without
+        # listing them in AXUIElementCopyAttributeNames. A reader that only asks for advertised
+        # names never sees rendered text such as "Opening" or "Not requested".
+        reader = self.source.split("enum MatrixAXReader {", 1)[1].split("private enum MatrixViewReader", 1)[0]
+        names = reader.split("static let unadvertisedNames", 1)[1].split("]", 1)[0]
+        for attribute in ("kAXDescriptionAttribute", "kAXTitleAttribute", "kAXValueAttribute",
+                          "kAXHelpAttribute", "kAXIdentifierAttribute"):
+            self.assertIn(attribute, names)
+        self.assertNotIn("kAXRoleAttribute", names)
+        loop = reader.split("for attribute in [", 1)[1].split("if supported.contains(kAXEnabledAttribute", 1)[0]
+        self.assertIn("guard advertised || unadvertisedNames.contains(name) else { continue }", loop)
+        self.assertNotRegex(loop, r"if supported\.contains\(name\),")
+        # An unadvertised miss stays quiet; an advertised failure is still logged.
+        self.assertIn("quiet: !advertised", loop)
+        self.assertIn("if trace || (error != .success && !quiet)", reader)
+
+    def test_clicks_convert_system_ax_frames_to_appkit_screen_space(self):
+        click = self.source.split("func mxClick(", 1)[1].split("MatrixStage.mark(", 1)[0]
+        self.assertIn("if MatrixAX.snapshot.topLeftFrames, let primary = NSScreen.screens.first", click)
+        self.assertIn("mxCocoaRect(screenRect, primaryHeight: primary.frame.maxY)", click)
+        self.assertLess(click.index("mxCocoaRect("), click.index("window.convertFromScreen(screenRect)"))
+        self.assertNotIn("host.bounds.height - local.midY", click)
+        reader = self.source.split("enum MatrixAXReader {", 1)[1].split("private enum MatrixViewReader", 1)[0]
+        self.assertIn("result.topLeftFrames = true", reader)
+        view_reader = self.source.split("private enum MatrixViewReader {", 1)[1].split("@MainActor\nenum MatrixAX", 1)[0]
+        self.assertNotIn("topLeftFrames", view_reader)
+        function = re.search(r"func mxCocoaRect\(.*?\n}\n", self.source, re.S)
+        assert function is not None
+        swift = shutil.which("swiftc")
+        assert swift is not None, "Swift is required to verify the click conversion"
+        # Recorded hosted geometry: primary display 768 high, Settings window AX frame
+        # {0,25} 760x720, General row AX frame {0,87} 170x28. The row centre must land 24pt
+        # below the top of the 668pt host, i.e. on the row, not mirrored near the bottom.
+        program = "import Foundation\n" + function.group(0) + '''
+let window = NSRect(x: 0, y: 768 - 25 - 720, width: 760, height: 720)
+let row = mxCocoaRect(NSRect(x: 0, y: 87, width: 170, height: 28), primaryHeight: 768)
+let inWindowMid = row.midY - window.minY
+precondition(inWindowMid == 644, "row centre \\(inWindowMid)")
+precondition(668 - inWindowMid == 24, "host offset")
+let unconverted = NSRect(x: 0, y: 87, width: 170, height: 28)
+precondition(unconverted.midY - window.minY != 644, "negative control must differ")
+print("click conversion positive and negative controls passed")
+'''
+        with tempfile.TemporaryDirectory() as directory:
+            source = pathlib.Path(directory) / "main.swift"
+            binary = pathlib.Path(directory) / "click"
+            source.write_text(program)
+            built = subprocess.run([swift, str(source), "-o", str(binary)], capture_output=True, text=True)
+            self.assertEqual(built.returncode, 0, built.stderr)
+            ran = subprocess.run([str(binary)], capture_output=True, text=True)
+            self.assertEqual(ran.returncode, 0, ran.stderr)
+            self.assertIn("controls passed", ran.stdout)
 
     def test_focus_membership_compiles_with_snapshot_values(self):
         declaration_match = re.search(r"struct MatrixElement[^\n]+", self.source)

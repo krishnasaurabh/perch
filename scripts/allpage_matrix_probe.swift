@@ -8,6 +8,7 @@
 // measurement has a probe-local negative control that proves the measurement can go red.
 import AppKit
 import ApplicationServices
+import Darwin
 import EventKit
 import PerchUI
 import ServiceManagement
@@ -40,22 +41,27 @@ final class MatrixMark {
 /// blocks: a hang always names the step that hung instead of burning the job timeout.
 @MainActor
 final class MatrixStage {
-    nonisolated(unsafe) static var current = "start"
-    nonisolated(unsafe) static var watchdog: DispatchSourceTimer?
+    nonisolated private static let stageLock = NSLock()
+    // Every access is protected by stageLock; the watchdog receives only a String snapshot.
+    nonisolated(unsafe) private static var current = "start"
+    private static var watchdog: DispatchSourceTimer?
 
     static func mark(_ stage: String) {
-        current = stage
+        stageLock.withLock { current = stage }
         mxLog("matrix stage: \(stage)")
+    }
+
+    nonisolated private static func watchdogFired() {
+        let stage = stageLock.withLock { current }
+        FileHandle.standardError.write(
+            Data("FAIL: all-page matrix watchdog fired during stage: \(stage)\n".utf8))
+        exit(3)
     }
 
     static func startWatchdog(seconds: Int = 150) {
         let timer = DispatchSource.makeTimerSource(queue: .global())
         timer.schedule(deadline: .now() + .seconds(seconds))
-        timer.setEventHandler {
-            FileHandle.standardError.write(
-                Data("FAIL: all-page matrix watchdog fired during stage: \(MatrixStage.current)\n".utf8))
-            exit(3)
-        }
+        timer.setEventHandler(handler: watchdogFired)
         timer.resume()
         watchdog = timer
     }
@@ -117,13 +123,15 @@ final class MatrixReport {
 // MARK: - System accessibility layer
 
 // Self-addressed AX requests must run while the main runloop is free to answer them.
-// Only Sendable value snapshots cross back; no CF/AX object leaves the detached task.
+// Only Sendable value snapshots cross back; no CF/AX object leaves the reader queue.
 struct MatrixElement: Hashable, Sendable { let id: UInt }
 
 struct MatrixAXNode: Sendable {
     var strings: [String: String] = [:]
     var edges: [String: [MatrixElement]] = [:]
     var enabled: Bool?
+    var focused: Bool?
+    var nativeClass = ""
     var frame: CGRect = .zero
 }
 
@@ -131,18 +139,52 @@ struct MatrixAXSnapshot: Sendable {
     var app = MatrixElement(id: 0)
     var focused: MatrixElement?
     var nodes: [MatrixElement: MatrixAXNode] = [:]
+    /// System AX positions have a top-left origin on the primary display; native
+    /// accessibilityFrame values are already AppKit (bottom-left) screen coordinates.
+    var topLeftFrames = false
 }
 
 /// All native AX calls are confined to this nonisolated reader.
 enum MatrixAXReader {
+    private static let queue = DispatchQueue(label: "app.perch.matrix-ax-reader")
+
+    // A self-addressed AX query can synchronously update SwiftUI's view graph. Keep
+    // that callback outside Swift's cooperative-task executor while main services UI.
+    static func snapshot(smoke: Bool = false) async -> MatrixAXSnapshot {
+        await withCheckedContinuation { continuation in
+            queue.async {
+                let hasTask = withUnsafeCurrentTask { $0 != nil }
+                mxLog("matrix snapshot: reader mainThread=\(Thread.isMainThread) swiftTask=\(hasTask)")
+                continuation.resume(returning: read(smoke: smoke))
+            }
+        }
+    }
+
+    // Initialize AppKit's lazy AX publication at application/window depth only.
+    // Never query group children here: those bindings must stay on the main actor.
+    static func activateWindowRoots() async {
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            queue.async {
+                let app = AXUIElementCreateApplication(getpid())
+                let windows = elements(app, kAXWindowsAttribute as String)
+                for window in windows {
+                    _ = elements(window, kAXChildrenAttribute as String)
+                }
+                mxLog("matrix AX publication: primed \(windows.count) window roots, no group traversal")
+                continuation.resume()
+            }
+        }
+    }
+
     static func raw(
-        _ element: AXUIElement, _ attribute: String, trace: Bool = false, context: String = ""
+        _ element: AXUIElement, _ attribute: String, trace: Bool = false, quiet: Bool = false,
+        context: String = ""
     ) -> CFTypeRef? {
         precondition(!Thread.isMainThread, "self-addressed AX read on the main thread")
         if trace { mxLog("AX before \(context) attribute=\(attribute)") }
         var value: CFTypeRef?
         let error = AXUIElementCopyAttributeValue(element, attribute as CFString, &value)
-        if trace || error != .success {
+        if trace || (error != .success && !quiet) {
             mxLog("AX copy \(context) \(attribute) error=\(error.rawValue)")
         }
         return error == .success ? value : nil
@@ -156,11 +198,18 @@ enum MatrixAXReader {
 
     static func handle(_ element: AXUIElement) -> MatrixElement { MatrixElement(id: CFHash(element)) }
 
+    /// Name attributes read even when the element does not advertise them.
+    static let unadvertisedNames: Set<String> = [
+        kAXIdentifierAttribute as String, kAXDescriptionAttribute as String, kAXTitleAttribute as String,
+        kAXValueAttribute as String, kAXHelpAttribute as String,
+    ]
+
     static func read(smoke: Bool = false) -> MatrixAXSnapshot {
         precondition(!Thread.isMainThread, "self-addressed AX snapshot on the main thread")
         if smoke { mxLog("ax smoke: creating the application element off-main") }
         let app = AXUIElementCreateApplication(getpid())
         var result = MatrixAXSnapshot()
+        result.topLeftFrames = true
         result.app = handle(app)
         if smoke { mxLog("ax smoke: reading the window list") }
         let windows = elements(app, kAXWindowsAttribute as String, trace: true, context: "node=0 role=AXApplication")
@@ -197,8 +246,15 @@ enum MatrixAXReader {
                 kAXTitleAttribute, kAXValueAttribute, kAXHelpAttribute,
             ] {
                 let name = attribute as String
-                if supported.contains(name),
-                    let value = raw(element, name, trace: trace, context: "node=\(index) role=\(role)") as? String,
+                // SwiftUI nodes (section headings, status labels, buttons) answer their name
+                // attributes without listing them in AXUIElementCopyAttributeNames. Gating the
+                // name reads on that list drops rendered text, so every name is always asked;
+                // only a miss on an unadvertised name stays out of the log.
+                let advertised = supported.contains(name)
+                guard advertised || unadvertisedNames.contains(name) else { continue }
+                if let value = raw(
+                    element, name, trace: trace, quiet: !advertised, context: "node=\(index) role=\(role)")
+                    as? String,
                     !value.isEmpty
                 {
                     node.strings[name] = value
@@ -239,28 +295,201 @@ enum MatrixAXReader {
         return result
     }
 
-    // Used only by the existing Welcome CTA check, never to substitute for a key event.
-    static func press(_ target: MatrixElement) -> Int32 {
-        let app = AXUIElementCreateApplication(getpid())
-        var stack = elements(app, kAXWindowsAttribute as String)
-        var visited: Set<MatrixElement> = []
-        while let element = stack.popLast() {
-            let key = handle(element)
-            guard visited.insert(key).inserted, visited.count <= 3000 else { continue }
-            if key == target { return AXUIElementPerformAction(element, kAXPressAction as CFString).rawValue }
-            stack.append(contentsOf: elements(element, kAXChildrenAttribute as String))
+}
+
+/// These workspace fixtures must not query their own process through the system AX client:
+/// that path can evaluate SwiftUI bindings on the caller's background thread. Walk
+/// the actual AppKit/accessibility objects synchronously on their owning actor instead.
+@MainActor
+private enum MatrixViewReader {
+    static func handle(_ object: NSObject) -> MatrixElement {
+        MatrixElement(id: UInt(bitPattern: ObjectIdentifier(object)))
+    }
+
+    // Only object-returning getters belong here. Scalars/structs use KVC boxing below.
+    static func value(_ object: NSObject, _ getter: String) -> Any? {
+        let selector = NSSelectorFromString(getter)
+        guard object.responds(to: selector) else { return nil }
+        return object.perform(selector)?.takeUnretainedValue()
+    }
+
+    static func boolean(_ object: NSObject, _ getter: String) -> Bool? {
+        let selector = NSSelectorFromString(getter)
+        guard object.responds(to: selector), let implementation = object.method(for: selector) else { return nil }
+        typealias Getter = @convention(c) (AnyObject, Selector) -> Bool
+        return unsafeBitCast(implementation, to: Getter.self)(object, selector)
+    }
+
+    static func read() -> MatrixAXSnapshot {
+        precondition(Thread.isMainThread, "view snapshot requires the main thread")
+        var result = MatrixAXSnapshot()
+        let windows = NSApp.windows.filter { $0.isVisible }
+        var root = MatrixAXNode()
+        root.edges[kAXWindowsAttribute as String] = windows.map(handle)
+        root.edges[kAXChildrenAttribute as String] = windows.map(handle)
+        result.nodes[result.app] = root
+        var stack: [(NSObject, Int)] = windows.map { ($0, 0) }
+        // Native subviews and accessibility children can expose the same object (or
+        // a back edge). Publish each object once, as a tree, just as system AX does.
+        var retained: [MatrixElement: NSObject] = Dictionary(uniqueKeysWithValues: windows.map { (handle($0), $0) })
+        var discovered = Set(windows.map(handle))
+        // Public focus getters can publish a semantic node absent from the view hierarchy.
+        // Collect them now but attach them only after the window walk: marking one as
+        // discovered first would delete its real window-to-content edge (the focused
+        // getter can return the hosting view itself), leaving a window-only tree.
+        var detachedFocus: [NSObject] = []
+        // AppKit vends a fresh object per focused-element call: read the application's once and
+        // keep that exact object, so the node in the snapshot is the one the decision uses.
+        let appFocusObject = value(NSApp, "accessibilityFocusedUIElement") as? NSObject
+        if let appFocusObject { retained[handle(appFocusObject)] = appFocusObject }
+        for owner
+            in (windows + windows.compactMap(\.contentView)
+            + windows.compactMap(\.firstResponder)) as [NSObject]
+        {
+            if let focused = value(owner, "accessibilityFocusedUIElement") as? NSObject {
+                retained[handle(focused)] = focused
+                detachedFocus.append(focused)
+            }
         }
-        return AXError.invalidUIElement.rawValue
+        // A field editor's delegate is the control whose accessible identity it edits.
+        if let responder = NSApp.keyWindow?.firstResponder {
+            let owner =
+                (responder as? NSTextView).flatMap { $0.isFieldEditor ? $0.delegate as? NSObject : nil }
+                ?? responder
+            result.focused = handle(owner)
+            mxLog("matrix view focus: responder=\(type(of: responder)) owner=\(type(of: owner))")
+        }
+        func walk() {
+            while let (object, depth) = stack.popLast() {
+                let key = handle(object)
+                guard result.nodes[key] == nil else { continue }
+                if result.nodes.count >= 3000 { break }
+                var node = MatrixAXNode()
+                node.nativeClass = String(describing: type(of: object))
+                node.focused = boolean(object, "isAccessibilityFocused")
+                for (attribute, getter) in [
+                    (kAXRoleAttribute, "accessibilityRole"),
+                    (kAXIdentifierAttribute, "accessibilityIdentifier"),
+                    (kAXDescriptionAttribute, "accessibilityLabel"),
+                    (kAXTitleAttribute, "accessibilityTitle"),
+                    (kAXValueAttribute, "accessibilityValue"),
+                    (kAXHelpAttribute, "accessibilityHelp"),
+                ] {
+                    let raw = value(object, getter)
+                    let string = (raw as? String) ?? (raw as? NSAttributedString)?.string
+                    if let string, !string.isEmpty { node.strings[attribute as String] = string }
+                }
+                node.enabled = boolean(object, "isAccessibilityEnabled")
+                if object.responds(to: NSSelectorFromString("accessibilityFrame")),
+                    let frame = object.value(forKey: "accessibilityFrame") as? NSValue
+                {
+                    node.frame = frame.rectValue
+                }
+                var children = (value(object, "accessibilityChildren") as? [NSObject]) ?? []
+                if let label = value(object, "accessibilityTitleUIElement") as? NSObject { children.append(label) }
+                children += (value(object, "accessibilityContents") as? [NSObject]) ?? []
+                children += (value(object, "accessibilityChildrenInNavigationOrder") as? [NSObject]) ?? []
+                if let window = object as? NSWindow {
+                    node.strings[kAXTitleAttribute as String] = window.title
+                    if let content = window.contentView { children.append(content) }
+                    children += window.sheets
+                }
+                if let view = object as? NSView { children += view.subviews }
+                children = children.filter { handle($0) != key && discovered.insert(handle($0)).inserted }
+                node.edges[kAXChildrenAttribute as String] = children.map(handle)
+                result.nodes[key] = node
+                for child in children { retained[handle(child)] = child }
+                if depth < 40 { stack.append(contentsOf: children.reversed().map { ($0, depth + 1) }) }
+            }
+        }
+        walk()
+        let windowReachable = result.nodes.count
+        // Only focus objects the window walk never reached are added, as detached roots.
+        for focused in [appFocusObject].compactMap({ $0 }) + detachedFocus
+        where discovered.insert(handle(focused)).inserted {
+            stack.append((focused, 0))
+        }
+        walk()
+        mxLog("matrix view tree: window-reachable=\(windowReachable) total=\(result.nodes.count)")
+        // SwiftUI's native first responder is often a KeyViewProxy with no semantic
+        // identity. Its accessible node, not the proxy, owns the focused getter.
+        let semanticFocus = result.nodes.filter { _, node in
+            node.focused == true && node.strings[kAXRoleAttribute as String] != "AXUnknown"
+                && [kAXIdentifierAttribute, kAXDescriptionAttribute, kAXTitleAttribute, kAXValueAttribute]
+                    .contains { node.strings[$0 as String] != nil }
+        }
+        // AppKit's public focused-element getter is the in-process equivalent of the system
+        // AXFocusedUIElement read; prefer it over a semantics-free responder object.
+        let appFocus = appFocusObject.map(handle)
+        let appFocusNode = appFocus.flatMap { result.nodes[$0] }
+        let appFocusUsable =
+            appFocusNode.map {
+                let role = $0.strings[kAXRoleAttribute as String]
+                return role != nil && role != "AXUnknown" && role != "AXWindow"
+            } ?? false
+        // AppKit vends fresh element objects per getter (an NSSegmentedControl publishes each
+        // segment through both its children and navigation order), so one focused control can
+        // appear as several candidates. Collapse identical role/strings/frame duplicates, then
+        // keep the deepest: a focused radio group contains its focused segment, and system AX
+        // reports the segment.
+        func identity(_ element: MatrixElement) -> String? {
+            result.nodes[element].map { "\($0.strings.sorted { $0.key < $1.key })|\(NSStringFromRect($0.frame))" }
+        }
+        var unique: [String: MatrixElement] = [:]
+        for element in semanticFocus.keys.sorted(by: { $0.id < $1.id }) {
+            if let key = identity(element), unique[key] == nil { unique[key] = element }
+        }
+        func below(_ start: MatrixElement) -> Set<String> {
+            var seen: Set<MatrixElement> = []
+            var pending = result.nodes[start]?.edges[kAXChildrenAttribute as String] ?? []
+            while let next = pending.popLast(), seen.count < 3000 {
+                if seen.insert(next).inserted {
+                    pending += result.nodes[next]?.edges[kAXChildrenAttribute as String] ?? []
+                }
+            }
+            return Set(seen.compactMap(identity))
+        }
+        // Compare by identity, not handle: the copy under a group may be another fresh object.
+        let deepest = unique.filter { key, element in
+            let contained = below(element)
+            return !unique.keys.contains { $0 != key && contained.contains($0) }
+        }.map(\.value)
+        var source = "responder"
+        if semanticFocus.count == 1 {
+            result.focused = semanticFocus.first?.key
+            source = "semantic"
+        } else if deepest.count == 1 {
+            result.focused = deepest.first
+            source = "semantic-deepest of \(semanticFocus.count)"
+        } else if appFocusUsable {
+            result.focused = appFocus
+            source = "app-focused-element"
+        }
+        mxLog("matrix semantic focus: candidates=\(semanticFocus.map { "\($0.key.id):\($0.value.strings)" }.sorted())")
+        mxLog(
+            "matrix focus read: source=\(source) appFocused=\(appFocusNode.map { "\($0.nativeClass):\($0.strings)" } ?? "nil")"
+        )
+        // Keep virtual AX objects alive until all handles and edges are materialized.
+        withExtendedLifetime(retained) {}
+        return result
     }
 }
 
 @MainActor
 enum MatrixAX {
     static var snapshot = MatrixAXSnapshot()
+    static var useViewTree = false
+    static var publicationPrimed = false
     static func refresh() async {
         MatrixMark.firstAccessibilityRead()
         mxLog("matrix snapshot: begin")
-        snapshot = await Task.detached { MatrixAXReader.read() }.value
+        if useViewTree {
+            mxLog("matrix snapshot: main-actor view tree begin")
+            snapshot = MatrixViewReader.read()
+            mxLog("matrix snapshot: main-actor view tree complete")
+        } else {
+            snapshot = await MatrixAXReader.snapshot()
+        }
         mxLog("matrix snapshot: complete nodes=\(snapshot.nodes.count)")
     }
 }
@@ -336,17 +565,19 @@ func mxFocusIdentity() -> String? {
     return mxIdentifier(element) ?? mxName(element) ?? mxRole(element)
 }
 
+/// Where mxFocusIdentity's string came from: a real identifier/name, or the role fallback.
+@MainActor
+func mxFocusIdentitySource() -> String {
+    guard let element = mxFocusedElement() else { return "no-focused-element" }
+    if mxIdentifier(element) != nil { return "identifier" }
+    if mxName(element) != nil { return "name" }
+    return mxRole(element) != nil ? "role-fallback" : "unread"
+}
+
 @MainActor
 func mxFocusedRole() -> String? {
     guard let element = mxFocusedElement() else { return nil }
     return mxRole(element)
-}
-
-@MainActor
-func mxPress(_ element: MatrixElement) async throws {
-    MatrixStage.mark("AX press \(mxIdentifier(element) ?? mxRole(element) ?? "control")")
-    let error = await Task.detached { MatrixAXReader.press(element) }.value
-    guard error == AXError.success.rawValue else { throw MatrixFailure(label: "AX press refused (\(error))") }
 }
 
 @MainActor
@@ -405,7 +636,7 @@ func mxDumpAX(_ root: MatrixElement, _ tag: String) {
         let identifier = mxIdentifier(element) ?? ""
         let name = mxName(element) ?? ""
         guard !identifier.isEmpty || !name.isEmpty || role != "AXGroup" else { return nil }
-        return "\(role)|\(identifier)|\(name)"
+        return "\(role)|\(identifier)|\(name)|class=\(MatrixAX.snapshot.nodes[element]?.nativeClass ?? "")"
     }
     mxLog("AXDUMP \(tag) count=\(lines.count)")
     for line in lines.prefix(160) { mxLog("AXDUMP \(tag) \(line)") }
@@ -454,16 +685,36 @@ func mxSettle(_ seconds: Double = 0.2) async {
 /// Settle, then read the application tree once so AppKit materialises the accessibility tree.
 @MainActor
 func mxReady(_ seconds: Double = 1.0) async {
+    // Prime once in the initial Settings fixture, before any Details or Week exists.
+    // Their snapshots continue to use the proven main-actor view reader exclusively.
+    if !MatrixAX.publicationPrimed {
+        await MatrixAXReader.activateWindowRoots()
+        MatrixAX.publicationPrimed = true
+    }
     await mxSettle(seconds)
     _ = mxElements(mxApp(), kAXWindowsAttribute as String)
     await mxSettle(0.2)
 }
 
+/// A top-left-origin rect on the primary display, in AppKit's bottom-left screen space.
+func mxCocoaRect(_ topLeft: NSRect, primaryHeight: CGFloat) -> NSRect {
+    NSRect(x: topLeft.minX, y: primaryHeight - topLeft.maxY, width: topLeft.width, height: topLeft.height)
+}
+
+/// `screenRect` is a frame from the current snapshot. System AX frames are converted to AppKit
+/// screen coordinates first: passing them straight to convertFromScreen mirrors the click
+/// vertically, so a sidebar row click lands in empty list space and never changes the pane.
 @MainActor
 func mxClick(host: NSView, window: NSWindow, screenRect: NSRect) throws {
+    var screenRect = screenRect
+    if MatrixAX.snapshot.topLeftFrames, let primary = NSScreen.screens.first {
+        screenRect = mxCocoaRect(screenRect, primaryHeight: primary.frame.maxY)
+    }
     let inWindow = window.convertFromScreen(screenRect)
     let local = host.convert(inWindow, from: nil)
-    let point = CGPoint(x: local.midX, y: host.isFlipped ? local.midY : host.bounds.height - local.midY)
+    // Native accessibilityFrame and convertFromScreen both use AppKit screen coordinates.
+    // A point converted into the host is already in its (possibly flipped) coordinate space.
+    let point = CGPoint(x: local.midX, y: local.midY)
     // A click outside the content view can start a window drag loop, which no synthetic mouse-up
     // can end. Refuse it instead of hanging.
     guard host.bounds.contains(point) else {
@@ -471,14 +722,41 @@ func mxClick(host: NSView, window: NSWindow, screenRect: NSRect) throws {
     }
     MatrixStage.mark(
         "click \(Int(screenRect.midX)),\(Int(screenRect.midY)) size \(Int(screenRect.width))x\(Int(screenRect.height))")
+    MatrixStage.mark("click before host.convert")
     let location = host.convert(point, to: nil)
+    MatrixStage.mark("click after host.convert location=\(location)")
+    // These coordinates belong to this host's window, not the application's current event.
+    // Keep native hit testing while dispatching directly to the visible key/main fixture.
+    window.makeKeyAndOrderFront(nil)
+    window.makeMain()
+    var events: [NSEvent] = []
     for type in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
+        MatrixStage.mark("click before mouseEvent type=\(type.rawValue)")
         guard
             let event = NSEvent.mouseEvent(
                 with: type, location: location, modifierFlags: [], timestamp: 0,
                 windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1)
         else { return }
-        NSApp.sendEvent(event)
+        MatrixStage.mark("click after mouseEvent type=\(type.rawValue)")
+        events.append(event)
+    }
+    // A native table can track synchronously inside mouseDown. Queue its real mouse-up
+    // first, so that nested tracking can consume it before the down send returns.
+    for event in events.reversed() {
+        let type = event.type
+        mxLog(
+            "matrix click window: number=\(window.windowNumber) key=\(window.isKeyWindow) "
+                + "main=\(window.isMainWindow) visible=\(window.isVisible) "
+                + "eventWindowMatches=\(event.window === window) mainThread=\(Thread.isMainThread)")
+        if type == .leftMouseUp {
+            MatrixStage.mark("click before NSApp.postEvent type=\(type.rawValue)")
+            NSApp.postEvent(event, atStart: true)
+            MatrixStage.mark("click after NSApp.postEvent type=\(type.rawValue)")
+        } else {
+            MatrixStage.mark("click before window.sendEvent type=\(type.rawValue)")
+            window.sendEvent(event)
+            MatrixStage.mark("click after window.sendEvent type=\(type.rawValue)")
+        }
     }
 }
 
@@ -494,7 +772,11 @@ func mxBitmap(_ host: NSView) throws -> NSBitmapImageRep {
 
 @MainActor
 func mxSave(_ host: NSView, _ url: URL) throws {
-    let bitmap = try mxBitmap(host)
+    try mxSave(mxBitmap(host), url)
+}
+
+@MainActor
+func mxSave(_ bitmap: NSBitmapImageRep, _ url: URL) throws {
     guard let png = bitmap.representation(using: .png, properties: [:]) else {
         throw MatrixFailure(label: "no PNG for \(url.lastPathComponent)")
     }
@@ -608,6 +890,9 @@ func mxDominant(_ bitmap: NSBitmapImageRep, host: NSView, band: NSRect) -> NSCol
     for y in area.y0..<area.y1 {
         for x in area.x0..<area.x1 {
             guard let rgb = bitmap.colorAt(x: x, y: y)?.usingColorSpace(.sRGB) else { continue }
+            // An unpainted band has no measurable backdrop. Never reinterpret its RGB
+            // channels as black or select the foreground glyph as the background.
+            guard rgb.alphaComponent == 1 else { return nil }
             let key = String(
                 format: "%03d-%03d-%03d", Int(rgb.redComponent * 255), Int(rgb.greenComponent * 255),
                 Int(rgb.blueComponent * 255))
@@ -631,7 +916,9 @@ func mxInkSample(
     var bestDistance = CGFloat.greatestFiniteMagnitude
     for y in area.y0..<area.y1 {
         for x in area.x0..<area.x1 {
-            guard let rgb = bitmap.colorAt(x: x, y: y)?.usingColorSpace(.sRGB) else { continue }
+            guard let rgb = bitmap.colorAt(x: x, y: y)?.usingColorSpace(.sRGB), rgb.alphaComponent == 1 else {
+                continue
+            }
             let distance =
                 abs(rgb.redComponent - reference.redComponent) + abs(rgb.greenComponent - reference.greenComponent)
                 + abs(rgb.blueComponent - reference.blueComponent)
@@ -650,6 +937,7 @@ func mxInkSample(
 final class MatrixMenuObservation: NSObject {
     private(set) var menu: NSMenu?
     private var tracking: NSMenu?
+    private var postedEscape = false
     private var timer: Timer?
     private let deadline = ProcessInfo.processInfo.systemUptime + 4
 
@@ -668,10 +956,16 @@ final class MatrixMenuObservation: NSObject {
         NotificationCenter.default.removeObserver(self)
     }
 
-    /// Close the tracking loop without choosing an item, exactly like Escape.
+    /// Queue a real Escape into the nested native event-tracking loop.
     func cancel() {
-        menu?.cancelTracking()
-        tracking?.cancelTracking()
+        guard !postedEscape, let window = NSApp.keyWindow else { return }
+        postedEscape = true
+        for type in [NSEvent.EventType.keyDown, .keyUp] {
+            if let event = try? mxKeyEvent(53, "\u{1b}", type: type, modifiers: [], windowNumber: window.windowNumber) {
+                NSApp.postEvent(event, atStart: false)
+            }
+        }
+        mxLog("matrix menu: posted real Escape to native tracking loop")
     }
 
     @objc private func began(_ notification: Notification) {
@@ -682,6 +976,9 @@ final class MatrixMenuObservation: NSObject {
 
     @objc private func tick() {
         if menu != nil || ProcessInfo.processInfo.systemUptime >= deadline {
+            // Space may synchronously enter menu tracking before mxKey returns.
+            // Post Escape from an event-tracking timer, not a blocked async caller.
+            cancel()
             timer?.invalidate()
             timer = nil
         }
@@ -769,9 +1066,10 @@ final class MatrixFixture {
 
 @MainActor
 func matrixWindow<V: View>(_ title: String, _ view: V, size: NSSize, appearance: NSAppearance? = nil) throws -> (
-    NSWindow, NSHostingView<V>
+    NSWindow, NSView
 ) {
-    let host = NSHostingView(rootView: view)
+    let host = NSHostingView(rootView: view.environment(\.accessibilityEnabled, true))
+    host.sizingOptions = []
     host.safeAreaRegions = []
     let window = NSWindow(
         contentRect: NSRect(origin: .zero, size: size), styleMask: [.titled], backing: .buffered, defer: false)
@@ -779,6 +1077,9 @@ func matrixWindow<V: View>(_ title: String, _ view: V, size: NSSize, appearance:
     window.title = title
     window.appearance = appearance
     window.contentView = host
+    // Host attachment can derive a standard appearance from colorScheme. Apply the
+    // requested native appearance after attachment, never replace it with a scheme.
+    if let appearance { window.appearance = appearance; host.appearance = appearance }
     window.setContentSize(size)
     window.makeKeyAndOrderFront(nil)
     NSApp.activate(ignoringOtherApps: true)
@@ -831,6 +1132,17 @@ final class AllPageMatrix {
             try report.require(
                 UserDefaults.standard.integer(forKey: "AppleKeyboardUIMode") == 3,
                 "probe process runs with full keyboard access enabled")
+            // The argument domain alone does not reach AppKit: native controls (segmented
+            // controls, plain buttons) only join the Tab loop when AppKit itself reports full
+            // keyboard access. Measure that, never infer it from the defaults value above.
+            let global = CFPreferencesCopyAppValue(
+                "AppleKeyboardUIMode" as CFString, kCFPreferencesAnyApplication)
+            mxLog(
+                "KEYBOARD appkitFullKeyboardAccess=\(NSApp.isFullKeyboardAccessEnabled) argumentDomain=\(UserDefaults.standard.integer(forKey: "AppleKeyboardUIMode")) globalDomain=\(String(describing: global))"
+            )
+            try report.require(
+                NSApp.isFullKeyboardAccessEnabled, "AppKit reports full keyboard access for native controls",
+                "global AppleKeyboardUIMode \(String(describing: global))")
         }
         await report.group("settings panes") { [self] in try await settingsPanes() }
         await report.group("settings failure paths") { [self] in try await settingsFailurePaths() }
@@ -851,6 +1163,8 @@ final class AllPageMatrix {
             return [
                 "role": role, "id": mxIdentifier(element) ?? "", "name": mxName(element) ?? "",
                 "frame": NSStringFromRect(mxFrame(element)), "enabled": mxEnabled(element) ?? false,
+                "class": MatrixAX.snapshot.nodes[element]?.nativeClass ?? "",
+                "strings": MatrixAX.snapshot.nodes[element]?.strings ?? [:],
             ]
         }
         let data = try JSONSerialization.data(withJSONObject: rows, options: [.prettyPrinted, .sortedKeys])
@@ -862,10 +1176,20 @@ final class AllPageMatrix {
         _ window: NSWindow, limit: Int, tag: String, _ match: @MainActor (String, String?) -> Bool
     ) async throws -> String {
         var traversal: [String] = []
-        for _ in 0..<limit {
+        for index in 0..<limit {
+            if index == 0, let host = window.contentView {
+                try mxSave(host, output.appendingPathComponent("\(tag)-before.png"))
+                try writeAX(try mxRoot(window.title), output.appendingPathComponent("\(tag)-before.ax.json"))
+                keyViewCensus(window, tag)
+            }
+            traceFocus(window, "\(tag) before Tab \(index)")
             try await mxKey(window, 48, "\t")
+            traceFocus(window, "\(tag) after Tab \(index)")
             let identity = mxFocusIdentity() ?? "none"
             traversal.append("\(identity)|\(mxFocusedRole() ?? "?")")
+            mxLog(
+                "FOCUS step \(tag) \(index) identity=\(identity) source=\(mxFocusIdentitySource()) responder=\(window.firstResponder.map { "\(type(of: $0))@\(UInt(bitPattern: ObjectIdentifier($0)))" } ?? "nil")"
+            )
             if match(identity, mxFocusedRole()) {
                 report.record(tag, traversal)
                 return identity
@@ -875,9 +1199,60 @@ final class AllPageMatrix {
         throw MatrixFailure(label: "traversal never reached the target: \(traversal)")
     }
 
+    /// Every native key-view candidate once per traversal: whether AppKit will ever stop on
+    /// it (canBecomeKeyView) is what separates a skipped control from a misread one.
+    func keyViewCensus(_ window: NSWindow, _ tag: String) {
+        func descendants(_ view: NSView) -> [NSView] { [view] + view.subviews.flatMap(descendants) }
+        guard let root = window.contentView else { return }
+        mxLog(
+            "KEYVIEW \(tag) appkitFullKeyboardAccess=\(NSApp.isFullKeyboardAccessEnabled) active=\(NSApp.isActive) key=\(window.isKeyWindow) autorecalculates=\(window.autorecalculatesKeyViewLoop)"
+        )
+        for view in descendants(root)
+        where view is NSControl || String(describing: type(of: view)).contains("KeyViewProxy") {
+            let label =
+                (MatrixViewReader.value(view, "accessibilityLabel") as? String)
+                ?? (view as? NSTextField)?.placeholderString ?? ""
+            mxLog(
+                "KEYVIEW \(tag) \(type(of: view))@\(UInt(bitPattern: ObjectIdentifier(view))) canBecomeKeyView=\(view.canBecomeKeyView) acceptsFirstResponder=\(view.acceptsFirstResponder) hidden=\(view.isHiddenOrHasHiddenAncestor) label=\(label) id=\(view.identifier?.rawValue ?? "")"
+            )
+        }
+    }
+
+    func traceFocus(_ window: NSWindow, _ tag: String) {
+        @MainActor func describe(_ object: NSObject?) -> String {
+            guard let object else { return "nil" }
+            let attributes = [
+                "accessibilityRole", "accessibilityLabel", "accessibilityIdentifier", "accessibilityValue",
+            ]
+            .map { "\($0)=\(String(describing: MatrixViewReader.value(object, $0)))" }.joined(separator: " ")
+            return "\(type(of: object))@\(MatrixViewReader.handle(object).id) \(attributes)"
+        }
+        mxLog(
+            "FOCUS \(tag) key=\(window.isKeyWindow) responder=\(describe(window.firstResponder)) resolved=\(mxFocusIdentity() ?? "nil")"
+        )
+        var view =
+            (window.firstResponder as? NSTextView)?.delegate as? NSView
+            ?? window.firstResponder as? NSView
+        var seen = Set<ObjectIdentifier>()
+        var chain: [String] = []
+        while let current = view, seen.insert(ObjectIdentifier(current)).inserted, chain.count < 40 {
+            chain.append(describe(current))
+            view = current.nextValidKeyView
+        }
+        mxLog("FOCUS chain \(tag): \(chain)")
+        for (element, node) in MatrixAX.snapshot.nodes.sorted(by: { $0.key.id < $1.key.id })
+        where node.focused == true || element == MatrixAX.snapshot.focused {
+            mxLog(
+                "FOCUS node \(tag) id=\(element.id) class=\(node.nativeClass) focused=\(String(describing: node.focused)) strings=\(node.strings) roleFallback=\(mxRole(element) == nil) identityFallback=\(mxIdentifier(element) == nil && mxName(element) == nil)"
+            )
+        }
+    }
+
     // MARK: Settings: five panes
 
     func settingsPanes() async throws {
+        MatrixAX.useViewTree = true
+        defer { MatrixAX.useViewTree = false }
         let fixture = try MatrixFixture()
         defer { fixture.close() }
         let view = SettingsView().environmentObject(fixture.store).environmentObject(fixture.services)
@@ -902,6 +1277,8 @@ final class AllPageMatrix {
             try selectPane(pane, window: window, host: host, root: root)
             await mxReady(0.9)
             let texts = mxText(root)
+            mxDumpAX(root, "settings-\(pane.rawValue)")
+            try mxSave(host, output.appendingPathComponent("settings-before-\(pane.rawValue).png"))
             observed[pane.rawValue] = texts.count
             signatures[pane.rawValue] = try mxSignature(host)
             try report.require(
@@ -934,6 +1311,7 @@ final class AllPageMatrix {
         let rows = nodes.filter { (mxRole($0) ?? "").contains("Row") }
         for row in rows
         where mxNames(row).contains(title) || mxTree(row).contains(where: { mxNames($0).contains(title) }) {
+            mxLog("matrix click target: role=\(mxRole(row) ?? "") names=\(mxNames(row)) pane=\(title)")
             try mxClick(host: host, window: window, screenRect: mxFrame(row))
             return
         }
@@ -949,6 +1327,8 @@ final class AllPageMatrix {
     // MARK: Settings: a synthetic failure path per pane
 
     func settingsFailurePaths() async throws {
+        MatrixAX.useViewTree = true
+        defer { MatrixAX.useViewTree = false }
         let fixture = try MatrixFixture()
         defer { fixture.close() }
         let view = SettingsView().environmentObject(fixture.store).environmentObject(fixture.services)
@@ -988,6 +1368,8 @@ final class AllPageMatrix {
         let calendarState = SettingsPermissionAccess.eventState(calendarBefore).state
         try selectPane(.workspace, window: window, host: host, root: root)
         await mxReady(1.0)
+        mxDumpAX(root, "workspace-permissions")
+        try mxSave(host, output.appendingPathComponent("workspace-permissions.png"))
         try report.require(
             mxHas(root, calendarState.title), "workspace pane reports the real calendar permission state",
             "expected \(calendarState.title)")
@@ -1049,6 +1431,8 @@ final class AllPageMatrix {
     // MARK: Dashboard: four tabs
 
     func dashboardTabs() async throws {
+        MatrixAX.useViewTree = true
+        defer { MatrixAX.useViewTree = false }
         let fixture = try MatrixFixture()
         defer { fixture.close() }
         try fixture.seed(["Matrix upcoming task"], day: .day(fixture.store.today.adding(days: 1)))
@@ -1105,6 +1489,8 @@ final class AllPageMatrix {
     // MARK: Dashboard: task-line and project actions from real key events
 
     func dashboardActions() async throws {
+        MatrixAX.useViewTree = true
+        defer { MatrixAX.useViewTree = false }
         let fixture = try MatrixFixture()
         defer { fixture.close() }
         guard fixture.store.addTasks(["Matrix project task #Matrix"], on: .day(fixture.store.today)) != nil,
@@ -1177,6 +1563,8 @@ final class AllPageMatrix {
     // MARK: Welcome
 
     func welcomeStates() async throws {
+        MatrixAX.useViewTree = true
+        defer { MatrixAX.useViewTree = false }
         let fixture = try MatrixFixture()
         defer { fixture.close() }
         var opened = 0
@@ -1187,10 +1575,14 @@ final class AllPageMatrix {
         defer { window.close() }
         await mxReady(1.6)
         let root = try mxRoot("Matrix Welcome")
+        try mxSave(host, output.appendingPathComponent("welcome-before.png"))
+        try writeAX(root, output.appendingPathComponent("welcome-before.ax.json"))
 
         try report.require(
             mxHas(root, AppL10n.text("Your plan, close at hand.")), "welcome renders its heading",
             "texts \(mxText(root).prefix(16))")
+        mxDumpAX(root, "welcome-permissions")
+        try mxSave(host, output.appendingPathComponent("welcome-permissions.png"))
         // Every permission row must show the state the system actually holds: with no grant, the
         // failure state is what the user sees, and the CTA must still work.
         var states: [String: String] = [:]
@@ -1221,11 +1613,14 @@ final class AllPageMatrix {
             mxHas(root, AppL10n.text("Skip any permission. You can review it later in Settings.")),
             "welcome keeps the skip promise in the failure state")
 
-        guard let cta = mxFind(root, name: AppL10n.text("Open workspace")) else {
+        guard mxFind(root, name: AppL10n.text("Open workspace")) != nil else {
             mxDumpAX(root, "welcome")
             throw MatrixFailure(label: "welcome has no Open workspace action")
         }
-        try await mxPress(cta)
+        // The production CTA owns the default-action Return shortcut. Drive that real key rather
+        // than translating view-tree handles into system AX handles; a self-addressed AXPress on
+        // this button ended the probe with signal 5.
+        try await mxKey(window, 36, "\r")
         await mxReady(0.5)
         try report.require(opened == 1, "welcome opens the workspace without any permission")
         try mxSave(host, output.appendingPathComponent("welcome-failure-state.png"))
@@ -1234,6 +1629,10 @@ final class AllPageMatrix {
     // MARK: Details: historical and error states
 
     func detailsStates() async throws {
+        // Keep this backend scoped even when an assertion throws. No self-AX request
+        // may cause the details fixture's SwiftUI graph to update off its actor.
+        MatrixAX.useViewTree = true
+        defer { MatrixAX.useViewTree = false }
         let fixture = try MatrixFixture()
         defer { fixture.close() }
         guard let past = try fixture.history(["Matrix past task"], daysAgo: 1).first else {
@@ -1252,6 +1651,10 @@ final class AllPageMatrix {
         guard let sheet = window.attachedSheet else {
             throw MatrixFailure(label: "details sheet did not attach for a past task")
         }
+        if let sheetHost = sheet.contentView {
+            try mxSave(sheetHost, output.appendingPathComponent("details-historical-before.png"))
+        }
+        try writeAX(mxApp(), output.appendingPathComponent("details-historical-before.ax.json"))
         try report.require(
             mxHasInApp(root, AppL10n.text("Earlier days are read-only. Your history and focus time stay unchanged.")),
             "details sheet shows the historical read-only state", "texts \(mxText(root).prefix(20))")
@@ -1318,11 +1721,16 @@ final class AllPageMatrix {
     // MARK: Week: real key events, nested Escape, focus return
 
     func weekKeyboard() async throws {
+        // This workspace also materializes TasksCard bindings while publishing AX.
+        // Keep its snapshot on main, including snapshots taken after real key events.
+        MatrixAX.useViewTree = true
+        defer { MatrixAX.useViewTree = false }
         let fixture = try MatrixFixture()
         defer { fixture.close() }
         guard let task = try fixture.seed(["Matrix week task"], day: .day(fixture.store.today)).first else {
             throw MatrixFailure(label: "could not seed the week task")
         }
+        fixture.model.page = .week
         let destinations = MatrixFocusDestinations()
         let view = MatrixHarness(destinations: destinations) {
             WorkspaceView(notchHeight: 32)
@@ -1409,14 +1817,18 @@ final class AllPageMatrix {
     // MARK: Clips: real key events, menu Escape, focus return
 
     func clipsKeyboard() async throws {
+        MatrixAX.useViewTree = true
+        defer { MatrixAX.useViewTree = false }
         let fixture = try MatrixFixture()
         defer { fixture.close() }
         let pasteboard = MatrixPasteboard()
         let clips = ClipsService(store: fixture.store, pasteboard: pasteboard, monitoring: false)
         clips.add(.text("Matrix clip one"), source: "dropped")
+        guard let first = clips.clips.first else { throw MatrixFailure(label: "clips fixture lost its clips") }
+        // Insertions are newest-first. Keep the identity of the authored first clip,
+        // rather than copying clip two while asserting clip one's payload below.
         clips.add(.text("Matrix clip two"), source: "dropped")
         try report.require(clips.clips.count == 2, "clips fixture keeps two clips")
-        guard let first = clips.clips.first else { throw MatrixFailure(label: "clips fixture lost its clips") }
         let realChangeCount = NSPasteboard.general.changeCount
         let destinations = MatrixFocusDestinations()
         let view = MatrixHarness(destinations: destinations) {
@@ -1480,6 +1892,8 @@ final class AllPageMatrix {
     // MARK: Effective enlarged type, measured on pixels and AX frames
 
     func enlargedType() async throws {
+        MatrixAX.useViewTree = true
+        defer { MatrixAX.useViewTree = false }
         let fixture = try MatrixFixture()
         defer { fixture.close() }
         var measurements: [String: Any] = [:]
@@ -1502,6 +1916,7 @@ final class AllPageMatrix {
                 "Matrix Enlarged \(name)", view, size: NSSize(width: 440, height: 230))
             await mxReady(1.4)
             let root = try mxRoot("Matrix Enlarged \(name)")
+            try mxSave(host, output.appendingPathComponent("enlarged-before-\(name).png"))
             let statusTitle = PermissionState.unavailable.title
             guard let status = mxFind(root, name: statusTitle) else {
                 mxDumpAX(root, "enlarged-\(name)")
@@ -1551,10 +1966,17 @@ final class AllPageMatrix {
     // MARK: Effective contrast states, measured on rendered pixels
 
     func contrastStates() async throws {
+        MatrixAX.useViewTree = true
+        defer { MatrixAX.useViewTree = false }
         let fixture = try MatrixFixture()
         defer { fixture.close() }
         let increased = UserDefaults(suiteName: "com.apple.universalaccess")?.bool(forKey: "increaseContrast") ?? false
         report.record("increaseContrastPreference", increased)
+        // The flag AppKit itself resolves high-contrast appearances from, recorded beside the
+        // preference so a runner that writes the key without AppKit adopting it is visible.
+        let systemIncreased = NSWorkspace.shared.accessibilityDisplayShouldIncreaseContrast
+        report.record("accessibilityDisplayShouldIncreaseContrast", systemIncreased)
+        mxLog("contrast system flag: preference=\(increased) workspace=\(systemIncreased)")
         try report.require(increased, "the runner is in the system increase-contrast state")
         var rows: [[String: Any]] = []
         for (mode, appearanceName, scheme, bodyInk, lowInk) in [
@@ -1578,16 +2000,44 @@ final class AllPageMatrix {
                     .accessibilityIdentifier("matrix-low-contrast")
             }
             .padding(12)
-            .environment(\.colorScheme, scheme)
             .frame(width: 420, height: 190)
+            // NSHostingView's cached bitmap does not include the NSWindow background.
+            // Paint the native surface behind the actual panel, resolved by its appearance.
+            .background(Color(nsColor: .windowBackgroundColor))
             let (window, host) = try matrixWindow(
                 "Matrix Contrast \(mode)", view, size: NSSize(width: 440, height: 220), appearance: appearance)
             await mxReady(1.4)
             let root = try mxRoot("Matrix Contrast \(mode)")
-            let effective = window.effectiveAppearance.name.rawValue
+            mxLog(
+                "contrast before reapply: requested=\(appearanceName.rawValue) object=\(appearance.name.rawValue) window=\(String(describing: window.appearance?.name.rawValue)) host=\(String(describing: host.appearance?.name.rawValue))"
+            )
+            // SwiftUI can overwrite the native appearance during its first layout.
+            // Apply the requested fixture state after that layout, before measuring it.
+            window.appearance = appearance
+            host.appearance = appearance
+            host.layoutSubtreeIfNeeded()
+            // AppKit never names an appearance after its high-contrast variant: the object
+            // NSAppearance(named:) returned above already reports its base name. The variant
+            // is resolved from the system setting and is read with bestMatch(from:), which is
+            // also how the product's dynamic colours resolve (Color+Palette.swift).
+            let baseName: NSAppearance.Name = scheme == .dark ? .darkAqua : .aqua
+            let effectiveName = window.effectiveAppearance.name.rawValue
+            let effective = window.effectiveAppearance.bestMatch(from: [baseName, appearanceName])?.rawValue ?? "none"
+            let effectiveBase = window.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua])
+            // Evidence only: what a plain base appearance resolves to on this runner.
+            let control =
+                NSAppearance(named: baseName)?.bestMatch(from: [baseName, appearanceName])?.rawValue ?? "none"
+            report.record(
+                "contrast_\(mode)_appearance", ["name": effectiveName, "bestMatch": effective, "baseControl": control])
+            mxLog(
+                "contrast appearance: mode=\(mode) name=\(effectiveName) bestMatch=\(effective) base=\(control) app=\(NSApp.effectiveAppearance.name.rawValue) workspace=\(systemIncreased)"
+            )
+            try report.require(
+                effectiveBase == baseName, "\(mode) window resolves the requested light or dark palette",
+                "expected \(baseName.rawValue) effective \(effectiveBase?.rawValue ?? "none")")
             try report.require(
                 effective == appearanceName.rawValue, "\(mode) window runs in the increased-contrast appearance",
-                "effective \(effective)")
+                "effective \(effective) name \(effectiveName) workspace \(systemIncreased)")
             // The panel renders the reading's own detail when it has one (an unbundled process
             // cannot get notification access), so measure the line that is actually drawn.
             let reading = await SettingsPermissionAccess(services: fixture.services).read(.notifications)
@@ -1598,14 +2048,24 @@ final class AllPageMatrix {
                 throw MatrixFailure(label: "no permission detail text at \(mode)")
             }
             let bitmap = try mxBitmap(host)
+            // Save the measured bitmap even if a band or contrast assertion below fails.
+            try mxSave(bitmap, output.appendingPathComponent("contrast-\(mode).png"))
             let detailRect = mxHostRect(mxFrame(detailNode), window: window, host: host)
             guard let background = mxDominant(bitmap, host: host, band: detailRect),
                 let ink = mxInkSample(bitmap, host: host, band: detailRect, near: bodyInk)
             else {
                 window.close()
-                throw MatrixFailure(label: "could not sample rendered text at \(mode)")
+                throw MatrixFailure(label: "could not sample opaque rendered text at \(mode)")
             }
             let ratio = mxContrast(ink, background)
+            rows.append([
+                "mode": mode, "effective_appearance": effective, "ratio": ratio,
+                "ink": mxHex(ink), "background": mxHex(background),
+            ])
+            report.record("contrast", rows)
+            mxLog(
+                "contrast pixels: mode=\(mode) ink=\(mxHex(ink)) background=\(mxHex(background)) ratio=\(ratio)"
+            )
             try report.require(
                 ratio >= 4.5, "\(mode) renders body text above 4.5:1", "measured \(String(format: "%.2f", ratio))")
 
@@ -1616,17 +2076,21 @@ final class AllPageMatrix {
                 let lowSample = mxInkSample(bitmap, host: host, band: lowRect, near: lowInk)
             {
                 let lowRatio = mxContrast(lowSample, lowBackground)
+                report.record(
+                    "contrast_\(mode)_negative",
+                    [
+                        "ratio": lowRatio, "ink": mxHex(lowSample), "background": mxHex(lowBackground),
+                    ]
+                )
+                mxLog(
+                    "contrast negative pixels: mode=\(mode) ink=\(mxHex(lowSample)) background=\(mxHex(lowBackground)) ratio=\(lowRatio)"
+                )
                 try report.require(
                     lowRatio < 4.5, "\(mode) negative control: a low-contrast label is detected",
                     "measured \(String(format: "%.2f", lowRatio))")
             } else {
                 try report.require(false, "\(mode) negative control: a low-contrast label is detected")
             }
-            rows.append([
-                "mode": mode, "effective_appearance": effective, "ratio": ratio,
-                "ink": mxHex(ink), "background": mxHex(background),
-            ])
-            try mxSave(host, output.appendingPathComponent("contrast-\(mode).png"))
             window.close()
         }
         report.record("contrast", rows)
@@ -1672,7 +2136,7 @@ func matrixAccessibilitySmoke() async -> Never {
         "Matrix AX smoke", Text("Matrix AX smoke control"), size: NSSize(width: 320, height: 160))
     await Task.yield()
     MatrixMark.firstAccessibilityRead()
-    let snapshot = await Task.detached { MatrixAXReader.read(smoke: true) }.value
+    let snapshot = await MatrixAXReader.snapshot(smoke: true)
     let windows = snapshot.nodes[snapshot.app]?.edges[kAXWindowsAttribute as String] ?? []
     let hasWindow = windows.contains { snapshot.nodes[$0]?.strings[kAXTitleAttribute as String] == window.title }
     mxLog("ax smoke: expected window observed=\(hasWindow)")
