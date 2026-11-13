@@ -166,15 +166,17 @@ private struct WeekDayList: View {
     let tasks: [PlanTask]
     let ref: DayRef
     let past: Bool
-    @State private var bottoms: [UUID: CGFloat] = [:]
+    @State private var frames: [UUID: ClosedRange<CGFloat>] = [:]
     @State private var viewport: CGFloat = 0
     private static let space = "week-day-list"
     private static let fade: CGFloat = 22
 
     var body: some View {
         let hidden = WeekColumnLayout.hiddenBelow(
-            chipBottoms: tasks.compactMap { bottoms[$0.id].map { Double($0) } },
-            viewport: Double(viewport))
+            chips: tasks.compactMap { task in
+                frames[task.id].map { (top: Double($0.lowerBound), bottom: Double($0.upperBound)) }
+            },
+            viewport: Double(viewport), fade: Double(Self.fade))
         VStack(alignment: .leading, spacing: 3) {
             ScrollView {
                 VStack(spacing: 4) {
@@ -182,8 +184,8 @@ private struct WeekDayList: View {
                         WeekChip(task: t, past: past)
                             .background(
                                 GeometryReader { g in
-                                    Color.clear.preference(
-                                        key: ChipBottoms.self, value: [t.id: g.frame(in: .named(Self.space)).maxY])
+                                    let f = g.frame(in: .named(Self.space))
+                                    Color.clear.preference(key: ChipFrames.self, value: [t.id: f.minY...f.maxY])
                                 }
                             )
                             .onDrag { NSItemProvider(object: t.id.uuidString as NSString) }
@@ -200,7 +202,7 @@ private struct WeekDayList: View {
             }
             .coordinateSpace(.named(Self.space))
             .scrollIndicators(.never)
-            .onPreferenceChange(ChipBottoms.self) { bottoms = $0 }
+            .onPreferenceChange(ChipFrames.self) { frames = $0 }
             .background(
                 GeometryReader { g in
                     Color.clear.onAppear { viewport = g.size.height }.onChange(of: g.size.height) { _, h in viewport = h
@@ -224,9 +226,9 @@ private struct WeekDayList: View {
         .motion(Motion.row, value: hidden > 0)
     }
 
-    private struct ChipBottoms: PreferenceKey {
-        static let defaultValue: [UUID: CGFloat] = [:]
-        static func reduce(value: inout [UUID: CGFloat], nextValue: () -> [UUID: CGFloat]) {
+    private struct ChipFrames: PreferenceKey {
+        static let defaultValue: [UUID: ClosedRange<CGFloat>] = [:]
+        static func reduce(value: inout [UUID: ClosedRange<CGFloat>], nextValue: () -> [UUID: ClosedRange<CGFloat>]) {
             value.merge(nextValue()) { $1 }
         }
     }

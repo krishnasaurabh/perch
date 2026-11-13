@@ -141,7 +141,7 @@ sudo xcodebuild -license accept
 # Get the source; pick a release tag, or stay on main for the latest changes
 git clone https://github.com/krishnasaurabh/perch.git
 cd perch
-git checkout v1.1.1
+git checkout v1.2.0
 
 # Build for this Mac only (faster) ...
 ARCHS="$(uname -m)" scripts/bundle.sh

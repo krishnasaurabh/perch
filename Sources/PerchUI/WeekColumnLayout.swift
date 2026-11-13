@@ -39,12 +39,14 @@ public enum WeekColumnLayout {
         return t.isEmpty ? hint : "\(t)\n\(hint)"
     }
 
-    /// How many chips end below the visible part of the column. `chipBottoms` are each chip's bottom edge in the
-    /// scroll viewport's coordinates (they move up as the column scrolls), `viewport` is the visible height.
+    /// How many chips sit below the visible part of the column. `chips` are each chip's top and bottom edge in the
+    /// scroll viewport's coordinates (they move up as the column scrolls), `viewport` is the visible height, and
+    /// `fade` is the height of the fade at the bottom of the viewport. A chip still counts as visible while its top
+    /// is above the fade, even if its end is cut off; a chip that only starts inside the fade counts as hidden.
     /// Before the first layout pass the viewport is 0, and nothing counts as hidden.
-    public static func hiddenBelow(chipBottoms: [Double], viewport: Double) -> Int {
+    public static func hiddenBelow(chips: [(top: Double, bottom: Double)], viewport: Double, fade: Double = 0) -> Int {
         guard viewport > 0 else { return 0 }
-        return chipBottoms.filter { $0 > viewport + 0.5 }.count
+        return chips.filter { $0.bottom > viewport + 0.5 && $0.top >= viewport - fade }.count
     }
 
     /// Chip title type: the regular size, and the smallest size a chip may step down to so a long word still fits.
