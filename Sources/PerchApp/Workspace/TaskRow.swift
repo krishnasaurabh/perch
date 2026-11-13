@@ -58,11 +58,21 @@ struct TaskRow: View {
                             editing = false; focusBinding.wrappedValue = .task(task.id, .complete)
                         }
                 } else {
-                    accessibleTitle
+                    // Short titles keep their actions on the title line, so a compact Today shows more
+                    // rows. Titles that would wrap beside the actions keep their full width instead.
+                    ViewThatFits(in: .horizontal) {
+                        HStack(alignment: .top, spacing: 8) {
+                            accessibleTitle.fixedSize(horizontal: true, vertical: false)
+                            Spacer(minLength: 0)
+                            actions
+                        }
+                        VStack(alignment: .leading, spacing: 5) {
+                            accessibleTitle
+                            actions
+                        }
+                    }
                 }
                 if !compact { metadata }
-                // Keep the title's full width at narrow sizes and at larger text sizes.
-                actions
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }

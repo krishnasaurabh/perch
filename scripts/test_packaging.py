@@ -17,6 +17,10 @@ import zipfile
 ROOT = Path(__file__).resolve().parents[1]
 BUNDLE = ROOT / "scripts" / "bundle.sh"
 WORKFLOW = ROOT / ".github" / "workflows" / "release.yml"
+with (ROOT / "Resources" / "Info.plist").open("rb") as _info:
+    _SOURCE_INFO = plistlib.load(_info)
+VERSION = _SOURCE_INFO["CFBundleShortVersionString"]
+BUILD = _SOURCE_INFO["CFBundleVersion"]
 EPOCH = 1_767_823_200
 ICON_FILES = (
     "icon_16x16.png", "icon_32x32.png", "icon_128x128.png",
@@ -227,8 +231,8 @@ if sys.argv[1:3] == ["notarytool", "submit"]:
         app = self.root / "dist" / "Perch.app"
         metadata = self.plist(app)
         self.assertEqual(metadata["CFBundleIdentifier"], "app.perch.mac")
-        self.assertEqual(metadata["CFBundleShortVersionString"], "1.1.1")
-        self.assertEqual(metadata["CFBundleVersion"], "3")
+        self.assertEqual(metadata["CFBundleShortVersionString"], VERSION)
+        self.assertEqual(metadata["CFBundleVersion"], BUILD)
         self.assertEqual(metadata["CFBundleIconFile"], "AppIcon")
         self.assertEqual((app / "Contents" / "Resources" / "AppIcon.icns").read_bytes(),
                          (self.root / "Resources" / "AppIcon.icns").read_bytes())
@@ -273,7 +277,7 @@ if sys.argv[1:3] == ["notarytool", "submit"]:
         self.assertEqual(build.count("--arch"), 2)
         self.assertIn("arm64", build)
         self.assertIn("x86_64", build)
-        archive = self.root / "dist" / "Perch-1.1.1-app.zip"
+        archive = self.root / "dist" / f"Perch-{VERSION}-app.zip"
         original = archive.read_bytes()
         with zipfile.ZipFile(archive) as zipped:
             self.assertEqual(zipped.namelist(), sorted(zipped.namelist()))
@@ -320,7 +324,7 @@ if sys.argv[1:3] == ["notarytool", "submit"]:
         self.assertEqual(result.returncode, 0, result.stderr)
         signed = [row["args"] for row in self.calls("codesign") if "--verify" not in row["args"]]
         self.assertEqual([Path(args[-1]).name for args in signed],
-                         ["Perch.app", "Perch-1.1.1.dmg"])
+                         ["Perch.app", f"Perch-{VERSION}.dmg"])
         for sign in signed:
             self.assertIn("--timestamp", sign)
             self.assertNotIn("--timestamp=none", sign)

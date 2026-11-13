@@ -4,12 +4,50 @@ All notable user-facing changes to Perch. Versions follow [Semantic Versioning](
 
 ## Unreleased
 
+## 1.2.0 (2026-11-13)
+
+### Added
+
+- **Task details.** Edit a task's title, day, reminder, deadline, priority, project, repeat, time
+  limit and steps in one sheet. Nothing is saved until you choose Save, Cancel discards your edits,
+  and invalid dates or repeats are flagged inline.
+- **Repeat picker** with daily, weekday, weekly (pick the days), monthly, quarterly, yearly and
+  custom schedules, plus "count from completion".
+- **Week view rebuilt as a calendar.** Columns follow your first weekday, you can check off
+  today's tasks there, long titles stay readable, and the Inbox is kept separate from the seven days.
+- **Two-way Reminders sync (experimental, opt-in).** Edits to linked reminders on your iPhone or
+  Watch come back into Perch. Conflicting edits pause sync rather than pick a winner, and existing
+  reminders are never adopted.
+- **Notch task count (opt-in).** Shows how many of today's tasks are left, never their titles.
+  Hide it from the Perch menu before screen sharing.
+- **MCP:** `list_inbox`, `list_overdue` and `update_overdue` (complete, carry or dismiss), typed
+  structured results with output schemas on every tool, and stricter input validation. 21 tools.
+- **Keyboard.** Tab, Space and arrow keys reach every Today row action, the page picker, the
+  Week Inbox, Settings and the Dashboard. Command-Z undoes project changes in the Dashboard.
+
 ### Changed
 
-- Interface text uses English string catalogs with a pseudolocalization QA mode. Dates, counts
-  and repeat summaries follow the presentation locale without changing stored Gregorian dates.
-- Natural-language task entry declares English support explicitly. Unsupported app languages
-  report an error without adding or rewriting tasks.
+- Today keeps actions visible on every row and puts short task actions on the title line, so more
+  tasks fit. Capture and Undo stay pinned below the list, and overdue tasks open in an on-demand
+  review instead of a banner.
+- Insights stacks its cards at narrow widths and shows planned and completed tasks side by side.
+- Screenshot watching for Clips is now an explicit choice in Welcome and stays off until you
+  turn it on. Clip actions are always visible.
+- Built-in displays never get a drawn notch. Drawing one on external monitors is off by default.
+- Settings shows each permission's state with a link to System Settings. Failures stay visible
+  with a Retry button.
+- Interface text uses English string catalogs. Dates, counts and repeat summaries follow the
+  presentation locale without changing stored dates. Task entry declares English support and
+  reports other app languages instead of guessing.
+- Planner and notch updates are event-driven instead of polled, and Reminders reconciliation is
+  idempotent and ownership-aware.
+- Built with Swift 6 language mode.
+
+### Fixed
+
+- Week's "+N more" no longer counts a task that is already on screen.
+- Clicks on the closed notch follow its drawn shape, and activity-strip controls are clickable.
+- Clips toolbar controls reflow at narrow widths instead of being cut off.
 
 ## 1.1.1 (2026-11-10)
 
