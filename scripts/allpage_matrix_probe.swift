@@ -316,21 +316,23 @@ private enum MatrixViewReader {
         var retained: [MatrixElement: NSObject] = Dictionary(uniqueKeysWithValues: windows.map { (handle($0), $0) })
         var discovered = Set(windows.map(handle))
         // Public focus getters can publish a semantic node absent from the view hierarchy.
-        // Queue them beneath the windows and leave them undiscovered: a window's content
-        // view is often its own focused element, and marking it discovered first removes
-        // the window's edge to it, detaching the whole page from its window. Popped last,
-        // a focus node is read only if no window subtree already reached it.
-        var focusRoots: [(NSObject, Int)] = []
+        // Collect them now but attach them only after the window walk: marking one as
+        // discovered first would delete its real window-to-content edge (the focused
+        // getter can return the hosting view itself), leaving a window-only tree.
+        var detachedFocus: [NSObject] = []
+        // AppKit vends a fresh object per focused-element call: read the application's once and
+        // keep that exact object, so the node in the snapshot is the one the decision uses.
+        let appFocusObject = value(NSApp, "accessibilityFocusedUIElement") as? NSObject
+        if let appFocusObject { retained[handle(appFocusObject)] = appFocusObject }
         for owner
-            in ([NSApp] + windows + windows.compactMap(\.contentView)
+            in (windows + windows.compactMap(\.contentView)
             + windows.compactMap(\.firstResponder)) as [NSObject]
         {
             if let focused = value(owner, "accessibilityFocusedUIElement") as? NSObject {
                 retained[handle(focused)] = focused
-                focusRoots.append((focused, 0))
+                detachedFocus.append(focused)
             }
         }
-        stack.insert(contentsOf: focusRoots, at: 0)
         // A field editor's delegate is the control whose accessible identity it edits.
         if let responder = NSApp.keyWindow?.firstResponder {
             let owner =
@@ -339,47 +341,58 @@ private enum MatrixViewReader {
             result.focused = handle(owner)
             mxLog("matrix view focus: responder=\(type(of: responder)) owner=\(type(of: owner))")
         }
-        while let (object, depth) = stack.popLast() {
-            let key = handle(object)
-            guard result.nodes[key] == nil else { continue }
-            if result.nodes.count >= 3000 { break }
-            var node = MatrixAXNode()
-            node.nativeClass = String(describing: type(of: object))
-            node.focused = boolean(object, "isAccessibilityFocused")
-            for (attribute, getter) in [
-                (kAXRoleAttribute, "accessibilityRole"),
-                (kAXIdentifierAttribute, "accessibilityIdentifier"),
-                (kAXDescriptionAttribute, "accessibilityLabel"),
-                (kAXTitleAttribute, "accessibilityTitle"),
-                (kAXValueAttribute, "accessibilityValue"),
-                (kAXHelpAttribute, "accessibilityHelp"),
-            ] {
-                let raw = value(object, getter)
-                let string = (raw as? String) ?? (raw as? NSAttributedString)?.string
-                if let string, !string.isEmpty { node.strings[attribute as String] = string }
+        func walk() {
+            while let (object, depth) = stack.popLast() {
+                let key = handle(object)
+                guard result.nodes[key] == nil else { continue }
+                if result.nodes.count >= 3000 { break }
+                var node = MatrixAXNode()
+                node.nativeClass = String(describing: type(of: object))
+                node.focused = boolean(object, "isAccessibilityFocused")
+                for (attribute, getter) in [
+                    (kAXRoleAttribute, "accessibilityRole"),
+                    (kAXIdentifierAttribute, "accessibilityIdentifier"),
+                    (kAXDescriptionAttribute, "accessibilityLabel"),
+                    (kAXTitleAttribute, "accessibilityTitle"),
+                    (kAXValueAttribute, "accessibilityValue"),
+                    (kAXHelpAttribute, "accessibilityHelp"),
+                ] {
+                    let raw = value(object, getter)
+                    let string = (raw as? String) ?? (raw as? NSAttributedString)?.string
+                    if let string, !string.isEmpty { node.strings[attribute as String] = string }
+                }
+                node.enabled = boolean(object, "isAccessibilityEnabled")
+                if object.responds(to: NSSelectorFromString("accessibilityFrame")),
+                    let frame = object.value(forKey: "accessibilityFrame") as? NSValue
+                {
+                    node.frame = frame.rectValue
+                }
+                var children = (value(object, "accessibilityChildren") as? [NSObject]) ?? []
+                if let label = value(object, "accessibilityTitleUIElement") as? NSObject { children.append(label) }
+                children += (value(object, "accessibilityContents") as? [NSObject]) ?? []
+                children += (value(object, "accessibilityChildrenInNavigationOrder") as? [NSObject]) ?? []
+                if let window = object as? NSWindow {
+                    node.strings[kAXTitleAttribute as String] = window.title
+                    if let content = window.contentView { children.append(content) }
+                    children += window.sheets
+                }
+                if let view = object as? NSView { children += view.subviews }
+                children = children.filter { handle($0) != key && discovered.insert(handle($0)).inserted }
+                node.edges[kAXChildrenAttribute as String] = children.map(handle)
+                result.nodes[key] = node
+                for child in children { retained[handle(child)] = child }
+                if depth < 40 { stack.append(contentsOf: children.reversed().map { ($0, depth + 1) }) }
             }
-            node.enabled = boolean(object, "isAccessibilityEnabled")
-            if object.responds(to: NSSelectorFromString("accessibilityFrame")),
-                let frame = object.value(forKey: "accessibilityFrame") as? NSValue
-            {
-                node.frame = frame.rectValue
-            }
-            var children = (value(object, "accessibilityChildren") as? [NSObject]) ?? []
-            if let label = value(object, "accessibilityTitleUIElement") as? NSObject { children.append(label) }
-            children += (value(object, "accessibilityContents") as? [NSObject]) ?? []
-            children += (value(object, "accessibilityChildrenInNavigationOrder") as? [NSObject]) ?? []
-            if let window = object as? NSWindow {
-                node.strings[kAXTitleAttribute as String] = window.title
-                if let content = window.contentView { children.append(content) }
-                children += window.sheets
-            }
-            if let view = object as? NSView { children += view.subviews }
-            children = children.filter { handle($0) != key && discovered.insert(handle($0)).inserted }
-            node.edges[kAXChildrenAttribute as String] = children.map(handle)
-            result.nodes[key] = node
-            for child in children { retained[handle(child)] = child }
-            if depth < 40 { stack.append(contentsOf: children.reversed().map { ($0, depth + 1) }) }
         }
+        walk()
+        let windowReachable = result.nodes.count
+        // Only focus objects the window walk never reached are added, as detached roots.
+        for focused in [appFocusObject].compactMap({ $0 }) + detachedFocus
+        where discovered.insert(handle(focused)).inserted {
+            stack.append((focused, 0))
+        }
+        walk()
+        mxLog("matrix view tree: window-reachable=\(windowReachable) total=\(result.nodes.count)")
         // SwiftUI's native first responder is often a KeyViewProxy with no semantic
         // identity. Its accessible node, not the proxy, owns the focused getter.
         let semanticFocus = result.nodes.filter { _, node in
@@ -387,8 +400,57 @@ private enum MatrixViewReader {
                 && [kAXIdentifierAttribute, kAXDescriptionAttribute, kAXTitleAttribute, kAXValueAttribute]
                     .contains { node.strings[$0 as String] != nil }
         }
-        if semanticFocus.count == 1 { result.focused = semanticFocus.first?.key }
+        // AppKit's public focused-element getter is the in-process equivalent of the system
+        // AXFocusedUIElement read; prefer it over a semantics-free responder object.
+        let appFocus = appFocusObject.map(handle)
+        let appFocusNode = appFocus.flatMap { result.nodes[$0] }
+        let appFocusUsable =
+            appFocusNode.map {
+                let role = $0.strings[kAXRoleAttribute as String]
+                return role != nil && role != "AXUnknown" && role != "AXWindow"
+            } ?? false
+        // AppKit vends fresh element objects per getter (an NSSegmentedControl publishes each
+        // segment through both its children and navigation order), so one focused control can
+        // appear as several candidates. Collapse identical role/strings/frame duplicates, then
+        // keep the deepest: a focused radio group contains its focused segment, and system AX
+        // reports the segment.
+        func identity(_ element: MatrixElement) -> String? {
+            result.nodes[element].map { "\($0.strings.sorted { $0.key < $1.key })|\(NSStringFromRect($0.frame))" }
+        }
+        var unique: [String: MatrixElement] = [:]
+        for element in semanticFocus.keys.sorted(by: { $0.id < $1.id }) {
+            if let key = identity(element), unique[key] == nil { unique[key] = element }
+        }
+        func below(_ start: MatrixElement) -> Set<String> {
+            var seen: Set<MatrixElement> = []
+            var pending = result.nodes[start]?.edges[kAXChildrenAttribute as String] ?? []
+            while let next = pending.popLast(), seen.count < 3000 {
+                if seen.insert(next).inserted {
+                    pending += result.nodes[next]?.edges[kAXChildrenAttribute as String] ?? []
+                }
+            }
+            return Set(seen.compactMap(identity))
+        }
+        // Compare by identity, not handle: the copy under a group may be another fresh object.
+        let deepest = unique.filter { key, element in
+            let contained = below(element)
+            return !unique.keys.contains { $0 != key && contained.contains($0) }
+        }.map(\.value)
+        var source = "responder"
+        if semanticFocus.count == 1 {
+            result.focused = semanticFocus.first?.key
+            source = "semantic"
+        } else if deepest.count == 1 {
+            result.focused = deepest.first
+            source = "semantic-deepest of \(semanticFocus.count)"
+        } else if appFocusUsable {
+            result.focused = appFocus
+            source = "app-focused-element"
+        }
         mxLog("matrix semantic focus: candidates=\(semanticFocus.map { "\($0.key.id):\($0.value.strings)" }.sorted())")
+        mxLog(
+            "matrix focus read: source=\(source) appFocused=\(appFocusNode.map { "\($0.nativeClass):\($0.strings)" } ?? "nil")"
+        )
         // Keep virtual AX objects alive until all handles and edges are materialized.
         withExtendedLifetime(retained) {}
         return result
@@ -483,6 +545,15 @@ func mxFocusedElement() -> MatrixElement? { MatrixAX.snapshot.focused }
 func mxFocusIdentity() -> String? {
     guard let element = mxFocusedElement() else { return nil }
     return mxIdentifier(element) ?? mxName(element) ?? mxRole(element)
+}
+
+/// Where mxFocusIdentity's string came from: a real identifier/name, or the role fallback.
+@MainActor
+func mxFocusIdentitySource() -> String {
+    guard let element = mxFocusedElement() else { return "no-focused-element" }
+    if mxIdentifier(element) != nil { return "identifier" }
+    if mxName(element) != nil { return "name" }
+    return mxRole(element) != nil ? "role-fallback" : "unread"
 }
 
 @MainActor
@@ -1022,6 +1093,17 @@ final class AllPageMatrix {
             try report.require(
                 UserDefaults.standard.integer(forKey: "AppleKeyboardUIMode") == 3,
                 "probe process runs with full keyboard access enabled")
+            // The argument domain alone does not reach AppKit: native controls (segmented
+            // controls, plain buttons) only join the Tab loop when AppKit itself reports full
+            // keyboard access. Measure that, never infer it from the defaults value above.
+            let global = CFPreferencesCopyAppValue(
+                "AppleKeyboardUIMode" as CFString, kCFPreferencesAnyApplication)
+            mxLog(
+                "KEYBOARD appkitFullKeyboardAccess=\(NSApp.isFullKeyboardAccessEnabled) argumentDomain=\(UserDefaults.standard.integer(forKey: "AppleKeyboardUIMode")) globalDomain=\(String(describing: global))"
+            )
+            try report.require(
+                NSApp.isFullKeyboardAccessEnabled, "AppKit reports full keyboard access for native controls",
+                "global AppleKeyboardUIMode \(String(describing: global))")
         }
         await report.group("settings panes") { [self] in try await settingsPanes() }
         await report.group("settings failure paths") { [self] in try await settingsFailurePaths() }
@@ -1059,12 +1141,16 @@ final class AllPageMatrix {
             if index == 0, let host = window.contentView {
                 try mxSave(host, output.appendingPathComponent("\(tag)-before.png"))
                 try writeAX(try mxRoot(window.title), output.appendingPathComponent("\(tag)-before.ax.json"))
+                keyViewCensus(window, tag)
             }
             traceFocus(window, "\(tag) before Tab \(index)")
             try await mxKey(window, 48, "\t")
             traceFocus(window, "\(tag) after Tab \(index)")
             let identity = mxFocusIdentity() ?? "none"
             traversal.append("\(identity)|\(mxFocusedRole() ?? "?")")
+            mxLog(
+                "FOCUS step \(tag) \(index) identity=\(identity) source=\(mxFocusIdentitySource()) responder=\(window.firstResponder.map { "\(type(of: $0))@\(UInt(bitPattern: ObjectIdentifier($0)))" } ?? "nil")"
+            )
             if match(identity, mxFocusedRole()) {
                 report.record(tag, traversal)
                 return identity
@@ -1072,6 +1158,25 @@ final class AllPageMatrix {
         }
         report.record(tag, traversal)
         throw MatrixFailure(label: "traversal never reached the target: \(traversal)")
+    }
+
+    /// Every native key-view candidate once per traversal: whether AppKit will ever stop on
+    /// it (canBecomeKeyView) is what separates a skipped control from a misread one.
+    func keyViewCensus(_ window: NSWindow, _ tag: String) {
+        func descendants(_ view: NSView) -> [NSView] { [view] + view.subviews.flatMap(descendants) }
+        guard let root = window.contentView else { return }
+        mxLog(
+            "KEYVIEW \(tag) appkitFullKeyboardAccess=\(NSApp.isFullKeyboardAccessEnabled) active=\(NSApp.isActive) key=\(window.isKeyWindow) autorecalculates=\(window.autorecalculatesKeyViewLoop)"
+        )
+        for view in descendants(root)
+        where view is NSControl || String(describing: type(of: view)).contains("KeyViewProxy") {
+            let label =
+                (MatrixViewReader.value(view, "accessibilityLabel") as? String)
+                ?? (view as? NSTextField)?.placeholderString ?? ""
+            mxLog(
+                "KEYVIEW \(tag) \(type(of: view))@\(UInt(bitPattern: ObjectIdentifier(view))) canBecomeKeyView=\(view.canBecomeKeyView) acceptsFirstResponder=\(view.acceptsFirstResponder) hidden=\(view.isHiddenOrHasHiddenAncestor) label=\(label) id=\(view.identifier?.rawValue ?? "")"
+            )
+        }
     }
 
     func traceFocus(_ window: NSWindow, _ tag: String) {

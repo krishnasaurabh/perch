@@ -2,8 +2,8 @@
 # macOS CI only: renders the real Settings, Dashboard, Welcome, Week, Clips and Details
 # surfaces and drives them with real key events. Never writes the user's planner, clipboard or
 # permission state: PERCH_DATA is synthetic, the probe stays unbundled, and nothing ever asks
-# for access. The runner switches the system increase-contrast state on for the contrast
-# measurements and restores whatever the runner had afterwards.
+# for access. The runner switches the system increase-contrast state and full keyboard access
+# on for the contrast and Tab measurements and restores whatever the runner had afterwards.
 set -euo pipefail
 [[ $(uname -s) == Darwin ]] || { printf '%s\n' 'This UI probe requires macOS.' >&2; exit 2; }
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
@@ -36,6 +36,18 @@ def read_contrast():
 def write_contrast(value):
     subprocess.run(
         ['defaults', 'write', 'com.apple.universalaccess', 'increaseContrast', '-bool', value],
+        check=False, capture_output=True, text=True)
+
+
+def read_keyboard_mode():
+    result = subprocess.run(
+        ['defaults', 'read', '-g', 'AppleKeyboardUIMode'], capture_output=True, text=True)
+    return result.stdout.strip() if result.returncode == 0 else ''
+
+
+def write_keyboard_mode(value):
+    subprocess.run(
+        ['defaults', 'write', '-g', 'AppleKeyboardUIMode', '-int', value],
         check=False, capture_output=True, text=True)
 
 
@@ -73,6 +85,13 @@ def run(label, extra):
 prior = read_contrast()
 write_contrast('true')
 print('increase-contrast prior=%r now=%r' % (prior, read_contrast()))
+# NSApp.isFullKeyboardAccessEnabled reads the global domain only; the argument-domain
+# override below does not reach AppKit, so native controls (segmented pickers, plain
+# buttons) would never join the Tab loop. Set the runner's global state for the child
+# and restore whatever the runner had afterwards, exactly like increase-contrast.
+prior_keyboard = read_keyboard_mode()
+write_keyboard_mode('3')
+print('full-keyboard-access prior=%r now=%r' % (prior_keyboard, read_keyboard_mode()))
 failed = 0
 try:
     # A single accessibility read per API, so a trap is attributable to one call.
@@ -88,5 +107,12 @@ finally:
             ['defaults', 'delete', 'com.apple.universalaccess', 'increaseContrast'],
             check=False, capture_output=True, text=True)
     print('increase-contrast restored=%r' % read_contrast())
+    if prior_keyboard:
+        write_keyboard_mode(prior_keyboard)
+    else:
+        subprocess.run(
+            ['defaults', 'delete', '-g', 'AppleKeyboardUIMode'],
+            check=False, capture_output=True, text=True)
+    print('full-keyboard-access restored=%r' % read_keyboard_mode())
 sys.exit(1 if failed else 0)
 PY

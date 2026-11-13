@@ -77,6 +77,28 @@ class AllPageMatrixProbeTests(unittest.TestCase):
         self.assertIn("matrix menu: posted real Escape", self.source)
         self.assertIn("RunLoop.main.add(timer, forMode: .eventTracking)", self.source)
 
+    def test_traversal_measures_appkit_keyboard_access_and_reads_focus_honestly(self):
+        # AppKit's effective full keyboard access is asserted, not inferred from defaults.
+        self.assertIn("NSApp.isFullKeyboardAccessEnabled, \"AppKit reports full keyboard access", self.source)
+        runner = RUNNER.read_text()
+        self.assertIn("'defaults', 'write', '-g', 'AppleKeyboardUIMode', '-int'", runner)
+        self.assertIn("full-keyboard-access restored", runner)
+        self.assertLess(runner.index("write_keyboard_mode('3')"), runner.index("run('matrix', [])"))
+        # Per-Tab census and identity provenance are logged before any assertion.
+        for trace in ("KEYVIEW ", "canBecomeKeyView=", "FOCUS step ", "source=\\(mxFocusIdentitySource())",
+                      "role-fallback", "matrix focus read: source="):
+            self.assertIn(trace, self.source)
+        # Duplicate focused semantics collapse to the deepest node; a single candidate is unchanged.
+        self.assertIn('source = "semantic-deepest of', self.source)
+        self.assertIn("!unique.keys.contains { $0 != key && contained.contains($0) }", self.source)
+        self.assertLess(self.source.index("if semanticFocus.count == 1 {\n            result.focused"),
+                        self.source.index("} else if deepest.count == 1 {"))
+        # Focus objects are attached only after the window walk, never pre-marked discovered.
+        reader = self.source.split("private enum MatrixViewReader", 1)[1].split("enum MatrixAX {", 1)[0]
+        self.assertNotIn('as? NSObject,\n                discovered.insert(handle(focused))', reader)
+        self.assertLess(reader.index("walk()\n        let windowReachable"),
+                        reader.index("+ detachedFocus\n"))
+
     def test_native_contrast_uses_the_requested_appearance_without_competing_scheme(self):
         section = self.source.split("func contrastStates()", 1)[1]
         self.assertNotIn(".environment(\\.colorScheme, scheme)", section)
@@ -99,38 +121,53 @@ class AllPageMatrixProbeTests(unittest.TestCase):
 
     def test_focus_seeds_never_detach_window_content(self):
         reader = self.source.split("private enum MatrixViewReader {", 1)[1].split("@MainActor\nenum MatrixAX", 1)[0]
-        seeding = reader.split("var focusRoots", 1)[1].split("while let (object, depth) = stack.popLast()", 1)[0]
-        # Focus nodes are queued beneath the windows and never pre-marked as discovered.
+        seeding = reader.split("var detachedFocus", 1)[1].split("func walk()", 1)[0]
+        # The focused getter can return the hosting view itself, so marking a focus object
+        # discovered before the walk would delete the window -> content edge and detach the page.
         self.assertNotIn("discovered.insert", seeding)
-        self.assertIn("stack.insert(contentsOf: focusRoots, at: 0)", seeding)
+        self.assertIn("detachedFocus.append(focused)", seeding)
+        # They are attached only after the window walk, as roots the walk never reached.
+        self.assertLess(
+            reader.index("walk()\n        let windowReachable"),
+            reader.index("+ detachedFocus\n"),
+        )
+        self.assertIn("if let content = window.contentView { children.append(content) }", reader)
         self.assertIn("result.nodes.count >= 3000", reader)
 
     def test_focus_seed_ordering_control(self):
-        """Model of the reader's worklist: window -> content -> status, content also focused."""
+        """Model of the reader's two-phase worklist: windows first, then unreached focus roots."""
         graph = {"window": ["content"], "content": ["status", "detail"], "status": [], "detail": []}
 
         def read(preseed):
             nodes, discovered, edges = {}, {"window"}, {}
-            stack = [("window", 0)]
+
+            def walk(seed):
+                stack = [(seed, 0)]
+                while stack:
+                    key, depth = stack.pop()
+                    if key in nodes:
+                        continue
+                    children = [c for c in graph[key] if c != key and c not in discovered]
+                    discovered.update(children)
+                    edges[key] = children
+                    nodes[key] = True
+                    stack.extend((c, depth + 1) for c in reversed(children))
+
             if preseed:
+                # The baseline: the focus object was marked discovered before the walk, so the
+                # window edge to its own content was dropped and the page detached.
                 discovered.add("content")
-                stack.append(("content", 0))
-            else:
-                stack.insert(0, ("content", 0))
-            while stack:
-                key, depth = stack.pop()
-                if key in nodes:
-                    continue
-                children = [c for c in graph[key] if c != key and c not in discovered]
-                discovered.update(children)
-                edges[key] = children
-                nodes[key] = True
-                stack.extend((c, depth + 1) for c in reversed(children))
-            reachable, walk = [], ["window"]
-            while walk:
-                node = walk.pop()
+                walk("content")
+            walk("window")
+            if not preseed and "content" not in discovered:
+                # The measured fix: attach focus roots the window walk never reached.
+                discovered.add("content")
+                walk("content")
+            reachable, queue = [], ["window"]
+            while queue:
+                node = queue.pop()
                 reachable.append(node)
-                walk.extend(edges.get(node, []))
+                queue.extend(edges.get(node, []))
             return set(nodes), set(reachable)
 
         old_nodes, old_reachable = read(preseed=True)
