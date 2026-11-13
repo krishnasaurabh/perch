@@ -107,6 +107,78 @@ class AllPageMatrixProbeTests(unittest.TestCase):
         self.assertIn("lowRatio < 4.5", section)
         self.assertIn("host.appearance = appearance", self.source)
 
+    def test_contrast_paints_a_native_surface_and_saves_before_asserting(self):
+        section = self.source.split("func contrastStates()", 1)[1].split("func mxHex(", 1)[0]
+        self.assertIn(".background(Color(nsColor: .windowBackgroundColor))", section)
+        self.assertIn("effectiveBase == baseName", section)
+        self.assertLess(section.index("try mxSave(bitmap,"), section.index("guard let background ="))
+        self.assertLess(section.index('report.record("contrast", rows)'), section.index("ratio >= 4.5"))
+        self.assertIn('"ink": mxHex(ink), "background": mxHex(background)', section)
+        self.assertIn('"ratio": lowRatio, "ink": mxHex(lowSample)', section)
+
+    def test_contrast_samplers_reject_transparency_and_detect_low_contrast(self):
+        # Exercise the exact Swift sampler bodies with a tiny in-memory bitmap adapter.
+        # This is an algorithm control, not a substitute for native rendering on macOS.
+        functions = self.source.split("@MainActor\nfunc mxContrast(", 1)[1].split("// MARK: - Menu tracking", 1)[0]
+        functions = "@MainActor\nfunc mxContrast(" + functions
+        support = '''import Foundation
+struct NSColor {
+    enum Space { case sRGB }
+    let redComponent, greenComponent, blueComponent, alphaComponent: CGFloat
+    func usingColorSpace(_ space: Space) -> NSColor? { self }
+}
+struct NSView {}
+struct NSBitmapImageRep {
+    let pixels: [NSColor]
+    func colorAt(x: Int, y: Int) -> NSColor? { pixels[x] }
+}
+func mxBand(_ band: NSRect, host: NSView, bitmap: NSBitmapImageRep)
+    -> (x0: Int, x1: Int, y0: Int, y1: Int) { (0, bitmap.pixels.count, 0, 1) }
+func color(_ value: CGFloat, alpha: CGFloat = 1) -> NSColor {
+    NSColor(redComponent: value, greenComponent: value, blueComponent: value, alphaComponent: alpha)
+}
+'''
+        checks = '''
+let host = NSView(), band = NSRect.zero
+let transparent = color(0, alpha: 0), black = color(0), white = color(1)
+let unpainted = NSBitmapImageRep(pixels: [transparent, transparent, transparent, white])
+precondition(mxDominant(unpainted, host: host, band: band) == nil)
+let partial = NSBitmapImageRep(pixels: [color(0, alpha: 0.5), black])
+precondition(mxDominant(partial, host: host, band: band) == nil)
+let noInk = NSBitmapImageRep(pixels: [transparent, white])
+precondition(mxInkSample(noInk, host: host, band: band, near: black) == nil)
+for (surface, ink, low) in [(black, white, color(0.32)), (white, black, color(0.72))] {
+    let bitmap = NSBitmapImageRep(pixels: [surface, surface, surface, ink, low])
+    let background = mxDominant(bitmap, host: host, band: band)!
+    let body = mxInkSample(bitmap, host: host, band: band, near: ink)!
+    let negative = mxInkSample(bitmap, host: host, band: band, near: low)!
+    precondition(mxContrast(body, background) >= 4.5)
+    precondition(mxContrast(negative, background) < 4.5)
+}
+print("Opaque contrast sampling controls passed")
+'''
+        swift = shutil.which("swiftc")
+        if swift is None:
+            self.fail("Swift is required to verify the contrast samplers")
+        with tempfile.TemporaryDirectory() as directory:
+            path = pathlib.Path(directory) / "main.swift"
+            binary = pathlib.Path(directory) / "contrast"
+            for name, body in [
+                ("fixed", functions),
+                ("transparent-background", functions.replace("guard rgb.alphaComponent == 1 else { return nil }", "")),
+                ("transparent-ink", functions.replace(", rgb.alphaComponent == 1 else", " else")),
+            ]:
+                path.write_text(support + body + checks)
+                built = subprocess.run([swift, "-swift-version", "6", str(path), "-o", str(binary)],
+                                       capture_output=True, text=True)
+                self.assertEqual(built.returncode, 0, built.stderr)
+                ran = subprocess.run([str(binary)], capture_output=True, text=True)
+                if name == "fixed":
+                    self.assertEqual(ran.returncode, 0, ran.stderr)
+                    self.assertIn("Opaque contrast sampling controls passed", ran.stdout)
+                else:
+                    self.assertNotEqual(ran.returncode, 0, name)
+
     def test_contrast_reads_the_variant_by_best_match_not_the_base_name(self):
         section = self.source.split("func contrastStates()", 1)[1].split("func mxHex(", 1)[0]
         # NSAppearance.name reports the base name even for a high-contrast object, so a

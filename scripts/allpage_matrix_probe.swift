@@ -772,7 +772,11 @@ func mxBitmap(_ host: NSView) throws -> NSBitmapImageRep {
 
 @MainActor
 func mxSave(_ host: NSView, _ url: URL) throws {
-    let bitmap = try mxBitmap(host)
+    try mxSave(mxBitmap(host), url)
+}
+
+@MainActor
+func mxSave(_ bitmap: NSBitmapImageRep, _ url: URL) throws {
     guard let png = bitmap.representation(using: .png, properties: [:]) else {
         throw MatrixFailure(label: "no PNG for \(url.lastPathComponent)")
     }
@@ -886,6 +890,9 @@ func mxDominant(_ bitmap: NSBitmapImageRep, host: NSView, band: NSRect) -> NSCol
     for y in area.y0..<area.y1 {
         for x in area.x0..<area.x1 {
             guard let rgb = bitmap.colorAt(x: x, y: y)?.usingColorSpace(.sRGB) else { continue }
+            // An unpainted band has no measurable backdrop. Never reinterpret its RGB
+            // channels as black or select the foreground glyph as the background.
+            guard rgb.alphaComponent == 1 else { return nil }
             let key = String(
                 format: "%03d-%03d-%03d", Int(rgb.redComponent * 255), Int(rgb.greenComponent * 255),
                 Int(rgb.blueComponent * 255))
@@ -909,7 +916,9 @@ func mxInkSample(
     var bestDistance = CGFloat.greatestFiniteMagnitude
     for y in area.y0..<area.y1 {
         for x in area.x0..<area.x1 {
-            guard let rgb = bitmap.colorAt(x: x, y: y)?.usingColorSpace(.sRGB) else { continue }
+            guard let rgb = bitmap.colorAt(x: x, y: y)?.usingColorSpace(.sRGB), rgb.alphaComponent == 1 else {
+                continue
+            }
             let distance =
                 abs(rgb.redComponent - reference.redComponent) + abs(rgb.greenComponent - reference.greenComponent)
                 + abs(rgb.blueComponent - reference.blueComponent)
@@ -1992,6 +2001,9 @@ final class AllPageMatrix {
             }
             .padding(12)
             .frame(width: 420, height: 190)
+            // NSHostingView's cached bitmap does not include the NSWindow background.
+            // Paint the native surface behind the actual panel, resolved by its appearance.
+            .background(Color(nsColor: .windowBackgroundColor))
             let (window, host) = try matrixWindow(
                 "Matrix Contrast \(mode)", view, size: NSSize(width: 440, height: 220), appearance: appearance)
             await mxReady(1.4)
@@ -2011,6 +2023,7 @@ final class AllPageMatrix {
             let baseName: NSAppearance.Name = scheme == .dark ? .darkAqua : .aqua
             let effectiveName = window.effectiveAppearance.name.rawValue
             let effective = window.effectiveAppearance.bestMatch(from: [baseName, appearanceName])?.rawValue ?? "none"
+            let effectiveBase = window.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua])
             // Evidence only: what a plain base appearance resolves to on this runner.
             let control =
                 NSAppearance(named: baseName)?.bestMatch(from: [baseName, appearanceName])?.rawValue ?? "none"
@@ -2019,6 +2032,9 @@ final class AllPageMatrix {
             mxLog(
                 "contrast appearance: mode=\(mode) name=\(effectiveName) bestMatch=\(effective) base=\(control) app=\(NSApp.effectiveAppearance.name.rawValue) workspace=\(systemIncreased)"
             )
+            try report.require(
+                effectiveBase == baseName, "\(mode) window resolves the requested light or dark palette",
+                "expected \(baseName.rawValue) effective \(effectiveBase?.rawValue ?? "none")")
             try report.require(
                 effective == appearanceName.rawValue, "\(mode) window runs in the increased-contrast appearance",
                 "effective \(effective) name \(effectiveName) workspace \(systemIncreased)")
@@ -2032,14 +2048,24 @@ final class AllPageMatrix {
                 throw MatrixFailure(label: "no permission detail text at \(mode)")
             }
             let bitmap = try mxBitmap(host)
+            // Save the measured bitmap even if a band or contrast assertion below fails.
+            try mxSave(bitmap, output.appendingPathComponent("contrast-\(mode).png"))
             let detailRect = mxHostRect(mxFrame(detailNode), window: window, host: host)
             guard let background = mxDominant(bitmap, host: host, band: detailRect),
                 let ink = mxInkSample(bitmap, host: host, band: detailRect, near: bodyInk)
             else {
                 window.close()
-                throw MatrixFailure(label: "could not sample rendered text at \(mode)")
+                throw MatrixFailure(label: "could not sample opaque rendered text at \(mode)")
             }
             let ratio = mxContrast(ink, background)
+            rows.append([
+                "mode": mode, "effective_appearance": effective, "ratio": ratio,
+                "ink": mxHex(ink), "background": mxHex(background),
+            ])
+            report.record("contrast", rows)
+            mxLog(
+                "contrast pixels: mode=\(mode) ink=\(mxHex(ink)) background=\(mxHex(background)) ratio=\(ratio)"
+            )
             try report.require(
                 ratio >= 4.5, "\(mode) renders body text above 4.5:1", "measured \(String(format: "%.2f", ratio))")
 
@@ -2050,17 +2076,21 @@ final class AllPageMatrix {
                 let lowSample = mxInkSample(bitmap, host: host, band: lowRect, near: lowInk)
             {
                 let lowRatio = mxContrast(lowSample, lowBackground)
+                report.record(
+                    "contrast_\(mode)_negative",
+                    [
+                        "ratio": lowRatio, "ink": mxHex(lowSample), "background": mxHex(lowBackground),
+                    ]
+                )
+                mxLog(
+                    "contrast negative pixels: mode=\(mode) ink=\(mxHex(lowSample)) background=\(mxHex(lowBackground)) ratio=\(lowRatio)"
+                )
                 try report.require(
                     lowRatio < 4.5, "\(mode) negative control: a low-contrast label is detected",
                     "measured \(String(format: "%.2f", lowRatio))")
             } else {
                 try report.require(false, "\(mode) negative control: a low-contrast label is detected")
             }
-            rows.append([
-                "mode": mode, "effective_appearance": effective, "ratio": ratio,
-                "ink": mxHex(ink), "background": mxHex(background),
-            ])
-            try mxSave(host, output.appendingPathComponent("contrast-\(mode).png"))
             window.close()
         }
         report.record("contrast", rows)
