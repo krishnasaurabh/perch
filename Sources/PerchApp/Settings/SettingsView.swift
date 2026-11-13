@@ -426,7 +426,6 @@ struct SettingsErrorRow: View {
         .padding(12)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(Theme.danger.opacity(0.08))
-        .accessibilityIdentifier("settings.error")
     }
 }
 

@@ -140,7 +140,8 @@ final class SettingsErrorFeedbackTests: XCTestCase {
         XCTAssertFalse(labels.isEmpty, "Settings must render its error: \(error)", file: file, line: line)
         let visible = window.convertToScreen(window.contentView!.bounds)
         for label in labels {
-            let frame = (label as? NSAccessibilityProtocol)?.accessibilityFrame() ?? .zero
+            let frame = (label.value(forKey: "accessibilityFrame") as? NSValue)?.rectValue ?? .zero
+            print("Settings error frame: \(frame); viewport: \(visible); text: \(error.perchPresentationDetail)")
             XCTAssertGreaterThan(frame.width, 0, file: file, line: line)
             XCTAssertGreaterThan(frame.height, 0, file: file, line: line)
             XCTAssertTrue(
