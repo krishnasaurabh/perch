@@ -156,13 +156,14 @@ enum MatrixAXReader {
     }
 
     static func raw(
-        _ element: AXUIElement, _ attribute: String, trace: Bool = false, context: String = ""
+        _ element: AXUIElement, _ attribute: String, trace: Bool = false, quiet: Bool = false,
+        context: String = ""
     ) -> CFTypeRef? {
         precondition(!Thread.isMainThread, "self-addressed AX read on the main thread")
         if trace { mxLog("AX before \(context) attribute=\(attribute)") }
         var value: CFTypeRef?
         let error = AXUIElementCopyAttributeValue(element, attribute as CFString, &value)
-        if trace || error != .success {
+        if trace || (error != .success && !quiet) {
             mxLog("AX copy \(context) \(attribute) error=\(error.rawValue)")
         }
         return error == .success ? value : nil
@@ -175,6 +176,12 @@ enum MatrixAXReader {
     }
 
     static func handle(_ element: AXUIElement) -> MatrixElement { MatrixElement(id: CFHash(element)) }
+
+    /// Name attributes read even when the element does not advertise them.
+    static let unadvertisedNames: Set<String> = [
+        kAXIdentifierAttribute as String, kAXDescriptionAttribute as String, kAXTitleAttribute as String,
+        kAXValueAttribute as String, kAXHelpAttribute as String,
+    ]
 
     static func read(smoke: Bool = false) -> MatrixAXSnapshot {
         precondition(!Thread.isMainThread, "self-addressed AX snapshot on the main thread")
@@ -217,8 +224,15 @@ enum MatrixAXReader {
                 kAXTitleAttribute, kAXValueAttribute, kAXHelpAttribute,
             ] {
                 let name = attribute as String
-                if supported.contains(name),
-                    let value = raw(element, name, trace: trace, context: "node=\(index) role=\(role)") as? String,
+                // SwiftUI nodes (section headings, status labels, buttons) answer their name
+                // attributes without listing them in AXUIElementCopyAttributeNames. Gating the
+                // name reads on that list drops rendered text, so every name is always asked;
+                // only a miss on an unadvertised name stays out of the log.
+                let advertised = supported.contains(name)
+                guard advertised || unadvertisedNames.contains(name) else { continue }
+                if let value = raw(
+                    element, name, trace: trace, quiet: !advertised, context: "node=\(index) role=\(role)")
+                    as? String,
                     !value.isEmpty
                 {
                     node.strings[name] = value

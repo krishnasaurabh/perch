@@ -152,6 +152,23 @@ print("Matrix assertion plumbing check passed")
         self.assertIn('struct MatrixElement: Hashable, Sendable', self.source)
         self.assertIn('exit(hasWindow ? 0 : 1)', consumers)
 
+    def test_system_reader_asks_for_names_the_element_does_not_advertise(self):
+        # SwiftUI section headings and status labels answer AXDescription/AXTitle without
+        # listing them in AXUIElementCopyAttributeNames. A reader that only asks for advertised
+        # names never sees rendered text such as "Opening" or "Not requested".
+        reader = self.source.split("enum MatrixAXReader {", 1)[1].split("private enum MatrixViewReader", 1)[0]
+        names = reader.split("static let unadvertisedNames", 1)[1].split("]", 1)[0]
+        for attribute in ("kAXDescriptionAttribute", "kAXTitleAttribute", "kAXValueAttribute",
+                          "kAXHelpAttribute", "kAXIdentifierAttribute"):
+            self.assertIn(attribute, names)
+        self.assertNotIn("kAXRoleAttribute", names)
+        loop = reader.split("for attribute in [", 1)[1].split("if supported.contains(kAXEnabledAttribute", 1)[0]
+        self.assertIn("guard advertised || unadvertisedNames.contains(name) else { continue }", loop)
+        self.assertNotRegex(loop, r"if supported\.contains\(name\),")
+        # An unadvertised miss stays quiet; an advertised failure is still logged.
+        self.assertIn("quiet: !advertised", loop)
+        self.assertIn("if trace || (error != .success && !quiet)", reader)
+
     def test_focus_membership_compiles_with_snapshot_values(self):
         declaration_match = re.search(r"struct MatrixElement[^\n]+", self.source)
         expression_match = re.search(r"let inWorkspace = [^\n]+", self.source)
