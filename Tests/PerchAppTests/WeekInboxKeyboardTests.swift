@@ -10,6 +10,9 @@ final class WeekInboxKeyboardTests: XCTestCase {
     @MainActor
     func testInboxIsInNativeTabLoopAndTogglesFromKeyboard() async throws {
         _ = NSApplication.shared
+        let policy = NSApp.activationPolicy()
+        XCTAssertTrue(NSApp.setActivationPolicy(.regular), "The test host must accept native keyboard focus")
+        defer { NSApp.setActivationPolicy(policy) }
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: directory) }
         let file = PlannerFile(
