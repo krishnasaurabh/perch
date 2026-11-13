@@ -78,6 +78,108 @@ final class SettingsErrorFeedbackTests: XCTestCase {
     }
 
     @MainActor
+    func testAgentStatusesRefreshOnReentryAfterExternalChanges() async throws {
+        let fixture = try SettingsFailureFixture(pane: .agents)
+        defer { fixture.close() }
+        await settle()
+        XCTAssertEqual(fixture.statuses[.claudeCode], .notInstalled)
+        XCTAssertEqual(fixture.statuses[.cursor], .notInstalled)
+
+        fixture.pane = .focus
+        await settle()
+        fixture.externalStatuses[.claudeCode] = .notConnected
+        fixture.externalStatuses[.cursor] = .connected
+        fixture.pane = .agents
+        await settle()
+        XCTAssertEqual(fixture.statuses[.claudeCode], .notConnected)
+        XCTAssertEqual(fixture.statuses[.cursor], .connected)
+        XCTAssertFalse(named("Connect", in: fixture.window).isEmpty)
+
+        fixture.pane = .focus
+        await settle()
+        fixture.externalStatuses[.claudeCode] = .connected
+        fixture.externalStatuses[.cursor] = .notConnected
+        fixture.pane = .agents
+        await settle()
+        XCTAssertEqual(fixture.statuses[.claudeCode], .connected)
+        XCTAssertEqual(fixture.statuses[.cursor], .notConnected)
+    }
+
+    @MainActor
+    func testFailedDisconnectRetainsOnlyItsAppOnReentry() async throws {
+        let fixture = try SettingsFailureFixture(pane: .agents)
+        defer { fixture.close() }
+        await settle()
+        try press("Disconnect", in: fixture.window)
+        await settle()
+        let error = try XCTUnwrap(fixture.store.lastError)
+
+        fixture.pane = .focus
+        await settle()
+        fixture.externalStatuses[.claudeCode] = .notConnected
+        fixture.externalStatuses[.cursor] = .connected
+        fixture.pane = .agents
+        await settle()
+        XCTAssertEqual(fixture.statuses[.claudeApp], .connected)
+        XCTAssertEqual(fixture.statuses[.claudeCode], .notConnected)
+        XCTAssertEqual(fixture.statuses[.cursor], .connected)
+        XCTAssertEqual(fixture.disconnectRequests, [.claudeApp])
+        assertVisible(error, in: fixture.window)
+        try assertRetry(in: fixture.window)
+    }
+
+    @MainActor
+    func testClearedExportRetryDoesNotOwnSameValuePreferenceFailure() async throws {
+        let fixture = try SettingsFailureFixture(pane: .system)
+        defer { fixture.close() }
+        var exportAttempts = 0
+        fixture.feedback.exportBackup(to: fixture.exportURL, store: fixture.store) { _ in
+            exportAttempts += 1
+            if exportAttempts == 1 { throw PlannerStorageBusy() }
+        }
+        let exportError = try XCTUnwrap(fixture.store.lastError)
+        XCTAssertTrue(fixture.feedback.canRetry(exportError))
+        await settle()
+        try assertRetry(in: fixture.window)
+
+        fixture.store.updatePrefs { $0.defaultFocusMinutes = 40 }
+        XCTAssertNil(fixture.store.lastError)
+        // No render or run-loop turn between these events: value-based onChange is insufficient.
+        fixture.store.apply { _ -> Void in throw PlannerStorageBusy() }
+        let preferenceError = try XCTUnwrap(fixture.store.lastError)
+        XCTAssertEqual(preferenceError, exportError)
+        XCTAssertFalse(fixture.feedback.canRetry(preferenceError))
+        fixture.feedback.retry(preferenceError)
+        XCTAssertEqual(exportAttempts, 1)
+        XCTAssertEqual(fixture.store.lastError, preferenceError)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: fixture.exportURL.path))
+        await settle()
+        assertVisible(preferenceError, in: fixture.window)
+        XCTAssertTrue(named("Repeat", in: fixture.window).isEmpty)
+    }
+
+    @MainActor
+    func testSameValueFailureSupersedesExportRetryWithoutClearingFirst() async throws {
+        let fixture = try SettingsFailureFixture()
+        defer { fixture.close() }
+        var exportAttempts = 0
+        fixture.feedback.exportBackup(to: fixture.exportURL, store: fixture.store) { _ in
+            exportAttempts += 1
+            if exportAttempts == 1 { throw PlannerStorageBusy() }
+        }
+        let exportError = try XCTUnwrap(fixture.store.lastError)
+        XCTAssertTrue(fixture.feedback.canRetry(exportError))
+        fixture.store.apply { _ -> Void in throw PlannerStorageBusy() }
+        XCTAssertEqual(fixture.store.lastError, exportError)
+        XCTAssertFalse(fixture.feedback.canRetry(exportError))
+        fixture.feedback.retry(exportError)
+        XCTAssertEqual(exportAttempts, 1)
+        XCTAssertEqual(fixture.store.lastError, exportError)
+        await settle()
+        XCTAssertTrue(named("Repeat", in: fixture.window).isEmpty)
+    }
+
+    @MainActor
     func testExportFailureIsVisibleAndRetriesTheSameDestination() async throws {
         let fixture = try SettingsFailureFixture(pane: .system)
         defer { fixture.close() }
@@ -222,6 +324,7 @@ private final class SettingsFailureFixture: ObservableObject {
     @Published var statuses: [AgentConnector.App: AgentConnector.Status] = [
         .claudeCode: .notInstalled, .claudeApp: .connected, .cursor: .notInstalled,
     ]
+    var externalStatuses: [AgentConnector.App: AgentConnector.Status] = [:]
     var shouldFail = true
     var loginEnabled = false
     var loginRequests: [Bool] = []
@@ -276,6 +379,7 @@ private final class SettingsFailureFixture: ObservableObject {
     }
 
     func status(_ app: AgentConnector.App) -> AgentConnector.Status {
+        if let external = externalStatuses[app] { return external }
         if app == .claudeApp { return disconnectRequests.isEmpty ? .connected : .notConnected }
         return .notInstalled
     }
