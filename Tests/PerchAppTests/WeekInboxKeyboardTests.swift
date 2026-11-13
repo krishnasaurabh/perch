@@ -54,10 +54,8 @@
             window.isReleasedWhenClosed = false
             window.contentView = host
             window.setContentSize(NSSize(width: 880, height: 520))
-            window.makeKeyAndOrderFront(nil)
-            NSApp.activate(ignoringOtherApps: true)
             defer { window.close() }
-            await Self.settle()
+            await Self.activateKeyWindow(window)
             try require(window.isKeyWindow, "Native traversal requires the real key window")
             let inbox = try Self.control("week-inbox", in: window)
             try equal(Self.string(inbox, "accessibilityRole"), "AXButton")
@@ -112,6 +110,24 @@
             try equal(Self.string(try Self.control("week-inbox", in: window), "accessibilityLabel"), "Back to week")
             try equal(try file.load().tasks, tasksBefore, "Inbox navigation preserves every persisted task")
             Self.log("PASS: Week Inbox native Tab, Space, back-tab and Command-Option-I")
+        }
+
+        @MainActor private static func activateKeyWindow(_ window: NSWindow) async {
+            // Activation is asynchronous on the hosted runner. Reissue the key-window request
+            // after activating instead of treating one arbitrary settling delay as permission
+            // to send native keys. The caller retains the hard isKeyWindow assertion.
+            for attempt in 0..<25 {
+                NSApp.activate(ignoringOtherApps: true)
+                window.makeKeyAndOrderFront(nil)
+                await settle()
+                if window.isKeyWindow {
+                    if attempt > 0 { log("Week key window activated after \(attempt + 1) attempts") }
+                    return
+                }
+            }
+            log(
+                "Week key window activation failed: appActive=\(NSApp.isActive) "
+                    + "visible=\(window.isVisible) keyWindow=\(String(describing: NSApp.keyWindow))")
         }
 
         @MainActor private static func tabToInbox(_ window: NSWindow) async throws {
