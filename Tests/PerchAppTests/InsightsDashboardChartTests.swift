@@ -51,22 +51,28 @@ final class InsightsDashboardChartTests: XCTestCase {
         _ = NSApplication.shared
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: root) }
-        let now = Date(timeIntervalSince1970: 1_800_014_400)
+        let finalNow = Date(timeIntervalSince1970: 1_800_014_400)
+        var now = finalNow
         let store = PlannerStore(
             file: PlannerFile(url: root.appendingPathComponent("planner.json")),
             now: { now }, watching: false)
+        let lastDay = store.today
         for (index, count) in counts.enumerated() {
-            let day = store.today.adding(days: index - 6)
+            let day = lastDay.adding(days: index - 6)
+            // Add and complete while each date is editable, then advance the injected clock.
+            now = day.date().addingTimeInterval(12 * 60 * 60)
             if count.0 > 0 {
                 let tasks = try XCTUnwrap(
                     store.apply { engine in
-                        try engine.addTasks((0..<count.0).map { "Chart task \(index)-\($0)" }, on: .day(day))
+                        try engine.addTasks(
+                            (0..<count.0).map { "Chart task \(index)-\($0)" }, on: .day(day), literal: true)
                     })
                 for task in tasks.prefix(count.1) {
                     XCTAssertNotNil(store.apply { try $0.complete(task.id) })
                 }
             }
         }
+        now = finalNow
         let days = store.engine.insights().lastSeven
         XCTAssertEqual(days.map(\.planned), counts.map(\.0))
         XCTAssertEqual(days.map(\.completed), counts.map(\.1))
@@ -154,12 +160,16 @@ final class InsightsDashboardChartTests: XCTestCase {
     }
 
     private func matches(_ bitmap: NSBitmapImageRep, x: Int, y: Int, token: UInt32) -> Bool {
-        guard let color = bitmap.colorAt(x: x, y: y)?.usingColorSpace(.sRGB), color.alphaComponent > 0.99 else {
-            return false
-        }
-        return abs(color.redComponent - Double((token >> 16) & 255) / 255) < 0.025
-            && abs(color.greenComponent - Double((token >> 8) & 255) / 255) < 0.025
-            && abs(color.blueComponent - Double(token & 255) / 255) < 0.025
+        // Read encoded components: a display-profile conversion can alter otherwise exact token bytes.
+        guard bitmap.bitsPerSample == 8, bitmap.samplesPerPixel == 4,
+            !bitmap.bitmapFormat.contains(.alphaFirst)
+        else { return false }
+        var pixel = [Int](repeating: 0, count: 4)
+        bitmap.getPixel(&pixel, atX: x, y: y)
+        return pixel[3] == 255
+            && abs(pixel[0] - Int((token >> 16) & 255)) <= 6
+            && abs(pixel[1] - Int((token >> 8) & 255)) <= 6
+            && abs(pixel[2] - Int(token & 255)) <= 6
     }
 
     private func contiguous(_ values: [Int]) -> [Range<Int>] {
