@@ -320,8 +320,12 @@ private enum MatrixViewReader {
         // discovered first would delete its real window-to-content edge (the focused
         // getter can return the hosting view itself), leaving a window-only tree.
         var detachedFocus: [NSObject] = []
+        // AppKit vends a fresh object per focused-element call: read the application's once and
+        // keep that exact object, so the node in the snapshot is the one the decision uses.
+        let appFocusObject = value(NSApp, "accessibilityFocusedUIElement") as? NSObject
+        if let appFocusObject { retained[handle(appFocusObject)] = appFocusObject }
         for owner
-            in ([NSApp] + windows + windows.compactMap(\.contentView)
+            in (windows + windows.compactMap(\.contentView)
             + windows.compactMap(\.firstResponder)) as [NSObject]
         {
             if let focused = value(owner, "accessibilityFocusedUIElement") as? NSObject {
@@ -383,7 +387,8 @@ private enum MatrixViewReader {
         walk()
         let windowReachable = result.nodes.count
         // Only focus objects the window walk never reached are added, as detached roots.
-        for focused in detachedFocus where discovered.insert(handle(focused)).inserted {
+        for focused in [appFocusObject].compactMap({ $0 }) + detachedFocus
+        where discovered.insert(handle(focused)).inserted {
             stack.append((focused, 0))
         }
         walk()
@@ -397,17 +402,47 @@ private enum MatrixViewReader {
         }
         // AppKit's public focused-element getter is the in-process equivalent of the system
         // AXFocusedUIElement read; prefer it over a semantics-free responder object.
-        let appFocus = (value(NSApp, "accessibilityFocusedUIElement") as? NSObject).map(handle)
+        let appFocus = appFocusObject.map(handle)
         let appFocusNode = appFocus.flatMap { result.nodes[$0] }
         let appFocusUsable =
             appFocusNode.map {
                 let role = $0.strings[kAXRoleAttribute as String]
                 return role != nil && role != "AXUnknown" && role != "AXWindow"
             } ?? false
+        // AppKit vends fresh element objects per getter (an NSSegmentedControl publishes each
+        // segment through both its children and navigation order), so one focused control can
+        // appear as several candidates. Collapse identical role/strings/frame duplicates, then
+        // keep the deepest: a focused radio group contains its focused segment, and system AX
+        // reports the segment.
+        func identity(_ element: MatrixElement) -> String? {
+            result.nodes[element].map { "\($0.strings.sorted { $0.key < $1.key })|\(NSStringFromRect($0.frame))" }
+        }
+        var unique: [String: MatrixElement] = [:]
+        for element in semanticFocus.keys.sorted(by: { $0.id < $1.id }) {
+            if let key = identity(element), unique[key] == nil { unique[key] = element }
+        }
+        func below(_ start: MatrixElement) -> Set<String> {
+            var seen: Set<MatrixElement> = []
+            var pending = result.nodes[start]?.edges[kAXChildrenAttribute as String] ?? []
+            while let next = pending.popLast(), seen.count < 3000 {
+                if seen.insert(next).inserted {
+                    pending += result.nodes[next]?.edges[kAXChildrenAttribute as String] ?? []
+                }
+            }
+            return Set(seen.compactMap(identity))
+        }
+        // Compare by identity, not handle: the copy under a group may be another fresh object.
+        let deepest = unique.filter { key, element in
+            let contained = below(element)
+            return !unique.keys.contains { $0 != key && contained.contains($0) }
+        }.map(\.value)
         var source = "responder"
         if semanticFocus.count == 1 {
             result.focused = semanticFocus.first?.key
             source = "semantic"
+        } else if deepest.count == 1 {
+            result.focused = deepest.first
+            source = "semantic-deepest of \(semanticFocus.count)"
         } else if appFocusUsable {
             result.focused = appFocus
             source = "app-focused-element"

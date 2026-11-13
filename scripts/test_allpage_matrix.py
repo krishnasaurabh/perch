@@ -88,11 +88,16 @@ class AllPageMatrixProbeTests(unittest.TestCase):
         for trace in ("KEYVIEW ", "canBecomeKeyView=", "FOCUS step ", "source=\\(mxFocusIdentitySource())",
                       "role-fallback", "matrix focus read: source="):
             self.assertIn(trace, self.source)
+        # Duplicate focused semantics collapse to the deepest node; a single candidate is unchanged.
+        self.assertIn('source = "semantic-deepest of', self.source)
+        self.assertIn("!unique.keys.contains { $0 != key && contained.contains($0) }", self.source)
+        self.assertLess(self.source.index("if semanticFocus.count == 1 {\n            result.focused"),
+                        self.source.index("} else if deepest.count == 1 {"))
         # Focus objects are attached only after the window walk, never pre-marked discovered.
         reader = self.source.split("private enum MatrixViewReader", 1)[1].split("enum MatrixAX {", 1)[0]
         self.assertNotIn('as? NSObject,\n                discovered.insert(handle(focused))', reader)
         self.assertLess(reader.index("walk()\n        let windowReachable"),
-                        reader.index("for focused in detachedFocus where discovered.insert"))
+                        reader.index("+ detachedFocus\n"))
 
     def test_native_contrast_uses_the_requested_appearance_without_competing_scheme(self):
         section = self.source.split("func contrastStates()", 1)[1]
