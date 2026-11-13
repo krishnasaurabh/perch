@@ -138,6 +138,8 @@ final class SettingsErrorFeedbackTests: XCTestCase {
     ) {
         let labels = named(error.perchPresentationDetail, in: window)
         XCTAssertFalse(labels.isEmpty, "Settings must render its error: \(error)", file: file, line: line)
+        XCTAssertEqual(window.contentView!.bounds.width, 440, accuracy: 1, file: file, line: line)
+        XCTAssertEqual(window.contentView!.bounds.height, 520, accuracy: 1, file: file, line: line)
         let visible = window.convertToScreen(window.contentView!.bounds)
         for label in labels {
             let frame = (label.value(forKey: "accessibilityFrame") as? NSValue)?.rectValue ?? .zero
@@ -250,9 +252,12 @@ private final class SettingsFailureFixture: ObservableObject {
             contentRect: NSRect(x: 20, y: 20, width: 440, height: 520), styleMask: [.titled], backing: .buffered,
             defer: false)
         window.isReleasedWhenClosed = false
-        window.contentView = NSHostingView(
+        let host = NSHostingView(
             rootView: SettingsFailureFixtureView(fixture: self)
                 .environmentObject(store).environment(\.accessibilityEnabled, true))
+        host.sizingOptions = []
+        window.contentView = host
+        window.setContentSize(NSSize(width: 440, height: 520))
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
     }
