@@ -443,9 +443,11 @@ struct SettingsDetail<Content: View>: View {
                     retry: feedback.canRetry(error) ? { feedback.retry(error) } : nil
                 )
                 .padding([.horizontal, .top], 12)
+                .layoutPriority(1)
             }
             content()
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .frame(maxWidth: .infinity, minHeight: 0, maxHeight: .infinity, alignment: .top)
+                .clipped()
         }
     }
 }
