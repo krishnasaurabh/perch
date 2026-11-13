@@ -2,7 +2,19 @@ import PerchUI
 import PlannerCore
 import SwiftUI
 
-/// Insights lives on its own tab. A seven-day chart on the lavender card, momentum beside it on sage.
+/// The breakpoint uses page width, after the workspace's horizontal insets.
+enum InsightsPageLayout {
+    case stacked, twoColumn
+
+    // Leaves a 460pt chart beside the 272pt momentum card and 8pt gutter.
+    static let twoColumnMinimumWidth: CGFloat = 740
+
+    static func resolve(width: CGFloat) -> Self {
+        width < twoColumnMinimumWidth ? .stacked : .twoColumn
+    }
+}
+
+/// Insights lives on its own tab. A seven-day chart on lavender, momentum on sage.
 struct InsightsPage: View {
     @EnvironmentObject var store: PlannerStore
     @State private var metric: Metric = .tasks
@@ -29,9 +41,20 @@ struct InsightsPage: View {
             .frame(maxHeight: .infinity)
             .card(.timer)
         } else {
-            HStack(alignment: .top, spacing: Theme.gutter) {
-                chart(i).frame(maxHeight: .infinity)
-                momentum(i).frame(width: Theme.sideColumn).frame(maxHeight: .infinity)
+            GeometryReader { geometry in
+                switch InsightsPageLayout.resolve(width: geometry.size.width) {
+                case .stacked:
+                    VStack(spacing: Theme.gutter) {
+                        chart(i).frame(maxHeight: .infinity)
+                        momentum(i).frame(maxWidth: .infinity)
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                case .twoColumn:
+                    HStack(alignment: .top, spacing: Theme.gutter) {
+                        chart(i).frame(maxHeight: .infinity)
+                        momentum(i).frame(width: Theme.sideColumn).frame(maxHeight: .infinity)
+                    }
+                }
             }
             .onAppear {
                 // Focus logged but nothing finished this week: open on the chart that has something to show.
