@@ -1,5 +1,6 @@
 #if WEEK_INBOX_KEYBOARD_PROBE
     import AppKit
+    import ApplicationServices
     import PerchUI
     import PlannerCore
     import SwiftUI
@@ -15,6 +16,15 @@
                 UserDefaults.standard.integer(forKey: "AppleKeyboardUIMode") == 3,
                 "The fixture must enable Tab navigation in its argument domain")
             Self.log("Week native full-keyboard-access flag: \(NSApp.isFullKeyboardAccessEnabled)")
+            // Prime AppKit's lazy AX publication before constructing actor-isolated Week bindings.
+            let primer = NSWindow(
+                contentRect: NSRect(x: 0, y: 0, width: 100, height: 100),
+                styleMask: [.titled], backing: .buffered, defer: false)
+            primer.isReleasedWhenClosed = false
+            primer.contentView = NSTextField(labelWithString: "Keyboard fixture")
+            primer.orderFront(nil)
+            await Self.primeAccessibility()
+            primer.close()
             let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
             defer { try? FileManager.default.removeItem(at: directory) }
             let file = PlannerFile(
@@ -135,6 +145,24 @@
             await settle()
         }
 
+        private nonisolated static func primeAccessibility() async {
+            await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+                DispatchQueue.global().async {
+                    let app = AXUIElementCreateApplication(getpid())
+                    var raw: CFTypeRef?
+                    let status = AXUIElementCopyAttributeValue(app, kAXWindowsAttribute as CFString, &raw)
+                    FileHandle.standardError.write(Data("Week AX root priming: \(status.rawValue)\n".utf8))
+                    if let windows = raw as? [AXUIElement] {
+                        for window in windows {
+                            var children: CFTypeRef?
+                            _ = AXUIElementCopyAttributeValue(window, kAXChildrenAttribute as CFString, &children)
+                        }
+                    }
+                    continuation.resume()
+                }
+            }
+        }
+
         @MainActor private static func settle() async {
             try? await Task.sleep(for: .milliseconds(200))
             NSApp.windows.forEach { $0.contentView?.layoutSubtreeIfNeeded() }
@@ -184,6 +212,17 @@
                 for child in children { walk(child, depth: depth + 1) }
             }
             walk(root, depth: 0)
+            // Some SwiftUI semantic focus nodes exist only through this public getter.
+            // Attach them after the normal roots so a hosting root cannot lose its children.
+            if let window = root as? NSWindow {
+                let owners: [NSObject] =
+                    [NSApp, window] + [window.contentView, window.firstResponder].compactMap { $0 }
+                for owner in owners {
+                    if let focused = value(owner, "accessibilityFocusedUIElement") as? NSObject {
+                        walk(focused, depth: 0)
+                    }
+                }
+            }
             return retained
         }
 
