@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import PerchUI
 import PlannerCore
 import ServiceManagement
@@ -358,9 +359,30 @@ struct SettingsView: View {
 @MainActor
 final class SettingsFailureFeedback: ObservableObject {
     @Published private(set) var retryError: PerchAppError?
+    var failedAgentDisconnects: Set<AgentConnector.App> = []
     private var retryAction: (() -> Void)?
+    private var retryID: UUID?
+    private weak var observedStore: PlannerStore?
+    private var errorObservation: AnyCancellable?
 
-    func canRetry(_ error: PerchAppError) -> Bool { retryError == error && retryAction != nil }
+    func canRetry(_ error: PerchAppError) -> Bool {
+        retryID != nil && retryError == error && retryAction != nil
+    }
+
+    private func invalidateRetry() {
+        retryID = nil
+        retryAction = nil
+        retryError = nil
+    }
+
+    private func observeErrors(in store: PlannerStore) {
+        guard observedStore !== store else { return }
+        errorObservation?.cancel()
+        observedStore = store
+        // Observe every publication synchronously, including nil and equal-valued errors.
+        // A render-time onChange can coalesce those distinct failure events.
+        errorObservation = store.$lastError.sink { [weak self] _ in self?.invalidateRetry() }
+    }
 
     func retry(_ error: PerchAppError) {
         guard canRetry(error) else { return }
@@ -372,20 +394,23 @@ final class SettingsFailureFeedback: ObservableObject {
         store: PlannerStore, failure: @escaping (Error) -> PerchAppError,
         operation: @escaping () throws -> Void
     ) -> Bool {
+        observeErrors(in: store)
+        let previousRetryID = retryID
         do {
             try operation()
-            if store.lastError == retryError { store.lastError = nil }
-            retryError = nil
-            retryAction = nil
+            if let previousRetryID, retryID == previousRetryID { store.lastError = nil }
+            invalidateRetry()
             return true
         } catch {
             let presented = failure(error)
+            // Publishing ends any previous event's ownership before arming this operation.
+            store.lastError = presented
+            retryID = UUID()
             retryAction = { [weak self, weak store] in
                 guard let self, let store else { return }
                 self.perform(store: store, failure: failure, operation: operation)
             }
             retryError = presented
-            store.lastError = presented
             return false
         }
     }
