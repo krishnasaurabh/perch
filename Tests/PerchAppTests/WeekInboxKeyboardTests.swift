@@ -244,19 +244,23 @@
     }
     private struct WeekKeyboardFailure: Error { let message: String }
 
-    MainActor.assumeIsolated {
-        let app = NSApplication.shared
-        app.setActivationPolicy(.regular)
-        Task { @MainActor in
-            do {
-                try await WeekInboxKeyboardCheck.run()
-                exit(0)
-            } catch {
-                FileHandle.standardError.write(Data("FAIL: Week Inbox native keyboard: \(error)\n".utf8))
-                exit(1)
+    private enum WeekInboxProbe {
+        static func run() {
+            MainActor.assumeIsolated {
+                let app = NSApplication.shared
+                app.setActivationPolicy(.regular)
+                Task { @MainActor in
+                    do {
+                        try await WeekInboxKeyboardCheck.run()
+                        exit(0)
+                    } catch {
+                        FileHandle.standardError.write(Data("FAIL: Week Inbox native keyboard: \(error)\n".utf8))
+                        exit(1)
+                    }
+                }
+                app.run()
             }
         }
-        app.run()
     }
 #else
     import Foundation
@@ -276,8 +280,8 @@
                     at: root.appendingPathComponent(item), to: temporary.appendingPathComponent(item))
             }
             let main = temporary.appendingPathComponent("Sources/Perch/main.swift")
-            try FileManager.default.removeItem(at: main)
-            try FileManager.default.copyItem(at: source, to: main)
+            let program = try String(contentsOf: source, encoding: .utf8) + "\nWeekInboxProbe.run()\n"
+            try program.write(to: main, atomically: true, encoding: .utf8)
             let log = temporary.appendingPathComponent("keyboard.log")
             XCTAssertTrue(FileManager.default.createFile(atPath: log.path, contents: nil))
             let output = try FileHandle(forWritingTo: log)
