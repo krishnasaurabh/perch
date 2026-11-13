@@ -109,8 +109,16 @@ final class ClipsConsentTests: XCTestCase {
         delegate.store = store
         delegate.completeWelcome()
         queue.sync {}
-        let consented = counts.snapshot()
+        let afterWelcome = counts.snapshot()
         XCTAssertTrue(store.prefs.welcomeCompleted)
+        XCTAssertFalse(store.prefs.catchScreenshots)
+        XCTAssertEqual(afterWelcome.opens, 0)
+        XCTAssertEqual(afterWelcome.enumerations, 0)
+        XCTAssertEqual(afterWelcome.queries, 0)
+
+        WelcomeScreenshotConsent(store: store).isEnabled.wrappedValue = true
+        queue.sync {}
+        let consented = counts.snapshot()
         XCTAssertTrue(store.prefs.catchScreenshots)
         XCTAssertEqual(consented.opens, 1)
         XCTAssertEqual(consented.enumerations, 1)
