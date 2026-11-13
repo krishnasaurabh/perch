@@ -18,7 +18,9 @@ struct Sample: Decodable {
     let ended: Double?
 }
 let samples = try JSONDecoder().decode([Sample].self, from: FileHandle.standardInput.readDataToEndOfFile())
-var readiness = CaptureFocusReadiness()
+let deadline = CommandLine.arguments.contains("--dense-repeat")
+    ? CaptureFocusReadiness.denseRepeatDeadline : CaptureFocusReadiness.deadline
+var readiness = CaptureFocusReadiness(traceDeadline: deadline)
 for sample in samples {
     readiness.observe(time: sample.t, editorIdentity: sample.owner, editingEndedAt: sample.ended)
 }
@@ -60,8 +62,9 @@ class CompactHomeFocusTests(unittest.TestCase):
                        check=True, capture_output=True, text=True, timeout=60)
         return binary
 
-    def run_samples(self, samples, binary=None):
-        result = subprocess.run([str(binary or self.binary)], input=json.dumps(samples),
+    def run_samples(self, samples, binary=None, *, dense=False):
+        command = [str(binary or self.binary)] + (["--dense-repeat"] if dense else [])
+        result = subprocess.run(command, input=json.dumps(samples),
                                 check=True, capture_output=True, text=True, timeout=10)
         return json.loads(result.stdout)
 
@@ -74,6 +77,20 @@ class CompactHomeFocusTests(unittest.TestCase):
     def test_late_native_focus_can_converge_before_deadline(self):
         self.assertEqual(self.run_samples([sample(0.81), sample(2.6, "capture"), sample(2.91, "capture")]),
                          dict(settled=2.91, lost=False))
+
+    def test_dense_late_focus_has_time_to_stabilize(self):
+        samples = [sample(0.81), sample(2.7, "capture"), sample(3.01, "capture")]
+        self.assertEqual(self.run_samples(samples, dense=True), dict(settled=3.01, lost=False))
+
+    def test_dense_late_owner_change_restarts_stability(self):
+        samples = [sample(2.6, "outgoing"), sample(2.85, "capture"),
+                   sample(3.0, "capture"), sample(3.16, "capture")]
+        self.assertEqual(self.run_samples(samples, dense=True), dict(settled=3.16, lost=False))
+
+    def test_dense_late_reacquisition_has_time_to_stabilize(self):
+        samples = [sample(0.001), sample(2.084, "capture"), sample(2.569, ended=2.085),
+                   sample(3.105, "capture", ended=2.085), sample(3.415, "capture", ended=2.085)]
+        self.assertEqual(self.run_samples(samples, dense=True), dict(settled=3.415, lost=False))
 
     def test_brief_incoming_focus_is_not_readiness(self):
         samples = [sample(0.81), sample(1.14, "capture"), sample(1.32),
@@ -101,6 +118,59 @@ class CompactHomeFocusTests(unittest.TestCase):
         samples = [sample(0.81), sample(2.9, "capture"), sample(3.21, "capture")]
         self.assertEqual(self.run_samples(samples), dict(settled=-1, lost=False))
 
+    def test_dense_window_does_not_change_single_open_deadline(self):
+        samples = [sample(2.7, "capture"), sample(3.01, "capture")]
+        self.assertEqual(self.run_samples(samples), dict(settled=-1, lost=False))
+        self.assertEqual(self.run_samples(samples, dense=True), dict(settled=3.01, lost=False))
+
+    def test_dense_initial_focus_still_waits_for_minimum_settle(self):
+        self.assertEqual(self.run_samples([sample(0.1, "capture"), sample(0.5, "capture")], dense=True),
+                         dict(settled=-1, lost=False))
+        self.assertEqual(self.run_samples([sample(0.1, "capture"), sample(0.81, "capture")], dense=True),
+                         dict(settled=0.81, lost=False))
+
+    def test_dense_missing_transient_and_churning_focus_never_pass(self):
+        cases = [
+            [sample(0), sample(0.81), sample(4.01)],
+            [sample(i / 10, "capture" if i % 2 else None) for i in range(42)],
+            [sample(i / 10, "first" if i % 2 else "second") for i in range(42)],
+            [sample(2.7, "capture"), sample(2.9), sample(4.01)],
+        ]
+        for samples in cases:
+            with self.subTest(samples=samples):
+                self.assertEqual(self.run_samples(samples, dense=True), dict(settled=-1, lost=False))
+
+    def test_dense_focus_still_requires_a_full_stable_interval(self):
+        samples = [sample(2.7, "capture"), sample(2.99, "capture")]
+        self.assertEqual(self.run_samples(samples, dense=True), dict(settled=-1, lost=False))
+        self.assertEqual(self.run_samples(samples + [sample(3.01, "capture")], dense=True),
+                         dict(settled=3.01, lost=False))
+
+    def test_dense_focus_that_stabilizes_after_deadline_is_rejected(self):
+        for samples in ([sample(3.8, "capture"), sample(4.11, "capture")],
+                        [sample(2.7, "first"), sample(2.9, "second"),
+                         sample(3.2, "third"), sample(3.8, "capture"), sample(4.11, "capture")]):
+            with self.subTest(samples=samples):
+                self.assertEqual(self.run_samples(samples, dense=True), dict(settled=-1, lost=False))
+
+    def test_dense_focus_loss_end_and_owner_change_after_readiness_are_fatal(self):
+        prefix = [sample(2.7, "capture"), sample(3.01, "capture")]
+        for suffix in ([sample(3.2), sample(3.6, "capture")],
+                       [sample(3.4, "capture", ended=3.2)],
+                       [sample(3.4, "other")]):
+            with self.subTest(suffix=suffix):
+                self.assertEqual(self.run_samples(prefix + suffix, dense=True), dict(settled=3.01, lost=True))
+
+    def test_dense_deadline_is_wired_to_repeat_observation_only(self):
+        source = SOURCE.read_text()
+        self.assertIn("static let denseRepeatDeadline = 4.0", self.logic)
+        self.assertIn("static let deadline = 3.0", self.logic)
+        self.assertEqual(source.count("deadline: CaptureFocusReadiness.denseRepeatDeadline"), 1)
+        self.assertIn('label: "dense-repeat-\\(iteration)", full: true,', source)
+        self.assertIn("if t >= readiness.traceDeadline ||", source)
+        self.assertIn("CaptureFocusReadiness(traceDeadline: deadline)", source)
+        self.assertIn("for iteration in 1...20", source)
+
     def test_native_focus_loss_after_readiness_is_still_fatal(self):
         samples = [sample(0.1, "capture"), sample(0.81, "capture"), sample(0.9),
                    sample(1.4, "capture"), sample(1.8, "capture")]
@@ -119,7 +189,7 @@ class CompactHomeFocusTests(unittest.TestCase):
             ("first-sample", "static let stableInterval = 0.3", "static let stableInterval = 0.0",
              [sample(0.81), sample(1.14, "capture"), sample(1.32),
               sample(1.53, "capture"), sample(1.84, "capture")]),
-            ("unbounded", "time <= Self.deadline", "true",
+            ("unbounded", "time <= traceDeadline", "true",
              [sample(2.9, "capture"), sample(3.21, "capture")]),
             ("missed-end", "editingEndedAt >= candidateSince", "false",
              [sample(0.9, "capture"), sample(1.5, "capture", ended=1.15)]),
