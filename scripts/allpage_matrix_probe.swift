@@ -139,6 +139,9 @@ struct MatrixAXSnapshot: Sendable {
     var app = MatrixElement(id: 0)
     var focused: MatrixElement?
     var nodes: [MatrixElement: MatrixAXNode] = [:]
+    /// System AX positions have a top-left origin on the primary display; native
+    /// accessibilityFrame values are already AppKit (bottom-left) screen coordinates.
+    var topLeftFrames = false
 }
 
 /// All native AX calls are confined to this nonisolated reader.
@@ -174,13 +177,14 @@ enum MatrixAXReader {
     }
 
     static func raw(
-        _ element: AXUIElement, _ attribute: String, trace: Bool = false, context: String = ""
+        _ element: AXUIElement, _ attribute: String, trace: Bool = false, quiet: Bool = false,
+        context: String = ""
     ) -> CFTypeRef? {
         precondition(!Thread.isMainThread, "self-addressed AX read on the main thread")
         if trace { mxLog("AX before \(context) attribute=\(attribute)") }
         var value: CFTypeRef?
         let error = AXUIElementCopyAttributeValue(element, attribute as CFString, &value)
-        if trace || error != .success {
+        if trace || (error != .success && !quiet) {
             mxLog("AX copy \(context) \(attribute) error=\(error.rawValue)")
         }
         return error == .success ? value : nil
@@ -194,11 +198,18 @@ enum MatrixAXReader {
 
     static func handle(_ element: AXUIElement) -> MatrixElement { MatrixElement(id: CFHash(element)) }
 
+    /// Name attributes read even when the element does not advertise them.
+    static let unadvertisedNames: Set<String> = [
+        kAXIdentifierAttribute as String, kAXDescriptionAttribute as String, kAXTitleAttribute as String,
+        kAXValueAttribute as String, kAXHelpAttribute as String,
+    ]
+
     static func read(smoke: Bool = false) -> MatrixAXSnapshot {
         precondition(!Thread.isMainThread, "self-addressed AX snapshot on the main thread")
         if smoke { mxLog("ax smoke: creating the application element off-main") }
         let app = AXUIElementCreateApplication(getpid())
         var result = MatrixAXSnapshot()
+        result.topLeftFrames = true
         result.app = handle(app)
         if smoke { mxLog("ax smoke: reading the window list") }
         let windows = elements(app, kAXWindowsAttribute as String, trace: true, context: "node=0 role=AXApplication")
@@ -235,8 +246,15 @@ enum MatrixAXReader {
                 kAXTitleAttribute, kAXValueAttribute, kAXHelpAttribute,
             ] {
                 let name = attribute as String
-                if supported.contains(name),
-                    let value = raw(element, name, trace: trace, context: "node=\(index) role=\(role)") as? String,
+                // SwiftUI nodes (section headings, status labels, buttons) answer their name
+                // attributes without listing them in AXUIElementCopyAttributeNames. Gating the
+                // name reads on that list drops rendered text, so every name is always asked;
+                // only a miss on an unadvertised name stays out of the log.
+                let advertised = supported.contains(name)
+                guard advertised || unadvertisedNames.contains(name) else { continue }
+                if let value = raw(
+                    element, name, trace: trace, quiet: !advertised, context: "node=\(index) role=\(role)")
+                    as? String,
                     !value.isEmpty
                 {
                     node.strings[name] = value
@@ -678,8 +696,20 @@ func mxReady(_ seconds: Double = 1.0) async {
     await mxSettle(0.2)
 }
 
+/// A top-left-origin rect on the primary display, in AppKit's bottom-left screen space.
+func mxCocoaRect(_ topLeft: NSRect, primaryHeight: CGFloat) -> NSRect {
+    NSRect(x: topLeft.minX, y: primaryHeight - topLeft.maxY, width: topLeft.width, height: topLeft.height)
+}
+
+/// `screenRect` is a frame from the current snapshot. System AX frames are converted to AppKit
+/// screen coordinates first: passing them straight to convertFromScreen mirrors the click
+/// vertically, so a sidebar row click lands in empty list space and never changes the pane.
 @MainActor
 func mxClick(host: NSView, window: NSWindow, screenRect: NSRect) throws {
+    var screenRect = screenRect
+    if MatrixAX.snapshot.topLeftFrames, let primary = NSScreen.screens.first {
+        screenRect = mxCocoaRect(screenRect, primaryHeight: primary.frame.maxY)
+    }
     let inWindow = window.convertFromScreen(screenRect)
     let local = host.convert(inWindow, from: nil)
     // Native accessibilityFrame and convertFromScreen both use AppKit screen coordinates.
@@ -1578,8 +1608,9 @@ final class AllPageMatrix {
             mxDumpAX(root, "welcome")
             throw MatrixFailure(label: "welcome has no Open workspace action")
         }
-        // The production CTA owns the default-action Return shortcut. Drive that
-        // real key rather than translating view-tree handles into system AX handles.
+        // The production CTA owns the default-action Return shortcut. Drive that real key rather
+        // than translating view-tree handles into system AX handles; a self-addressed AXPress on
+        // this button ended the probe with signal 5.
         try await mxKey(window, 36, "\r")
         await mxReady(0.5)
         try report.require(opened == 1, "welcome opens the workspace without any permission")
