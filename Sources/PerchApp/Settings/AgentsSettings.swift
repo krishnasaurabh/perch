@@ -30,9 +30,7 @@ struct AgentsSettings: View {
                     switch statuses[app] ?? .notInstalled {
                     case .connected:
                         Label("Connected", systemImage: "checkmark.circle.fill").foregroundStyle(Theme.success)
-                        Button("Disconnect") {
-                            try? disconnect(app); refresh()
-                        }
+                        Button("Disconnect") { disconnectAgent(app) }
                     case .notConnected:
                         Button("Connect") {
                             do { message = try AgentConnector.connect(app) } catch {
@@ -76,11 +74,21 @@ struct AgentsSettings: View {
                 "Click a prompt to copy it and paste it into Claude. Its edits appear in the notch immediately; ⌘Z reverts them."
             ).font(Theme.meta).foregroundStyle(Theme.secondary)
         }
-        .onAppear(perform: refresh)
+        .onAppear { if statuses.isEmpty { refresh() } }
         .task(id: copied) {
             guard copied != nil else { return }
             do { try await Task.sleep(nanoseconds: 1_500_000_000) } catch { return }
             if !Task.isCancelled { copied = nil }
+        }
+    }
+
+    func disconnectAgent(_ app: AgentConnector.App) {
+        let disconnect = disconnect, readStatus = readStatus, statuses = $statuses
+        feedback.perform(store: store, failure: { .planner($0.perchPresentationDetail) }) {
+            try disconnect(app)
+            // Do not re-read an unreadable configuration after a failure and falsely
+            // present the connection as removed. Other apps keep their current state.
+            statuses.wrappedValue[app] = readStatus(app)
         }
     }
 

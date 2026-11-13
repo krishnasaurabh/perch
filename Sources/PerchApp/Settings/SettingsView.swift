@@ -437,6 +437,16 @@ struct SettingsDetail<Content: View>: View {
     @ViewBuilder var content: () -> Content
 
     var body: some View {
-        content()
+        VStack(spacing: 0) {
+            if let error = store.lastError {
+                SettingsErrorRow(
+                    error: error,
+                    retry: feedback.canRetry(error) ? { feedback.retry(error) } : nil
+                )
+                .padding([.horizontal, .top], 12)
+            }
+            content()
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
     }
 }
