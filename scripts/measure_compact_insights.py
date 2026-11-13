@@ -6,12 +6,12 @@ page at the compact shell width (704pt shell -> 668pt page); this reads those PN
 pixels: the chart card, the gutter, the momentum card, and where the momentum content is drawn.
 
 Card fills are found by their opaque ThemeTokens colours (lavender for the chart card, sage for
-momentum), so nothing here restates a constant that the layout could disagree with. Anti-aliased
+momentum), so the measured card bounds do not assume their requested layout size. Anti-aliased
 text produces a few stray pixels in either colour, so a card row is one where the colour covers a
 row the way a card does, not one where the colour merely appears.
 
-Content fit is reported, not asserted. The compact stack cannot be fixed by width, so whether the
-momentum rows fit is a design decision (see the card that owns this capture).
+Compact cards must fit inside the page and shell. Each rendered momentum metric must leave ink
+in its own grid cell; a heading or a neighbouring metric cannot stand in for missing content.
 """
 
 import json
@@ -27,6 +27,15 @@ INK_LUMINANCE = 120  # near-black card ink; both pastel fills are far brighter
 PAGE_BOTTOM_INSET = 13  # WorkspaceLayout.bottomInset, below the page
 STROKE = 1  # strokeBorder is drawn inside the card edge, so a gap between fills is wider
 GUTTER_BETWEEN_FILLS = 12  # 8pt gutter + stroke ring + corner arcs, measured between fills
+
+# compactMomentum in InsightsPage.swift: a heading, then two stat rows. In the probe's
+# single-line fixtures each row's tallest face is 15pt (Theme.heading or stat's value).
+# Derive their line-box height from the measured card interior, not a fixed pixel y offset.
+COMPACT_CONTENT_ROWS = 3
+COMPACT_STAT_COLUMNS = 3
+CARD_PADDING = 14  # ThemeTokens.cardPadding
+COMPACT_ROW_GAP = 8  # outer VStack and Grid.verticalSpacing
+COMPACT_COLUMN_GAP = 12  # Grid.horizontalSpacing
 
 
 def rect(left, top, right, bottom, pixels):
@@ -118,7 +127,39 @@ def ink_bands(gray, left, right, top, bottom):
     return bands
 
 
-def measure(folder, entry):
+def compact_stat_cells(gray, momentum, scale, entry):
+    """Sample each required stat separately, excluding the heading and adjacent grid rows.
+
+    All bounds are relative to the detected card. The capture name records whether the probe
+    seeded calendar completions; in that fixture the fifth stat spans columns two and three.
+    Keeping expected bounds even when ink is absent makes missing metrics diagnosable.
+    """
+    inset = CARD_PADDING * scale
+    xgap, ygap = COMPACT_COLUMN_GAP * scale, COMPACT_ROW_GAP * scale
+    left, right = momentum['left'] + inset, momentum['right'] - inset
+    top, bottom = momentum['top'] + inset, momentum['bottom'] - inset
+    column_width = (right - left - (COMPACT_STAT_COLUMNS - 1) * xgap) / COMPACT_STAT_COLUMNS
+    row_height = (bottom - top - (COMPACT_CONTENT_ROWS - 1) * ygap) / COMPACT_CONTENT_ROWS
+
+    def cell(name, row, column, span=1):
+        x0 = round(left + column * (column_width + xgap))
+        x1 = round(left + (column + span) * (column_width + xgap) - xgap)
+        y0 = round(top + row * (row_height + ygap))
+        y1 = round(top + row * (row_height + ygap) + row_height)
+        bands = ink_bands(gray, max(0, x0), min(gray.width, x1),
+                          max(0, y0), min(gray.height, y1))
+        return dict(name=name, left=x0, right=x1, top=y0, bottom=y1, rows=[
+            dict(top=start, bottom=end + 1, height=end - start + 1) for start, end in bands])
+
+    cells = [cell(f'paired stat column {index + 1}', 1, index)
+             for index in range(COMPACT_STAT_COLUMNS)]
+    cells.append(cell('done today stat', 2, 0))
+    if entry['name'] == 'insights-compact-calendar':
+        cells.append(cell('calendar stat', 2, 1, span=2))
+    return cells
+
+
+def measure(folder, entry) -> dict:
     image = Image.open(Path(folder) / entry['file']).convert('RGBA')
     backdrop = Image.new('RGBA', image.size, (0, 0, 0, 255))
     backdrop.alpha_composite(image)
@@ -169,7 +210,8 @@ def measure(folder, entry):
             columns.append(dict(left=x0, right=x1, rows=[
                 dict(top=top, bottom=bottom + 1, height=bottom - top + 1)
                 for top, bottom in bands]))
-        result['momentum_detail'] = dict(fill=found['momentum'], columns=columns)
+        result['momentum_detail'] = dict(fill=found['momentum'], columns=columns,
+                                        stats=compact_stat_cells(gray, momentum, scale, entry))
     return result
 
 
@@ -213,6 +255,9 @@ def main():
             for index, column in enumerate(detail['columns'], 1):
                 print(f"    column {index} x {column['left']}..{column['right']}: "
                       + ', '.join(f"ink y {row['top']}..{row['bottom']}" for row in column['rows']))
+            for stat in detail['stats']:
+                print(f"    {stat['name']} x {stat['left']}..{stat['right']} "
+                      f"y {stat['top']}..{stat['bottom']}: {len(stat['rows'])} ink rows")
 
     for r in compact:
         if abs(r['page_width'] - 668) > 0.5:
@@ -228,6 +273,16 @@ def main():
                 failures.append(f"{r['name']}: {card} is {r[card]['width']}px wide, expected 668")
         if len(r['rows']) < 3:
             failures.append(f"{r['name']}: the momentum card drew {len(r['rows'])} text lines")
+        if r['clipped']:
+            failures.append(f"{r['name']}: momentum clipped by the shell: bottom "
+                            f"{r['momentum']['bottom']}px >= shell bottom {r['image'][1]}px")
+        if r['past_page']:
+            failures.append(f"{r['name']}: momentum past the page bottom: bottom "
+                            f"{r['momentum']['bottom']}px > page bottom {r['page_bottom']:g}px + 1px")
+        for stat in r['momentum_detail']['stats']:
+            if not stat['rows']:
+                failures.append(f"{r['name']}: {stat['name']} has no ink rows in "
+                                f"x {stat['left']}..{stat['right']}, y {stat['top']}..{stat['bottom']}px")
 
     if abs(reference['page_width'] - 784) > 0.5:
         failures.append(f"wide page is {reference['page_width']}pt, expected 784")
