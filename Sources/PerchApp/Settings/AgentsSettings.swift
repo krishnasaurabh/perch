@@ -4,7 +4,10 @@ import SwiftUI
 
 struct AgentsSettings: View {
     @EnvironmentObject var store: PlannerStore
-    @State private var statuses: [AgentConnector.App: AgentConnector.Status] = [:]
+    @Binding var statuses: [AgentConnector.App: AgentConnector.Status]
+    @ObservedObject var feedback: SettingsFailureFeedback
+    var readStatus: (AgentConnector.App) -> AgentConnector.Status = AgentConnector.status
+    var disconnect: (AgentConnector.App) throws -> Void = AgentConnector.disconnect
     @State private var message: String?
     @State private var copied: String?
 
@@ -27,12 +30,13 @@ struct AgentsSettings: View {
                     switch statuses[app] ?? .notInstalled {
                     case .connected:
                         Label("Connected", systemImage: "checkmark.circle.fill").foregroundStyle(Theme.success)
-                        Button("Disconnect") {
-                            try? AgentConnector.disconnect(app); refresh()
-                        }
+                        Button("Disconnect") { disconnectAgent(app) }
                     case .notConnected:
                         Button("Connect") {
-                            do { message = try AgentConnector.connect(app) } catch {
+                            do {
+                                message = try AgentConnector.connect(app)
+                                feedback.failedAgentDisconnects.remove(app)
+                            } catch {
                                 message = error.perchPresentationDetail
                             }
                             refresh()
@@ -81,7 +85,28 @@ struct AgentsSettings: View {
         }
     }
 
-    func refresh() { for a in AgentConnector.App.allCases { statuses[a] = AgentConnector.status(a) } }
+    func disconnectAgent(_ app: AgentConnector.App) {
+        let disconnect = disconnect, readStatus = readStatus, statuses = $statuses, feedback = feedback
+        feedback.perform(store: store, failure: { .planner($0.perchPresentationDetail) }) { [weak feedback] in
+            guard let feedback else { return }
+            do {
+                try disconnect(app)
+                statuses.wrappedValue[app] = readStatus(app)
+                feedback.failedAgentDisconnects.remove(app)
+            } catch {
+                // Keep this app's last-known state even across pane re-entry: the
+                // status reader can mistake an unreadable configuration for removal.
+                feedback.failedAgentDisconnects.insert(app)
+                throw error
+            }
+        }
+    }
+
+    func refresh() {
+        for app in AgentConnector.App.allCases where !feedback.failedAgentDisconnects.contains(app) {
+            statuses[app] = readStatus(app)
+        }
+    }
     func copy(_ s: String, _ tag: String) {
         NSPasteboard.general.clearContents(); NSPasteboard.general.setString(s, forType: .string)
         copied = tag
