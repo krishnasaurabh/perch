@@ -2,6 +2,7 @@
 import json
 import os
 from pathlib import Path
+import re
 import shutil
 import subprocess
 import tempfile
@@ -55,9 +56,9 @@ class CompactHomeFocusTests(unittest.TestCase):
         cls.temp.cleanup()
 
     @classmethod
-    def compile(cls, logic, name):
+    def compile(cls, logic, name, driver=DRIVER):
         source, binary = cls.root / (name + ".swift"), cls.root / name
-        source.write_text(logic + DRIVER)
+        source.write_text(logic + driver)
         subprocess.run([cls.swiftc, "-swift-version", "6", str(source), "-o", str(binary)],
                        check=True, capture_output=True, text=True, timeout=60)
         return binary
@@ -118,7 +119,7 @@ class CompactHomeFocusTests(unittest.TestCase):
         samples = [sample(0.81), sample(2.9, "capture"), sample(3.21, "capture")]
         self.assertEqual(self.run_samples(samples), dict(settled=-1, lost=False))
 
-    def test_dense_window_does_not_change_single_open_deadline(self):
+    def test_dense_window_does_not_change_default_deadline(self):
         samples = [sample(2.7, "capture"), sample(3.01, "capture")]
         self.assertEqual(self.run_samples(samples), dict(settled=-1, lost=False))
         self.assertEqual(self.run_samples(samples, dense=True), dict(settled=3.01, lost=False))
@@ -161,7 +162,7 @@ class CompactHomeFocusTests(unittest.TestCase):
             with self.subTest(suffix=suffix):
                 self.assertEqual(self.run_samples(prefix + suffix, dense=True), dict(settled=3.01, lost=True))
 
-    def test_dense_deadline_is_wired_to_repeat_observation_only(self):
+    def test_dense_repeat_deadline_remains_wired_to_observation(self):
         source = SOURCE.read_text()
         self.assertIn("static let denseRepeatDeadline = 4.0", self.logic)
         self.assertIn("static let deadline = 3.0", self.logic)
@@ -170,6 +171,38 @@ class CompactHomeFocusTests(unittest.TestCase):
         self.assertIn("if (t >= CaptureFocusReadiness.deadline && t >= readiness.traceDeadline)", source)
         self.assertIn("CaptureFocusReadiness(traceDeadline: deadline)", source)
         self.assertIn("for iteration in 1...20", source)
+
+    def test_single_dense_open_uses_extended_window_and_other_scenarios_keep_default(self):
+        source = SOURCE.read_text()
+        selection = re.search(
+            r'let focusDeadline =\s*(scenario == "dense"\s*\?\s*CaptureFocusReadiness\.\w+'
+            r'\s*:\s*CaptureFocusReadiness\.\w+)', source)
+        if selection is None:
+            self.fail("single-open scenarios must select an explicit readiness deadline")
+        self.assertRegex(source, r'openHomeTraced\(\s*delegate, label: scenario, full: scenario == "dense",'
+                         r'\s*deadline: focusDeadline\s*\)')
+        self.assertIn(r'\(scenario): capture editor acquires stable focus within \(focusDeadline) s', source)
+        # Compile the actual scenario selection with the unchanged readiness struct.
+        logic = self.logic + '\nfunc singleOpenDeadline(_ scenario: String) -> Double {\nreturn ' + selection[1] + '\n}\n'
+        driver = re.sub(r'let deadline = .*?\nvar readiness',
+                        'let deadline = singleOpenDeadline(CommandLine.arguments[1])\nvar readiness',
+                        DRIVER, count=1, flags=re.S)
+        binary = self.compile(logic, "single-open", driver)
+        samples = [sample(0.81), sample(3.105, "capture"), sample(3.415, "capture")]
+        for scenario in ("empty", "three", "completed", "timer", "long-title", "dense", "timer-notepad"):
+            with self.subTest(scenario=scenario):
+                def observe(values):
+                    result = subprocess.run([str(binary), scenario], input=json.dumps(values),
+                                            check=True, capture_output=True, text=True, timeout=10)
+                    return json.loads(result.stdout)
+                self.assertEqual(observe(samples),
+                                 dict(settled=3.415 if scenario == "dense" else -1, lost=False))
+                self.assertEqual(observe([sample(2.69, "capture"), sample(3.0, "capture")]),
+                                 dict(settled=3.0, lost=False))
+                self.assertEqual(observe([sample(3.69, "capture"), sample(4.0, "capture")]),
+                                 dict(settled=4.0 if scenario == "dense" else -1, lost=False))
+                self.assertEqual(observe([sample(3.7, "capture"), sample(4.01, "capture")]),
+                                 dict(settled=-1, lost=False))
 
     def test_native_focus_loss_after_readiness_is_still_fatal(self):
         samples = [sample(0.1, "capture"), sample(0.81, "capture"), sample(0.9),
