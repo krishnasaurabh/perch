@@ -93,14 +93,11 @@ print("Matrix assertion plumbing check passed")
             "clips.copy(",
         ):
             self.assertNotIn(forbidden, self.source, forbidden)
-        # The only AX presses are the Welcome call to action and none of them is a permission or
-        # capture control.
-        presses = re.findall(r"(?<!func )mxPress\(([^)]*)\)", self.source)
-        self.assertEqual(len(presses), 1, presses)
-        for hit in presses:
-            self.assertNotIn("Allow", hit)
-            self.assertNotIn("screenshots", hit)
-            self.assertNotIn("copied items", hit)
+        # Every activation is a real input event, including the Welcome default action.
+        self.assertNotIn("AXUIElementPerformAction", self.source)
+        self.assertNotIn("accessibilityPerformPress", self.source)
+        self.assertNotIn("performClick", self.source)
+        self.assertIn('try await mxKey(window, 36, "\\r")', self.source)
 
     def test_measurements_read_the_system_accessibility_tree(self):
         # Other groups retain the system reader; the workspace graphs are read on
@@ -168,6 +165,43 @@ print("Matrix assertion plumbing check passed")
         # An unadvertised miss stays quiet; an advertised failure is still logged.
         self.assertIn("quiet: !advertised", loop)
         self.assertIn("if trace || (error != .success && !quiet)", reader)
+
+    def test_clicks_convert_system_ax_frames_to_appkit_screen_space(self):
+        click = self.source.split("func mxClick(", 1)[1].split("MatrixStage.mark(", 1)[0]
+        self.assertIn("if MatrixAX.snapshot.topLeftFrames, let primary = NSScreen.screens.first", click)
+        self.assertIn("mxCocoaRect(screenRect, primaryHeight: primary.frame.maxY)", click)
+        self.assertLess(click.index("mxCocoaRect("), click.index("window.convertFromScreen(screenRect)"))
+        self.assertNotIn("host.bounds.height - local.midY", click)
+        reader = self.source.split("enum MatrixAXReader {", 1)[1].split("private enum MatrixViewReader", 1)[0]
+        self.assertIn("result.topLeftFrames = true", reader)
+        view_reader = self.source.split("private enum MatrixViewReader {", 1)[1].split("@MainActor\nenum MatrixAX", 1)[0]
+        self.assertNotIn("topLeftFrames", view_reader)
+        function = re.search(r"func mxCocoaRect\(.*?\n}\n", self.source, re.S)
+        assert function is not None
+        swift = shutil.which("swiftc")
+        assert swift is not None, "Swift is required to verify the click conversion"
+        # Recorded hosted geometry: primary display 768 high, Settings window AX frame
+        # {0,25} 760x720, General row AX frame {0,87} 170x28. The row centre must land 24pt
+        # below the top of the 668pt host, i.e. on the row, not mirrored near the bottom.
+        program = "import Foundation\n" + function.group(0) + '''
+let window = NSRect(x: 0, y: 768 - 25 - 720, width: 760, height: 720)
+let row = mxCocoaRect(NSRect(x: 0, y: 87, width: 170, height: 28), primaryHeight: 768)
+let inWindowMid = row.midY - window.minY
+precondition(inWindowMid == 644, "row centre \\(inWindowMid)")
+precondition(668 - inWindowMid == 24, "host offset")
+let unconverted = NSRect(x: 0, y: 87, width: 170, height: 28)
+precondition(unconverted.midY - window.minY != 644, "negative control must differ")
+print("click conversion positive and negative controls passed")
+'''
+        with tempfile.TemporaryDirectory() as directory:
+            source = pathlib.Path(directory) / "main.swift"
+            binary = pathlib.Path(directory) / "click"
+            source.write_text(program)
+            built = subprocess.run([swift, str(source), "-o", str(binary)], capture_output=True, text=True)
+            self.assertEqual(built.returncode, 0, built.stderr)
+            ran = subprocess.run([str(binary)], capture_output=True, text=True)
+            self.assertEqual(ran.returncode, 0, ran.stderr)
+            self.assertIn("controls passed", ran.stdout)
 
     def test_focus_membership_compiles_with_snapshot_values(self):
         declaration_match = re.search(r"struct MatrixElement[^\n]+", self.source)

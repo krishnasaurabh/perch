@@ -137,6 +137,9 @@ struct MatrixAXSnapshot: Sendable {
     var app = MatrixElement(id: 0)
     var focused: MatrixElement?
     var nodes: [MatrixElement: MatrixAXNode] = [:]
+    /// System AX positions have a top-left origin on the primary display; native
+    /// accessibilityFrame values are already AppKit (bottom-left) screen coordinates.
+    var topLeftFrames = false
 }
 
 /// All native AX calls are confined to this nonisolated reader.
@@ -188,6 +191,7 @@ enum MatrixAXReader {
         if smoke { mxLog("ax smoke: creating the application element off-main") }
         let app = AXUIElementCreateApplication(getpid())
         var result = MatrixAXSnapshot()
+        result.topLeftFrames = true
         result.app = handle(app)
         if smoke { mxLog("ax smoke: reading the window list") }
         let windows = elements(app, kAXWindowsAttribute as String, trace: true, context: "node=0 role=AXApplication")
@@ -273,19 +277,6 @@ enum MatrixAXReader {
         return result
     }
 
-    // Used only by the existing Welcome CTA check, never to substitute for a key event.
-    static func press(_ target: MatrixElement) -> Int32 {
-        let app = AXUIElementCreateApplication(getpid())
-        var stack = elements(app, kAXWindowsAttribute as String)
-        var visited: Set<MatrixElement> = []
-        while let element = stack.popLast() {
-            let key = handle(element)
-            guard visited.insert(key).inserted, visited.count <= 3000 else { continue }
-            if key == target { return AXUIElementPerformAction(element, kAXPressAction as CFString).rawValue }
-            stack.append(contentsOf: elements(element, kAXChildrenAttribute as String))
-        }
-        return AXError.invalidUIElement.rawValue
-    }
 }
 
 /// These workspace fixtures must not query their own process through the system AX client:
@@ -462,13 +453,6 @@ func mxFocusedRole() -> String? {
 }
 
 @MainActor
-func mxPress(_ element: MatrixElement) async throws {
-    MatrixStage.mark("AX press \(mxIdentifier(element) ?? mxRole(element) ?? "control")")
-    let error = await Task.detached { MatrixAXReader.press(element) }.value
-    guard error == AXError.success.rawValue else { throw MatrixFailure(label: "AX press refused (\(error))") }
-}
-
-@MainActor
 func mxText(_ root: MatrixElement) -> [String] { mxTree(root).flatMap { mxNames($0) } }
 
 @MainActor
@@ -578,11 +562,24 @@ func mxReady(_ seconds: Double = 1.0) async {
     await mxSettle(0.2)
 }
 
+/// A top-left-origin rect on the primary display, in AppKit's bottom-left screen space.
+func mxCocoaRect(_ topLeft: NSRect, primaryHeight: CGFloat) -> NSRect {
+    NSRect(x: topLeft.minX, y: primaryHeight - topLeft.maxY, width: topLeft.width, height: topLeft.height)
+}
+
+/// `screenRect` is a frame from the current snapshot. System AX frames are converted to AppKit
+/// screen coordinates first: passing them straight to convertFromScreen mirrors the click
+/// vertically, so a sidebar row click lands in empty list space and never changes the pane.
 @MainActor
 func mxClick(host: NSView, window: NSWindow, screenRect: NSRect) throws {
+    var screenRect = screenRect
+    if MatrixAX.snapshot.topLeftFrames, let primary = NSScreen.screens.first {
+        screenRect = mxCocoaRect(screenRect, primaryHeight: primary.frame.maxY)
+    }
     let inWindow = window.convertFromScreen(screenRect)
     let local = host.convert(inWindow, from: nil)
-    let point = CGPoint(x: local.midX, y: host.isFlipped ? local.midY : host.bounds.height - local.midY)
+    // Already in the host's own (possibly flipped) coordinate space.
+    let point = CGPoint(x: local.midX, y: local.midY)
     // A click outside the content view can start a window drag loop, which no synthetic mouse-up
     // can end. Refuse it instead of hanging.
     guard host.bounds.contains(point) else {
@@ -1368,11 +1365,13 @@ final class AllPageMatrix {
             mxHas(root, AppL10n.text("Skip any permission. You can review it later in Settings.")),
             "welcome keeps the skip promise in the failure state")
 
-        guard let cta = mxFind(root, name: AppL10n.text("Open workspace")) else {
+        guard mxFind(root, name: AppL10n.text("Open workspace")) != nil else {
             mxDumpAX(root, "welcome")
             throw MatrixFailure(label: "welcome has no Open workspace action")
         }
-        try await mxPress(cta)
+        // The production CTA owns the default-action Return shortcut. Drive that real key; a
+        // self-addressed AXPress on this button ended the probe with signal 5.
+        try await mxKey(window, 36, "\r")
         await mxReady(0.5)
         try report.require(opened == 1, "welcome opens the workspace without any permission")
         try mxSave(host, output.appendingPathComponent("welcome-failure-state.png"))
