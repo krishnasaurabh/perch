@@ -46,7 +46,8 @@ struct InsightsPage: View {
                 case .stacked:
                     VStack(spacing: Theme.gutter) {
                         chart(i).frame(maxHeight: .infinity)
-                        momentum(i).frame(maxWidth: .infinity)
+                        compactMomentum(i)
+                            .fixedSize(horizontal: false, vertical: true)
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                 case .twoColumn:
@@ -109,6 +110,44 @@ struct InsightsPage: View {
     }
 
     // MARK: Momentum
+
+    // Keep every stat in two rows so the chart retains useful height in the compact page.
+    // The longer calendar label spans two columns; the wide card keeps its original layout.
+    private func compactMomentum(_ i: Insights) -> some View {
+        let done = i.lastSeven.reduce(0) { $0 + $1.completed }, before = i.previousSeven.reduce(0) { $0 + $1.completed }
+        let focus = i.lastSeven.reduce(0) { $0 + $1.focusSeconds }
+        return VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .firstTextBaseline, spacing: 12) {
+                CardHeading(headline(done: done, before: before))
+                Text(subline(done: done, before: before, focusThisWeek: focus))
+                    .font(Theme.body).foregroundStyle(Theme.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 8) {
+                GridRow(alignment: .firstTextBaseline) {
+                    stat(PerchL10n.number(done), AppL10n.text("tasks done this week"))
+                    stat(TimerText.short(focus), AppL10n.text("focused this week"))
+                    stat(AppL10n.format("%lld days", i.streak), AppL10n.text("streak"))
+                }
+                GridRow(alignment: .firstTextBaseline) {
+                    stat(AppL10n.format("%lld/%lld", i.today.completed, i.today.planned), AppL10n.text("done today"))
+                    if i.allTimeCompletedCalendarEvents > 0 {
+                        stat(
+                            PerchL10n.number(i.today.completedCalendarEvents),
+                            AppL10n.text("calendar events checked off today")
+                        )
+                        .gridCellColumns(2)
+                        .help(
+                            AppL10n.format(
+                                "Checked off in Perch. %lld all time; Calendar is unchanged.",
+                                i.allTimeCompletedCalendarEvents)
+                        )
+                    }
+                }
+            }
+        }
+        .card(.tasks)
+    }
 
     private func momentum(_ i: Insights) -> some View {
         let done = i.lastSeven.reduce(0) { $0 + $1.completed }, before = i.previousSeven.reduce(0) { $0 + $1.completed }
