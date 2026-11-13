@@ -8,7 +8,7 @@ Hover the notch or press **⌥N** (configurable in Settings). Type or dictate a 
 Today stays compact; charts live on a separate Insights tab.
 
 <p align="center">
-  <img src="docs/images/today.png" width="820" alt="Perch Today page: three tasks on the left and a running 50-minute focus timer on the right">
+  <img src="docs/images/today.png" width="820" alt="Perch Today page: tasks with Details and Delete on each row, and a running 45-minute focus timer on the right">
 </p>
 <p align="center">
   <img src="docs/images/insights.png" width="820" alt="Perch Insights page: completed and planned tasks for the last seven days, with weekly totals and streak">
