@@ -258,7 +258,7 @@ func openHomeTraced(
         if focused && firstFocused == nil { firstFocused = t }
         if t >= CaptureFocusReadiness.minimumSettle && focusedAtSettle == nil { focusedAtSettle = focused }
         readiness.observe(time: t, editorIdentity: identity, editingEndedAt: trace.editingEndedAt)
-        // Keep the standard deadline as the floor; dense repeats extend only the observation budget.
+        // Keep the standard deadline as the floor; dense scenarios extend only the observation budget.
         if (t >= CaptureFocusReadiness.deadline && t >= readiness.traceDeadline)
             || (!full && readiness.settledFocusAt != nil)
         {
@@ -322,13 +322,16 @@ MainActor.assumeIsolated {
                         }
                         if scenario == "timer-notepad" { e.planner.preferences.hiddenWorkspaceCards = [] }
                     }
-                    let open = await openHomeTraced(delegate, label: scenario, full: scenario == "dense")
+                    let focusDeadline =
+                        scenario == "dense" ? CaptureFocusReadiness.denseRepeatDeadline : CaptureFocusReadiness.deadline
+                    let open = await openHomeTraced(
+                        delegate, label: scenario, full: scenario == "dense", deadline: focusDeadline)
                     FocusTraceLog.append(open, output: output)
                     recordFocus(delegate: delegate, scenario: scenario, output: output)
                     require(
                         (open["settledFocusAt"] as? Double ?? -1) >= 0 && open["focusedAtEnd"] as? Bool == true
                             && open["lostAfterFocus"] as? Bool == false,
-                        "\(scenario): capture editor acquires stable focus within 3 s")
+                        "\(scenario): capture editor acquires stable focus within \(focusDeadline) s")
                     guard let panel = NSApp.keyWindow, let root = panel.contentView,
                         let editor = panel.firstResponder as? NSTextView, editor.isFieldEditor,
                         let geometry = delegate.model.geometry
