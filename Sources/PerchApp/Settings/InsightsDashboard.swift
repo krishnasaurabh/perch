@@ -24,10 +24,13 @@ struct InsightsDashboard: View {
                 Text("Planned vs. done, last 7 days").font(Theme.heading)
                 Chart {
                     ForEach(i.lastSeven, id: \.day) { d in
+                        // Completed is a subset of Planned, so compare from zero rather than stacking counts.
                         BarMark(x: .value("Day", d.day.date(), unit: .day), y: .value("Planned", d.planned))
                             .foregroundStyle(Theme.chartPlanned)
+                            .position(by: .value("Series", "Planned"))
                         BarMark(x: .value("Day", d.day.date(), unit: .day), y: .value("Completed", d.completed))
                             .foregroundStyle(Theme.chartCompleted)
+                            .position(by: .value("Series", "Completed"))
                     }
                 }.frame(height: 170)
                 HStack {
