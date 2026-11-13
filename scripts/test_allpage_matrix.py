@@ -85,6 +85,61 @@ class AllPageMatrixProbeTests(unittest.TestCase):
         self.assertIn("lowRatio < 4.5", section)
         self.assertIn("host.appearance = appearance", self.source)
 
+    def test_contrast_reads_the_variant_by_best_match_not_the_base_name(self):
+        section = self.source.split("func contrastStates()", 1)[1].split("func mxHex(", 1)[0]
+        # NSAppearance.name reports the base name even for a high-contrast object, so a
+        # name comparison can never observe the variant; bestMatch(from:) resolves it.
+        self.assertIn("window.effectiveAppearance.bestMatch(from: [baseName, appearanceName])", section)
+        self.assertNotIn("let effective = window.effectiveAppearance.name.rawValue", section)
+        self.assertIn("NSWorkspace.shared.accessibilityDisplayShouldIncreaseContrast", section)
+        # The strict expectation stays: the high-contrast variant must be the resolved match.
+        self.assertIn("effective == appearanceName.rawValue", section)
+        self.assertIn("accessibilityHighContrastDarkAqua", section)
+        self.assertIn("accessibilityHighContrastAqua", section)
+
+    def test_focus_seeds_never_detach_window_content(self):
+        reader = self.source.split("private enum MatrixViewReader {", 1)[1].split("@MainActor\nenum MatrixAX", 1)[0]
+        seeding = reader.split("var focusRoots", 1)[1].split("while let (object, depth) = stack.popLast()", 1)[0]
+        # Focus nodes are queued beneath the windows and never pre-marked as discovered.
+        self.assertNotIn("discovered.insert", seeding)
+        self.assertIn("stack.insert(contentsOf: focusRoots, at: 0)", seeding)
+        self.assertIn("result.nodes.count >= 3000", reader)
+
+    def test_focus_seed_ordering_control(self):
+        """Model of the reader's worklist: window -> content -> status, content also focused."""
+        graph = {"window": ["content"], "content": ["status", "detail"], "status": [], "detail": []}
+
+        def read(preseed):
+            nodes, discovered, edges = {}, {"window"}, {}
+            stack = [("window", 0)]
+            if preseed:
+                discovered.add("content")
+                stack.append(("content", 0))
+            else:
+                stack.insert(0, ("content", 0))
+            while stack:
+                key, depth = stack.pop()
+                if key in nodes:
+                    continue
+                children = [c for c in graph[key] if c != key and c not in discovered]
+                discovered.update(children)
+                edges[key] = children
+                nodes[key] = True
+                stack.extend((c, depth + 1) for c in reversed(children))
+            reachable, walk = [], ["window"]
+            while walk:
+                node = walk.pop()
+                reachable.append(node)
+                walk.extend(edges.get(node, []))
+            return set(nodes), set(reachable)
+
+        old_nodes, old_reachable = read(preseed=True)
+        new_nodes, new_reachable = read(preseed=False)
+        self.assertEqual(old_nodes, set(graph))
+        self.assertNotIn("status", old_reachable)  # the measured red: read, but detached
+        self.assertEqual(new_nodes, set(graph))
+        self.assertEqual(new_reachable, set(graph))
+
     def test_assertion_plumbing_can_go_red(self):
         plumbing = self.source.split("struct MatrixFailure", 1)[1].split("// MARK: - System accessibility layer", 1)[0]
         program = (

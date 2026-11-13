@@ -316,17 +316,21 @@ private enum MatrixViewReader {
         var retained: [MatrixElement: NSObject] = Dictionary(uniqueKeysWithValues: windows.map { (handle($0), $0) })
         var discovered = Set(windows.map(handle))
         // Public focus getters can publish a semantic node absent from the view hierarchy.
+        // Queue them beneath the windows and leave them undiscovered: a window's content
+        // view is often its own focused element, and marking it discovered first removes
+        // the window's edge to it, detaching the whole page from its window. Popped last,
+        // a focus node is read only if no window subtree already reached it.
+        var focusRoots: [(NSObject, Int)] = []
         for owner
             in ([NSApp] + windows + windows.compactMap(\.contentView)
             + windows.compactMap(\.firstResponder)) as [NSObject]
         {
-            if let focused = value(owner, "accessibilityFocusedUIElement") as? NSObject,
-                discovered.insert(handle(focused)).inserted
-            {
+            if let focused = value(owner, "accessibilityFocusedUIElement") as? NSObject {
                 retained[handle(focused)] = focused
-                stack.append((focused, 0))
+                focusRoots.append((focused, 0))
             }
         }
+        stack.insert(contentsOf: focusRoots, at: 0)
         // A field editor's delegate is the control whose accessible identity it edits.
         if let responder = NSApp.keyWindow?.firstResponder {
             let owner =
@@ -1823,6 +1827,11 @@ final class AllPageMatrix {
         defer { fixture.close() }
         let increased = UserDefaults(suiteName: "com.apple.universalaccess")?.bool(forKey: "increaseContrast") ?? false
         report.record("increaseContrastPreference", increased)
+        // The flag AppKit itself resolves high-contrast appearances from, recorded beside the
+        // preference so a runner that writes the key without AppKit adopting it is visible.
+        let systemIncreased = NSWorkspace.shared.accessibilityDisplayShouldIncreaseContrast
+        report.record("accessibilityDisplayShouldIncreaseContrast", systemIncreased)
+        mxLog("contrast system flag: preference=\(increased) workspace=\(systemIncreased)")
         try report.require(increased, "the runner is in the system increase-contrast state")
         var rows: [[String: Any]] = []
         for (mode, appearanceName, scheme, bodyInk, lowInk) in [
@@ -1859,10 +1868,24 @@ final class AllPageMatrix {
             window.appearance = appearance
             host.appearance = appearance
             host.layoutSubtreeIfNeeded()
-            let effective = window.effectiveAppearance.name.rawValue
+            // AppKit never names an appearance after its high-contrast variant: the object
+            // NSAppearance(named:) returned above already reports its base name. The variant
+            // is resolved from the system setting and is read with bestMatch(from:), which is
+            // also how the product's dynamic colours resolve (Color+Palette.swift).
+            let baseName: NSAppearance.Name = scheme == .dark ? .darkAqua : .aqua
+            let effectiveName = window.effectiveAppearance.name.rawValue
+            let effective = window.effectiveAppearance.bestMatch(from: [baseName, appearanceName])?.rawValue ?? "none"
+            // Evidence only: what a plain base appearance resolves to on this runner.
+            let control =
+                NSAppearance(named: baseName)?.bestMatch(from: [baseName, appearanceName])?.rawValue ?? "none"
+            report.record(
+                "contrast_\(mode)_appearance", ["name": effectiveName, "bestMatch": effective, "baseControl": control])
+            mxLog(
+                "contrast appearance: mode=\(mode) name=\(effectiveName) bestMatch=\(effective) base=\(control) app=\(NSApp.effectiveAppearance.name.rawValue) workspace=\(systemIncreased)"
+            )
             try report.require(
                 effective == appearanceName.rawValue, "\(mode) window runs in the increased-contrast appearance",
-                "effective \(effective)")
+                "effective \(effective) name \(effectiveName) workspace \(systemIncreased)")
             // The panel renders the reading's own detail when it has one (an unbundled process
             // cannot get notification access), so measure the line that is actually drawn.
             let reading = await SettingsPermissionAccess(services: fixture.services).read(.notifications)
