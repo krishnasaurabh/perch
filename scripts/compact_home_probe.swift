@@ -96,15 +96,22 @@ func address(_ object: AnyObject?) -> String {
 func rounded(_ seconds: Double) -> Double { (seconds * 1000).rounded() / 1000 }
 
 /// Focus can briefly enter an incoming field before its layout finishes. Require continuous native
-/// ownership, not the first positive sample. The deadline and the original focus assertion stay strict.
+/// ownership, not the first positive sample. Each caller supplies a bounded observation window.
 struct CaptureFocusReadiness {
     static let minimumSettle = 0.8
     static let stableInterval = 0.3
     static let deadline = 3.0
+    // Dense replacement can finish near 3 s; reserve time to observe a stable incoming editor.
+    static let denseRepeatDeadline = 4.0
+    let traceDeadline: Double
     private var candidateSince: Double?
     private var candidateEditor: String?
     private(set) var settledFocusAt: Double?
     private(set) var lostAfterFocus = false
+
+    init(traceDeadline: Double = Self.deadline) {
+        self.traceDeadline = traceDeadline
+    }
 
     mutating func observe(time: Double, editorIdentity: String?, editingEndedAt: Double?) {
         // A begin/end transition can happen between samples, even if the same shared editor returns.
@@ -125,7 +132,7 @@ struct CaptureFocusReadiness {
             candidateSince = time
         }
         if settledFocusAt == nil, let candidateSince,
-            time >= Self.minimumSettle, time <= Self.deadline,
+            time >= Self.minimumSettle, time <= traceDeadline,
             time - candidateSince >= Self.stableInterval
         {
             settledFocusAt = time
@@ -227,15 +234,17 @@ enum FocusTraceLog {
     }
 }
 
-/// Observes the real explicit-open path without assigning focus. Allow at most 3 s for 300 ms of
-/// continuous native capture ownership after the usual 0.8 s minimum; dense opens trace the full deadline.
+/// Observes the real explicit-open path without assigning focus. Require 300 ms of continuous native
+/// capture ownership after the usual 0.8 s minimum, within the caller's bounded observation window.
 @MainActor
-func openHomeTraced(_ delegate: AppDelegate, label: String, full: Bool) async -> [String: Any] {
+func openHomeTraced(
+    _ delegate: AppDelegate, label: String, full: Bool, deadline: Double = CaptureFocusReadiness.deadline
+) async -> [String: Any] {
     let trace = FocusTrace()
     var samples: [[String: Any]] = []
     var firstFocused: Double?
     var focusedAtSettle: Bool?
-    var readiness = CaptureFocusReadiness()
+    var readiness = CaptureFocusReadiness(traceDeadline: deadline)
     var focused = false
     NotificationCenter.default.post(name: .perchOpenWorkspace, object: NotchPage.home)
     while true {
@@ -249,14 +258,20 @@ func openHomeTraced(_ delegate: AppDelegate, label: String, full: Bool) async ->
         if focused && firstFocused == nil { firstFocused = t }
         if t >= CaptureFocusReadiness.minimumSettle && focusedAtSettle == nil { focusedAtSettle = focused }
         readiness.observe(time: t, editorIdentity: identity, editingEndedAt: trace.editingEndedAt)
-        if t >= CaptureFocusReadiness.deadline || (!full && readiness.settledFocusAt != nil) { break }
+        // Keep the standard deadline as the floor; dense repeats extend only the observation budget.
+        if (t >= CaptureFocusReadiness.deadline && t >= readiness.traceDeadline)
+            || (!full && readiness.settledFocusAt != nil)
+        {
+            break
+        }
         try? await Task.sleep(nanoseconds: 20_000_000)
     }
     trace.stop()
     let first = firstFocused.map { String(format: "%.3f", $0) } ?? "never"
     let summary =
         "TRACE \(label): firstFocused=\(first) focusedAt0.8s=\(focusedAtSettle ?? false) "
-        + "focusedAtEnd=\(focused) lostAfterFocus=\(readiness.lostAfterFocus) end=\(String(format: "%.3f", trace.elapsed))\n"
+        + "focusedAtEnd=\(focused) lostAfterFocus=\(readiness.lostAfterFocus) end=\(String(format: "%.3f", trace.elapsed)) "
+        + "deadline=\(deadline) settledFocusAt=\(readiness.settledFocusAt.map(rounded) ?? -1)\n"
     FileHandle.standardError.write(Data(summary.utf8))
     return [
         "label": label, "firstFocusedAt": first, "focusedAt800ms": focusedAtSettle ?? false,
@@ -412,7 +427,7 @@ MainActor.assumeIsolated {
                 }
                 if !baseline {
                     // Regression check for the explicit-open focus race: close, reseed and reopen the dense
-                    // Home repeatedly, tracing a full 3 s each time. Assert only after every repeat is recorded.
+                    // Home repeatedly, tracing a full 4 s each time. Assert only after every repeat is recorded.
                     var repeats: [[String: Any]] = []
                     for iteration in 1...20 {
                         // Odd repeats leave a long draft in the open editor first, as long-title does before dense.
@@ -432,7 +447,9 @@ MainActor.assumeIsolated {
                             _ = try e.addTasks(
                                 (1...24).map { "Review item \($0) for the release checklist" }, on: .day(e.today))
                         }
-                        let open = await openHomeTraced(delegate, label: "dense-repeat-\(iteration)", full: true)
+                        let open = await openHomeTraced(
+                            delegate, label: "dense-repeat-\(iteration)", full: true,
+                            deadline: CaptureFocusReadiness.denseRepeatDeadline)
                         FocusTraceLog.append(open, output: output)
                         repeats.append(open)
                     }
