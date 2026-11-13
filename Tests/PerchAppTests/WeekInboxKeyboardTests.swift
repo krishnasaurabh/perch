@@ -11,7 +11,10 @@
         static func run() async throws {
             _ = NSApplication.shared
             try require(Bundle.main.bundleIdentifier == nil, "The keyboard fixture must run unbundled")
-            try require(NSApp.isFullKeyboardAccessEnabled, "The fixture must enable full keyboard access")
+            try require(
+                UserDefaults.standard.integer(forKey: "AppleKeyboardUIMode") == 3,
+                "The fixture must enable Tab navigation in its argument domain")
+            Self.log("Week native full-keyboard-access flag: \(NSApp.isFullKeyboardAccessEnabled)")
             let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
             defer { try? FileManager.default.removeItem(at: directory) }
             let file = PlannerFile(
