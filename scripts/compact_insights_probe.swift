@@ -169,14 +169,15 @@ MainActor.assumeIsolated {
             metrics.append(
                 await capture("insights-compact-calendar", shellWidth: 704, delegate: delegate, output: output))
 
-            // Advisory cross-check of the native frame dump: the accessibility tree carries one
-            // combined element per momentum stat row, so each expected row must be present.
+            // Diagnostic only: the measurement reads pixels, not the accessibility tree. Recorded so
+            // a later card can tell whether momentum rows are exposed to assistive technology when
+            // they are drawn past the card fill.
             for entry in metrics {
                 let labels = (entry["ax"] as? [[String: Any]])?.compactMap { $0["label"] as? String } ?? []
-                let found = expectedStats.filter { suffix in labels.contains { $0.hasSuffix(suffix) } }
+                let stats = labels.filter { label in expectedStats.contains { label.hasSuffix($0) } }
                 print(
-                    "ax \(entry["name"] as? String ?? "?"): \(labels.count) labels, momentum rows matched \(found.count)/\(expectedStats.count) \(labels.filter { l in expectedStats.contains { l.hasSuffix($0) } })"
-                )
+                    "ax \(entry["name"] as? String ?? "?"): \(labels.count) labelled elements, "
+                        + "momentum stat rows exposed: \(stats)")
             }
 
             let data = try! JSONSerialization.data(withJSONObject: metrics, options: [.prettyPrinted, .sortedKeys])
