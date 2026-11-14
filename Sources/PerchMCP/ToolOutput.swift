@@ -171,7 +171,7 @@ extension AgentTools {
         return .string(formatter.string(from: date))
     }
 
-    private func taskJSON(_ task: PlanTask, _ engine: PlannerEngine, overdueIDs: Set<UUID>? = nil) -> JSON {
+    func taskJSON(_ task: PlanTask, _ engine: PlannerEngine, overdueIDs: Set<UUID>? = nil) -> JSON {
         let project = engine.project(id: task.projectID)
         let projectJSON: JSON =
             project.map {
@@ -181,6 +181,7 @@ extension AgentTools {
             "id": .string(task.id.uuidString.lowercased()), "title": .string(task.title),
             "day": task.day.map { .string($0.raw) } ?? .null, "done": .bool(task.done),
             "completed_at": timestamp(task.completedAt), "remind_at": timestamp(task.remindAt),
+            "start": timestamp(task.startAt),
             "deadline": task.deadline.map { .string($0.raw) } ?? .null,
             "priority": .string(task.priority.rawValue), "project": projectJSON,
             "notes": .string(task.notes), "repeat": task.repeatRule.map { .string($0.description) } ?? .null,

@@ -15,7 +15,9 @@ final class MCPEdgeTests: XCTestCase {
             "perch-mcp-\(UUID().uuidString)", isDirectory: true)
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         url = dir.appendingPathComponent("planner.json")
-        let tools = AgentTools(file: PlannerFile(url: url), now: { Fixture.now }, calendar: Fixture.calendar)
+        let tools = AgentTools(
+            file: PlannerFile(url: url, preferences: AgentContractPreferences.enabled()), now: { Fixture.now },
+            calendar: Fixture.calendar)
         server = MCPServer(tools: tools, version: "edge")
     }
 

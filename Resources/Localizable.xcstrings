@@ -1200,6 +1200,40 @@
         }
       }
     },
+    "Add and edit tasks is off for agents. Start the block without changing this task's length, or allow task edits in Settings.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Add and edit tasks is off for agents. Start the block without changing this task's length, or allow task edits in Settings."
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Ådd ànd ëdït tàsks ïs öff för àgënts. Stàrt thë blöck wïthöüt chàngïng thïs tàsk's lëngth, ör àllöw tàsk ëdïts ïn Sëttïngs. ·~⟧"
+          }
+        }
+      }
+    },
+    "Add and edit tasks is off for agents. Your tasks are unchanged. Turn it on in Settings to allow this change.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Add and edit tasks is off for agents. Your tasks are unchanged. Turn it on in Settings to allow this change."
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Ådd ànd ëdït tàsks ïs öff för àgënts. Yöür tàsks àrë ünchàngëd. Türn ït ön ïn Sëttïngs tö àllöw thïs chàngë. ·~⟧"
+          }
+        }
+      }
+    },
     "Add at least one task title with text.": {
       "extractionState": "manual",
       "localizations": {
@@ -6895,6 +6929,23 @@
         }
       }
     },
+    "Read the parking lot is off for agents. Your thoughts are private. Turn it on in Settings to allow access.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Read the parking lot is off for agents. Your thoughts are private. Turn it on in Settings to allow access."
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Rëàd thë pàrkïng löt ïs öff för àgënts. Yöür thöüghts àrë prïvàtë. Türn ït ön ïn Sëttïngs tö àllöw àccëss. ·~⟧"
+          }
+        }
+      }
+    },
     "Recording failed to start: %@": {
       "extractionState": "manual",
       "localizations": {
@@ -8415,6 +8466,40 @@
         }
       }
     },
+    "Start and stop time blocks is off for agents. This task has a time block. Stop it in Perch before changing the task.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Start and stop time blocks is off for agents. This task has a time block. Stop it in Perch before changing the task."
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Stàrt ànd stöp tïmë blöcks ïs öff för àgënts. Thïs tàsk hàs à tïmë blöck. Stöp ït ïn Përch bëförë chàngïng thë tàsk. ·~⟧"
+          }
+        }
+      }
+    },
+    "Start and stop time blocks is off for agents. Your time block is unchanged. Turn it on in Settings to allow this change.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Start and stop time blocks is off for agents. Your time block is unchanged. Turn it on in Settings to allow this change."
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Stàrt ànd stöp tïmë blöcks ïs öff för àgënts. Yöür tïmë blöck ïs ünchàngëd. Türn ït ön ïn Sëttïngs tö àllöw thïs chàngë. ·~⟧"
+          }
+        }
+      }
+    },
     "Start focus": {
       "extractionState": "manual",
       "localizations": {
@@ -9193,6 +9278,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "⟦Thërë àrë nö ünpïnnëd clïps tö rëmövë. ·~⟧"
+          }
+        }
+      }
+    },
+    "There are too many pending agent requests. Answer them in Perch first.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "There are too many pending agent requests. Answer them in Perch first."
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Thërë àrë töö màny pëndïng àgënt rëqüësts. Ånswër thëm ïn Përch fïrst. ·~⟧"
           }
         }
       }

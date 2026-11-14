@@ -51,7 +51,7 @@ def field(model, snake, camel) -> Any:
     return getattr(model, snake, getattr(model, camel, None))
 
 
-def seed_synthetic_overdue_task():
+def seed_synthetic_overdue_task(*, enabled=False):
     """A small legacy fixture makes the real server load and migrate synthetic data."""
     path = Path(os.environ["PERCH_DATA"])
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -63,7 +63,7 @@ def seed_synthetic_overdue_task():
             "day": "2000-01-01",
             "createdAt": "2000-01-01T00:00:00Z",
         }],
-        "preferences": {},
+        "preferences": {"agentsCanControlTime": enabled, "agentsCanReadParkingLot": enabled},
     }
     path.write_text(json.dumps(fixture), encoding="utf-8")
 
@@ -121,6 +121,10 @@ async def main(binary):
             seen.add(name)
             return text, structured
 
+        await call("start_timer", error=True, contains="Start and stop time blocks is off")
+        await call("list_parked_thoughts", error=True, contains="Read the parking lot is off")
+        # Change only the isolated fixture, as if the person enabled these settings.
+        seed_synthetic_overdue_task(enabled=True)
         title = "Review smoke output"
         renamed = "Verify smoke output"
         created, created_data = await call("add_tasks", {"titles": [title], "literal": True})
@@ -175,14 +179,21 @@ async def main(binary):
         await call("move_task", {"task": task_id, "to": "inbox"})
         await call("list_inbox", contains=renamed)
         await call("get_task", {"task": renamed, "date": "inbox"}, contains="Day: Inbox")
-        await call("delete_task", {"task": renamed, "date": "inbox"})
+        _, pending = await call("delete_task", {"task": renamed, "date": "inbox"}, contains="waiting")
+        assert pending is not None
+        assert pending["status"] == "pending"
+        await call("get_task", {"task": renamed, "date": "inbox"}, contains=renamed)
+        stored = json.loads(Path(os.environ["PERCH_DATA"]).read_text())
+        assert stored["agentActions"]["pending"][0]["id"].lower() == pending["pending_action_id"]
+        assert stored["agentActions"]["changes"]
+        assert all(change["agentID"] for change in stored["agentActions"]["changes"])
         await call("add_tasks", {"titles": []}, error=True,
                    equals="Add at least one task title with text.")
         await call("list_tasks", {"date": 5}, error=True, contains="Invalid argument 'date'")
         await call("add_tasks", {"titles": ["valid"], "agentID": "forged"}, error=True,
                    equals="Unknown argument 'agentID' for add_tasks.")
         assert seen == set(PARAMETERS), set(PARAMETERS) - seen
-        print(f"MCP smoke passed: {len(tools)} tool schemas, all {len(seen)} tools called, 5 expected errors; "
+        print(f"MCP smoke passed: {len(tools)} tool schemas, all {len(seen)} tools called, 7 expected errors; "
               "all structured results validated.")
 
 
