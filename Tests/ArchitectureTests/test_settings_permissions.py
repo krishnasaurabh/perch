@@ -11,8 +11,8 @@ class SettingsPermissionWiringTests(unittest.TestCase):
         self.assertNotIn("granted.insert", source)
         self.assertIn("PermissionPanel", source)
 
-    def test_settings_exposes_overdue_policy(self):
-        source = (ROOT / "Sources/PerchApp/Settings/SettingsView.swift").read_text()
+    def test_settings_exposes_carry_policy(self):
+        source = (ROOT / "Sources/PerchApp/Settings/SettingsGeneralPane.swift").read_text()
         self.assertIn("pref(\\.carryMode)", source)
         self.assertIn("CarryMode.ask", source)
         self.assertIn("CarryMode.auto", source)
