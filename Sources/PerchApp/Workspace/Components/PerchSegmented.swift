@@ -10,7 +10,6 @@ struct PerchSegmented<Value: Hashable>: View {
     var surface: DesignTokens.Surface = .paper
     @Namespace private var highlight
     @FocusState private var focused: Value?
-    @AccessibilityFocusState private var accessibilityFocus: Value?
     @State private var groupHasFocus = false
     @State private var restorationID = UUID()
     @State private var focusAnchor = PerchSegmentFocusAnchorView()
@@ -57,7 +56,6 @@ struct PerchSegmented<Value: Hashable>: View {
                 .accessibilityLabel(AppL10n.text(item.label))
                 .accessibilityValue(selected ? AppL10n.text("Selected") : AppL10n.text("Not selected"))
                 .accessibilityAddTraits(selected ? .isSelected : [])
-                .accessibilityFocused($accessibilityFocus, equals: item.value)
                 .onKeyPress(.leftArrow) { move(from: index, by: direction == .rightToLeft ? 1 : -1) }
                 .onKeyPress(.rightArrow) { move(from: index, by: direction == .rightToLeft ? -1 : 1) }
                 .onKeyPress(.home) { select(items.startIndex) }
@@ -76,9 +74,6 @@ struct PerchSegmented<Value: Hashable>: View {
         .accessibilityLabel(AppL10n.text(title))
         .accessibilityValue(AppL10n.text(items.first(where: { $0.value == selection })?.label ?? ""))
         .onChange(of: focused) { oldValue, value in
-            // Publish the keyboard destination on the segment's semantic element,
-            // not just its SwiftUI key proxy. Selection alone never claims focus.
-            accessibilityFocus = enabled ? value : nil
             if value != nil {
                 groupHasFocus = true
             } else if oldValue == selection {
@@ -121,7 +116,6 @@ struct PerchSegmented<Value: Hashable>: View {
     private func leaveGroup() -> KeyPress.Result {
         groupHasFocus = false
         restorationID = UUID()
-        accessibilityFocus = nil
         // Tab and Shift-Tab continue through AppKit's native key loop.
         return .ignored
     }

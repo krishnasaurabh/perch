@@ -63,6 +63,14 @@
             await settle()
             try assertEditor(driver.before)
             try await key(code: 48, characters: "\t")
+            // These are the fixture's only SwiftUI key views; the other stops are native fields.
+            // Verify entry once: later key handling can transfer the responder to the hosting view.
+            traceFocus("First Tab keyboard ownership")
+            let responder = window.firstResponder as? NSView
+            try require(
+                window.isKeyWindow && responder?.window === window
+                    && responder.map { String(reflecting: type(of: $0)) == "SwiftUI.KeyViewProxy" } == true,
+                "The segmented group must own the native keyboard focus")
             try assertSelectedAndFocused(45)
             try await testArrowsAndEnds()
             try await testExternalSelection()
@@ -276,12 +284,6 @@
         private func assertSelectedAndFocused(_ minutes: Int) throws {
             let nodes = traceFocus("Expected \(minutes); binding=\(driver.minutes)")
             let controls = segmentNodes(in: nodes)
-            // These are the fixture's only SwiftUI key views; the other stops are native fields.
-            let responder = window.firstResponder as? NSView
-            try require(
-                window.isKeyWindow && responder?.window === window
-                    && responder.map { String(reflecting: type(of: $0)) == "SwiftUI.KeyViewProxy" } == true,
-                "The segmented group must own the native keyboard focus")
             try require(driver.minutes == minutes, "Key action must update the binding to \(minutes)")
             try require(controls.count == 4, "All four native segment buttons must exist")
             for value in [15, 25, 45, 60] {
