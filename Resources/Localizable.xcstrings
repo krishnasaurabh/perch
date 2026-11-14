@@ -3852,6 +3852,23 @@
         }
       }
     },
+    "Everything works without the mouse. Press ? in Perch to see this sheet.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Everything works without the mouse. Press ? in Perch to see this sheet."
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Ëvërythïng wörks wïthöüt thë möüsë. Prëss ? ïn Përch tö sëë thïs shëët. ·~⟧"
+          }
+        }
+      }
+    },
     "Experimental two-way sync is enabled.": {
       "extractionState": "manual",
       "localizations": {
