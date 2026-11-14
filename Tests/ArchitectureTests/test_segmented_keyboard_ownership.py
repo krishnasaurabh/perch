@@ -27,6 +27,11 @@ class SegmentedKeyboardOwnershipTests(unittest.TestCase):
         assertion = source.split("private func assertSelectedAndFocused(", 1)[1]
         assertion = assertion.split("private func accessibilityNodes(", 1)[0]
         self.assertNotIn("SwiftUI.KeyViewProxy", assertion)
+        component = COMPONENT.read_text()
+        setter = component.split("override func setAccessibilityFocused(", 1)[1].split("override func accessibilityPerformPress", 1)[0]
+        self.assertNotIn("press()", setter)
+        self.assertIn("window?.makeFirstResponder(self)", setter)
+        self.assertIn("ForEach(items, id: \.value)", component)
         self.assertIn("driver.minutes == minutes", assertion)
         self.assertLess(assertion.index("traceFocus("), assertion.index("try require("))
 
@@ -35,7 +40,7 @@ class SegmentedKeyboardOwnershipTests(unittest.TestCase):
         for removed in ("@AccessibilityFocusState", ".accessibilityFocused(", "@FocusState"):
             self.assertNotIn(removed, source)
         for retained in ("PerchSegmentKeyView: NSControl", "setAccessibilityRole(.button)",
-                         "override var acceptsFirstResponder: Bool { active && enabled() && selected() }",
+                         "override var acceptsFirstResponder: Bool { active && selectionEnabled() && selected() }",
                          "window?.firstResponder === self", "window.makeFirstResponder(view)",
                          "override func isAccessibilitySelected() -> Bool { selected() }",
                          "override func isAccessibilityFocused() -> Bool", "window?.isKeyWindow == true"):

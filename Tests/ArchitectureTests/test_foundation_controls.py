@@ -79,7 +79,7 @@ class FoundationControlTests(unittest.TestCase):
         source = (COMPONENTS / 'PerchSegmented.swift').read_text()
         for token in ('.accessibilityValue(', 'isAccessibilitySelected()', 'case 123:', 'case 124:',
                       'case 115:', 'case 119:', 'matchedGeometryEffect', '.designMotion(.pop',
-                      '.layoutDirection', 'acceptsFirstResponder: Bool { active && enabled() && selected() }'):
+                      '.layoutDirection', 'acceptsFirstResponder: Bool { active && selectionEnabled() && selected() }'):
             self.assertIn(token, source)
 
     def test_legacy_apis_are_retained_and_deprecated(self):

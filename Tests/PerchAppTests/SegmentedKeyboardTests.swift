@@ -85,6 +85,7 @@
                 (UInt16(124), "\u{f703}", 60), (123, "\u{f702}", 45), (123, "\u{f702}", 25),
                 (115, "\u{f729}", 15), (115, "\u{f729}", 15), (119, "\u{f72b}", 60),
                 (119, "\u{f72b}", 60), (124, "\u{f703}", 60), (115, "\u{f729}", 15),
+                (123, "\u{f702}", 15),
             ] {
                 try await key(code: code, characters: characters)
                 try assertSelectedAndFocused(expected)
@@ -92,6 +93,11 @@
         }
 
         private func testExternalSelection() async throws {
+            let nodes = segmentNodes(in: traceFocus("AX focus must not activate another segment"))
+            let unselected = nodes.compactMap { $0 as? PerchSegmentKeyView }.first { label($0) == "25" }
+            try require(unselected != nil, "The unselected segment must remain accessible")
+            unselected?.setAccessibilityFocused(true)
+            try assertSelectedAndFocused(15)
             for value in [25, 45, 60] {
                 driver.minutes = value
                 await settle()

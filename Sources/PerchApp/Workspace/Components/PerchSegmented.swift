@@ -22,8 +22,7 @@ struct PerchSegmented<Value: Hashable>: View {
 
     var body: some View {
         HStack(spacing: .zero) {
-            ForEach(items.indices, id: \.self) { index in
-                let item = items[index]
+            ForEach(items, id: \.value) { item in
                 let selected = selection == item.value
                 Text(AppL10n.text(item.label))
                     .perchFont(.detailStrong)
@@ -114,12 +113,12 @@ private struct PerchSegmentKeyTarget<Value: Hashable>: NSViewRepresentable {
     func register(_ view: PerchSegmentKeyView, value: Value) {
         views[value] = WeakSegmentView(view)
         view.selected = { [weak self] in self?.selection == value }
-        view.enabled = { [weak self] in self?.enabled == true }
+        view.selectionEnabled = { [weak self] in self?.enabled == true }
         view.press = { [weak self] in self?.select(value, acquireFocus: true) }
         view.key = { [weak self] code in self?.key(code, from: value) == true }
-        view.focusChanged = { [weak self] ownsFocus in
-            guard let self else { return }
-            if ownsFocus { focused = value } else if focused == value { focused = nil }
+        view.focusChanged = { [weak self] _ in
+            // Only the decoration is deferred. Native first responder and AX focus change synchronously.
+            Task { @MainActor [weak self] in self?.refreshFocusPaint() }
         }
         view.pressChanged = { [weak self] down in self?.pressed = down ? value : nil }
     }
@@ -146,7 +145,12 @@ private struct PerchSegmentKeyTarget<Value: Hashable>: NSViewRepresentable {
             if view.window?.firstResponder === view { view.window?.makeFirstResponder(nil) }
             view.focusChanged(false)
         }
-        pressed = nil
+        if pressed != nil { pressed = nil }
+    }
+
+    private func refreshFocusPaint() {
+        let current = views.first { $0.value.view?.isAccessibilityFocused() == true }?.key
+        if focused != current { focused = current }
     }
 
     private func select(_ value: Value, acquireFocus: Bool) {
@@ -188,7 +192,7 @@ private struct PerchSegmentKeyTarget<Value: Hashable>: NSViewRepresentable {
 @MainActor final class PerchSegmentKeyView: NSControl {
     var active = true
     var selected: () -> Bool = { false }
-    var enabled: () -> Bool = { false }
+    var selectionEnabled: () -> Bool = { false }
     var press: () -> Void = {}
     var key: (UInt16) -> Bool = { _ in false }
     var focusChanged: (Bool) -> Void = { _ in }
@@ -203,7 +207,7 @@ private struct PerchSegmentKeyTarget<Value: Hashable>: NSViewRepresentable {
 
     required init?(coder: NSCoder) { nil }
 
-    override var acceptsFirstResponder: Bool { active && enabled() && selected() }
+    override var acceptsFirstResponder: Bool { active && selectionEnabled() && selected() }
     var ownsKeyboardFocus: Bool { window?.firstResponder === self }
 
     override func becomeFirstResponder() -> Bool {
@@ -233,7 +237,7 @@ private struct PerchSegmentKeyTarget<Value: Hashable>: NSViewRepresentable {
     }
 
     override func mouseDown(with event: NSEvent) {
-        guard active, enabled() else { return }
+        guard active, selectionEnabled() else { return }
         pressChanged(true)
         defer { pressChanged(false) }
         while let next = window?.nextEvent(matching: [.leftMouseUp, .leftMouseDragged]) {
@@ -244,18 +248,22 @@ private struct PerchSegmentKeyTarget<Value: Hashable>: NSViewRepresentable {
         }
     }
 
-    override func isAccessibilityEnabled() -> Bool { active && enabled() }
+    override func isAccessibilityEnabled() -> Bool { active && selectionEnabled() }
     override func accessibilityValue() -> Any? { AppL10n.text(selected() ? "Selected" : "Not selected") }
     override func isAccessibilitySelected() -> Bool { selected() }
     override func isAccessibilityFocused() -> Bool {
-        active && enabled() && selected() && !isHiddenOrHasHiddenAncestor
+        active && selectionEnabled() && selected() && !isHiddenOrHasHiddenAncestor
             && window?.isKeyWindow == true && ownsKeyboardFocus
     }
     override func setAccessibilityFocused(_ focused: Bool) {
-        if focused && active && enabled() { press() }
+        if focused && acceptsFirstResponder {
+            window?.makeFirstResponder(self)
+        } else if !focused && ownsKeyboardFocus {
+            window?.makeFirstResponder(nil)
+        }
     }
     override func accessibilityPerformPress() -> Bool {
-        guard active, enabled() else { return false }
+        guard active, selectionEnabled() else { return false }
         press()
         return true
     }
