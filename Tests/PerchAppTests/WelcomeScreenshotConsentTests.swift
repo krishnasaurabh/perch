@@ -94,6 +94,15 @@ final class WelcomeScreenshotConsentTests: XCTestCase {
         XCTAssertEqual(reloaded.prefs.notchOpenTrigger, .everything, "Displaying Welcome must preserve Everything")
     }
 
+    func testWelcomeAccessibilityReaderPreservesAttributedText() {
+        XCTAssertEqual(Self.accessibilityString("Write it down"), "Write it down")
+        XCTAssertEqual(
+            Self.accessibilityString(NSAttributedString(string: "Give it time")), "Give it time")
+        XCTAssertEqual(Self.accessibilityString(NSString(string: "Park the rest")), "Park the rest")
+        XCTAssertNil(Self.accessibilityString(nil))
+        XCTAssertNil(Self.accessibilityString(42))
+    }
+
     @MainActor func testWelcomePresentsHabitsAndReadOnlyPermissionReasons() async throws {
         let root = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }
@@ -111,7 +120,10 @@ final class WelcomeScreenshotConsentTests: XCTestCase {
             styleMask: [.titled], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
         window.contentView = host
+        window.setContentSize(WelcomeView.windowSize)
+        window.center()
         window.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
         defer { window.close() }
         let expected = [
             "A calmer way through a busy day",
@@ -128,6 +140,18 @@ final class WelcomeScreenshotConsentTests: XCTestCase {
             text = Self.accessibleText(host)
             if expected.allSatisfy(text.contains) { break }
             try await Task.sleep(nanoseconds: 20_000_000)
+        }
+        XCTAssertTrue(window.isVisible)
+        XCTAssertGreaterThan(host.bounds.width, 0)
+        XCTAssertGreaterThan(host.bounds.height, 0)
+        if !expected.allSatisfy(text.contains) {
+            print("Welcome AX: key=\(window.isKeyWindow), host=\(host.frame)")
+            for node in Self.accessibilityNodes(window) {
+                let values = ["accessibilityRole", "accessibilityLabel", "accessibilityValue", "accessibilityTitle"]
+                    .map { name in "\(name)=\(String(describing: Self.attribute(node, name)))" }
+                    .joined(separator: ", ")
+                print("\(type(of: node)): \(values)")
+            }
         }
         for value in expected {
             XCTAssertTrue(text.contains(value), "Welcome did not present: \(value). Found: \(text)")
@@ -152,26 +176,41 @@ final class WelcomeScreenshotConsentTests: XCTestCase {
         return root
     }
 
+    private static func accessibilityString(_ value: Any?) -> String? {
+        if let attributed = value as? NSAttributedString { return attributed.string }
+        return value as? String
+    }
+
+    @MainActor private static func attribute(_ node: NSObject, _ name: String) -> Any? {
+        let selector = NSSelectorFromString(name)
+        return node.responds(to: selector) ? node.perform(selector)?.takeUnretainedValue() : nil
+    }
+
     @MainActor private static func accessibleText(_ root: NSObject) -> Set<String> {
+        Set(
+            accessibilityNodes(root).flatMap { node in
+                ["accessibilityLabel", "accessibilityValue", "accessibilityTitle"].compactMap {
+                    accessibilityString(attribute(node, $0))
+                }
+            })
+    }
+
+    @MainActor private static func accessibilityNodes(_ root: NSObject) -> [NSObject] {
         var seen = Set<ObjectIdentifier>()
-        var text = Set<String>()
-        @MainActor func attribute(_ node: NSObject, _ name: String) -> Any? {
-            let selector = NSSelectorFromString(name)
-            return node.responds(to: selector) ? node.perform(selector)?.takeUnretainedValue() : nil
-        }
-        @MainActor func walk(_ node: NSObject) {
-            guard seen.insert(ObjectIdentifier(node)).inserted else { return }
-            for name in ["accessibilityLabel", "accessibilityValue", "accessibilityTitle"] {
-                if let value = attribute(node, name) as? String { text.insert(value) }
-            }
+        // Retain visited nodes as well as their identities: SwiftUI can vend
+        // temporary AX objects while traversing different edges of the graph.
+        var nodes: [NSObject] = []
+        @MainActor func walk(_ node: NSObject, _ depth: Int) {
+            guard depth < 60, nodes.count < 3_000, seen.insert(ObjectIdentifier(node)).inserted else { return }
+            nodes.append(node)
             let children = (attribute(node, "accessibilityChildren") as? [NSObject]) ?? []
             let contents = (attribute(node, "accessibilityContents") as? [NSObject]) ?? []
             let ordered = (attribute(node, "accessibilityChildrenInNavigationOrder") as? [NSObject]) ?? []
             let subviews = (node as? NSView)?.subviews ?? []
             let windowContent = (node as? NSWindow)?.contentView.map { [$0] } ?? []
-            for child in children + contents + ordered + subviews + windowContent { walk(child) }
+            for child in children + contents + ordered + subviews + windowContent { walk(child, depth + 1) }
         }
-        walk(root)
-        return text
+        walk(root, 0)
+        return nodes
     }
 }

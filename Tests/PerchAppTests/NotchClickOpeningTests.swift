@@ -38,6 +38,7 @@ final class NotchClickOpeningTests: XCTestCase {
         window.isReleasedWhenClosed = false
         window.contentView = receiver
         window.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
         defer { window.close() }
         XCTAssertTrue(window.makeFirstResponder(receiver))
 
@@ -73,6 +74,8 @@ final class NotchClickOpeningTests: XCTestCase {
                         var delivered = false
                         receiver.received = { event in
                             delivered = true
+                            XCTAssertTrue(
+                                NSApp.currentEvent === event, "Receiver must observe the queued event: \(context)")
                             XCTAssertEqual(NSApp.currentEvent?.type, event.type, context)
                             if pointer { XCTAssertEqual(NSApp.currentEvent?.clickCount, clickCount, context) }
                             model.activateClosed(in: store, on: screen)
@@ -93,7 +96,7 @@ final class NotchClickOpeningTests: XCTestCase {
                                     windowNumber: window.windowNumber, context: nil,
                                     characters: " ", charactersIgnoringModifiers: " ", isARepeat: false, keyCode: 49))
                         }
-                        NSApp.sendEvent(event)
+                        try Self.dispatchQueuedEvent(event)
                         XCTAssertTrue(delivered, "Native event did not reach the receiver: \(context)")
                         XCTAssertEqual(notifications.destinations.count - before, expected ? 1 : 0, context)
                         XCTAssertEqual(model.screenID, expected ? screen.id : 0, context)
@@ -104,5 +107,17 @@ final class NotchClickOpeningTests: XCTestCase {
             }
         }
         receiver.received = nil
+    }
+
+    /// Direct sendEvent delivers to the receiver without establishing currentEvent
+    /// in an XCTest process. Use the application's real queue, as its run loop does.
+    @MainActor private static func dispatchQueuedEvent(_ event: NSEvent) throws {
+        NSApp.postEvent(event, atStart: true)
+        let mask = NSEvent.EventTypeMask(rawValue: 1 << event.type.rawValue)
+        let dequeued = try XCTUnwrap(
+            NSApp.nextEvent(matching: mask, until: .distantPast, inMode: .default, dequeue: true))
+        XCTAssertTrue(dequeued === event, "The queue must return the exact submitted event")
+        XCTAssertTrue(NSApp.currentEvent === event, "Dequeue must establish the event the production action reads")
+        NSApp.sendEvent(dequeued)
     }
 }
