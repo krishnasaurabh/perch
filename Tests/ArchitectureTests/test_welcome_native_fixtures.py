@@ -23,19 +23,11 @@ class WelcomeNativeFixtureTests(unittest.TestCase):
     def test_accessibility_text_uses_real_foundation_string_types(self):
         source = (ROOT / "Tests/PerchAppTests/WelcomeScreenshotConsentTests.swift").read_text()
         helper = declaration(source, "private static func accessibilityString(")
-        text_reader = declaration(source, "@MainActor private static func accessibleText(")
-        node_reader = declaration(source, "@MainActor private static func accessibilityNodes(")
-        # Only AppKit graph storage is substituted; conversion and traversal are
-        # the exact native-test code, using real Foundation attributed strings.
+        # Compile the exact retained conversion helper with real Foundation
+        # string types; accessibility graph traversal belongs to the native probe.
         program = r'''import Foundation
-@MainActor class Node: NSObject { var values: [String: Any] = [:] }
-@MainActor class NSView: Node { var subviews: [NSView] = [] }
-@MainActor class NSWindow: Node { var contentView: NSView? }
 struct Reader {
-    @MainActor private static func attribute(_ node: NSObject, _ name: String) -> Any? {
-        (node as? Node)?.values[name]
-    }
-''' + helper + "\n" + text_reader + "\n" + node_reader + r'''
+''' + helper + r'''
     @MainActor static func verify() {
         precondition(accessibilityString("Write it down") == "Write it down")
         precondition(accessibilityString(NSString(string: "Park the rest")) == "Park the rest")
@@ -46,32 +38,6 @@ struct Reader {
         precondition(accessibilityString(42) == nil)
         print("Welcome accessibility text: 6 cases passed")
 
-        let window = NSWindow()
-        let host = NSView()
-        let scroll = NSView()
-        let group = Node()
-        let plain = Node()
-        let attributed = Node()
-        let button = Node()
-        window.contentView = host
-        host.subviews = [scroll]
-        scroll.values["accessibilityContents"] = [group]
-        group.values["accessibilityChildrenInNavigationOrder"] = [plain, attributed, button]
-        group.values["accessibilityChildren"] = [window] // Cycle, not another visit.
-        plain.values["accessibilityLabel"] = "Write it down"
-        attributed.values["accessibilityValue"] = NSAttributedString(string: "Give it time")
-        button.values["accessibilityTitle"] = "Start with three things"
-        button.values["accessibilityChildren"] = [plain] // Shared edge, not another visit.
-        precondition(accessibilityNodes(window).count == 7)
-        let expected: Set<String> = ["Write it down", "Give it time", "Start with three things"]
-        precondition(accessibleText(window) == expected)
-        attributed.values["accessibilityValue"] = NSAttributedString(string: "Changed")
-        precondition(!accessibleText(window).contains("Give it time"), "Do not retain stale text")
-        precondition(accessibleText(window).contains("Changed"))
-        precondition(accessibleText(NSView()).isEmpty, "Do not invent absent labels")
-        group.values = [:]
-        button.values = [:]
-        print("Welcome AX graph: native, contents and ordered edges; cycles and missing labels passed")
     }
 }
 Reader.verify()
@@ -168,22 +134,28 @@ try Fixture.run()
             self.assertNotEqual(corrupt.returncode, 0)
             self.assertIn("Submitted payload mismatch", corrupt.stderr)
 
-    def test_welcome_primes_accessibility_off_main_before_building_host(self):
+    def test_welcome_rendering_is_read_only_without_in_process_ax(self):
         source = (ROOT / "Tests/PerchAppTests/WelcomeScreenshotConsentTests.swift").read_text()
         test = declaration(source, "@MainActor func testWelcomePresentsHabitsAndReadOnlyPermissionReasons(")
-        self.assertIn("import ApplicationServices", source)
-        self.assertLess(test.index("primer.orderFront(nil)"), test.index("await Self.primeAccessibility()"))
-        self.assertLess(test.index("await Self.primeAccessibility()"), test.index("primer.close()"))
-        self.assertLess(test.index("primer.close()"), test.index("let host = NSHostingView("))
-        prime = declaration(source, "private nonisolated static func primeAccessibility(")
-        for operation in ("withCheckedContinuation", "DispatchQueue.global().async",
-                          "AXUIElementCreateApplication(getpid())", "kAXWindowsAttribute",
-                          "kAXChildrenAttribute", "continuation.resume()"):
-            self.assertIn(operation, prime)
-        self.assertLess(prime.index("DispatchQueue.global().async"),
-                        prime.index("AXUIElementCreateApplication(getpid())"))
-        self.assertIn("XCTAssertTrue(text.contains(value)", test)
-        self.assertIn("XCTAssertEqual(store.prefs, before", test)
+        # Exact copy is checked by the standalone native probe, not XCTest's
+        # unserved accessibility tree. Keep the render and data-safety contract.
+        for operation in (
+            "NSApplication.shared", "let before = store.prefs",
+            "rootView: WelcomeView {}.environmentObject(store)",
+            "window.makeKeyAndOrderFront(nil)", "defer { window.close() }",
+            "host.layoutSubtreeIfNeeded()", "XCTAssertTrue(window.isVisible)",
+            "XCTAssertGreaterThan(host.bounds.width, 0)",
+            "XCTAssertGreaterThan(host.bounds.height, 0)",
+            'XCTAssertEqual(store.prefs, before, "Rendering Welcome must not change any preference")',
+            'XCTAssertFalse(FileManager.default.fileExists(atPath: root.appendingPathComponent("planner.json").path))',
+        ):
+            self.assertIn(operation, test)
+        for removed in ("import ApplicationServices", "primeAccessibility",
+                        "AXUIElement", "accessibilityNodes", "accessibleText"):
+            self.assertNotIn(removed, source)
+        self.assertNotIn("XCTSkip", source)
+        self.assertLess(test.index("host.layoutSubtreeIfNeeded()"),
+                        test.index("XCTAssertTrue(window.isVisible)"))
 
     def test_native_event_fixture_dequeues_before_dispatch(self):
         source = (ROOT / "Tests/PerchAppTests/NotchClickOpeningTests.swift").read_text()
