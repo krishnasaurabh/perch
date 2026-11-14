@@ -235,7 +235,7 @@ final class FocusSessionEdgeTests: XCTestCase {
         var engine = varEngine
         _ = try engine.addTasks(["a"])
         try engine.startTimer(task: try Fixture.taskID("a", in: engine.planner), minutes: nil)
-        XCTAssertEqual(engine.planner.focus?.limit, 1500, "default 25 minutes")
+        XCTAssertEqual(engine.planner.focus?.limit, 2700, "default 45 minutes")
 
         var edit = TaskEdit(); edit.minutes = 50
         _ = try engine.update(try Fixture.taskID("a", in: engine.planner), on: .day("2026-11-09"), edit)
@@ -246,7 +246,7 @@ final class FocusSessionEdgeTests: XCTestCase {
         XCTAssertEqual(engine.planner.focus?.limit, 300)
 
         try engine.startTimer(task: nil, minutes: nil)
-        XCTAssertEqual(engine.planner.focus?.limit, 1500)
+        XCTAssertEqual(engine.planner.focus?.limit, 2700)
     }
 
     func testStartTimerValidatesMinutes() {

@@ -21,7 +21,8 @@ final class LocalizationTests: XCTestCase {
         let task = PlanTask(title: "Sample task", day: day, done: true)
         var planner = Planner()
         planner.tasks = [task]
-        var engine = PlannerEngine(planner: planner, now: { day.date(calendar: calendar) }, calendar: calendar)
+        let start = day.start(resetHour: planner.preferences.resetHour, calendar: calendar)
+        var engine = PlannerEngine(planner: planner, now: { start }, calendar: calendar)
         XCTAssertThrowsError(try engine.complete(task.id)) { error in
             let plannerError = error as? PlannerError
             XCTAssertEqual(plannerError?.message, "Already completed: Sample task.")

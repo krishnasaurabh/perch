@@ -86,6 +86,7 @@ final class MutationGatewayTests: XCTestCase {
             var now = Date(timeIntervalSince1970: 1_800_000_000)
             let store = PlannerStore(
                 file: PlannerFile(url: root.appendingPathComponent("planner.json")), now: { now }, watching: false)
+            store.updatePrefs { $0.carryMode = .ask }
             store.beginApplication()
             _ = store.send(.addTasks(["Carry this"], day: nil, literal: true, agentID: nil))
             store.updatePrefs { $0.carryMode = .auto }

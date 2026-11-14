@@ -80,7 +80,7 @@ final class PlannerMigrationTests: XCTestCase {
         XCTAssertEqual(p.focusLog.first?.seconds, 90)
         XCTAssertEqual(p.focus?.state, .paused)
         XCTAssertEqual(p.focus?.banked, 90)
-        XCTAssertEqual(p.preferences.resetHour, 0)
+        XCTAssertEqual(p.preferences.resetHour, 4)
         XCTAssertEqual(p.preferences.defaultFocusMinutes, 50)
         XCTAssertEqual(p.preferences.showOnDisplay, "Studio")
         XCTAssertEqual(p.preferences.workspaceCardOrder, ["focus", "tasks"])

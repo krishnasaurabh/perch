@@ -541,7 +541,7 @@ func checkSettingsFailure(
             "workspace pane failure leaves persisted cards unchanged")
         fixture.store.lastError = nil
     case .focus:
-        matrixRequire(before.contains("25 min"), "focus pane shows the persisted default length", before)
+        matrixRequire(before.contains("45 min"), "focus pane shows the persisted default length", before)
         let lock = MatrixStorageLock(fixture.file)
         fixture.store.updatePrefs { $0.defaultFocusMinutes = 30 }
         await matrixSettle()
@@ -550,10 +550,10 @@ func checkSettingsFailure(
         lock.release()
         matrixRequire(error.contains("Another process"), "focus pane edit reports busy storage", error)
         matrixRequire(
-            text.contains("25 min") && !text.contains("30 min"), "focus pane keeps rendering the persisted length",
+            text.contains("45 min") && !text.contains("30 min"), "focus pane keeps rendering the persisted length",
             text)
         matrixRequire(
-            try fixture.file.load().preferences.defaultFocusMinutes == 25,
+            try fixture.file.load().preferences.defaultFocusMinutes == 45,
             "focus pane failure leaves the persisted length unchanged")
         fixture.store.lastError = nil
     case .agents:

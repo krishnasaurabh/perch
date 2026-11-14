@@ -289,43 +289,67 @@ public struct FocusSegment: Codable, Equatable, Sendable {
 /// How unfinished tasks from earlier days are handled when Home is opened.
 public enum CarryMode: String, Codable, CaseIterable, Sendable { case ask, auto, never }
 
-public enum NotchTimerPlacement: String, Codable, CaseIterable, Sendable { case right, left, hidden }
+public enum NotchTimerPlacement: String, Codable, CaseIterable, Sendable { case right, left, hidden, split }
 public enum WorkspaceTimerStyle: String, Codable, CaseIterable, Sendable { case dotMatrix, digital, minimal }
-public enum NotchOpenTrigger: String, Codable, CaseIterable, Sendable { case hover, click, doubleClick }
+public enum NotchOpenTrigger: String, Codable, CaseIterable, Sendable {
+    case hover, click, doubleClick, nothing, everything
+}
 
 public struct Preferences: Codable, Equatable, Sendable {
-    /// Local hour at which a new planner day starts. Zero preserves midnight rollover.
-    public var resetHour: Int = 0 { didSet { resetHour = min(23, max(0, resetHour)) } }
-    public var carryMode: CarryMode = .ask
-    public var defaultFocusMinutes: Int = 25
-    public var focusCompletionSound: Bool = true
+    /// Local hour at which a new planner day starts. Explicit legacy values are retained.
+    public var resetHour: Int = 4 { didSet { resetHour = min(23, max(0, resetHour)) } }
+    public var carryMode: CarryMode = .auto
+    public var defaultFocusMinutes: Int = 45
+    public var focusCompletionSound: Bool = false
+    /// Pill side; `split` puts one on each side. Legacy `hidden` remains decodable.
     public var notchTimerPlacement: NotchTimerPlacement = .right
-    /// Digital reads at a glance; the dot-matrix face is opt-in.
     public var workspaceTimerStyle: WorkspaceTimerStyle = .digital
+    /// `hover` shows a peek. `nothing` and `everything` select the other hover behaviors.
+    /// Legacy `click` and `doubleClick` remain decodable.
     public var notchOpenTrigger: NotchOpenTrigger = .hover
-    /// Device-local, explicit opt-in. Only counts, never task content, appear while closed.
     public var notchTaskCount: Bool = false
     public var notchOnMonitors: Bool = false
-    /// nil = automatic (screen under the pointer); otherwise a display name.
     public var showOnDisplay: String? = nil
     public var remindersSync: Bool = false
     public var ringOnPhone: Bool = false
     public var sortWithAI: Bool = false
     public var includeWeekendsInStreak: Bool = true
-    /// Fresh profiles opt in from Welcome or Settings; an explicitly saved value is preserved when decoding.
+    /// Retired capture preference. Retained for old files, not new settings controls.
     public var catchScreenshots: Bool = false
+    /// Retired capture preference. Retained for old files, not new settings controls.
     public var catchCopies: Bool = false
-    /// Order of Today's side-column cards (see `HomeLayout`). Older files may still list "tasks" and "insights";
-    /// both are ignored there, because tasks are always shown and Insights has its own tab.
     public var workspaceCardOrder: [String] = ["focus", "events", "notepad"]
-    /// The notepad is opt-in so the first screen stays clean.
     public var hiddenWorkspaceCards: [String] = ["notepad"]
     public var hiddenCalendarIDs: [String] = []
     public var welcomeCompleted: Bool = false
+    /// Virtual key code and modifier bits, compatible with the shortcut recorder.
+    public var openShortcut: OpenShortcut = OpenShortcut()
+    public var launchAtLogin: Bool = true
+    public var blockHeadsUp: HeadsUpInterval = .fiveMinutes
+    public var blockEndAction: BlockEndAction = .ask
+    public var notchProgressLine: Bool = true
+    public var notchTimePill: Bool = false
+    public var notchNextBlock: Bool = false
+    public var notchReminderDot: Bool = true
+    public var menuBarDisplay: MenuBarDisplay = .icon
+    /// Manual privacy switch. Does not imply automatic screen-sharing detection.
+    public var hideCountsAndTimes: Bool = true
+    public var showCalendarMeetings: Bool = true
+    public var meetingHeadsUp: HeadsUpInterval = .fiveMinutes
+    public var notifyWhenClosed: Bool = true
+    public var persistentReminders: Bool = true
+    public var snoozeMinutes: SnoozeDuration = .tenMinutes
+    public var phoneEdits: PhoneEditPolicy = .ignore
+    public var agentsCanEditTasks: Bool = true
+    public var agentsCanControlTime: Bool = false
+    public var agentsCanReadParkingLot: Bool = false
+    public var showAgentAttribution: Bool = true
+    public var confirmAgentDeletes: Bool = true
+    public var finishedTaskRetention: FinishedTaskRetention = .never
     public init() {}
 
     public init(from decoder: Decoder) throws {
-        // Older files may omit new settings; present malformed settings are errors.
+        // Only absent keys get defaults; malformed present values remain errors.
         let d = Preferences()
         let c = try decoder.container(keyedBy: CodingKeys.self)
         resetHour = min(23, max(0, try c.decodeMissing(Int.self, forKey: .resetHour, default: d.resetHour)))
@@ -356,6 +380,35 @@ public struct Preferences: Codable, Equatable, Sendable {
             [String].self, forKey: .hiddenWorkspaceCards, default: d.hiddenWorkspaceCards)
         hiddenCalendarIDs = try c.decodeMissing([String].self, forKey: .hiddenCalendarIDs, default: d.hiddenCalendarIDs)
         welcomeCompleted = try c.decodeMissing(Bool.self, forKey: .welcomeCompleted, default: d.welcomeCompleted)
+        openShortcut = try c.decodeMissing(OpenShortcut.self, forKey: .openShortcut, default: d.openShortcut)
+        launchAtLogin = try c.decodeMissing(Bool.self, forKey: .launchAtLogin, default: d.launchAtLogin)
+        blockHeadsUp = try c.decodeMissing(HeadsUpInterval.self, forKey: .blockHeadsUp, default: d.blockHeadsUp)
+        blockEndAction = try c.decodeMissing(BlockEndAction.self, forKey: .blockEndAction, default: d.blockEndAction)
+        notchProgressLine = try c.decodeMissing(Bool.self, forKey: .notchProgressLine, default: d.notchProgressLine)
+        notchTimePill = try c.decodeMissing(Bool.self, forKey: .notchTimePill, default: d.notchTimePill)
+        notchNextBlock = try c.decodeMissing(Bool.self, forKey: .notchNextBlock, default: d.notchNextBlock)
+        notchReminderDot = try c.decodeMissing(Bool.self, forKey: .notchReminderDot, default: d.notchReminderDot)
+        menuBarDisplay = try c.decodeMissing(MenuBarDisplay.self, forKey: .menuBarDisplay, default: d.menuBarDisplay)
+        hideCountsAndTimes = try c.decodeMissing(Bool.self, forKey: .hideCountsAndTimes, default: d.hideCountsAndTimes)
+        showCalendarMeetings = try c.decodeMissing(
+            Bool.self, forKey: .showCalendarMeetings, default: d.showCalendarMeetings)
+        meetingHeadsUp = try c.decodeMissing(HeadsUpInterval.self, forKey: .meetingHeadsUp, default: d.meetingHeadsUp)
+        notifyWhenClosed = try c.decodeMissing(Bool.self, forKey: .notifyWhenClosed, default: d.notifyWhenClosed)
+        persistentReminders = try c.decodeMissing(
+            Bool.self, forKey: .persistentReminders, default: d.persistentReminders)
+        snoozeMinutes = try c.decodeMissing(SnoozeDuration.self, forKey: .snoozeMinutes, default: d.snoozeMinutes)
+        phoneEdits = try c.decodeMissing(PhoneEditPolicy.self, forKey: .phoneEdits, default: d.phoneEdits)
+        agentsCanEditTasks = try c.decodeMissing(Bool.self, forKey: .agentsCanEditTasks, default: d.agentsCanEditTasks)
+        agentsCanControlTime = try c.decodeMissing(
+            Bool.self, forKey: .agentsCanControlTime, default: d.agentsCanControlTime)
+        agentsCanReadParkingLot = try c.decodeMissing(
+            Bool.self, forKey: .agentsCanReadParkingLot, default: d.agentsCanReadParkingLot)
+        showAgentAttribution = try c.decodeMissing(
+            Bool.self, forKey: .showAgentAttribution, default: d.showAgentAttribution)
+        confirmAgentDeletes = try c.decodeMissing(
+            Bool.self, forKey: .confirmAgentDeletes, default: d.confirmAgentDeletes)
+        finishedTaskRetention = try c.decodeMissing(
+            FinishedTaskRetention.self, forKey: .finishedTaskRetention, default: d.finishedTaskRetention)
     }
 }
 

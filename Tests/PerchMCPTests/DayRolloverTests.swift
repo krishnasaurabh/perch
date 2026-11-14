@@ -63,7 +63,7 @@ final class DayRolloverTests: XCTestCase {
         XCTAssertEqual(p.resetHour, 0)
         p.resetHour = 27
         XCTAssertEqual(p.resetHour, 23)
-        XCTAssertEqual(try PlannerFile.decoder.decode(Preferences.self, from: Data("{}".utf8)).resetHour, 0)
+        XCTAssertEqual(try PlannerFile.decoder.decode(Preferences.self, from: Data("{}".utf8)).resetHour, 4)
         XCTAssertEqual(
             try PlannerFile.decoder.decode(Preferences.self, from: Data(#"{"resetHour":30}"#.utf8)).resetHour, 23)
     }

@@ -258,6 +258,7 @@ final class TaskStartAndParkingTests: XCTestCase {
 
     func testBringOverDistinguishesIdenticalTitlesAndRetainsStartTime() throws {
         var planner = Planner()
+        planner.preferences.carryMode = .ask
         planner.tasks = [
             PlanTask(title: "Same", day: "2026-11-08", startAt: Fixture.date("2026-11-08 10:00")),
             PlanTask(title: "Same", day: "2026-11-08"),
