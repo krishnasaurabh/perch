@@ -14,6 +14,8 @@ week-full --scenario week-full --open week
 your-week --scenario window-review --open your-week
 history --scenario window-history --open history
 projects --scenario window-projects --open projects
+system --scenario empty --open gallery
+motion --scenario timer --open gallery
 surfaces --scenario empty --open surfaces
 surfaces-focused --scenario empty --open surfaces-focused
 notch-closed-idle --scenario notch-idle --open notch-closed
