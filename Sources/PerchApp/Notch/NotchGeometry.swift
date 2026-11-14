@@ -42,6 +42,33 @@ struct NotchGeometry: Equatable {
     /// The real camera housing, or the notch Perch draws on a flat screen.
     var notchRect: NSRect { NotchLayout.notch(screen: screen) }
     var notchSize: CGSize { notchRect.size }
+    var progressLine: NSRect { NotchLayout.progressLine(housing: notchRect) }
+    var closedTab: NSRect { NotchLayout.closedTab(screen: screen) }
+    func reminderDot(progressVisible: Bool) -> NSRect {
+        NotchLayout.reminderDot(housing: notchRect, progressVisible: progressVisible)
+    }
+
+    /// Live closed-state routing. Legacy callers retain their geometry until migrated.
+    private func closedContains(_ point: NSPoint, presentation: NotchClosedPresentation) -> Bool {
+        guard hasHardwareNotch else {
+            guard presentation.hasBlock || presentation.reminder else { return false }
+            return paintedPathContains(
+                point, in: closedTab,
+                path: NotchClosedTabShape().path(in: CGRect(origin: .zero, size: closedTab.size)))
+        }
+        if closedHousingContains(point) { return true }
+        if presentation.line == .running, NotchLayout.contains(progressLine, pointer: point) { return true }
+        if presentation.line == .paused,
+            NotchLayout.pausedDashes(line: progressLine).contains(where: { NotchLayout.contains($0, pointer: point) })
+        {
+            return true
+        }
+        if presentation.reminder {
+            let rect = reminderDot(progressVisible: presentation.line != .none)
+            return paintedPathContains(point, in: rect, path: Circle().path(in: CGRect(origin: .zero, size: rect.size)))
+        }
+        return false
+    }
     var workspace: NSRect { WorkspaceLayout.frame(screen: screen) }
     /// Beside a housing or with an auto-hidden menu bar the workspace reaches the top; otherwise it clears the bar.
     var workspaceAttached: Bool { NotchLayout.workspaceAttached(screen: screen) }
@@ -100,8 +127,18 @@ struct NotchGeometry: Equatable {
 
     /// Where hovering opens the notch (closed), or keeps it open (expanded: exactly the workspace).
     /// An activity strip stays clickable without becoming an open target; only its housing can open the workspace.
-    func hover(expanded: Bool, timer: NotchTimerPlacement?, activity: Bool) -> NSRect {
-        NotchLayout.triggerFrame(workspace: workspace, expanded: expanded, screen: screen)
+    func hover(
+        expanded: Bool, timer: NotchTimerPlacement?, activity: Bool, closed: NotchClosedPresentation? = nil
+    ) -> NSRect {
+        if !expanded, let closed {
+            if activity { return hasHardwareNotch ? notchRect : .zero }
+            if !hasHardwareNotch { return closed.hasBlock || closed.reminder ? closedTab : .zero }
+            var target = notchRect
+            if closed.line != .none { target = target.union(progressLine) }
+            if closed.reminder { target = target.union(reminderDot(progressVisible: closed.line != .none)) }
+            return target
+        }
+        return NotchLayout.triggerFrame(workspace: workspace, expanded: expanded, screen: screen)
     }
 
     /// Open on a flat screen: the strip of menu bar between the notch and the floating workspace. The pointer may
@@ -116,7 +153,8 @@ struct NotchGeometry: Equatable {
             screen: screen,
             containing: [
                 idle(timer: nil, activity: true), idle(timer: .left, activity: false),
-                idle(timer: .right, activity: false), glanceRect, workspace,
+                idle(timer: .right, activity: false), glanceRect, workspace, closedTab,
+                reminderDot(progressVisible: true),
             ])
     }
 
@@ -154,8 +192,18 @@ struct NotchGeometry: Equatable {
 
     /// Exact hit test against the drawn shape (not its bounding box). Global coordinates, y up.
     func shapeContains(
-        _ p: NSPoint, expanded: Bool, timer: NotchTimerPlacement?, activity: Bool, glance: Bool = false
+        _ p: NSPoint, expanded: Bool, timer: NotchTimerPlacement?, activity: Bool, glance: Bool = false,
+        closed: NotchClosedPresentation? = nil
     ) -> Bool {
+        if !expanded, let closed {
+            guard activity else { return closedContains(p, presentation: closed) }
+            let rect = activityRect
+            return (hasHardwareNotch && closedHousingContains(p))
+                || paintedPathContains(
+                    p, in: rect,
+                    path: RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .path(in: CGRect(origin: .zero, size: rect.size)))
+        }
         // A built-in flat screen never has a synthetic closed notch to draw or hit, even when the external preference is on.
         if !expanded, !activity, screen.isBuiltIn, camera == nil { return false }
         if !expanded, activity {

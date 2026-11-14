@@ -10,6 +10,10 @@ import SwiftUI
         static var previewTargets: [String: PreviewTarget] {
             [
                 "today": .workspace(.home),
+                "notch-closed": .closedNotch(hardware: true),
+                "notch-flat": .closedNotch(hardware: false),
+                "notch-progress-off": .closedNotch(hardware: true, progress: false),
+                "notch-reminder-off": .closedNotch(hardware: true, reminder: false),
                 "week": .workspace(.week),
                 "settings": .window("settings") { $0.openSettings() },
                 "your-week": .window("dashboard") { DashboardWindow.show(store: $0.store, tab: .insights) },
@@ -173,7 +177,7 @@ import SwiftUI
                 let fixture = try PlannerPreviewScenarios.install(scenario, in: store.file)
                 Self.activePreviewFixture = fixture
                 Self.previewNow = fixture.now
-                store.reloadFromDisk(external: false)
+                _ = store.performMutation(origin: .background) { _ in () }  // Refresh device-only fixture changes too.
                 guard store.planner == fixture.planner else {
                     throw PlannerError("Preview reload did not match the fixture.")
                 }
