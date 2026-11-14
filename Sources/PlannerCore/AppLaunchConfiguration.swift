@@ -5,6 +5,16 @@ import Foundation
 public enum AppLaunchConfiguration {
     public enum Invalid: Error { case argument, value, requiresIsolatedData, requiresDriver }
 
+    #if DEBUG || PERCH_TESTING
+        public static let previewScenarioNames: Set<String> = [
+            "empty", "three", "timer", "insights",
+            "today-running", "today-before", "today-editing", "today-empty", "week-full",
+            "notch-idle", "notch-running", "notch-paused", "notch-reminder", "notch-peek",
+            "strip-heads-up", "strip-ended", "strip-agent", "strip-undo", "strip-data", "strip-drop",
+            "window-review", "window-history", "window-projects", "window-welcome", "window-keys",
+        ]
+    #endif
+
     public static func validate(arguments: [String], environment: [String: String]) throws {
         var options = Set<String>()
         var index = 0
@@ -17,9 +27,10 @@ public enum AppLaunchConfiguration {
             if argument == "--mcp" { continue }
             #if DEBUG || PERCH_TESTING
                 switch argument {
-                case "--demo", "--demo-clips", "--preview-open", "--check-localization": break
+                case "--demo", "--demo-clips", "--preview-open", "--check-localization", "--reduce-motion": break
                 case "--scenario", "--page", "--dump-layout", "--dump-activity", "--snapshot",
-                    "--motion-script", "--motion-snapshots", "--motion-policy":
+                    "--motion-script", "--motion-snapshots", "--motion-policy", "--appearance", "--open",
+                    "--redesign-shots":
                     guard index < arguments.count, !arguments[index].isEmpty,
                         !arguments[index].hasPrefix("--")
                     else { throw Invalid.value }
@@ -27,7 +38,9 @@ public enum AppLaunchConfiguration {
                     index += 1
                     switch argument {
                     case "--scenario":
-                        guard ["empty", "three", "timer", "insights"].contains(value) else { throw Invalid.value }
+                        guard previewScenarioNames.contains(value) else { throw Invalid.value }
+                    case "--appearance":
+                        guard ["light", "dark"].contains(value) else { throw Invalid.value }
                     case "--page":
                         guard ["home", "week", "clips", "insights"].contains(value) else { throw Invalid.value }
                     case "--motion-policy":
@@ -59,6 +72,15 @@ public enum AppLaunchConfiguration {
             }
             if options.contains("--page"), !options.contains("--preview-open") { throw Invalid.requiresDriver }
             if options.contains("--demo"), options.contains("--scenario") { throw Invalid.argument }
+            if options.contains("--open"), !options.isDisjoint(with: ["--preview-open", "--page"]) {
+                throw Invalid.argument
+            }
+            if options.contains("--reduce-motion"), options.contains("--motion-policy") { throw Invalid.argument }
+            if options.contains("--redesign-shots"),
+                !options.subtracting(["--redesign-shots", "--appearance", "--reduce-motion"]).isEmpty
+            {
+                throw Invalid.argument
+            }
         #endif
     }
 }

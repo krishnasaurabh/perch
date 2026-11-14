@@ -37,7 +37,7 @@ enum WindowHost {
         w.title = AppL10n.text(title)
         w.titlebarAppearsTransparent = true
         w.isReleasedWhenClosed = false
-        w.contentView = NSHostingView(rootView: content())
+        w.contentView = NSHostingView(rootView: content().previewEnvironment())
         w.center()
         windows[id] = w
         NotificationCenter.default.addObserver(forName: NSWindow.willCloseNotification, object: w, queue: .main) { _ in

@@ -41,6 +41,21 @@ do {
                     with_data = dict(environment, PERCH_DATA=str(root / "planner.json"))
                     self.assertEqual(subprocess.run([binary, *args], env=with_data).returncode,
                                      64 if variant == "release" else 0)
+                valid_previews = (["--appearance", "light"], ["--appearance", "dark"],
+                                  ["--reduce-motion"], ["--open", "today"],
+                                  ["--scenario", "today-running", "--open", "today"],
+                                  ["--redesign-shots", "plan.json", "--appearance", "dark", "--reduce-motion"])
+                invalid_previews = (["--appearance", "sepia"], ["--appearance"],
+                                    ["--appearance", "light", "--appearance", "dark"],
+                                    ["--open", ""], ["--open", "today", "--preview-open"],
+                                    ["--redesign-shots", "plan.json", "--scenario", "three"],
+                                    ["--reduce-motion", "--motion-script", "out", "--motion-policy", "normal"])
+                for args in valid_previews:
+                    self.assertEqual(subprocess.run([binary, *args], env=environment).returncode, 64)
+                    self.assertEqual(subprocess.run([binary, *args], env=with_data).returncode,
+                                     64 if variant == "release" else 0, args)
+                for args in invalid_previews:
+                    self.assertEqual(subprocess.run([binary, *args], env=with_data).returncode, 64, args)
                 if variant == "release":
                     assert_no_hooks(binary)
                     for flag in TEST_FLAGS:
