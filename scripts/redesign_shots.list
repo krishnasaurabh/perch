@@ -29,3 +29,5 @@ notch-flat-idle --scenario notch-idle --open notch-flat
 notch-flat-running --scenario notch-running --open notch-flat
 notch-flat-paused --scenario notch-paused --open notch-flat
 notch-flat-reminder --scenario notch-reminder --open notch-flat
+system --scenario empty --open gallery
+motion --scenario timer --open gallery

@@ -96,6 +96,8 @@ def validate(kind, report):
                     ("General", "Workspace", "Focus timer", "AI agents", "System")]
         required += [f"dashboard {tab} tab renders its content" for tab in
                      ("This week", "History", "Projects")]
+        required += ["dashboard has effective full keyboard access", "Tab enters the dashboard tab control"]
+        required += [f"dashboard arrow selects the {tab} tab" for tab in ("History", "Projects")]
         required += ["welcome never rewrites unreadable planner data",
                      "failed details save keeps the draft",
                      "Command-Z restores the deleted project and its task links"]

@@ -582,10 +582,18 @@ func checkDashboardMatrix(_ fixture: MatrixFixture, output: URL) async throws {
     defer { window.close() }
     await matrixSettle(1.0)
     matrixRequire(window.isKeyWindow, "dashboard window owns the key window")
+    matrixRequire(NSApp.isFullKeyboardAccessEnabled, "dashboard has effective full keyboard access")
     let picker = DashboardKeyLoop.tabKeyView(in: window)
     matrixRequire(picker != nil, "dashboard exposes its selected tab key view")
     guard let picker else { return }
     matrixRequire(window.makeFirstResponder(picker), "dashboard tab control accepts keyboard focus")
+    // Enter through AppKit's Tab loop too: assigning a SwiftUI key proxy is not
+    // evidence that the selected button has acquired its SwiftUI focus state.
+    matrixRequire(window.makeFirstResponder(window), "dashboard fixture can reset its first responder")
+    await matrixKey(window, 48, "\t")
+    matrixRequire(
+        window.firstResponder === DashboardKeyLoop.tabKeyView(in: window),
+        "Tab enters the dashboard tab control", "firstResponder=\(String(describing: window.firstResponder))")
     let tabs: [(DashboardView.Tab, String)] = [
         (.yourWeek, "planned vs"), (.history, "matrix history beta"),
         (.projects, "delete project"),
@@ -593,6 +601,12 @@ func checkDashboardMatrix(_ fixture: MatrixFixture, output: URL) async throws {
     for (index, (tab, marker)) in tabs.enumerated() {
         if index > 0 {
             await matrixKey(window, 124, "\u{f703}")
+            matrixRequire(
+                DashboardWindow.selection?.tab == tab, "dashboard arrow selects the \(tab.rawValue) tab",
+                "selected tab=\(String(describing: DashboardWindow.selection?.tab)); "
+                    + "firstResponder=\(String(describing: window.firstResponder))")
+            // Arrows select immediately. Space must activate the newly selected
+            // button, not a stale button from the preceding section.
             await matrixKey(window, 49, " ")
         }
         let text = try matrixText(host, name: "dashboard-\(tab.rawValue)", output: output)

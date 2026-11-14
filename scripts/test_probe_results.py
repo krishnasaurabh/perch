@@ -24,6 +24,8 @@ def integration_report():
                 ("General", "Workspace", "Focus timer", "AI agents", "System")]
     required += [f"dashboard {p} tab renders its content" for p in
                  ("This week", "History", "Projects")]
+    required += ["dashboard has effective full keyboard access", "Tab enters the dashboard tab control"]
+    required += [f"dashboard arrow selects the {tab} tab" for tab in ("History", "Projects")]
     required += ["welcome never rewrites unreadable planner data", "failed details save keeps the draft",
                  "Command-Z restores the deleted project and its task links"]
     return {"passed": required + [f"fixture {i}" for i in range(60)], "failed": []}
@@ -93,6 +95,16 @@ class ProbeReportTests(unittest.TestCase):
                     report["passed"].append(f"dashboard {replacement} tab renders its content")
                 with self.subTest(tab=tab, replacement=replacement), self.assertRaises(ValueError):
                     results.validate("integration", report)
+
+    def test_each_dashboard_keyboard_phase_is_required(self):
+        labels = ["dashboard has effective full keyboard access", "Tab enters the dashboard tab control"]
+        labels += [f"dashboard arrow selects the {tab} tab" for tab in ("History", "Projects")]
+        for label in labels:
+            report = integration_report()
+            report["passed"].remove(label)
+            report["passed"].append("unrelated filler cannot replace keyboard coverage")
+            with self.subTest(label=label), self.assertRaises(ValueError):
+                results.validate("integration", report)
 
     def test_removed_dashboard_tabs_cannot_satisfy_theme_coverage(self):
         for tab in ("Upcoming", "Insights"):
@@ -237,11 +249,31 @@ class ProbeReportTests(unittest.TestCase):
             source = path.read_text()
             code = source if name == "clips" else source.split("<<'PY'\n", 1)[1].split("\nPY", 1)[0]
             with tempfile.TemporaryDirectory() as directory:
-                with patch.object(sys, "argv", [str(path), "/synthetic-binary", directory]), \
-                     patch("subprocess.run") as run:
-                    exec(compile(code, str(path), "exec"), {})
-                args, kwargs = run.call_args
-                self.assertEqual(args[0][0], "/synthetic-binary")
+                binary = str(Path(directory) / ".build/release/Perch")
+                if name == "integration":
+                    support = Path(directory) / "Tests/ArchitectureTests"
+                    support.mkdir(parents=True)
+                    shutil.copyfile(ROOT / "Tests/ArchitectureTests/test_integration_keyboard.py",
+                                    support / "test_integration_keyboard.py")
+
+                def invoke(failure=None):
+                    def run(command, **kwargs):
+                        if command[0] == "defaults":
+                            return subprocess.CompletedProcess(command, 0, "2", "")
+                        if failure:
+                            raise failure
+                        return subprocess.CompletedProcess(command, 0)
+                    with patch.object(sys, "argv", [str(path), binary, directory]), \
+                         patch("subprocess.run", side_effect=run) as calls:
+                        exec(compile(code, str(path), "exec"), {})
+                    children = [call for call in calls.call_args_list if call.args[0][0] == binary]
+                    self.assertEqual(len(children), 1)
+                    if name == "integration":
+                        self.assertEqual(calls.call_args.args[0],
+                                         ["defaults", "write", "-g", "AppleKeyboardUIMode", "-int", "2"])
+                    return children[0].kwargs
+
+                kwargs = invoke()
                 self.assertIs(kwargs["check"], True)
                 self.assertGreaterEqual(kwargs["timeout"], 120)
                 planner = json.loads(Path(kwargs["env"]["PERCH_DATA"]).read_text())
@@ -249,9 +281,8 @@ class ProbeReportTests(unittest.TestCase):
                 self.assertIs(planner["preferences"]["catchScreenshots"], False)
                 for failure in (subprocess.CalledProcessError(1, "probe"),
                                 subprocess.TimeoutExpired("probe", kwargs["timeout"])):
-                    with patch.object(sys, "argv", [str(path), "/synthetic-binary", directory]), \
-                         patch("subprocess.run", side_effect=failure), self.assertRaises(type(failure)):
-                        exec(compile(code, str(path), "exec"), {})
+                    with self.assertRaises(type(failure)):
+                        invoke(failure)
 
     def test_keyboard_products_opt_into_concrete_focus_registration(self):
         projects = (ROOT / "Sources/PerchApp/Settings/ProjectsList.swift").read_text()
