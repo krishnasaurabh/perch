@@ -492,11 +492,11 @@ func matrixSettingsFocused(_ host: NSView, pane: SettingsView.Pane) -> Bool {
             let read = unsafeBitCast(node.method(for: selector), to: ReadBool.self)
             if read(node, selector) { return true }
         }
-        let children =
-            ((value(node, "accessibilityChildren") as? [NSObject]) ?? [])
-            + ((value(node, "accessibilityContents") as? [NSObject]) ?? [])
-            + ((value(node, "accessibilityChildrenInNavigationOrder") as? [NSObject]) ?? [])
-            + ((node as? NSView)?.subviews ?? [])
+        var children: [NSObject] = []
+        children += (value(node, "accessibilityChildren") as? [NSObject]) ?? []
+        children += (value(node, "accessibilityContents") as? [NSObject]) ?? []
+        children += (value(node, "accessibilityChildrenInNavigationOrder") as? [NSObject]) ?? []
+        children += (node as? NSView)?.subviews ?? []
         return children.contains(where: visit)
     }
     for owner in [NSApp as NSObject, host.window as NSObject?].compactMap({ $0 }) {

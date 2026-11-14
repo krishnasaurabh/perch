@@ -810,6 +810,66 @@ private extension Int {
     return visit(host)
 }
 
+@MainActor func settingsFocusedIdentifier(_ host: NSView) -> String {
+    for pane in SettingsView.Pane.allCases where settingsSidebarFocused(host, pane: pane) {
+        return "settings.sidebar.\(pane.rawValue)"
+    }
+    for owner in [NSApp as NSObject, host.window as NSObject?].compactMap({ $0 }) {
+        if let focused = controlAttribute(owner, "accessibilityFocusedUIElement") as? NSObject,
+            let identifier = controlAttribute(focused, "accessibilityIdentifier") as? String
+        {
+            return identifier
+        }
+    }
+    return "unobserved"
+}
+
+/// Wait for each real focus transfer before dispatching the next arrow. A single
+/// re-press tolerates a key delivered during SwiftUI's previous row teardown.
+@MainActor func advanceSettingsSidebar(
+    to expectedPane: SettingsView.Pane, host: NSView, window: NSWindow,
+    navigation: SettingsNavigation, label: String
+) async -> Bool {
+    for _ in 0..<2 {
+        key(125, String(UnicodeScalar(0xF701)!), in: window, modifiers: [.numericPad, .function])
+        let deadline = ProcessInfo.processInfo.systemUptime + 1
+        while true {
+            if settingsSidebarFocused(host, pane: expectedPane) {
+                await settle()
+                return true
+            }
+            if ProcessInfo.processInfo.systemUptime >= deadline { break }
+            try? await Task.sleep(nanoseconds: 50_000_000)
+            await settle()
+        }
+    }
+    Measured.check(
+        false,
+        "\(label): Settings arrow focus failed \(expectedPane.rawValue) -> \(navigation.pane.rawValue); AX focus \(settingsFocusedIdentifier(host))"
+    )
+    return false
+}
+
+/// The captured detail subtree, not the requested or selected model value.
+@MainActor func settingsRenderedPane(_ host: NSView) -> SettingsView.Pane? {
+    let prefix = "settings.detail."
+    let panes = Set(
+        pageNodes(host).compactMap { node -> SettingsView.Pane? in
+            guard let identifier = controlAttribute(node, "accessibilityIdentifier") as? String,
+                identifier.hasPrefix(prefix)
+            else { return nil }
+            return SettingsView.Pane(rawValue: String(identifier.dropFirst(prefix.count)))
+        })
+    return panes.count == 1 ? panes.first : nil
+}
+
+@MainActor func settingsContrastPairMatches(
+    _ standard: SettingsView.Pane?, _ increased: SettingsView.Pane?
+) -> Bool {
+    guard let standard else { return false }
+    return standard == increased
+}
+
 @MainActor func measureEffectiveStates(
     store: PlannerStore, services: Services, detailsTask: UUID, geometry: NotchGeometry, output: URL
 ) async {
@@ -886,6 +946,7 @@ private extension Int {
     for page in pages {
         var ink: [String: PageInk] = [:]
         var text: [String: [(String, CGRect)]] = [:]
+        var renderedPanes: [String: SettingsView.Pane] = [:]
         for state in states {
             let stateStarted = ProcessInfo.processInfo.systemUptime
             let observation = ContrastObservation()
@@ -927,9 +988,11 @@ private extension Int {
                     settingsSidebarFocused(host, pane: .general),
                     "\(label): the Settings sidebar accepts native keyboard focus")
                 let index = SettingsView.Pane.allCases.firstIndex(of: pane)!
-                for _ in 0..<index {
-                    key(125, String(UnicodeScalar(0xF701)!), in: window, modifiers: [.numericPad, .function])
-                    await settle()
+                for expectedPane in SettingsView.Pane.allCases.prefix(index + 1).dropFirst() {
+                    guard
+                        await advanceSettingsSidebar(
+                            to: expectedPane, host: host, window: window, navigation: navigation, label: label)
+                    else { break }
                 }
                 Measured.check(
                     navigation.pane == pane && settingsSidebarFocused(host, pane: pane),
@@ -942,6 +1005,13 @@ private extension Int {
             let measured = measureInk(host)
             fputs("measured stage: accessibility frames \(label)\n", stderr)
             let frames = pageTextFrames(host, window: window)
+            let renderedPane = settingsRenderedPane(host)
+            if let pane = page.settingsPane {
+                renderedPanes[state.name] = renderedPane
+                Measured.check(
+                    renderedPane == pane,
+                    "\(label): capture renders Settings detail \(renderedPane?.rawValue ?? "unobserved")")
+            }
             ink[state.name] = measured
             text[state.name] = frames
             save(host, output.appendingPathComponent("measured-\(page.name)-\(state.name).png"))
@@ -975,6 +1045,8 @@ private extension Int {
                 "page": page.name, "state": state.name, "ink_pixels": measured.inkPixels,
                 "ink_rows": measured.inkRows, "max_ratio": measured.maxRatio, "background": measured.background,
                 "ax_static_text": frames.count,
+                "rendered_settings_pane": renderedPane?.rawValue
+                    ?? (page.settingsPane == nil ? "not-settings" : "unobserved"),
                 "ax_text_height_total": frames.reduce(0) { $0 + $1.1.height },
                 "status_label_heights": status.map(\.height), "contrast_environment": observed,
                 "type_size": resolvedType,
@@ -995,10 +1067,21 @@ private extension Int {
         }
         // Increased contrast must never render less contrast than the standard state.
         if let standard = ink["standard"], let increased = ink["increased-contrast"] {
-            Measured.check(
-                increased.maxRatio + 0.01 >= standard.maxRatio,
-                "\(page.name): increased contrast keeps rendered contrast (\(standard.maxRatio) -> \(increased.maxRatio))"
-            )
+            if page.settingsPane != nil
+                && !settingsContrastPairMatches(
+                    renderedPanes["standard"], renderedPanes["increased-contrast"])
+            {
+                let standardPane = renderedPanes["standard"]?.rawValue ?? "unobserved"
+                let increasedPane = renderedPanes["increased-contrast"]?.rawValue ?? "unobserved"
+                print(
+                    "MEASURED: \(page.name) pair skipped, captures rendered different panes (\(standardPane) -> \(increasedPane))"
+                )
+            } else {
+                Measured.check(
+                    increased.maxRatio + 0.01 >= standard.maxRatio,
+                    "\(page.name): increased contrast keeps rendered contrast (\(standard.maxRatio) -> \(increased.maxRatio))"
+                )
+            }
         }
     }
     // Pages that render a StatusLabel must show the enlarged size in its real AX frame.
