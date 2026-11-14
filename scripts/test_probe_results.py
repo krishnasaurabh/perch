@@ -177,6 +177,9 @@ class ProbeReportTests(unittest.TestCase):
             "@MainActor\nfunc mxIdentified(", 1)[0]
         program = r'''
 import Foundation
+#if canImport(CoreGraphics)
+import CoreGraphics
+#endif
 let kAXRoleAttribute = "AXRole"
 let kAXChildrenAttribute = "AXChildren"
 let kAXDescriptionAttribute = "AXDescription"

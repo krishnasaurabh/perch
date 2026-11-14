@@ -800,11 +800,11 @@ private extension Int {
             typealias ReadBool = @convention(c) (AnyObject, Selector) -> Bool
             if unsafeBitCast(node.method(for: selector), to: ReadBool.self)(node, selector) { return true }
         }
-        let children =
-            ((controlAttribute(node, "accessibilityChildren") as? [NSObject]) ?? [])
-            + ((controlAttribute(node, "accessibilityContents") as? [NSObject]) ?? [])
-            + ((controlAttribute(node, "accessibilityChildrenInNavigationOrder") as? [NSObject]) ?? [])
-            + ((node as? NSView)?.subviews ?? [])
+        var children: [NSObject] = []
+        children += (controlAttribute(node, "accessibilityChildren") as? [NSObject]) ?? []
+        children += (controlAttribute(node, "accessibilityContents") as? [NSObject]) ?? []
+        children += (controlAttribute(node, "accessibilityChildrenInNavigationOrder") as? [NSObject]) ?? []
+        children += (node as? NSView)?.subviews ?? []
         return children.contains(where: visit)
     }
     return visit(host)
