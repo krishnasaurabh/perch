@@ -1,13 +1,56 @@
-#if SEGMENTED_KEYBOARD_PROBE
+#if os(macOS)
     import AppKit
     import ApplicationServices
     import SwiftUI
+    import XCTest
     @testable import PerchApp
+
+    final class SegmentedKeyboardTests: XCTestCase {
+        @MainActor func testNativeRovingFocusAndExitCancellation() async throws {
+            // Keep full keyboard access scoped to this test, without launching a defaults process.
+            let key = "AppleKeyboardUIMode" as CFString
+            let previous = CFPreferencesCopyValue(
+                key, kCFPreferencesAnyApplication, kCFPreferencesCurrentUser, kCFPreferencesAnyHost)
+            CFPreferencesSetValue(
+                key, NSNumber(value: 3), kCFPreferencesAnyApplication, kCFPreferencesCurrentUser, kCFPreferencesAnyHost)
+            XCTAssertTrue(
+                CFPreferencesSynchronize(
+                    kCFPreferencesAnyApplication, kCFPreferencesCurrentUser, kCFPreferencesAnyHost))
+            let app = NSApplication.shared
+            let originalPolicy = app.activationPolicy()
+            app.setActivationPolicy(.accessory)
+            defer {
+                app.setActivationPolicy(originalPolicy)
+                CFPreferencesSetValue(
+                    key, previous, kCFPreferencesAnyApplication, kCFPreferencesCurrentUser, kCFPreferencesAnyHost)
+                XCTAssertTrue(
+                    CFPreferencesSynchronize(
+                        kCFPreferencesAnyApplication, kCFPreferencesCurrentUser, kCFPreferencesAnyHost))
+            }
+            let check = SegmentedKeyboardCheck()
+            // Preserve the former scenario's 60-second deadline now that it runs in XCTest.
+            try await withThrowingTaskGroup(of: Void.self) { group in
+                group.addTask { @MainActor in try await check.run() }
+                group.addTask {
+                    try await Task.sleep(for: .seconds(60))
+                    throw SegmentedKeyboardFailure(message: "Native segmented keyboard check exceeded 60 seconds")
+                }
+                defer { group.cancelAll() }
+                do {
+                    try await group.next()
+                } catch {
+                    XCTFail("\(error); firstResponder=\(String(describing: check.window.firstResponder))")
+                    throw error
+                }
+            }
+        }
+    }
 
     @MainActor private final class SegmentedKeyboardDriver: ObservableObject {
         @Published var minutes = 45
         @Published var enabled = true
         @Published var visible = true
+        var cancellationSelection: Int?
         let before = NSTextField(string: "Before choices")
         let after = NSTextField(string: "After choices")
     }
@@ -31,11 +74,15 @@
                     ).disabled(!driver.enabled)
                 }
                 SegmentedKeyboardField(field: driver.after)
-            }.padding(20)
+            }
+            .padding(20)
+            .onExitCommand {
+                if let original = driver.cancellationSelection { driver.minutes = original }
+            }
         }
     }
 
-    /// Run outside XCTest so the fixture owns an application's native key loop.
+    /// Host and prime in the XCTest process that observes the native key loop.
     @MainActor private final class SegmentedKeyboardCheck {
         let driver = SegmentedKeyboardDriver()
         let window = NSWindow(
@@ -67,6 +114,7 @@
             try assertSelectedAndFocused(45)
             try await testArrowsAndEnds()
             try await testExternalSelection()
+            try await testEscapeRestoresSelection()
             try await testExitAndCancellation()
             try await testDisabledAndInactive()
             log("PASS: Segmented native arrows, ends, Tab, back-tab and cancellation")
@@ -97,6 +145,16 @@
             try assertNoSegmentFocus()
             try await key(code: 48, characters: "\t")
             try assertSelectedAndFocused(25)
+        }
+
+        private func testEscapeRestoresSelection() async throws {
+            let original = driver.minutes
+            driver.cancellationSelection = original
+            defer { driver.cancellationSelection = nil }
+            try await key(code: 124, characters: "\u{f703}")
+            try assertSelectedAndFocused(45)
+            try await key(code: 53, characters: "\u{1b}")
+            try assertSelectedAndFocused(original)
         }
 
         private func testExitAndCancellation() async throws {
@@ -172,6 +230,7 @@
         private func key(code: UInt16, characters: String, modifiers: NSEvent.ModifierFlags = []) async throws {
             try send(code: code, characters: characters, modifiers: modifiers)
             await settle()
+            try Task.checkCancellation()
         }
 
         private func send(code: UInt16, characters: String, modifiers: NSEvent.ModifierFlags = []) throws {
@@ -184,7 +243,7 @@
                         context: nil, characters: characters, charactersIgnoringModifiers: characters,
                         isARepeat: false, keyCode: code)
                 else { throw SegmentedKeyboardFailure(message: "Could not construct key event") }
-                NSApp.sendEvent(event)
+                window.sendEvent(event)
             }
         }
 
@@ -300,7 +359,10 @@
         }
 
         private func require(_ condition: Bool, _ message: String) throws {
-            guard condition else { throw SegmentedKeyboardFailure(message: message) }
+            guard condition else {
+                throw SegmentedKeyboardFailure(
+                    message: "\(message); firstResponder=\(String(describing: window.firstResponder))")
+            }
         }
 
         private func log(_ message: String) {
@@ -309,93 +371,4 @@
     }
 
     private struct SegmentedKeyboardFailure: Error { let message: String }
-
-    private enum SegmentedKeyboardProbe {
-        static func run() {
-            MainActor.assumeIsolated {
-                let app = NSApplication.shared
-                app.setActivationPolicy(.regular)
-                Task { @MainActor in
-                    do {
-                        try await SegmentedKeyboardCheck().run()
-                        exit(0)
-                    } catch {
-                        FileHandle.standardError.write(Data("FAIL: Segmented native keyboard: \(error)\n".utf8))
-                        exit(1)
-                    }
-                }
-                app.run()
-            }
-        }
-    }
-#else
-    import Foundation
-    import XCTest
-
-    final class SegmentedKeyboardTests: XCTestCase {
-        func testNativeRovingFocusAndExitCancellation() throws {
-            let source = URL(fileURLWithPath: #filePath)
-            let root = source.deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
-            let temporary = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-            try FileManager.default.createDirectory(at: temporary, withIntermediateDirectories: true)
-            defer { try? FileManager.default.removeItem(at: temporary) }
-            for item in ["Package.swift", "Sources", "Tests"] {
-                try FileManager.default.copyItem(
-                    at: root.appendingPathComponent(item), to: temporary.appendingPathComponent(item))
-            }
-            let program = try String(contentsOf: source, encoding: .utf8) + "\nSegmentedKeyboardProbe.run()\n"
-            try program.write(
-                to: temporary.appendingPathComponent("Sources/Perch/main.swift"), atomically: true, encoding: .utf8)
-            let log = temporary.appendingPathComponent("keyboard.log")
-            XCTAssertTrue(FileManager.default.createFile(atPath: log.path, contents: nil))
-            let output = try FileHandle(forWritingTo: log)
-            defer { try? output.close() }
-            let process = Process()
-            process.executableURL = URL(fileURLWithPath: "/usr/bin/python3")
-            process.arguments = [
-                "-c",
-                #"""
-                import pathlib, subprocess, sys
-                package = sys.argv[1]
-                subprocess.run([
-                    'swift', 'build', '--jobs', '2', '--package-path', package,
-                    '-Xswiftc', '-DSEGMENTED_KEYBOARD_PROBE', '-Xswiftc', '-enable-testing',
-                    '--product', 'Perch',
-                ], check=True, timeout=300)
-                bin_path = subprocess.check_output([
-                    'swift', 'build', '--show-bin-path', '--package-path', package,
-                ], text=True, timeout=30).strip()
-                previous = subprocess.run([
-                    'defaults', 'read', '-g', 'AppleKeyboardUIMode',
-                ], capture_output=True, text=True, timeout=10)
-                try:
-                    subprocess.run([
-                        'defaults', 'write', '-g', 'AppleKeyboardUIMode', '-int', '3',
-                    ], check=True, timeout=10)
-                    subprocess.run([
-                        str(pathlib.Path(bin_path) / 'Perch'),
-                    ], check=True, timeout=60)
-                finally:
-                    if previous.returncode == 0:
-                        subprocess.run([
-                            'defaults', 'write', '-g', 'AppleKeyboardUIMode', '-int', previous.stdout.strip(),
-                        ], check=True, timeout=10)
-                    else:
-                        subprocess.run([
-                            'defaults', 'delete', '-g', 'AppleKeyboardUIMode',
-                        ], check=True, timeout=10)
-                """#, temporary.path,
-            ]
-            process.currentDirectoryURL = temporary
-            process.standardOutput = output
-            process.standardError = output
-            try process.run()
-            process.waitUntilExit()
-            let result = try String(contentsOf: log, encoding: .utf8)
-            FileHandle.standardError.write(Data(result.utf8))
-            XCTAssertEqual(process.terminationReason, .exit)
-            XCTAssertEqual(process.terminationStatus, 0, result)
-            XCTAssertTrue(result.contains("PASS: Segmented native arrows, ends, Tab, back-tab and cancellation"))
-        }
-    }
 #endif

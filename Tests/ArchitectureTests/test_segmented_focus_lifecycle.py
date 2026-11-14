@@ -34,9 +34,9 @@ class SegmentedFocusLifecycleTests(unittest.TestCase):
 
     def test_native_regression_drives_keys_and_observes_focus(self):
         source = (ROOT / "Tests/PerchAppTests/SegmentedKeyboardTests.swift").read_text()
-        for evidence in ("PerchSegmented(", "NSApp.sendEvent", "isAccessibilityFocused",
+        for evidence in ("PerchSegmented(", "window.sendEvent", "isAccessibilityFocused",
                          'characters: "\\u{19}"', "testArrowsAndEnds", "testExitAndCancellation",
-                         "testDisabledAndInactive", "testExternalSelection", "process.terminationStatus, 0"):
+                         "testDisabledAndInactive", "testExternalSelection", "try await check.run()"):
             self.assertIn(evidence, source)
         self.assertNotIn("accessibilityPerformPress", source,
                          "An AX press bypasses the keyboard registration regression")

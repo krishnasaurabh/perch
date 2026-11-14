@@ -1,10 +1,6 @@
-"""Guards for explicit switch semantics and back-tab focus cancellation."""
+"""Guards for explicit switch semantics and native keyboard focus fixtures."""
 from pathlib import Path
-import subprocess
-import sys
-import textwrap
 import unittest
-from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[2]
 COMPONENTS = ROOT / "Sources/PerchApp/Workspace/Components"
@@ -23,13 +19,20 @@ class ControlNativeRegressionTests(unittest.TestCase):
         self.assertIn(".onKeyPress(.tab) { leaveGroup() }", source)
         self.assertIn(r'.onKeyPress(KeyEquivalent("\u{19}")) { leaveGroup() }', source)
 
-    def test_native_probe_requires_effective_keyboard_access_and_restores_preference(self):
+    def test_native_fixture_restores_keyboard_preference_and_activation_policy(self):
         source = (ROOT / "Tests/PerchAppTests/SegmentedKeyboardTests.swift").read_text()
+        test = source.split("@MainActor func testNativeRovingFocusAndExitCancellation() async throws {", 1)[1]
+        test = test.split("@MainActor private final class", 1)[0]
         self.assertIn('try require(NSApp.isFullKeyboardAccessEnabled,', source)
-        self.assertIn("'defaults', 'write', '-g', 'AppleKeyboardUIMode', '-int', '3'", source)
-        self.assertIn("finally:", source)
-        self.assertIn("'defaults', 'delete', '-g', 'AppleKeyboardUIMode'", source)
-        self.assertIn("previous.returncode == 0", source)
+        self.assertIn('let previous = CFPreferencesCopyValue(', test)
+        self.assertIn('key, NSNumber(value: 3),', test)
+        restore = test.split('defer {', 1)[1].split('let check =', 1)[0]
+        self.assertIn('key, previous,', restore)
+        self.assertIn('CFPreferencesSynchronize(', restore)
+        self.assertIn('app.setActivationPolicy(originalPolicy)', restore)
+        self.assertEqual(test.count('kCFPreferencesAnyApplication, kCFPreferencesCurrentUser, kCFPreferencesAnyHost'), 5)
+        self.assertIn('app.setActivationPolicy(.accessory)', test)
+        self.assertLess(test.index('defer {'), test.index('try await withThrowingTaskGroup'))
         self.assertIn('"Native field=', source)
 
     def test_native_focus_probe_primes_ax_before_asserting_focus(self):
@@ -55,37 +58,39 @@ class ControlNativeRegressionTests(unittest.TestCase):
                          "afterEditorOwnsFocus=", "isAccessibilityFocused"):
             self.assertIn(evidence, trace)
 
-    def test_native_launcher_restores_setting_on_success_failure_and_timeout(self):
+    def test_native_fixture_runs_in_xctest_with_real_window_events_and_same_deadlines(self):
         source = (ROOT / "Tests/PerchAppTests/SegmentedKeyboardTests.swift").read_text()
-        program = textwrap.dedent(source.split('#"""', 1)[1].split('"""#', 1)[0])
-        for had_setting in (False, True):
-            for failure in (None, subprocess.CalledProcessError(1, "Perch"),
-                            subprocess.TimeoutExpired("Perch", 60)):
-                with self.subTest(had_setting=had_setting, failure=type(failure).__name__):
-                    calls = []
+        for obsolete in ("SEGMENTED_KEYBOARD_PROBE", "SegmentedKeyboardProbe", "Process()",
+                         "subprocess", "'swift', 'build'", "'defaults'", "app.run()", "exit("):
+            self.assertNotIn(obsolete, source)
+        for required in ("import XCTest", "NSWindow(", "NSHostingView(",
+                         'environment(\\.accessibilityEnabled, true)',
+                         "NSApp.activate(ignoringOtherApps: true)", "window.makeKeyAndOrderFront(nil)",
+                         "try await check.run()", "window.sendEvent(event)", "NSEvent.keyEvent(",
+                         "NSEvent.EventType.keyDown, .keyUp", "ContinuousClock.now + .seconds(3)",
+                         "Task.sleep(for: .milliseconds(180))", "Task.sleep(for: .seconds(60))",
+                         "defer { group.cancelAll() }", "try Task.checkCancellation()",
+                         'XCTFail("\\(error); firstResponder=', "throw error"):
+            self.assertIn(required, source)
+        self.assertEqual(source.count('func testNativeRovingFocusAndExitCancellation('), 1)
 
-                    def run(arguments, **kwargs):
-                        calls.append(arguments)
-                        if arguments[:2] == ["defaults", "read"]:
-                            return subprocess.CompletedProcess(arguments, 0 if had_setting else 1, "2\n", "")
-                        if arguments[0].endswith("/Perch") and failure is not None:
-                            raise failure
-                        return subprocess.CompletedProcess(arguments, 0)
-
-                    with patch.object(subprocess, "run", side_effect=run), \
-                         patch.object(subprocess, "check_output", return_value="/fixture/bin\n"), \
-                         patch.object(sys, "argv", ["launcher", "/fixture/package"]):
-                        if failure is None:
-                            exec(compile(program, "<native-launcher>", "exec"), {})
-                        else:
-                            with self.assertRaises(type(failure)):
-                                exec(compile(program, "<native-launcher>", "exec"), {})
-                    self.assertIn(["defaults", "write", "-g", "AppleKeyboardUIMode", "-int", "3"], calls)
-                    self.assertIn(["/fixture/bin/Perch"], calls,
-                                  "Keyboard mode belongs in global defaults, never app arguments")
-                    expected = (["defaults", "write", "-g", "AppleKeyboardUIMode", "-int", "2"]
-                                if had_setting else ["defaults", "delete", "-g", "AppleKeyboardUIMode"])
-                    self.assertEqual(calls[-1], expected)
+    def test_exact_segment_accessibility_and_escape_contracts_are_preserved(self):
+        source = (ROOT / "Tests/PerchAppTests/SegmentedKeyboardTests.swift").read_text()
+        for required in ('try require(controls.count == 4,', 'for value in [15, 25, 45, 60]',
+                         'label($0) == String(value)', 'try require(matches.count == 1,',
+                         'boolean(node, "isAccessibilityFocused") == (value == minutes)',
+                         'attribute(node, "accessibilityValue") as? String',
+                         '(value == minutes ? "Selected" : "Not selected")',
+                         'boolean($0, "isAccessibilityFocused") != true',
+                         'characters: "\\u{19}"', 'modifiers: .shift',
+                         'testArrowsAndEnds()', 'testExternalSelection()',
+                         'testExitAndCancellation()', 'testDisabledAndInactive()',
+                         'testEscapeRestoresSelection()', '.onExitCommand {',
+                         'driver.minutes = original', 'code: 53, characters: "\\u{1b}"',
+                         'try assertSelectedAndFocused(original)'):
+            self.assertIn(required, source)
+        for key_code in (123, 124, 115, 119):
+            self.assertIn(str(key_code), source)
 
 
 if __name__ == "__main__":
