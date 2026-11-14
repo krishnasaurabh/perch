@@ -6,7 +6,8 @@ public struct PlannerEdit {
     private var changes: [(inout Planner) -> Void] = []
     private var transferChanges: [(inout Planner) -> Void] = []
     private var transitionGuard: ((Planner) -> Bool)?
-    public var isEmpty: Bool { changes.isEmpty && transferChanges.isEmpty }
+    private var orderChanges: [(Planner, inout Planner) -> Void] = []
+    public var isEmpty: Bool { changes.isEmpty && transferChanges.isEmpty && orderChanges.isEmpty }
 
     public init(before: Planner, after: Planner) {
         self.init(before: before, after: after, reversingRestoration: false)
@@ -59,7 +60,6 @@ public struct PlannerEdit {
                 schedule(id: old.id, before: old, after: new)
                 taskField(\.done, id: old.id, before: old, after: new)
                 taskField(\.completedAt, id: old.id, before: old, after: new)
-                taskField(\.remindAt, id: old.id, before: old, after: new)
                 taskField(\.deadline, id: old.id, before: old, after: new)
                 taskField(\.priority, id: old.id, before: old, after: new)
                 taskField(\.projectID, id: old.id, before: old, after: new)
@@ -107,18 +107,7 @@ public struct PlannerEdit {
                 planner.tasks.remove(at: i)
             }
         }
-        // Reorder only the original IDs and only if their relative order is still ours.
-        let shared = Set(before.tasks.map(\.id)).intersection(after.tasks.map(\.id))
-        let oldOrder = before.tasks.map(\.id).filter { shared.contains($0) }
-        let newOrder = after.tasks.map(\.id).filter { shared.contains($0) }
-        if oldOrder != newOrder {
-            changes.append { planner in
-                let slots = planner.tasks.indices.filter { shared.contains(planner.tasks[$0].id) }
-                guard slots.map({ planner.tasks[$0].id }) == newOrder else { return }
-                let tasks = Dictionary(uniqueKeysWithValues: slots.map { (planner.tasks[$0].id, planner.tasks[$0]) })
-                for (slot, id) in zip(slots, oldOrder) { planner.tasks[slot] = tasks[id]! }
-            }
-        }
+        order(\.tasks, before: before.tasks, after: after.tasks)
         for thought in before.parkedThoughts {
             let new = after.parkedThoughts.first { $0.id == thought.id }
             let index = before.parkedThoughts.firstIndex { $0.id == thought.id }!
@@ -134,20 +123,7 @@ public struct PlannerEdit {
                 planner.parkedThoughts.removeAll { $0 == thought }
             }
         }
-        let sharedThoughts = Set(before.parkedThoughts.map(\.id)).intersection(after.parkedThoughts.map(\.id))
-        let oldThoughtOrder = before.parkedThoughts.map(\.id).filter { sharedThoughts.contains($0) }
-        let newThoughtOrder = after.parkedThoughts.map(\.id).filter { sharedThoughts.contains($0) }
-        if oldThoughtOrder != newThoughtOrder {
-            changes.append { planner in
-                let slots = planner.parkedThoughts.indices.filter {
-                    sharedThoughts.contains(planner.parkedThoughts[$0].id)
-                }
-                guard slots.map({ planner.parkedThoughts[$0].id }) == newThoughtOrder else { return }
-                let thoughts = Dictionary(
-                    uniqueKeysWithValues: slots.map { (planner.parkedThoughts[$0].id, planner.parkedThoughts[$0]) })
-                for (slot, id) in zip(slots, oldThoughtOrder) { planner.parkedThoughts[slot] = thoughts[id]! }
-            }
-        }
+        order(\.parkedThoughts, before: before.parkedThoughts, after: after.parkedThoughts)
         for day in Set(before.notes.map(\.day) + after.notes.map(\.day)) {
             let old = before.notes.first { $0.day == day }
             let new = after.notes.first { $0.day == day }
@@ -212,10 +188,12 @@ public struct PlannerEdit {
     }
 
     public func restore(in planner: inout Planner) {
+        let current = planner
         if transitionGuard?(planner) != false {
             for change in transferChanges { change(&planner) }
         }
         for change in changes { change(&planner) }
+        for change in orderChanges { change(current, &planner) }
     }
 
     private mutating func append(toTransfer: Bool, _ change: @escaping (inout Planner) -> Void) {
@@ -223,13 +201,49 @@ public struct PlannerEdit {
     }
 
     private mutating func schedule(id: UUID, before: PlanTask, after: PlanTask) {
-        guard before.day != after.day || before.startAt != after.startAt else { return }
-        changes.append { planner in
-            guard let i = planner.tasks.firstIndex(where: { $0.id == id }),
-                planner.tasks[i].day == after.day, planner.tasks[i].startAt == after.startAt
-            else { return }
-            planner.tasks[i].day = before.day
-            planner.tasks[i].startAt = before.startAt
+        if before.day != after.day {
+            // Moving days also moves (or clears) both times. Restore that transition
+            // atomically; a later edit to either time must not strand it on another day.
+            changes.append { planner in
+                guard let i = planner.tasks.firstIndex(where: { $0.id == id }),
+                    planner.tasks[i].day == after.day, planner.tasks[i].startAt == after.startAt,
+                    planner.tasks[i].remindAt == after.remindAt
+                else { return }
+                planner.tasks[i].day = before.day
+                planner.tasks[i].startAt = before.startAt
+                planner.tasks[i].remindAt = before.remindAt
+            }
+        } else {
+            // Within one day these are independent edits, each guarded by its day.
+            for key in [\PlanTask.startAt, \PlanTask.remindAt] where before[keyPath: key] != after[keyPath: key] {
+                changes.append { planner in
+                    guard let i = planner.tasks.firstIndex(where: { $0.id == id }),
+                        planner.tasks[i].day == after.day, planner.tasks[i][keyPath: key] == after[keyPath: key]
+                    else { return }
+                    planner.tasks[i][keyPath: key] = before[keyPath: key]
+                }
+            }
+        }
+    }
+
+    private mutating func order<Item: Identifiable>(
+        _ key: WritableKeyPath<Planner, [Item]>, before: [Item], after: [Item]
+    ) where Item.ID == UUID {
+        let oldOrder = before.map(\.id), newOrder = after.map(\.id)
+        guard oldOrder != newOrder else { return }
+        let shared = Set(oldOrder).intersection(newOrder)
+        let expected = newOrder.filter { shared.contains($0) }
+        orderChanges.append { current, planner in
+            // Check the untouched input, before insertions change numeric positions.
+            let initialIDs = current[keyPath: key].map(\.id)
+            guard initialIDs.filter({ shared.contains($0) }) == expected else { return }
+            // Include restored records, but never adopt a conflicting external insertion.
+            let eligible = Set(oldOrder).filter { shared.contains($0) || !initialIDs.contains($0) }
+            let items = planner[keyPath: key]
+            let slots = items.indices.filter { eligible.contains(items[$0].id) }
+            let byID = Dictionary(uniqueKeysWithValues: slots.map { (items[$0].id, items[$0]) })
+            let restoredOrder = oldOrder.filter { byID[$0] != nil }
+            for (slot, id) in zip(slots, restoredOrder) { planner[keyPath: key][slot] = byID[id]! }
         }
     }
 
