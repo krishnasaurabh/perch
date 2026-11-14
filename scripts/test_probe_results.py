@@ -23,16 +23,25 @@ def integration_report():
     required = [f"settings {p} pane renders its content" for p in
                 ("General", "Workspace", "Focus timer", "AI agents", "System")]
     required += [f"dashboard {p} tab renders its content" for p in
-                 ("Upcoming", "History", "Insights", "Projects")]
+                 ("This week", "History", "Projects")]
     required += ["welcome never rewrites unreadable planner data", "failed details save keeps the draft",
                  "Command-Z restores the deleted project and its task links"]
     return {"passed": required + [f"fixture {i}" for i in range(60)], "failed": []}
 
 
 def theme_report():
-    rows = [{"page": p, "state": s} for p in results.THEME_PAGES for s in results.THEME_STATES]
+    # Keep dashboard identities independent of the validator so stale names cannot
+    # silently make both its positive control and its expected pages agree.
+    pages = {page for page in results.THEME_PAGES if not page.startswith("dashboard-")}
+    pages.update(f"dashboard-{tab}" for tab in ("This week", "History", "Projects"))
+    rows = [{"page": p, "state": s} for p in sorted(pages) for s in sorted(results.THEME_STATES)]
     names = [f"{r['page']} [{r['state']}]: synthetic gate" for r in rows]
-    return {"rows": rows, "passed": names + [f"fixture {i}" for i in range(330 - len(names))], "failed": []}
+    # Each page records five checks per state and one cross-state contrast check.
+    # Noninitial Settings panes add two navigation checks per state; two status
+    # labels add two growth checks each. Preserve that density as pages change.
+    navigation = 2 * len(results.THEME_STATES) * (sum(p.startswith("settings-") for p in pages) - 1)
+    minimum = len(pages) * (5 * len(results.THEME_STATES) + 1) + navigation + 4
+    return {"rows": rows, "passed": names + [f"fixture {i}" for i in range(minimum - len(names))], "failed": []}
 
 
 def clips_report():
@@ -50,6 +59,69 @@ class ProbeReportTests(unittest.TestCase):
                              ("clips", clips_report())):
             self.assertGreater(results.validate(kind, report), 0)
 
+    def test_dashboard_contract_matches_the_view_and_both_native_producers(self):
+        view = (ROOT / "Sources/PerchApp/Settings/DashboardView.swift").read_text()
+        declaration = view.split("enum Tab: String, CaseIterable {", 1)[1].split("var windowTitle", 1)[0]
+        tabs = re.findall(r'(\w+)\s*=\s*"([^"]+)"', declaration)
+        self.assertEqual(tabs, [("yourWeek", "This week"), ("history", "History"), ("projects", "Projects")])
+        names = {label for _, label in tabs}
+        self.assertEqual({page.removeprefix("dashboard-") for page in results.THEME_PAGES
+                          if page.startswith("dashboard-")}, names)
+        required = {f"dashboard {name} tab renders its content" for name in names}
+        self.assertTrue(required.issubset(integration_report()["passed"]))
+        for filename, start, array in (
+            ("integration_probe.swift", "func checkDashboardMatrix(", "let tabs:"),
+            ("allpage_matrix_probe.swift", "func dashboardTabs()", "let markers:"),
+        ):
+            source = (ROOT / "scripts" / filename).read_text().split(start, 1)[1]
+            choices = source.split(array, 1)[1].split("= [", 1)[1].split("]", 1)[0]
+            cases = re.findall(r'\(\.(\w+),', choices)
+            self.assertCountEqual(cases, [case for case, _ in tabs], filename)
+            self.assertIn(r'dashboard \(tab.rawValue) tab renders its', source)
+        theme = (ROOT / "scripts/theme_probe.swift").read_text()
+        pages = theme.split("for tab in DashboardView.Tab.allCases {", 1)[1].split("pages.append", 2)[1]
+        self.assertIn(r'"dashboard-\(tab.rawValue)"', pages)
+        self.assertIn("DashboardView(tab: tab)", pages)
+
+    def test_each_dashboard_tab_is_required_in_integration_reports(self):
+        for tab in ("This week", "History", "Projects"):
+            label = f"dashboard {tab} tab renders its content"
+            for replacement in (None, "Upcoming", "Insights", "Unknown"):
+                report = integration_report()
+                report["passed"].remove(label)
+                if replacement:
+                    report["passed"].append(f"dashboard {replacement} tab renders its content")
+                with self.subTest(tab=tab, replacement=replacement), self.assertRaises(ValueError):
+                    results.validate("integration", report)
+
+    def test_removed_dashboard_tabs_cannot_satisfy_theme_coverage(self):
+        for tab in ("Upcoming", "Insights"):
+            report = theme_report()
+            for row in report["rows"]:
+                if row["page"] == "dashboard-This week":
+                    row["page"] = f"dashboard-{tab}"
+            with self.subTest(tab=tab), self.assertRaises(ValueError):
+                results.validate("theme", report)
+
+    def test_every_theme_capture_needs_its_own_observed_assertion(self):
+        for row in theme_report()["rows"]:
+            report = theme_report()
+            prefix = f"{row['page']} [{row['state']}]:"
+            report["passed"] = [label for label in report["passed"] if not label.startswith(prefix)]
+            report["passed"].append("padding cannot replace a missing capture observation")
+            with self.subTest(row=row), self.assertRaises(ValueError):
+                results.validate("theme", report)
+
+    def test_current_dashboard_reports_pass_the_real_cli(self):
+        with tempfile.TemporaryDirectory() as directory:
+            for kind, report in (("integration", integration_report()), ("theme", theme_report())):
+                path = Path(directory) / f"{kind}.json"
+                path.write_text(json.dumps(report))
+                run = subprocess.run([sys.executable, str(ROOT / "scripts/check_probe_results.py"),
+                                      kind, str(path)], capture_output=True, text=True)
+                self.assertEqual(run.returncode, 0, run.stderr)
+                self.assertIn(f"PASS: {kind}", run.stdout)
+
     def test_failures_and_missing_failure_lists_are_rejected(self):
         for kind, build in (("integration", integration_report), ("theme", theme_report)):
             for failure in (["deliberate red"], None):
@@ -59,7 +131,7 @@ class ProbeReportTests(unittest.TestCase):
                     results.validate(kind, report)
 
     def test_every_theme_capture_is_mandatory_and_unique(self):
-        for index in range(56):
+        for index in range(len(theme_report()["rows"])):
             report = theme_report()
             report["rows"].pop(index)
             with self.subTest(index=index), self.assertRaises(ValueError):
@@ -69,7 +141,7 @@ class ProbeReportTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             results.validate("theme", report)
         report = theme_report()
-        report["passed"] = report["passed"][:329]
+        report["passed"] = report["passed"][:-1]
         with self.assertRaises(ValueError):
             results.validate("theme", report)
 

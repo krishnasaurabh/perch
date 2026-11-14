@@ -1466,7 +1466,7 @@ final class AllPageMatrix {
 
         // Every tab is exercised through the real segmented control.
         let markers: [(DashboardView.Tab, String, String)] = [
-            (.history, "Matrix history task", "Matrix upcoming task"),
+            (.history, "Matrix history task", AppL10n.text("Streak")),
             (.yourWeek, AppL10n.text("Streak"), "Matrix history task"),
             (.projects, AppL10n.text("No projects yet. Add #project to a new task."), "Matrix history task"),
         ]

@@ -6,11 +6,20 @@ from pathlib import Path
 
 THEME_PAGES = {
     "settings-General", "settings-Workspace", "settings-Focus timer",
-    "settings-AI agents", "settings-System", "dashboard-Upcoming",
-    "dashboard-History", "dashboard-Insights", "dashboard-Projects",
+    "settings-AI agents", "settings-System", "dashboard-This week",
+    "dashboard-History", "dashboard-Projects",
     "welcome", "details", "details-removed", "week", "clips",
 }
 THEME_STATES = {"standard", "enlarged-type", "increased-contrast", "enlarged-increased"}
+# Preserve measureEffectiveStates' assertion density as the page inventory changes:
+# five measurements per capture, one cross-state contrast check per page, two
+# navigation checks per state for every noninitial Settings pane, and two growth
+# checks for each of its two status-label surfaces.
+THEME_MINIMUM_ASSERTIONS = (
+    len(THEME_PAGES) * (5 * len(THEME_STATES) + 1)
+    + (sum(page.startswith("settings-") for page in THEME_PAGES) - 1) * 2 * len(THEME_STATES)
+    + 4
+)
 CLIPS_KEYBOARD_ASSERTIONS = (
     "week: Tab reaches the task-line actions menu",
     "week: Space opens the native task-line menu",
@@ -50,7 +59,7 @@ def labels(report, minimum):
 
 def validate(kind, report):
     if kind == "theme":
-        passed = labels(report, 330)
+        passed = labels(report, THEME_MINIMUM_ASSERTIONS)
         rows = report.get("rows", [])
         expected = {(page, state) for page in THEME_PAGES for state in THEME_STATES}
         observed = [(row.get("page"), row.get("state")) for row in rows]
@@ -86,7 +95,7 @@ def validate(kind, report):
         required = [f"settings {pane} pane renders its content" for pane in
                     ("General", "Workspace", "Focus timer", "AI agents", "System")]
         required += [f"dashboard {tab} tab renders its content" for tab in
-                     ("Upcoming", "History", "Insights", "Projects")]
+                     ("This week", "History", "Projects")]
         required += ["welcome never rewrites unreadable planner data",
                      "failed details save keeps the draft",
                      "Command-Z restores the deleted project and its task links"]
