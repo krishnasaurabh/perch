@@ -15,8 +15,8 @@ final class CarryModeTests: XCTestCase {
     }
 
     func testCarryModeDefaultsAndTolerantDecoding() throws {
-        XCTAssertEqual(Preferences().carryMode, .ask)
-        XCTAssertEqual(try PlannerFile.decoder.decode(Preferences.self, from: Data("{}".utf8)).carryMode, .ask)
+        XCTAssertEqual(Preferences().carryMode, .auto)
+        XCTAssertEqual(try PlannerFile.decoder.decode(Preferences.self, from: Data("{}".utf8)).carryMode, .auto)
         for (json, expectedError) in [
             (#"{"carryMode":null}"#, "valueNotFound"),
             (#"{"carryMode":"future-value"}"#, "dataCorrupted"),

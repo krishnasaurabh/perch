@@ -1642,6 +1642,7 @@ final class AllPageMatrix {
         defer { MatrixAX.useViewTree = false }
         let fixture = try MatrixFixture()
         defer { fixture.close() }
+        fixture.store.updatePrefs { $0.carryMode = .ask }
         guard let past = try fixture.history(["Matrix past task"], daysAgo: 1).first else {
             throw MatrixFailure(label: "could not author the historical task")
         }

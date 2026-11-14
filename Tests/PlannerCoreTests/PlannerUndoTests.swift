@@ -428,7 +428,7 @@ final class PlannerUndoTests: XCTestCase {
         f.undo()
         XCTAssertEqual(f.planner.tasks.map(\.id), [f.id, third.id, other.id])
         XCTAssertTrue(f.planner.preferences.catchCopies)
-        XCTAssertEqual(f.planner.preferences.defaultFocusMinutes, 25)
+        XCTAssertEqual(f.planner.preferences.defaultFocusMinutes, 45)
         XCTAssertEqual(f.planner.notes.map(\.text), ["External"])
         f.redo()
         XCTAssertEqual(f.planner.tasks.map(\.id), [other.id, third.id, f.id])

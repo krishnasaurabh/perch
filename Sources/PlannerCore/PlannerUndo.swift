@@ -165,6 +165,7 @@ public struct PlannerEdit {
         field(\.preferences.hiddenWorkspaceCards, before: before, after: after)
         field(\.preferences.hiddenCalendarIDs, before: before, after: after)
         field(\.preferences.welcomeCompleted, before: before, after: after)
+        changes += PreferenceUpdate.undoChanges(before: before.preferences, after: after.preferences)
         membership(\.dismissedOverdue, before: before, after: after)
         membership(\.repeatOccurrences, before: before, after: after)
         for id in before.completedCalendarEventIDs.symmetricDifference(after.completedCalendarEventIDs) {
