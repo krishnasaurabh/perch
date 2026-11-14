@@ -10,6 +10,7 @@ import SwiftUI
         static var previewTargets: [String: PreviewTarget] {
             [
                 "today": .workspace(.home),
+                "welcome": .window("welcome") { WelcomeView.show(store: $0.store, done: $0.completeWelcome) },
                 "notch-closed": .closedNotch(hardware: true),
                 "notch-flat": .closedNotch(hardware: false),
                 "notch-progress-off": .closedNotch(hardware: true, progress: false),

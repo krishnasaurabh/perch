@@ -307,6 +307,7 @@ public struct Preferences: Codable, Equatable, Sendable {
     /// `hover` shows a peek. `nothing` and `everything` select the other hover behaviors.
     /// Legacy `click` and `doubleClick` remain decodable.
     public var notchOpenTrigger: NotchOpenTrigger = .hover
+    public var notchClickToOpen: Bool = true
     public var notchTaskCount: Bool = false
     public var notchOnMonitors: Bool = false
     public var showOnDisplay: String? = nil
@@ -364,6 +365,10 @@ public struct Preferences: Codable, Equatable, Sendable {
             WorkspaceTimerStyle.self, forKey: .workspaceTimerStyle, default: d.workspaceTimerStyle)
         notchOpenTrigger = try c.decodeMissing(
             NotchOpenTrigger.self, forKey: .notchOpenTrigger, default: d.notchOpenTrigger)
+        notchClickToOpen = try c.decodeMissing(
+            Bool.self, forKey: .notchClickToOpen,
+            default: c.contains(.notchOpenTrigger)
+                ? notchOpenTrigger == .click || notchOpenTrigger == .doubleClick : d.notchClickToOpen)
         notchTaskCount = try c.decodeMissing(Bool.self, forKey: .notchTaskCount, default: d.notchTaskCount)
         notchOnMonitors = try c.decodeMissing(Bool.self, forKey: .notchOnMonitors, default: d.notchOnMonitors)
         showOnDisplay = try c.decodeIfPresent(String.self, forKey: .showOnDisplay)

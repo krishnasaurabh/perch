@@ -604,7 +604,7 @@ final class NotchController {
             } else if let id = slotUnderPointer(), let slot = slots[id], drawn(slot),
                 NotchLayout.contains(hoverRect(slot), pointer: p) && isOnShape(p, slot)
             {
-                if prefs.notchOpenTrigger == .click || (prefs.notchOpenTrigger == .doubleClick && e.clickCount >= 2) {
+                if prefs.notchClickToOpen || (prefs.notchOpenTrigger == .doubleClick && e.clickCount >= 2) {
                     open(on: id, activate: true)
                 }
             }
