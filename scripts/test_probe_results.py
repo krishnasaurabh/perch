@@ -21,7 +21,7 @@ spec.loader.exec_module(results)
 
 def integration_report():
     required = [f"settings {p} pane renders its content" for p in
-                ("General", "Workspace", "Focus timer", "AI agents", "System")]
+                ("general", "notch", "calendar", "agents", "data")]
     required += [f"dashboard {p} tab renders its content" for p in
                  ("Upcoming", "History", "Insights", "Projects")]
     required += ["welcome never rewrites unreadable planner data", "failed details save keeps the draft",
@@ -59,7 +59,7 @@ class ProbeReportTests(unittest.TestCase):
                     results.validate(kind, report)
 
     def test_every_theme_capture_is_mandatory_and_unique(self):
-        for index in range(56):
+        for index in range(len(theme_report()["rows"])):
             report = theme_report()
             report["rows"].pop(index)
             with self.subTest(index=index), self.assertRaises(ValueError):
@@ -72,6 +72,94 @@ class ProbeReportTests(unittest.TestCase):
         report["passed"] = report["passed"][:329]
         with self.assertRaises(ValueError):
             results.validate("theme", report)
+
+    def test_settings_reports_use_all_five_current_panes(self):
+        panes = {"general", "notch", "calendar", "agents", "data"}
+        self.assertEqual({p for p in results.THEME_PAGES if p.startswith("settings-")},
+                         {f"settings-{p}" for p in panes})
+        for pane in panes:
+            report = integration_report()
+            label = f"settings {pane} pane renders its content"
+            report["passed"].remove(label)
+            with self.subTest(pane=pane), self.assertRaises(ValueError):
+                results.validate("integration", report)
+        # Retired identities cannot fill in for the new pages, even with enough total assertions.
+        report = integration_report()
+        report["passed"] = [label for label in report["passed"] if not label.startswith("settings ")]
+        report["passed"] += [f"settings {p} pane renders its content"
+                             for p in ("General", "Workspace", "Focus timer", "AI agents", "System")]
+        with self.assertRaises(ValueError):
+            results.validate("integration", report)
+
+    def test_theme_rejects_retired_settings_captures(self):
+        report = theme_report()
+        for row in report["rows"]:
+            if row["page"] == "settings-calendar":
+                row["page"] = "settings-System"
+        with self.assertRaises(ValueError):
+            results.validate("theme", report)
+
+    def test_native_settings_marker_arrays_use_real_panes_and_content(self):
+        view = (ROOT / "Sources/PerchApp/Settings/SettingsView.swift").read_text()
+        match = re.search(r"case (general, notch, calendar, agents, data)", view)
+        assert match is not None
+        cases = match.group(1)
+        pane_files = {p: (ROOT / f"Sources/PerchApp/Settings/Settings{p.title()}Pane.swift").read_text()
+                      for p in cases.split(", ")}
+        pane_files["agents"] += (ROOT / "Sources/PerchApp/Settings/AgentsSettings.swift").read_text()
+        programs = []
+        for file, end in (("integration_probe.swift", "var previous:"),
+                          ("allpage_matrix_probe.swift", "var observed:")):
+            source = (ROOT / "scripts" / file).read_text()
+            array = source.split("let markers: [(SettingsView.Pane,", 1)[1].split(end, 1)[0]
+            declaration = "let markers: [(SettingsView.Pane," + array
+            entries = re.findall(r'\(\.(\w+), "([^"]+)"(?:, "([^"]+)")?\)', array)
+            self.assertEqual([p for p, _, _ in entries], cases.split(", "))
+            for pane, first, second in entries:
+                for marker in (first, second):
+                    if marker:
+                        self.assertIn(marker.lower(), pane_files[pane].lower(), (file, pane, marker))
+            programs.append("enum SettingsView { enum Pane: String { case " + cases + " } }\n" + declaration)
+        swift = shutil.which("swiftc")
+        assert swift is not None
+        with tempfile.TemporaryDirectory() as directory:
+            for index, program in enumerate(programs):
+                path = Path(directory) / f"markers{index}.swift"
+                path.write_text(program)
+                built = subprocess.run([swift, "-swift-version", "6", "-typecheck", str(path)],
+                                       capture_output=True, text=True)
+                self.assertEqual(built.returncode, 0, built.stderr)
+
+    def test_settings_navigation_keeps_real_keyboard_and_button_identity(self):
+        integration = (ROOT / "scripts/integration_probe.swift").read_text()
+        settings = integration.split("func checkSettingsMatrix(", 1)[1].split("func checkDashboardMatrix(", 1)[0]
+        self.assertNotIn("NSTableView", settings)
+        self.assertNotIn("selectedRow", settings)
+        self.assertIn("matrixSettingsFocused", settings)
+        self.assertIn('matrixKey(window, 48, "\\t")', settings)
+        self.assertIn('matrixKey(window, 125, "\\u{f701}")', settings)
+        self.assertIn("navigation.pane == pane", settings)
+        self.assertNotIn("navigation.pane = pane", settings)
+        theme = (ROOT / "scripts/theme_probe.swift").read_text()
+        self.assertNotIn("firstTable", theme)
+        self.assertIn("settingsSidebarFocused", theme)
+        self.assertIn("navigation.pane == pane", theme)
+        self.assertIn('"settings-calendar"', theme)
+        for source, start, end in (
+                (integration, "func matrixSettingsFocused(", "func checkSettingsMatrix("),
+                (theme, "func settingsSidebarFocused(", "func measureEffectiveStates(")):
+            walker = source.split(start, 1)[1].split(end, 1)[0]
+            for selector in ("accessibilityChildren", "accessibilityContents",
+                             "accessibilityChildrenInNavigationOrder", "isAccessibilityFocused"):
+                self.assertIn(selector, walker)
+            self.assertIn("subviews", walker)
+            self.assertIn("@convention(c) (AnyObject, Selector) -> Bool", walker)
+        matrix = (ROOT / "scripts/allpage_matrix_probe.swift").read_text()
+        selector = matrix.split("func selectPane(", 1)[1].split("// MARK:", 1)[0]
+        self.assertIn('"settings.sidebar.\\(pane.rawValue)"', selector)
+        self.assertIn('mxRole($0) == "AXButton"', selector)
+        self.assertIn("mxClick(", selector)
+        self.assertNotIn('contains("Row")', selector)
 
     def test_every_keyboard_assertion_is_mandatory(self):
         for index in range(19):

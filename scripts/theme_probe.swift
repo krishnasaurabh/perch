@@ -783,10 +783,31 @@ private extension Int {
     }
 }
 
-@MainActor func firstTable(_ view: NSView) -> NSTableView? {
-    if let table = view as? NSTableView { return table }
-    for child in view.subviews { if let table = firstTable(child) { return table } }
-    return nil
+@MainActor func settingsSidebarFocused(_ host: NSView, pane: SettingsView.Pane) -> Bool {
+    let wanted = "settings.sidebar.\(pane.rawValue)"
+    for owner in [NSApp as NSObject, host.window as NSObject?].compactMap({ $0 }) {
+        if let focused = controlAttribute(owner, "accessibilityFocusedUIElement") as? NSObject,
+            controlAttribute(focused, "accessibilityIdentifier") as? String == wanted
+        {
+            return true
+        }
+    }
+    var seen = Set<ObjectIdentifier>()
+    @MainActor func visit(_ node: NSObject) -> Bool {
+        guard seen.insert(ObjectIdentifier(node)).inserted else { return false }
+        let selector = NSSelectorFromString("isAccessibilityFocused")
+        if controlAttribute(node, "accessibilityIdentifier") as? String == wanted, node.responds(to: selector) {
+            typealias ReadBool = @convention(c) (AnyObject, Selector) -> Bool
+            if unsafeBitCast(node.method(for: selector), to: ReadBool.self)(node, selector) { return true }
+        }
+        let children =
+            ((controlAttribute(node, "accessibilityChildren") as? [NSObject]) ?? [])
+            + ((controlAttribute(node, "accessibilityContents") as? [NSObject]) ?? [])
+            + ((controlAttribute(node, "accessibilityChildrenInNavigationOrder") as? [NSObject]) ?? [])
+            + ((node as? NSView)?.subviews ?? [])
+        return children.contains(where: visit)
+    }
+    return visit(host)
 }
 
 @MainActor func measureEffectiveStates(
@@ -816,10 +837,10 @@ private extension Int {
     services.clips.add(.text("Measured clip text"), source: "copied")
 
     setupStage("clip added; construct pages")
-    typealias Page = (name: String, size: CGSize, settingsPane: Int?, view: AnyView)
+    typealias Page = (name: String, size: CGSize, settingsPane: SettingsView.Pane?, view: AnyView)
     let settings = AnyView(SettingsView().environmentObject(store).environmentObject(services))
-    var pages: [Page] = SettingsView.Pane.allCases.enumerated().map { index, pane -> Page in
-        ("settings-\(pane.rawValue)", CGSize(width: 620, height: 560), index, settings)
+    var pages: [Page] = SettingsView.Pane.allCases.map { pane -> Page in
+        ("settings-\(pane.rawValue)", CGSize(width: 620, height: 560), pane, settings)
     }
     for tab in DashboardView.Tab.allCases {
         pages.append(
@@ -872,8 +893,14 @@ private extension Int {
             let typeSize: DynamicTypeSize = state.enlarged ? .accessibility3 : .large
             // NEGATIVE-CONTROL SITE (contrast): the increased state requests .increased.
             let contrast: ColorSchemeContrast = state.increased ? .increased : .standard
+            // Each capture starts on General; selection below is performed only by real keys.
+            let navigation = SettingsNavigation()
             let root = ZStack(alignment: .topLeading) {
-                page.view
+                if page.settingsPane != nil {
+                    SettingsView(navigation: navigation).environmentObject(store).environmentObject(services)
+                } else {
+                    page.view
+                }
                 ContrastReader(observation: observation)
             }
             .environment(\.dynamicTypeSize, typeSize)
@@ -889,20 +916,24 @@ private extension Int {
             window.makeKeyAndOrderFront(nil)
             app.activate(ignoringOtherApps: true)
             await settle()
-            if let pane = page.settingsPane, pane > 0 {
-                // Real key events on the native sidebar list; never an AX or model substitute.
-                let table = firstTable(host)
+            if let pane = page.settingsPane {
+                window.makeFirstResponder(nil)
+                for _ in 0..<16 {
+                    if settingsSidebarFocused(host, pane: .general) { break }
+                    key(48, "\t", in: window)
+                    await settle()
+                }
                 Measured.check(
-                    table.map { window.makeFirstResponder($0) } == true,
+                    settingsSidebarFocused(host, pane: .general),
                     "\(label): the Settings sidebar accepts native keyboard focus")
-                print("MEASURED: \(label) sidebar row before keys \(table?.selectedRow ?? -1)")
-                for _ in 0..<pane {
+                let index = SettingsView.Pane.allCases.firstIndex(of: pane)!
+                for _ in 0..<index {
                     key(125, String(UnicodeScalar(0xF701)!), in: window, modifiers: [.numericPad, .function])
                     await settle()
                 }
                 Measured.check(
-                    table?.selectedRow == pane,
-                    "\(label): Down Arrow selects the \(page.name) pane (row \(table?.selectedRow ?? -1))")
+                    navigation.pane == pane && settingsSidebarFocused(host, pane: pane),
+                    "\(label): Down Arrow selects the \(page.name) pane (selected \(navigation.pane.rawValue))")
                 await settle()
             }
             await wakeControlAccessibility()
@@ -971,7 +1002,7 @@ private extension Int {
         }
     }
     // Pages that render a StatusLabel must show the enlarged size in its real AX frame.
-    for name in ["welcome", "settings-System"] {
+    for name in ["welcome", "settings-calendar"] {
         let (base, big) = statusGrowth[name] ?? (0, 0)
         Measured.check(base > 0, "\(name): a status label's AX frame is measured at the standard size (\(base))")
         Measured.check(
