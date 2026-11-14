@@ -49,13 +49,13 @@ class ControlFocusInventoryTests(unittest.TestCase):
 
     def test_assertions_inspect_the_exact_snapshot_logged_before_them(self):
         source = SEGMENTED.read_text()
-        for name in ("assertEditor", "assertSelectedAndFocused", "assertNoSegmentFocus"):
+        for name in ("assertEditor", "assertSelectedAndFocused", "assertFocusLeftSegmentGroup"):
             with self.subTest(assertion=name):
                 assertion = body(source, f"private func {name}(")
                 self.assertEqual(assertion.count("traceFocus("), 1)
                 self.assertLess(assertion.index("traceFocus("), assertion.index("try require("))
                 self.assertNotIn("accessibilityNodes(", assertion)
-                if name != "assertEditor":
+                if name == "assertSelectedAndFocused":
                     self.assertIn("let nodes = traceFocus(", assertion)
                     self.assertIn("segmentNodes(in: nodes)", assertion)
                 self.assertNotIn("segmentNodes()", assertion)

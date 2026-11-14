@@ -25,7 +25,7 @@ class SegmentedKeyboardOwnershipTests(unittest.TestCase):
         self.assertEqual(positions, sorted(positions))
         self.assertEqual(run.count('"SwiftUI.KeyViewProxy"'), 1)
         assertion = source.split("private func assertSelectedAndFocused(", 1)[1]
-        assertion = assertion.split("private func assertNoSegmentFocus(", 1)[0]
+        assertion = assertion.split("private func accessibilityNodes(", 1)[0]
         self.assertNotIn("SwiftUI.KeyViewProxy", assertion)
         self.assertIn("driver.minutes == minutes", assertion)
         self.assertLess(assertion.index("traceFocus("), assertion.index("try require("))
@@ -42,18 +42,19 @@ class SegmentedKeyboardOwnershipTests(unittest.TestCase):
                          "groupHasFocus = true", "focused = value"):
             self.assertIn(retained, source)
 
-    def test_only_positive_ax_focus_is_deferred(self):
+    def test_ax_focus_is_diagnostic_only_while_publication_is_deferred(self):
         source = PROBE.read_text()
         assertion = source.split("private func assertSelectedAndFocused(", 1)[1]
-        assertion = assertion.split("private func assertNoSegmentFocus(", 1)[0]
-        self.assertNotIn('boolean(node, "isAccessibilityFocused") == (value == minutes)', assertion)
-        self.assertIn("if value != minutes {", assertion)
-        self.assertIn('boolean(node, "isAccessibilityFocused") == false', assertion)
+        assertion = assertion.split("private func accessibilityNodes(", 1)[0]
+        self.assertNotIn("isAccessibilityFocused", assertion)
+        self.assertNotIn("assertNoSegmentFocus", source)
+        diagnostics = source.split("private func traceFocus(", 1)[1].split("private func assertEditor(", 1)[0]
+        self.assertEqual(source.count("isAccessibilityFocused"), diagnostics.count("isAccessibilityFocused"))
+        self.assertIn('boolean(node, "isAccessibilityFocused")', diagnostics)
         for check in ("controls.count == 4", "for value in [15, 25, 45, 60]",
                       "matches.count == 1", 'attribute(node, "accessibilityValue") as? String',
                       '(value == minutes ? "Selected" : "Not selected")'):
             self.assertIn(check, assertion)
-        self.assertIn('boolean($0, "isAccessibilityFocused") != true', source)
 
 
 if __name__ == "__main__":

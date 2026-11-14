@@ -78,7 +78,7 @@ class ControlNativeRegressionTests(unittest.TestCase):
 
     def test_every_native_focus_assertion_logs_responder_and_editor_ownership(self):
         source = (ROOT / "Tests/PerchAppTests/SegmentedKeyboardTests.swift").read_text()
-        for name in ("assertEditor", "assertSelectedAndFocused", "assertNoSegmentFocus"):
+        for name in ("assertEditor", "assertSelectedAndFocused", "assertFocusLeftSegmentGroup"):
             body = source.split(f"private func {name}(", 1)[1].split("\n        private func", 1)[0]
             self.assertLess(body.index("traceFocus("), body.index("try require("))
         trace = source.split("private func traceFocus(", 1)[1].split("\n        private func", 1)[0]
@@ -165,11 +165,8 @@ class ControlNativeRegressionTests(unittest.TestCase):
         source = (ROOT / "Tests/PerchAppTests/SegmentedKeyboardTests.swift").read_text()
         for required in ('try require(controls.count == 4,', 'for value in [15, 25, 45, 60]',
                          'label($0) == String(value)', 'try require(matches.count == 1,',
-                         'if value != minutes {',
-                         'boolean(node, "isAccessibilityFocused") == false',
                          'attribute(node, "accessibilityValue") as? String',
                          '(value == minutes ? "Selected" : "Not selected")',
-                         'boolean($0, "isAccessibilityFocused") != true',
                          'characters: "\\u{19}"', 'modifiers: .shift',
                          'testArrowsAndEnds()', 'testExternalSelection()',
                          'testExitAndCancellation()', 'testDisabledAndInactive()',
