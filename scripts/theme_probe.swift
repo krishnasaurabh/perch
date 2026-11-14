@@ -830,7 +830,7 @@ private extension Int {
     }
     pages.append(
         (
-            "welcome", CGSize(width: 560, height: 520), nil,
+            "welcome", WelcomeView.windowSize, nil,
             AnyView(WelcomeView(done: {}).environmentObject(store).environmentObject(services))
         ))
     pages.append(
@@ -862,6 +862,12 @@ private extension Int {
     let states = PageStates.all
     setupStage("states initialized: \(states.count)")
     var statusGrowth: [String: (Double, Double)] = [:]
+    var welcomeReasonGrowth: [String: (Double, Double)] = [:]
+    let welcomeReasons = [
+        "To show your meetings in Your day",
+        "For reminders when Perch is closed",
+        "Only if you choose to dictate",
+    ].map { AppL10n.text($0) }
     for page in pages {
         var ink: [String: PageInk] = [:]
         var text: [String: [(String, CGRect)]] = [:]
@@ -940,12 +946,30 @@ private extension Int {
                 if state.name == "enlarged-type" { entry.1 = tallest }
                 statusGrowth[page.name] = entry
             }
+            var reasonHeights: [String: Double] = [:]
+            // Welcome publishes reasons, not permission-state StatusLabels. Measure each
+            // actual reason at both sizes so a missing or fixed-size label still fails.
+            if page.name == "welcome" {
+                for reason in welcomeReasons {
+                    let matching = frames.filter { $0.0 == reason }
+                    Measured.check(
+                        matching.count == 1,
+                        "\(label): one nonzero AX reason frame for \(reason) (\(matching.count))")
+                    let height = matching.first?.1.height ?? 0
+                    reasonHeights[reason] = height
+                    var entry = welcomeReasonGrowth[reason] ?? (0, 0)
+                    if state.name == "standard" { entry.0 = height }
+                    if state.name == "enlarged-type" { entry.1 = height }
+                    welcomeReasonGrowth[reason] = entry
+                }
+            }
             Measured.rows.append([
                 "page": page.name, "state": state.name, "ink_pixels": measured.inkPixels,
                 "ink_rows": measured.inkRows, "max_ratio": measured.maxRatio, "background": measured.background,
                 "ax_static_text": frames.count,
                 "ax_text_height_total": frames.reduce(0) { $0 + $1.1.height },
                 "status_label_heights": status.map(\.height), "contrast_environment": observed,
+                "welcome_reason_heights": reasonHeights,
                 "type_size": resolvedType,
                 "effective_appearance": window.effectiveAppearance.name.rawValue,
             ])
@@ -971,12 +995,19 @@ private extension Int {
         }
     }
     // Pages that render a StatusLabel must show the enlarged size in its real AX frame.
-    for name in ["welcome", "settings-System"] {
+    for name in ["settings-System"] {
         let (base, big) = statusGrowth[name] ?? (0, 0)
         Measured.check(base > 0, "\(name): a status label's AX frame is measured at the standard size (\(base))")
         Measured.check(
             base > 0 && big >= base * 1.4,
             "\(name): enlarged type grows the status label's real AX frame (\(base) -> \(big))")
+    }
+    for reason in welcomeReasons {
+        let (base, big) = welcomeReasonGrowth[reason] ?? (0, 0)
+        Measured.check(base > 0, "welcome: reason AX frame is measured at standard size: \(reason) (\(base))")
+        Measured.check(
+            base > 0 && big >= base * 1.4,
+            "welcome: enlarged type grows the reason's real AX frame: \(reason) (\(base) -> \(big))")
     }
     let payload: [String: Any] = ["rows": Measured.rows, "passed": Measured.passed, "failed": Measured.failed]
     try? JSONSerialization.data(withJSONObject: payload, options: [.prettyPrinted, .sortedKeys])
