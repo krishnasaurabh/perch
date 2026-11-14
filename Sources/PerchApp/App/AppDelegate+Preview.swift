@@ -15,6 +15,8 @@ import SwiftUI
                 "your-week": .window("dashboard") { DashboardWindow.show(store: $0.store, tab: .insights) },
                 "history": .window("dashboard") { DashboardWindow.show(store: $0.store, tab: .history) },
                 "projects": .window("dashboard") { DashboardWindow.show(store: $0.store, tab: .projects) },
+                "surfaces": .window("surface-preview") { _ in SurfacePreview.show(focused: false) },
+                "surfaces-focused": .window("surface-preview") { _ in SurfacePreview.show(focused: true) },
             ]
         }
 
