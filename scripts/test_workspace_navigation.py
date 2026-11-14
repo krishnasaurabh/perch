@@ -265,7 +265,7 @@ private enum KeyPress { enum Result { case ignored, handled } }
 
         // Multiple selections before dispatch reject the stale destination.
         enter()
-        _ = focusPage(.week)
+        _ = focusPage(.home)
         renderSelection()
         _ = focusPage(.week)
         renderSelection()
@@ -306,6 +306,7 @@ try await FocusLifecycle().run()
                 ("fixed", program),
                 ("missing-reentry", program.replace(
                     "        pageGroupHasFocus = true\n        selectPage(page)", "        selectPage(page)")),
+                ("missing-stale-guard", program.replace("model.page == page, ", "")),
             ]:
                 with self.subTest(name=name):
                     if name != "fixed":
@@ -321,7 +322,7 @@ try await FocusLifecycle().run()
                         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
                         self.assertIn("Roving focus lifecycle adapter checks passed", result.stdout)
                     else:
-                        self.assertNotEqual(result.returncode, 0, "Missing keyboard re-entry must fail")
+                        self.assertNotEqual(result.returncode, 0, f"{name} must fail")
 
     def test_native_probe_waits_even_when_parent_task_is_cancelled(self):
         source = (ROOT / "Tests/PerchAppTests/WorkspaceBandProbe.swift").read_text()
