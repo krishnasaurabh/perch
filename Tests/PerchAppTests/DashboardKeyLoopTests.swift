@@ -1,12 +1,13 @@
 import AppKit
 import Foundation
+import SwiftUI
 import XCTest
 
 @testable import PerchApp
 
 final class DashboardKeyLoopTests: XCTestCase {
     @MainActor
-    func testHistorySearchHasExplicitTabPredecessor() async {
+    func testHistorySearchHasExplicitTabPredecessor() async throws {
         _ = NSApplication.shared
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 720, height: 520),
@@ -14,18 +15,32 @@ final class DashboardKeyLoopTests: XCTestCase {
         window.isReleasedWhenClosed = false
         defer { window.close() }
         let root = NSView(frame: NSRect(x: 0, y: 0, width: 720, height: 520))
-        let tabs = NSSegmentedControl(
-            labels: DashboardView.Tab.allCases.map(\.rawValue), trackingMode: .selectOne, target: nil, action: nil)
-        tabs.frame = NSRect(x: 20, y: 450, width: 420, height: 28)
+        let tabHost = DashboardTabsHost(
+            rootView: AnyView(
+                PerchSegmented(
+                    title: "Section", items: DashboardView.Tab.allCases.map { ($0, $0.rawValue) },
+                    selection: .constant(.history), surface: .sheet
+                ).environment(\.accessibilityEnabled, true)))
+        tabHost.frame = NSRect(x: 20, y: 450, width: 280, height: 30)
         let search = DashboardSearchField(frame: NSRect(x: 20, y: 380, width: 280, height: 24))
         search.identifier = NSUserInterfaceItemIdentifier(DashboardKeyLoop.searchIdentifier)
         search.isEditable = true
         let agent = NSPopUpButton(frame: NSRect(x: 320, y: 380, width: 150, height: 24))
         agent.addItem(withTitle: "All agents")
-        root.addSubview(tabs)
+        root.addSubview(tabHost)
         root.addSubview(search)
         root.addSubview(agent)
         window.contentView = root
+        let previousPolicy = NSApp.activationPolicy()
+        NSApp.setActivationPolicy(.accessory)
+        defer { NSApp.setActivationPolicy(previousPolicy) }
+        window.makeKeyAndOrderFront(nil)
+        for _ in 0..<30 {
+            root.layoutSubtreeIfNeeded()
+            if DashboardKeyLoop.tabKeyView(in: window) != nil { break }
+            try? await Task.sleep(nanoseconds: 50_000_000)
+        }
+        let tabs = try XCTUnwrap(DashboardKeyLoop.tabKeyView(in: window))
         DashboardKeyLoop.install(in: window)
         XCTAssertTrue(tabs.nextKeyView === search)
         XCTAssertTrue(search.previousKeyView === tabs)

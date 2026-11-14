@@ -1434,7 +1434,7 @@ final class AllPageMatrix {
         try mxSave(host, output.appendingPathComponent("settings-system.png"))
     }
 
-    // MARK: Dashboard: four tabs
+    // MARK: Dashboard: three tabs
 
     func dashboardTabs() async throws {
         MatrixAX.useViewTree = true
@@ -1447,7 +1447,7 @@ final class AllPageMatrix {
 
         let destinations = MatrixFocusDestinations()
         let view = MatrixHarness(destinations: destinations) {
-            DashboardView(tab: .upcoming)
+            DashboardView(tab: .yourWeek)
                 .environmentObject(fixture.store)
                 .environment(\.accessibilityEnabled, true)
                 .frame(width: 880, height: 560)
@@ -1459,21 +1459,22 @@ final class AllPageMatrix {
         try report.require(window.makeFirstResponder(destinations.before), "dashboard fixture starts from a field")
 
         // One keyboard-reachability assertion for the tab group itself.
-        _ = try await tabUntil(window, limit: 16, tag: "dashboardTabTraversal") { _, role in role == "AXRadioButton" }
+        _ = try await tabUntil(window, limit: 16, tag: "dashboardTabTraversal") { name, role in
+            role == "AXButton" && name == AppL10n.text("This week")
+        }
         try report.require(true, "Tab reaches the dashboard tab controls")
 
         // Every tab is exercised through the real segmented control.
         let markers: [(DashboardView.Tab, String, String)] = [
-            (.upcoming, "Matrix upcoming task", "Matrix history task"),
             (.history, "Matrix history task", "Matrix upcoming task"),
-            (.insights, AppL10n.text("Streak"), "Matrix history task"),
+            (.yourWeek, AppL10n.text("Streak"), "Matrix history task"),
             (.projects, AppL10n.text("No projects yet. Add #project to a new task."), "Matrix history task"),
         ]
         for (tab, marker, foreign) in markers {
             let wanted = AppL10n.text(tab.rawValue)
             let nodes = mxTree(root)
             let segment =
-                nodes.first { mxRole($0) == "AXRadioButton" && mxNames($0).contains(wanted) }
+                nodes.first { mxRole($0) == "AXButton" && mxNames($0).contains(wanted) }
                 ?? nodes.first { mxRole($0) == "AXStaticText" && mxNames($0).contains(wanted) }
             guard let segment else {
                 mxDumpAX(root, "dashboard-\(tab.rawValue)")

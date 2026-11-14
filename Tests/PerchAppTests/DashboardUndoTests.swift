@@ -6,6 +6,54 @@ import XCTest
 
 @MainActor
 final class DashboardUndoTests: XCTestCase {
+    func testThreeTabsReuseTheSameWindowAndHonorEveryOpenRequest() async throws {
+        XCTAssertEqual(DashboardView.Tab.allCases.map(\.rawValue), ["This week", "History", "Projects"])
+        let fixture = try DashboardFixture()
+        defer { fixture.close() }
+        let window = try await fixture.open(tab: "This week")
+        let selection = try XCTUnwrap(DashboardWindow.selection)
+        for tab in DashboardView.Tab.allCases + [.history, .yourWeek] {
+            DashboardWindow.show(store: fixture.store, tab: tab)
+            await Self.settle()
+            XCTAssertTrue(WindowHost.windows["dashboard"] === window)
+            XCTAssertTrue(DashboardWindow.selection === selection)
+            XCTAssertEqual(selection.tab, tab)
+        }
+        XCTAssertEqual(DashboardView.Tab.history.heading, "Looking back")
+    }
+
+    func testMoreMenuRoutesToEachTabAndPreservesOtherActions() async throws {
+        let fixture = try DashboardFixture()
+        defer { fixture.close() }
+        let menu = NSMenu()
+        menu.autoenablesItems = false
+        let undo = NSMenuItem(title: "Undo", action: nil, keyEquivalent: "")
+        undo.isEnabled = false
+        let settings = NSMenuItem(title: "Settings…", action: nil, keyEquivalent: "")
+        menu.addItem(undo)
+        menu.addItem(.separator())
+        menu.addItem(NSMenuItem(title: "Open Dashboard", action: nil, keyEquivalent: ""))
+        menu.addItem(settings)
+        var opened = 0
+        DashboardWindow.installMenuItems(in: menu) {
+            opened += 1
+            DashboardWindow.show(store: fixture.store)
+        }
+        XCTAssertEqual(menu.items.map(\.title), ["Undo", "", "Your week", "History", "Projects", "Settings…"])
+        XCTAssertTrue(menu.items.first === undo)
+        XCTAssertFalse(undo.isEnabled)
+        XCTAssertTrue(menu.items.last === settings)
+        for (index, tab) in DashboardView.Tab.allCases.enumerated() {
+            let item = menu.items[index + 2]
+            XCTAssertTrue(item.isEnabled)
+            XCTAssertNotNil(item.representedObject, "The native menu retains each action target")
+            XCTAssertTrue(NSApp.sendAction(try XCTUnwrap(item.action), to: item.target, from: item))
+            await Self.settle()
+            XCTAssertEqual(DashboardWindow.selection?.tab, tab)
+            XCTAssertEqual(opened, index + 1)
+        }
+    }
+
     func testCommandZRestoresDeletedProjectExactlyOnce() async throws {
         let fixture = try DashboardFixture()
         defer { fixture.close() }

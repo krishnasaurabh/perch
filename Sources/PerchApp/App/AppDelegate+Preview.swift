@@ -16,7 +16,7 @@ import SwiftUI
                 "notch-reminder-off": .closedNotch(hardware: true, reminder: false),
                 "week": .workspace(.week),
                 "settings": .window("settings") { $0.openSettings() },
-                "your-week": .window("dashboard") { DashboardWindow.show(store: $0.store, tab: .insights) },
+                "your-week": .window("dashboard") { DashboardWindow.show(store: $0.store, tab: .yourWeek) },
                 "history": .window("dashboard") { DashboardWindow.show(store: $0.store, tab: .history) },
                 "projects": .window("dashboard") { DashboardWindow.show(store: $0.store, tab: .projects) },
                 "surfaces": .window("surface-preview") { _ in SurfacePreview.show(focused: false) },

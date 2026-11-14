@@ -74,7 +74,7 @@ class LocalizationTests(unittest.TestCase):
         for key in sorted(required):
             self.assertIn(key, app)
         dashboard = (ROOT / 'Sources/PerchApp/Settings/DashboardView.swift').read_text()
-        self.assertIn('Text(AppL10n.text($0.rawValue))', dashboard)
+        self.assertIn('Text(AppL10n.text(selection.tab.heading))', dashboard)
         shortcut = (ROOT / 'Sources/PerchApp/Settings/ShortcutPreferenceRow.swift').read_text()
         self.assertIn('AppL10n.format("macOS wouldn\'t give up that combination. Kept %@.", shortcut.display)', shortcut)
 

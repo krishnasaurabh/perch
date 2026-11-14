@@ -343,7 +343,7 @@ private final class WorkspaceNavigationFixture {
         }
         let menu = try unwrap(observation.menu)
         try requireFalse(observation.timedOut, "Native More menu must begin tracking")
-        try requireEqual(menu.items.map(\.title), ["Undo", "", "Open Dashboard", "Settings…"])
+        try requireEqual(menu.items.map(\.title), ["Undo", "", "Your week", "History", "Projects", "Settings…"])
         try require(menu.items[1].isSeparatorItem)
         try requireEqual(menu.items[0].isEnabled, undoEnabled)
         try require(menu.items[2].isEnabled)

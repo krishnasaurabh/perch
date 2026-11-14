@@ -239,6 +239,7 @@ private final class WorkspaceMenuAnchorView: NSView {
             item.isEnabled = index != 0 || canUndo
             menu.addItem(item)
         }
+        DashboardWindow.installMenuItems(in: menu, open: dashboard)
         menu.popUp(positioning: nil, at: NSPoint(x: bounds.minX, y: bounds.maxY), in: self)
     }
 
