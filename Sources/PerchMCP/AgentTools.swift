@@ -74,6 +74,9 @@ public struct AgentTools {
                 ],
                 "date": str(
                     "Fallback day when a title has no date; omitted means today. Also accepts inbox. \(dayDesc)"),
+                "start": str(
+                    "Start time for the tasks, separate from reminders. A time alone uses each task date. Use none to leave it unset."
+                ),
                 "literal": [
                     "type": "boolean", "description": "Keep title text unchanged and skip scheduling-phrase parsing.",
                 ],
@@ -135,6 +138,8 @@ public struct AgentTools {
             [
                 "task": taskRef, "date": str("Look for the task on this date; omitted means today."),
                 "title": str("Replacement title text, on one line.", maxLength: 2000),
+                "start": str(
+                    "Start time, separate from the reminder. A time alone uses the task date. Use none to clear."),
                 "remind_at": str(
                     "Reminder time, such as 18:15, 6:15 pm, 2026-12-01 18:15, \"in 15 minutes\" or \"tomorrow at 8\". A time alone uses the task date. Use none to clear."
                 ),
@@ -187,6 +192,16 @@ public struct AgentTools {
             "get_insights",
             "Summarize task completion, focus time, streaks and busiest focus hours. Compare the last seven days with the preceding week.",
             readOnly: true),
+        tool("list_parked_thoughts", "Read the parking lot without changing storage.", readOnly: true),
+        tool(
+            "add_parked_thought", "Park a thought without creating a task.",
+            ["text": str("The thought to park. Stored as literal text.", maxLength: 20_000)], required: ["text"]),
+        tool(
+            "promote_parked_thought", "Make a parked thought a task and remove it from the parking lot.",
+            [
+                "thought": str("Full thought id returned by list_parked_thoughts.", maxLength: 36),
+                "date": str("Destination day; omitted means today. Choose today or a later date."),
+            ], required: ["thought"]),
         tool(
             "list_projects", "List projects and count their open tasks in inbox, today and later dates.", readOnly: true
         ),
@@ -224,13 +239,15 @@ public struct AgentTools {
             return try pipeline.inspect { commands in
                 let before = commands.planner
                 let text = try dispatch(name, args, commands: commands, agentID: agentID)
-                return try makeResult(text: text, name: name, args: args, before: before, engine: commands.read)
+                return try resultWithPlanningFields(
+                    text: text, name: name, args: args, before: before, engine: commands.read)
             }
         }
         return try pipeline.perform(origin: .user) { commands in
             let before = commands.planner
             let text = try dispatch(name, args, commands: commands, agentID: agentID)
-            return try makeResult(text: text, name: name, args: args, before: before, engine: commands.read)
+            return try resultWithPlanningFields(
+                text: text, name: name, args: args, before: before, engine: commands.read)
         }.value
     }
 
@@ -268,8 +285,18 @@ public struct AgentTools {
                 throw PlannerError("Add at least one task title with text.")
             }
             let d = a["date"] == nil ? nil : try day("date")
-            let added = try edit {
-                try $0.addTasks(titles, on: d, literal: a["literal"]?.bool ?? false, agentID: agentID)
+            let added = try edit { commands in
+                let tasks = try commands.addTasks(titles, on: d, literal: a["literal"]?.bool ?? false, agentID: agentID)
+                if let start = a["start"]?.string {
+                    for task in tasks {
+                        var changes = TaskChanges()
+                        changes.startAt = .set(
+                            start.lowercased() == "none"
+                                ? nil : try commands.read.parseStart(start, on: task.day ?? commands.today))
+                        try commands.execute(.editTask(task.id, changes))
+                    }
+                }
+                return try tasks.map { try commands.task($0.id) }
             }
             let e = try read()
             return "Added \(added.count == 1 ? "1 task" : "\(added.count) tasks"):\n"
@@ -377,7 +404,8 @@ public struct AgentTools {
             return t.day.map { "Moved \(t.title) to \($0)." } ?? "Unscheduled into inbox: \(t.title)."
         case "update_task":
             var ed = TaskEdit()
-            ed.title = a["title"]?.string; ed.remindAt = a["remind_at"]?.string; ed.deadline = a["deadline"]?.string
+            ed.title = a["title"]?.string; ed.start = a["start"]?.string
+            ed.remindAt = a["remind_at"]?.string; ed.deadline = a["deadline"]?.string
             ed.priority = a["priority"]?.string; ed.project = a["project"]?.string; ed.notes = a["notes"]?.string
             ed.repeatRule = a["repeat"]?.string; ed.minutes = try minutes(in: 0...720)
             ed.steps = a["steps"]?.stringArray; ed.doneSteps = a["done_steps"]?.stringArray
@@ -432,6 +460,19 @@ public struct AgentTools {
             out.append(
                 "By day: " + i.lastSeven.map { "\($0.day) \($0.completed)/\($0.planned)" }.joined(separator: ", "))
             return out.joined(separator: "\n")
+        case "list_parked_thoughts":
+            let thoughts = commands.planner.parkedThoughts
+            if thoughts.isEmpty { return "The parking lot is empty." }
+            return thoughts.map { "- \($0.text) · id \($0.id.uuidString.lowercased())" }.joined(separator: "\n")
+        case "add_parked_thought":
+            let thought = try commands.parkThought(a["text"]!.string!)
+            return "Parked: \(thought.text)."
+        case "promote_parked_thought":
+            guard let id = UUID(uuidString: a["thought"]!.string!) else {
+                throw PlannerError("Use a full thought id from list_parked_thoughts.")
+            }
+            let task = try commands.promoteThought(id, on: try day("date", inbox: false).key!, agentID: agentID)
+            return "Made a task: \(task.title)."
         case "list_projects":
             let e = try read()
             if e.planner.projects.isEmpty { return "No projects to list. Assign a project to a task to create one." }
@@ -446,6 +487,62 @@ public struct AgentTools {
         }
     }
 
+    /// Additive fields live at this boundary; the existing tools keep their text and data contracts.
+    private func resultWithPlanningFields(
+        text: String, name: String, args: JSON, before: Planner, engine: PlannerEngine
+    ) throws -> AgentToolResult {
+        func timestamp(_ date: Date?) -> JSON {
+            guard let date else { return .null }
+            let formatter = ISO8601DateFormatter()
+            formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+            return .string(formatter.string(from: date))
+        }
+        func thoughtJSON(_ thought: ParkedThought) -> JSON {
+            [
+                "id": .string(thought.id.uuidString.lowercased()), "text": .string(thought.text),
+                "created_at": timestamp(thought.createdAt),
+            ]
+        }
+        var data: JSON
+        switch name {
+        case "list_parked_thoughts":
+            data = ["thoughts": .array(engine.planner.parkedThoughts.map(thoughtJSON)), "content_trust": "untrusted"]
+        case "add_parked_thought":
+            let oldIDs = Set(before.parkedThoughts.map(\.id))
+            guard let thought = engine.planner.parkedThoughts.first(where: { !oldIDs.contains($0.id) }) else {
+                throw PlannerError("The thought could not be added. Try again.")
+            }
+            data = ["thought": thoughtJSON(thought), "content_trust": "untrusted"]
+        case "promote_parked_thought":
+            let oldIDs = Set(before.tasks.map(\.id))
+            guard let task = engine.planner.tasks.first(where: { !oldIDs.contains($0.id) }) else {
+                throw PlannerError("The task could not be added. The thought is safe; try again.")
+            }
+            data = try makeResult(
+                text: text, name: "get_task", args: ["task": .string(task.id.uuidString)], before: before,
+                engine: engine
+            ).structuredContent
+        default:
+            data = try makeResult(text: text, name: name, args: args, before: before, engine: engine).structuredContent
+        }
+        // Include removed records too, so delete output describes the task that was deleted.
+        let tasks = Dictionary(
+            (before.tasks + engine.planner.tasks).map { ($0.id.uuidString.lowercased(), $0) },
+            uniquingKeysWith: { _, current in current })
+        func enrich(_ value: JSON) -> JSON {
+            switch value {
+            case .object(var fields):
+                if let id = fields["id"]?.string, let task = tasks[id], fields["day"] != nil {
+                    fields["start"] = timestamp(task.startAt)
+                }
+                return .object(fields.mapValues(enrich))
+            case .array(let values): return .array(values.map(enrich))
+            default: return value
+            }
+        }
+        return AgentToolResult(text: text, structuredContent: enrich(data))
+    }
+
     // MARK: Formatting
 
     func hm(_ d: Date) -> String {
@@ -457,6 +554,7 @@ public struct AgentTools {
         var bits = ["[\(t.done ? "x" : " ")] \(t.title)", "id \(t.id.uuidString.prefix(8).lowercased())"]
         if let d = t.day, d != e.today { bits.append(d.raw) }
         if t.day == nil { bits.append("inbox") }
+        if let start = t.startAt { bits.append("start \(hm(start))") }
         if let r = t.remindAt { bits.append("remind \(hm(r))") }
         if t.priority != .none { bits.append("\(t.priority.rawValue) priority") }
         if let p = e.project(id: t.projectID) { bits.append("#\(p.name)") }
@@ -472,6 +570,7 @@ public struct AgentTools {
             "\(t.title) (id \(t.id.uuidString.prefix(8).lowercased()))",
             "Day: \(t.day?.raw ?? "Inbox")", "Done: \(t.done ? "yes" : "no")",
         ]
+        if let start = t.startAt { out.append("Start: \(DayKey(start, calendar: calendar)) \(hm(start))") }
         if let r = t.remindAt { out.append("Reminder: \(DayKey(r, calendar: calendar)) \(hm(r))") }
         if let d = t.deadline { out.append("Deadline: \(d)") }
         if t.priority != .none { out.append("Priority: \(t.priority.rawValue)") }

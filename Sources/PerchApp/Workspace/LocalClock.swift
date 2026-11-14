@@ -7,7 +7,9 @@ struct LocalClock<Content: View>: View {
     @ViewBuilder var content: (Date) -> Content
 
     var body: some View {
-        if running {
+        if let date = PreviewClock.date {
+            content(date)
+        } else if running {
             TimelineView(.periodic(from: .now, by: interval)) { context in content(context.date) }
         } else {
             content(Date())

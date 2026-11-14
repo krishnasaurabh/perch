@@ -4,20 +4,62 @@ import Foundation
 /// Runtime, service links and caller identity are never restored; focus credit comes from the current ledger.
 public struct PlannerEdit {
     private var changes: [(inout Planner) -> Void] = []
-    public var isEmpty: Bool { changes.isEmpty }
+    private var transferChanges: [(inout Planner) -> Void] = []
+    private var transitionGuard: ((Planner) -> Bool)?
+    private var orderChanges: [(Planner, inout Planner) -> Void] = []
+    public var isEmpty: Bool { changes.isEmpty && transferChanges.isEmpty && orderChanges.isEmpty }
 
     public init(before: Planner, after: Planner) {
         self.init(before: before, after: after, reversingRestoration: false)
     }
 
     fileprivate init(before: Planner, after: Planner, reversingRestoration: Bool) {
+        let addedTasks = after.tasks.filter { task in
+            !before.tasks.contains { $0.id == task.id }
+                && before.parkedThoughts.contains { $0.id == task.parkedFrom }
+                && !after.parkedThoughts.contains { $0.id == task.parkedFrom }
+        }
+        let removedTasks = before.tasks.filter { task in
+            !after.tasks.contains { $0.id == task.id }
+                && after.parkedThoughts.contains { $0.id == task.parkedFrom }
+                && !before.parkedThoughts.contains { $0.id == task.parkedFrom }
+        }
+        let addedThoughts = after.parkedThoughts.filter { thought in
+            !before.parkedThoughts.contains { $0.id == thought.id }
+        }
+        let removedThoughts = before.parkedThoughts.filter { thought in
+            !after.parkedThoughts.contains { $0.id == thought.id }
+        }
+        let transferTaskIDs = Set((addedTasks + removedTasks).map(\.id))
+        let removedSourceIDs = Set(addedTasks.compactMap(\.parkedFrom))
+        let addedSourceIDs = Set(removedTasks.compactMap(\.parkedFrom))
+        let transferThoughtIDs = removedSourceIDs.union(addedSourceIDs)
+        // All transfers in a batch stay atomic, but unrelated changes remain undoable.
+        // Build this guard from identities, not from the transaction's total item counts.
+        if !transferTaskIDs.isEmpty {
+            transitionGuard = { planner in
+                removedThoughts.filter { removedSourceIDs.contains($0.id) }.allSatisfy { thought in
+                    !planner.parkedThoughts.contains { $0.id == thought.id }
+                }
+                    && addedTasks.allSatisfy { task in
+                        guard let current = planner.tasks.first(where: { $0.id == task.id }) else { return false }
+                        let credit = reversingRestoration ? task.focusedSeconds : 0
+                        let ledger = reversingRestoration ? after.focusSegments.filter { $0.taskID == task.id } : []
+                        return Self.content(of: current) == Self.content(of: task)
+                            && current.focusedSeconds == credit && planner.focus?.taskID != task.id
+                            && planner.focusSegments.filter { $0.taskID == task.id } == ledger
+                    } && removedTasks.allSatisfy { task in !planner.tasks.contains { $0.id == task.id } }
+                    && addedThoughts.filter { addedSourceIDs.contains($0.id) }.allSatisfy { thought in
+                        planner.parkedThoughts.first { $0.id == thought.id } == thought
+                    }
+            }
+        }
         for old in before.tasks {
             if let new = after.tasks.first(where: { $0.id == old.id }) {
                 taskField(\.title, id: old.id, before: old, after: new)
-                taskField(\.day, id: old.id, before: old, after: new)
+                schedule(id: old.id, before: old, after: new)
                 taskField(\.done, id: old.id, before: old, after: new)
                 taskField(\.completedAt, id: old.id, before: old, after: new)
-                taskField(\.remindAt, id: old.id, before: old, after: new)
                 taskField(\.deadline, id: old.id, before: old, after: new)
                 taskField(\.priority, id: old.id, before: old, after: new)
                 taskField(\.projectID, id: old.id, before: old, after: new)
@@ -29,6 +71,7 @@ public struct PlannerEdit {
                 }
                 taskField(\.steps, id: old.id, before: old, after: new)
                 taskField(\.carriedFrom, id: old.id, before: old, after: new)
+                taskField(\.carriedTaskID, id: old.id, before: old, after: new)
                 taskField(\.repeatedFrom, id: old.id, before: old, after: new)
                 taskField(\.repeatAnchor, id: old.id, before: old, after: new)
                 taskField(\.carryCount, id: old.id, before: old, after: new)
@@ -36,7 +79,7 @@ public struct PlannerEdit {
                 // Recreate only user content, not an old timer, service link or credit snapshot.
                 let content = Self.content(of: old)
                 let index = before.tasks.firstIndex { $0.id == old.id }!
-                changes.append { planner in
+                append(toTransfer: transferTaskIDs.contains(old.id)) { planner in
                     guard !planner.tasks.contains(where: { $0.id == content.id }) else { return }
                     var restored = content
                     restored.focusedSeconds =
@@ -54,7 +97,7 @@ public struct PlannerEdit {
             // with existing focus. These values are conflict guards, never snapshots to restore.
             let expectedCredit = reversingRestoration ? added.focusedSeconds : 0
             let expectedLedger = reversingRestoration ? after.focusSegments.filter { $0.taskID == added.id } : []
-            changes.append { planner in
+            append(toTransfer: transferTaskIDs.contains(added.id)) { planner in
                 guard let i = planner.tasks.firstIndex(where: { $0.id == content.id }),
                     Self.content(of: planner.tasks[i]) == content,
                     planner.tasks[i].focusedSeconds == expectedCredit,
@@ -64,18 +107,23 @@ public struct PlannerEdit {
                 planner.tasks.remove(at: i)
             }
         }
-        // Reorder only the original IDs and only if their relative order is still ours.
-        let shared = Set(before.tasks.map(\.id)).intersection(after.tasks.map(\.id))
-        let oldOrder = before.tasks.map(\.id).filter { shared.contains($0) }
-        let newOrder = after.tasks.map(\.id).filter { shared.contains($0) }
-        if oldOrder != newOrder {
-            changes.append { planner in
-                let slots = planner.tasks.indices.filter { shared.contains(planner.tasks[$0].id) }
-                guard slots.map({ planner.tasks[$0].id }) == newOrder else { return }
-                let tasks = Dictionary(uniqueKeysWithValues: slots.map { (planner.tasks[$0].id, planner.tasks[$0]) })
-                for (slot, id) in zip(slots, oldOrder) { planner.tasks[slot] = tasks[id]! }
+        order(\.tasks, before: before.tasks, after: after.tasks)
+        for thought in before.parkedThoughts {
+            let new = after.parkedThoughts.first { $0.id == thought.id }
+            let index = before.parkedThoughts.firstIndex { $0.id == thought.id }!
+            guard new != thought else { continue }
+            append(toTransfer: transferThoughtIDs.contains(thought.id)) { planner in
+                guard planner.parkedThoughts.first(where: { $0.id == thought.id }) == new else { return }
+                planner.parkedThoughts.removeAll { $0.id == thought.id }
+                planner.parkedThoughts.insert(thought, at: min(index, planner.parkedThoughts.count))
             }
         }
+        for thought in after.parkedThoughts where !before.parkedThoughts.contains(where: { $0.id == thought.id }) {
+            append(toTransfer: transferThoughtIDs.contains(thought.id)) { planner in
+                planner.parkedThoughts.removeAll { $0 == thought }
+            }
+        }
+        order(\.parkedThoughts, before: before.parkedThoughts, after: after.parkedThoughts)
         for day in Set(before.notes.map(\.day) + after.notes.map(\.day)) {
             let old = before.notes.first { $0.day == day }
             let new = after.notes.first { $0.day == day }
@@ -140,7 +188,66 @@ public struct PlannerEdit {
     }
 
     public func restore(in planner: inout Planner) {
+        let current = planner
+        if transitionGuard?(planner) != false {
+            for change in transferChanges { change(&planner) }
+        }
         for change in changes { change(&planner) }
+        for change in orderChanges { change(current, &planner) }
+    }
+
+    private mutating func append(toTransfer: Bool, _ change: @escaping (inout Planner) -> Void) {
+        if toTransfer { transferChanges.append(change) } else { changes.append(change) }
+    }
+
+    private mutating func schedule(id: UUID, before: PlanTask, after: PlanTask) {
+        if before.day != after.day {
+            // Moving days also moves (or clears) both times. Restore that transition
+            // atomically; a later edit to either time must not strand it on another day.
+            changes.append { planner in
+                guard let i = planner.tasks.firstIndex(where: { $0.id == id }),
+                    planner.tasks[i].day == after.day, planner.tasks[i].startAt == after.startAt,
+                    planner.tasks[i].remindAt == after.remindAt
+                else { return }
+                planner.tasks[i].day = before.day
+                planner.tasks[i].startAt = before.startAt
+                planner.tasks[i].remindAt = before.remindAt
+            }
+        } else {
+            // Within one day these are independent edits, each guarded by its day.
+            for key in [\PlanTask.startAt, \PlanTask.remindAt] where before[keyPath: key] != after[keyPath: key] {
+                changes.append { planner in
+                    guard let i = planner.tasks.firstIndex(where: { $0.id == id }),
+                        planner.tasks[i].day == after.day, planner.tasks[i][keyPath: key] == after[keyPath: key]
+                    else { return }
+                    planner.tasks[i][keyPath: key] = before[keyPath: key]
+                }
+            }
+        }
+    }
+
+    private mutating func order<Item: Identifiable>(
+        _ key: WritableKeyPath<Planner, [Item]>, before: [Item], after: [Item]
+    ) where Item.ID == UUID {
+        let oldOrder = before.map(\.id), newOrder = after.map(\.id)
+        guard oldOrder != newOrder else { return }
+        let shared = Set(oldOrder).intersection(newOrder)
+        let expected = newOrder.filter { shared.contains($0) }
+        orderChanges.append { current, planner in
+            // Check the untouched input, before insertions change numeric positions.
+            let initialOrder = current[keyPath: key].map(\.id)
+            let initialIDs = Set(initialOrder)
+            // A later deletion is not a reorder. Compare only surviving shared IDs.
+            guard initialOrder.filter({ shared.contains($0) }) == expected.filter({ initialIDs.contains($0) })
+            else { return }
+            // Include restored records, but never adopt a conflicting external insertion.
+            let eligible = Set(oldOrder).filter { shared.contains($0) || !initialIDs.contains($0) }
+            let items = planner[keyPath: key]
+            let slots = items.indices.filter { eligible.contains(items[$0].id) }
+            let byID = Dictionary(uniqueKeysWithValues: slots.map { (items[$0].id, items[$0]) })
+            let restoredOrder = oldOrder.filter { byID[$0] != nil }
+            for (slot, id) in zip(slots, restoredOrder) { planner[keyPath: key][slot] = byID[id]! }
+        }
     }
 
     private mutating func field<V: Equatable>(_ key: WritableKeyPath<Planner, V>, before: Planner, after: Planner) {

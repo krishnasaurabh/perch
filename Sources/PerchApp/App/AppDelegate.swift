@@ -15,7 +15,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var cancellables = Set<AnyCancellable>()
 
     func applicationDidFinishLaunching(_ n: Notification) {
-        store = PlannerStore()
+        #if DEBUG || PERCH_TESTING
+            store = Self.makePreviewStore()
+        #else
+            store = PlannerStore()
+        #endif
         // Once per launch, before the first tick: a timer left running by a crash or kill -9 comes back
         // paused with its last checkpoint banked. The time the app was gone is not focus time.
         store.beginApplication()
@@ -34,17 +38,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             setupActivityDump()
             MotionScript.startIfRequested(store: store, model: model)  // CI motion capture only (--motion-script)
 
-            let args = CommandLine.arguments
-            if args.contains("--demo") { seedDemo() }
-            if let i = args.firstIndex(of: "--scenario"), i + 1 < args.count { seedScenario(args[i + 1]) }
-            if args.contains("--preview-open") {
-                // `--page <home|week|clips|insights>` picks the page the preview opens on (CI snapshots).
-                let page = args.firstIndex(of: "--page").flatMap { i in
-                    i + 1 < args.count ? NotchPage(rawValue: args[i + 1]) : nil
-                }
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { self.model.open(page: page, pinned: true) }
-            }
-            if !store.prefs.welcomeCompleted && !args.contains("--preview-open") { showWelcome() }
+            let previewOwnsNavigation = startPreviewIfRequested()
+            if !store.prefs.welcomeCompleted && !previewOwnsNavigation { showWelcome() }
         #else
             if !store.prefs.welcomeCompleted { showWelcome() }
         #endif

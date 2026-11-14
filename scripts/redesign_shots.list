@@ -1,0 +1,16 @@
+# name app arguments. Quoting and trailing comments follow shell word rules.
+# Each state runs in light/dark and normal/Reduce Motion, in four app sessions.
+# Screen lanes append targets and fixtures here as their presentations land.
+today-empty --scenario empty --open today
+today-three --scenario three --open today
+today-timer --scenario timer --open today
+week-three --scenario three --open week
+week-timer --scenario timer --open week
+today-running --scenario today-running --open today
+today-before --scenario today-before --open today
+# today-editing is available to the inline-editor target when that screen lands.
+today-fresh --scenario today-empty --open today
+week-full --scenario week-full --open week
+your-week --scenario window-review --open your-week
+history --scenario window-history --open history
+projects --scenario window-projects --open projects

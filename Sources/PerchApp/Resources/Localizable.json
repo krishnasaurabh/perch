@@ -2237,6 +2237,23 @@
         }
       }
     },
+    "Choose a start time on this open task's day.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Choose a start time on this open task's day."
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Chöösë à stàrt tïmë ön thïs öpën tàsk's dày. ·~⟧"
+          }
+        }
+      }
+    },
     "Choose an open task scheduled today before starting focus.": {
       "extractionState": "manual",
       "localizations": {
@@ -2764,6 +2781,23 @@
         }
       }
     },
+    "Could not allocate snapshot.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Could not allocate snapshot."
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Cöüld nöt àllöcàtë snàpshöt. ·~⟧"
+          }
+        }
+      }
+    },
     "Could not confirm the reminder's absence. Retry sync.": {
       "extractionState": "manual",
       "localizations": {
@@ -2794,6 +2828,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "⟦Cöüld nöt dëlëtë thïs tàsk. ·~⟧"
+          }
+        }
+      }
+    },
+    "Could not encode snapshot.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Could not encode snapshot."
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Cöüld nöt ëncödë snàpshöt. ·~⟧"
           }
         }
       }
@@ -3576,6 +3627,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "⟦Ënglïsh ·~⟧"
+          }
+        }
+      }
+    },
+    "Enter a thought using 1 to 20000 characters.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enter a thought using 1 to 20000 characters."
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Ëntër à thöüght üsïng 1 tö 20000 chàràctërs. ·~⟧"
           }
         }
       }
@@ -4532,6 +4600,23 @@
         }
       }
     },
+    "Invalid snapshot batch.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Invalid snapshot batch."
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Învàlïd snàpshöt bàtch. ·~⟧"
+          }
+        }
+      }
+    },
     "Jot a note": {
       "extractionState": "manual",
       "localizations": {
@@ -5259,6 +5344,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "⟦Nö tàsk föünd för \"%@\" %@. Chëck lïst_tàsks för àn ïd. ·~⟧"
+          }
+        }
+      }
+    },
+    "No visible surface for %@.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No visible surface for %@."
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Nö vïsïblë sürfàcë för %@. ·~⟧"
           }
         }
       }
@@ -6466,6 +6568,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "⟦Prëvïëw ïnïtïàlïzàtïön nëëds àn ëmpty plànnër. ·~⟧"
+          }
+        }
+      }
+    },
+    "Preview reload did not match the fixture.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Preview reload did not match the fixture."
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Prëvïëw rëlöàd dïd nöt màtch thë fïxtürë. ·~⟧"
           }
         }
       }
@@ -7973,6 +8092,74 @@
         }
       }
     },
+    "Snapshot appearance did not apply.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Snapshot appearance did not apply."
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Snàpshöt àppëàràncë dïd nöt àpply. ·~⟧"
+          }
+        }
+      }
+    },
+    "Snapshot bounds are outside the visible surface.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Snapshot bounds are outside the visible surface."
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Snàpshöt böünds àrë öütsïdë thë vïsïblë sürfàcë. ·~⟧"
+          }
+        }
+      }
+    },
+    "Snapshot capture field did not become ready.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Snapshot capture field did not become ready."
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Snàpshöt càptürë fïëld dïd nöt bëcömë rëàdy. ·~⟧"
+          }
+        }
+      }
+    },
+    "Snapshot capture text did not apply.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Snapshot capture text did not apply."
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Snàpshöt càptürë tëxt dïd nöt àpply. ·~⟧"
+          }
+        }
+      }
+    },
     "Snooze 5 min": {
       "extractionState": "manual",
       "localizations": {
@@ -8772,6 +8959,40 @@
         }
       }
     },
+    "The task could not be added. The thought is safe; try again.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The task could not be added. The thought is safe; try again."
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Thë tàsk cöüld nöt bë àddëd. Thë thöüght ïs sàfë; try àgàïn. ·~⟧"
+          }
+        }
+      }
+    },
+    "The thought could not be added. Try again.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The thought could not be added. Try again."
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Thë thöüght cöüld nöt bë àddëd. Try àgàïn. ·~⟧"
+          }
+        }
+      }
+    },
     "There are no unpinned clips to remove.": {
       "extractionState": "manual",
       "localizations": {
@@ -8989,6 +9210,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "⟦Thïs wëëk ·~⟧"
+          }
+        }
+      }
+    },
+    "Thought not found in the parking lot.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Thought not found in the parking lot."
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Thöüght nöt föünd ïn thë pàrkïng löt. ·~⟧"
           }
         }
       }
@@ -9571,6 +9809,57 @@
         }
       }
     },
+    "Unknown open target: %@": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unknown open target: %@"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Ünknöwn öpën tàrgët: %@ ·~⟧"
+          }
+        }
+      }
+    },
+    "Unknown preview scenario: %@": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unknown preview scenario: %@"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Ünknöwn prëvïëw scënàrïö: %@ ·~⟧"
+          }
+        }
+      }
+    },
+    "Unknown target or invalid shot: %@": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unknown target or invalid shot: %@"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Ünknöwn tàrgët ör ïnvàlïd shöt: %@ ·~⟧"
+          }
+        }
+      }
+    },
     "Unpin": {
       "extractionState": "manual",
       "localizations": {
@@ -9622,6 +9911,23 @@
         }
       }
     },
+    "Unsupported snapshot option.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unsupported snapshot option."
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Ünsüppörtëd snàpshöt öptïön. ·~⟧"
+          }
+        }
+      }
+    },
     "Up to this hour, Perch still counts it as the previous day, so a late night stays on today's list.": {
       "extractionState": "manual",
       "localizations": {
@@ -9652,6 +9958,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "⟦Üpcömïng ·~⟧"
+          }
+        }
+      }
+    },
+    "Use a full thought id from list_parked_thoughts.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Use a full thought id from list_parked_thoughts."
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Üsë à füll thöüght ïd fröm lïst_pàrkëd_thöüghts. ·~⟧"
           }
         }
       }

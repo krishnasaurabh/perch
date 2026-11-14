@@ -9,6 +9,8 @@ struct PlannerExportDocument: Encodable {
         try c.encode(planner.tasks, forKey: .tasks)
         try c.encode(planner.projects, forKey: .projects)
         try c.encode(planner.notes, forKey: .notes)
+        try c.encode(planner.parkedThoughts, forKey: .parkedThoughts)
+        try c.encode(planner.notepadMigrationComplete, forKey: .notepadMigrationComplete)
         try c.encode(planner.focusSegments, forKey: .focusSegments)
         try c.encodeIfPresent(planner.focus, forKey: .focus)
         try c.encode(planner.dismissedOverdue, forKey: .dismissedOverdue)
