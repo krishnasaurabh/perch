@@ -47,7 +47,10 @@ final class DashboardUndoTests: XCTestCase {
             let item = menu.items[index + 2]
             XCTAssertTrue(item.isEnabled)
             XCTAssertNotNil(item.representedObject, "The native menu retains each action target")
-            XCTAssertTrue(NSApp.sendAction(try XCTUnwrap(item.action), to: item.target, from: item))
+            let action = try XCTUnwrap(item.action)
+            XCTAssertEqual(NSStringFromSelector(action), "chooseTab:", "Do not select NSObject.perform(_:)")
+            XCTAssertTrue(try XCTUnwrap(item.target as? NSObject).responds(to: action))
+            XCTAssertTrue(NSApp.sendAction(action, to: item.target, from: item))
             await Self.settle()
             XCTAssertEqual(DashboardWindow.selection?.tab, tab)
             XCTAssertEqual(opened, index + 1)

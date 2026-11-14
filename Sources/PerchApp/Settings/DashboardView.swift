@@ -40,7 +40,7 @@ enum DashboardWindow {
                 selection?.tab = tab
             }
             let item = NSMenuItem(
-                title: AppL10n.text(tab.windowTitle), action: #selector(DashboardMenuAction.perform(_:)),
+                title: AppL10n.text(tab.windowTitle), action: #selector(DashboardMenuAction.chooseTab(_:)),
                 keyEquivalent: "")
             item.target = target
             item.representedObject = target
@@ -59,7 +59,7 @@ final class DashboardSelection: ObservableObject {
 private final class DashboardMenuAction: NSObject {
     let action: () -> Void
     init(_ action: @escaping () -> Void) { self.action = action }
-    @objc func perform(_ sender: NSMenuItem) { action() }
+    @objc func chooseTab(_ sender: NSMenuItem) { action() }
 }
 
 /// One ordinary window. Each tab owns its content and subtitle independently.
