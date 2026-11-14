@@ -228,7 +228,8 @@ final class NotchClickOpeningTests: XCTestCase {
         let dequeued = try XCTUnwrap(
             NSApp.nextEvent(matching: mask, until: .distantPast, inMode: .default, dequeue: true))
         XCTAssertEqual(dequeued.type, event.type)
-        XCTAssertEqual(dequeued.timestamp, event.timestamp)
+        // AppKit quantizes the timestamp when it copies a posted event.
+        XCTAssertEqual(dequeued.timestamp, event.timestamp, accuracy: 1e-6)
         XCTAssertEqual(dequeued.windowNumber, event.windowNumber)
         XCTAssertEqual(dequeued.locationInWindow, event.locationInWindow)
         XCTAssertEqual(dequeued.modifierFlags, event.modifierFlags)

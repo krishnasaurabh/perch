@@ -1,4 +1,5 @@
 import AppKit
+import ApplicationServices
 import PerchUI
 import PlannerCore
 import SwiftUI
@@ -110,6 +111,15 @@ final class WelcomeScreenshotConsentTests: XCTestCase {
         let previousPolicy = NSApp.activationPolicy()
         NSApp.setActivationPolicy(.regular)
         defer { NSApp.setActivationPolicy(previousPolicy) }
+        // Ask for the native tree before SwiftUI constructs its lazy AX elements.
+        let primer = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 100, height: 100),
+            styleMask: [.titled], backing: .buffered, defer: false)
+        primer.isReleasedWhenClosed = false
+        primer.contentView = NSTextField(labelWithString: "Welcome fixture")
+        primer.orderFront(nil)
+        await Self.primeAccessibility()
+        primer.close()
         let store = makeStore(root)
         let before = store.prefs
         let host = NSHostingView(
@@ -174,6 +184,24 @@ final class WelcomeScreenshotConsentTests: XCTestCase {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         return root
+    }
+
+    private nonisolated static func primeAccessibility() async {
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            DispatchQueue.global().async {
+                let app = AXUIElementCreateApplication(getpid())
+                var raw: CFTypeRef?
+                let status = AXUIElementCopyAttributeValue(app, kAXWindowsAttribute as CFString, &raw)
+                FileHandle.standardError.write(Data("Welcome AX root priming: \(status.rawValue)\n".utf8))
+                if let windows = raw as? [AXUIElement] {
+                    for window in windows {
+                        var children: CFTypeRef?
+                        _ = AXUIElementCopyAttributeValue(window, kAXChildrenAttribute as CFString, &children)
+                    }
+                }
+                continuation.resume()
+            }
+        }
     }
 
     private static func accessibilityString(_ value: Any?) -> String? {

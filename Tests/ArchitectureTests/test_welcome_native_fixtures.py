@@ -101,7 +101,7 @@ final class NSEvent {
     enum EventType: Int { case leftMouseDown, leftMouseUp, keyDown, keyUp }
     struct EventTypeMask { let rawValue: Int }
     let type: EventType
-    var timestamp: Double = 12
+    var timestamp: Double = 297.72130583333336
     let windowNumber = 5
     let locationInWindow = CGPoint(x: 50, y: 50)
     let modifierFlags = 0
@@ -117,7 +117,8 @@ final class NSEvent {
     static func postEvent(_ event: NSEvent, atStart: Bool) {
         precondition(atStart)
         let copy = NSEvent(type: event.type)
-        copy.timestamp = event.timestamp + (CommandLine.arguments.contains("--corrupt") ? 1 : 0)
+        copy.timestamp = (event.timestamp * 1e9).rounded(.towardZero) / 1e9
+            + (CommandLine.arguments.contains("--corrupt") ? 1 : 0)
         queued = copy
     }
     static func nextEvent(matching: NSEvent.EventTypeMask, until: Date,
@@ -132,6 +133,9 @@ final class NSEvent {
 func XCTAssertTrue(_ value: Bool, _ message: String = "") { precondition(value, message) }
 func XCTAssertEqual<T: Equatable>(_ left: T, _ right: T) {
     precondition(left == right, "Submitted payload mismatch")
+}
+func XCTAssertEqual(_ left: Double, _ right: Double, accuracy: Double, _ message: String = "") {
+    precondition(abs(left - right) <= accuracy, "Submitted payload mismatch: " + message)
 }
 func XCTUnwrap<T>(_ value: T?) throws -> T { precondition(value != nil); return value! }
 struct Fixture {
@@ -164,14 +168,32 @@ try Fixture.run()
             self.assertNotEqual(corrupt.returncode, 0)
             self.assertIn("Submitted payload mismatch", corrupt.stderr)
 
+    def test_welcome_primes_accessibility_off_main_before_building_host(self):
+        source = (ROOT / "Tests/PerchAppTests/WelcomeScreenshotConsentTests.swift").read_text()
+        test = declaration(source, "@MainActor func testWelcomePresentsHabitsAndReadOnlyPermissionReasons(")
+        self.assertIn("import ApplicationServices", source)
+        self.assertLess(test.index("primer.orderFront(nil)"), test.index("await Self.primeAccessibility()"))
+        self.assertLess(test.index("await Self.primeAccessibility()"), test.index("primer.close()"))
+        self.assertLess(test.index("primer.close()"), test.index("let host = NSHostingView("))
+        prime = declaration(source, "private nonisolated static func primeAccessibility(")
+        for operation in ("withCheckedContinuation", "DispatchQueue.global().async",
+                          "AXUIElementCreateApplication(getpid())", "kAXWindowsAttribute",
+                          "kAXChildrenAttribute", "continuation.resume()"):
+            self.assertIn(operation, prime)
+        self.assertLess(prime.index("DispatchQueue.global().async"),
+                        prime.index("AXUIElementCreateApplication(getpid())"))
+        self.assertIn("XCTAssertTrue(text.contains(value)", test)
+        self.assertIn("XCTAssertEqual(store.prefs, before", test)
+
     def test_native_event_fixture_dequeues_before_dispatch(self):
         source = (ROOT / "Tests/PerchAppTests/NotchClickOpeningTests.swift").read_text()
         dispatch = declaration(source, "private static func dispatchQueuedEvent(")
         self.assertLess(dispatch.index("NSApp.postEvent("), dispatch.index("NSApp.nextEvent("))
         self.assertLess(dispatch.index("NSApp.nextEvent("), dispatch.index("NSApp.sendEvent("))
         self.assertIn("dequeue: true", dispatch)
-        for field in ("type", "timestamp", "windowNumber", "locationInWindow", "modifierFlags", "clickCount"):
+        for field in ("type", "windowNumber", "locationInWindow", "modifierFlags", "clickCount"):
             self.assertIn(f"XCTAssertEqual(dequeued.{field}, event.{field})", dispatch)
+        self.assertIn("XCTAssertEqual(dequeued.timestamp, event.timestamp, accuracy: 1e-6)", dispatch)
         self.assertIn("NSApp.currentEvent === dequeued", dispatch)
         self.assertIn("try Self.dispatchQueuedEvent(event)", source)
         for assertion in (
