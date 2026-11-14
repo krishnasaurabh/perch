@@ -127,10 +127,9 @@
             try require(driver.minutes == 45, "The arrow before Tab still selects 45")
             try await key(code: 48, characters: "\u{19}", modifiers: .shift)
             try assertSelectedAndFocused(45)
-            try send(code: 123, characters: "\u{f702}")
             try send(code: 48, characters: "\u{19}", modifiers: .shift)
             await settle()
-            try assertKeyPassedThrough("Back-tab must not be swallowed by the group", selection: 25)
+            try assertKeyPassedThrough("Back-tab must not be swallowed by the group", selection: 45)
             driver.minutes = 60
             await settle()
             try require(

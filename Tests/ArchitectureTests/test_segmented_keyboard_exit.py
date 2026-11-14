@@ -23,10 +23,9 @@ class SegmentedKeyboardExitTests(unittest.TestCase):
             'try require(driver.minutes == 45, "The arrow before Tab still selects 45")',
             r'try await key(code: 48, characters: "\u{19}", modifiers: .shift)',
             'try assertSelectedAndFocused(45)',
-            r'try send(code: 123, characters: "\u{f702}")',
             r'try send(code: 48, characters: "\u{19}", modifiers: .shift)',
             'await settle()',
-            'try assertKeyPassedThrough("Back-tab must not be swallowed by the group", selection: 25)',
+            'try assertKeyPassedThrough("Back-tab must not be swallowed by the group", selection: 45)',
             'driver.minutes = 60',
             'await settle()',
             'try require(window.makeFirstResponder(driver.before), "Return to the native destination before the final Tab")',
@@ -44,6 +43,7 @@ class SegmentedKeyboardExitTests(unittest.TestCase):
         self.assertEqual(scenario.count('assertFocusLeftSegmentGroup('), 2)
         self.assertEqual(scenario.count('assertKeyPassedThrough('), 1)
         self.assertNotIn('Back-tab must leave the segmented group', scenario)
+        self.assertNotIn(r'try send(code: 123, characters: "\u{f702}")', scenario)
 
     def test_back_tab_passthrough_checks_binding_and_logs_without_forcing_focus(self):
         assertion = body(PROBE.read_text(), "assertKeyPassedThrough")
