@@ -20,30 +20,31 @@ struct NotchRootView: View {
     var body: some View {
         let g = screen.geometry
         let window = g.window
-        let timer = NotchModel.timerShowing(store)
-        let glance = model.glance(in: store, expanded: expanded, activityVisible: activity != nil)
+        let closed = model.closed(in: store, screenID: screen.id)
         let shell = expanded ? g.workspace : g.tuckedNotch
         let outline = g.outline(expanded: expanded)
 
         ZStack(alignment: .topLeading) {
-            // Stable housing coordinates: only opening the workspace grows this shell.
-            ZStack(alignment: .top) {
-                outline.fill(Theme.notchBlack)
-                if expanded {
-                    WorkspaceView(notchHeight: g.notchSize.height)
-                        // Keep outgoing content above the shell during removal.
-                        .zIndex(1)
-                        .transition(motionPolicy.workspaceTransition)
-                        .padding(.horizontal, 10)
+            // Flat displays never draw a synthetic housing.
+            if expanded || g.hasHardwareNotch {
+                ZStack(alignment: .top) {
+                    outline.fill(Theme.notchBlack)
+                    if expanded {
+                        WorkspaceView(notchHeight: g.notchSize.height)
+                            // Keep outgoing content above the shell during removal.
+                            .zIndex(1)
+                            .transition(motionPolicy.workspaceTransition)
+                            .padding(.horizontal, 10)
+                    }
                 }
+                .frame(width: shell.width, height: shell.height)
+                .clipShape(outline)
+                .contentShape(outline)
+                .onDrop(of: [.fileURL, .url, .plainText, .image], isTargeted: nil) { providers in
+                    handleDrop(providers); return true
+                }
+                .offset(x: shell.minX - window.minX, y: window.maxY - shell.maxY)
             }
-            .frame(width: shell.width, height: shell.height)
-            .clipShape(outline)
-            .contentShape(outline)
-            .onDrop(of: [.fileURL, .url, .plainText, .image], isTargeted: nil) { providers in
-                handleDrop(providers); return true
-            }
-            .offset(x: shell.minX - window.minX, y: window.maxY - shell.maxY)
 
             if !expanded {
                 if let activity {
@@ -56,16 +57,13 @@ struct NotchRootView: View {
                         }
                         .offset(x: g.activityRect.minX - window.minX, y: window.maxY - g.activityRect.maxY)
                         .transition(.opacity)
-                } else if let side = timer {
-                    TimerPillLayer(geometry: g, side: side, bounds: window, focus: store.planner.focus)
-                        .transition(.opacity)
-                } else if let glance {
-                    let p = g.glanceRect
-                    NotchGlanceCapsule(glance: glance) {
-                        NotificationCenter.default.post(name: .perchOpenWorkspace, object: NotchPage.home)
+                } else {
+                    LocalClock(running: closed.needsClock(hasHardwareNotch: g.hasHardwareNotch)) { now in
+                        NotchClosedLayer(geometry: g, bounds: window, presentation: closed, now: now) {
+                            model.activateClosed(in: store, on: screen)
+                        }
                     }
-                    .frame(width: p.width, height: p.height)
-                    .offset(x: p.minX - window.minX, y: window.maxY - p.maxY)
+                    .designMotion(.hover, value: closed)
                 }
             }
         }
@@ -82,7 +80,8 @@ struct NotchRootView: View {
 
     /// No housing and no enabled drawn notch: nothing until it opens or shows something there.
     private var hidden: Bool {
-        !NotchLayout.closedNotchVisible(screen: screen.geometry.screen, enabled: store.prefs.notchOnMonitors)
+        let closed = model.closed(in: store, screenID: screen.id)
+        return !screen.geometry.hasHardwareNotch && !closed.hasBlock && !closed.reminder
             && !expanded && activity == nil
     }
 

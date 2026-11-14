@@ -49,6 +49,7 @@ final class NotchModel: ObservableObject {
     }
     @Published var page: NotchPage = .home
     @Published var activity: PresentedNotchActivity?
+    @Published var closedReminderIDs = Set<UUID>()
     @Published private(set) var missedReminder: PresentedNotchActivity?
     private var missedTask: PlanTask?
     private var dismissedReminders = Set<String>()
@@ -110,6 +111,7 @@ final class NotchModel: ObservableObject {
     }
 
     func show(_ a: PresentedNotchActivity, for seconds: Double? = nil) {
+        if case .reminder(let id) = a.kind { closedReminderIDs.insert(id) }
         activityWork?.cancel()
         activityWork = nil
         Motion.animate(Motion.activity, policy: motionPolicy) { activity = a }
@@ -154,6 +156,7 @@ final class NotchModel: ObservableObject {
             let task = planner.tasks.first(where: { $0.id == id }), task.remindAt != nil
         {
             dismissedReminders.insert(ScheduledReminder(task: task).id)
+            closedReminderIDs.remove(id)
             if missedTask?.id == id { missedTask = nil; missedReminder = nil }
         }
         dismissActivity()
@@ -498,7 +501,7 @@ final class NotchController {
         if NotchLayout.closedNotchVisible(screen: slot.state.geometry.screen, enabled: store.prefs.notchOnMonitors) {
             return true
         }
-        return model.screenID == slot.state.id && (model.expanded || model.displayedActivity != nil)
+        return model.drawsClosed(in: store, on: slot.state.id)
     }
 
     func checkFullScreenSoon() {
@@ -546,14 +549,16 @@ final class NotchController {
             activity: active && model.displayedActivity != nil,
             glance: model.glance(
                 in: store, expanded: active && model.expanded,
-                activityVisible: active && model.displayedActivity != nil) != nil)
+                activityVisible: active && model.displayedActivity != nil) != nil,
+            closed: model.closed(in: store, screenID: slot.state.id))
     }
 
     private func hoverRect(_ slot: Slot) -> NSRect {
         let active = model.screenID == slot.state.id
         return slot.state.geometry.hover(
             expanded: active && model.expanded, timer: timerShowing(),
-            activity: active && model.displayedActivity != nil)
+            activity: active && model.displayedActivity != nil, closed: model.closed(in: store, screenID: slot.state.id)
+        )
     }
 
     // MARK: Pointer
@@ -597,7 +602,7 @@ final class NotchController {
                 let inside = slots[model.screenID].map { isOnShape(p, $0) } ?? false
                 if !inside && !anySheetOrPopoverOpen() { model.close() }
             } else if let id = slotUnderPointer(), let slot = slots[id], drawn(slot),
-                NotchLayout.contains(hoverRect(slot), pointer: p)
+                NotchLayout.contains(hoverRect(slot), pointer: p) && isOnShape(p, slot)
             {
                 if prefs.notchOpenTrigger == .click || (prefs.notchOpenTrigger == .doubleClick && e.clickCount >= 2) {
                     open(on: id, activate: true)
@@ -610,7 +615,7 @@ final class NotchController {
         if !model.expanded {
             guard prefs.notchOpenTrigger == .hover, e.type == .mouseMoved,
                 let id = slotUnderPointer(), let slot = slots[id], drawn(slot),
-                NotchLayout.contains(hoverRect(slot), pointer: p)
+                NotchLayout.contains(hoverRect(slot), pointer: p) && isOnShape(p, slot)
             else {
                 openWork?.cancel(); openWork = nil
                 _ = hoverIntent.enter(screen: nil)
@@ -630,6 +635,7 @@ final class NotchController {
                             && !($0.state.fullScreen) && self.drawn($0)
                             && NSEvent.pressedMouseButtons == 0
                             && NotchLayout.contains(self.hoverRect($0), pointer: NSEvent.mouseLocation)
+                            && self.isOnShape(NSEvent.mouseLocation, $0)
                     } ?? false
                 guard self.hoverIntent.consume(token, screen: id, eligible: eligible) else { return }
                 self.open(on: id)
@@ -682,6 +688,14 @@ final class NotchController {
         func layoutDump() -> [[String: Any]] {
             slots.values.sorted { $0.state.id < $1.state.id }.map { s in
                 let g = s.state.geometry
+                let expanded = model.expanded && model.screenID == s.state.id
+                let activity = model.screenID == s.state.id && model.displayedActivity != nil
+                let closed = model.closed(in: store, screenID: s.state.id)
+                // Match the closed indicator layer, not the legacy external-display preference or the hidden housing.
+                let closedVisible =
+                    !expanded && !activity
+                    && (g.hasHardwareNotch ? closed.isVisible : closed.hasBlock || closed.reminder)
+                let tabVisible = closedVisible && !g.hasHardwareNotch
                 func r(_ x: NSRect) -> [String: Double] { ["x": x.minX, "y": x.minY, "w": x.width, "h": x.height] }
                 var d: [String: Any] = [
                     "displayID": Int(s.state.id),
@@ -692,14 +706,14 @@ final class NotchController {
                     "idle": r(g.idle(timer: timerShowing(), activity: false)), "workspace": r(g.workspace),
                     "window": r(s.panel.frame), "hardwareNotch": g.hasHardwareNotch, "fullScreen": s.state.fullScreen,
                     "menuBarHeight": g.screen.menuBarHeight, "workspaceAttached": g.workspaceAttached,
-                    "visible": s.panel.isVisible,
+                    "visible": s.panel.isVisible, "closedVisible": closedVisible,
                 ]
                 if let c = g.camera { d["camera"] = r(c) }
+                if tabVisible { d["closedTab"] = r(g.closedTab) }
                 // Mouse-routing probes: the decision `updateMouseRouting` makes at each point, from the live code path.
-                let expanded = model.expanded && model.screenID == s.state.id
                 let shape = expanded ? g.workspace : g.idle(timer: timerShowing(), activity: false)
-                let capsule =
-                    !expanded && model.displayedActivity == nil ? timerShowing().map { g.pill(side: $0) } : nil
+                // Keep probing the retired capsule location to prove it does not capture the menu bar.
+                let capsule = !expanded && !activity ? g.pill(side: timerShowing() ?? .right) : nil
                 // A detached capsule leaves the union's top midpoint/corners empty. Sample the individual components,
                 // retaining the original outline probes unchanged for the expanded workspace and timer-free notch.
                 let topOutside =
@@ -712,7 +726,10 @@ final class NotchController {
                     ("notchCenterTopEdge", NSPoint(x: g.notchRect.midX, y: g.screenFrame.maxY)),
                     ("leftWing", NSPoint(x: shape.minX + 14, y: shape.maxY - 10)),
                     ("shoulderCorner", NSPoint(x: shape.minX + 0.5, y: shape.minY + 1)),
-                    ("justBelowShape", NSPoint(x: shape.midX, y: shape.minY - 2)),
+                    (
+                        "justBelowShape",
+                        NSPoint(x: shape.midX, y: (tabVisible ? g.closedTab.minY : shape.minY) - 2)
+                    ),
                     ("leftOfShape", NSPoint(x: shape.minX - 3, y: shape.maxY - 5)),
                     ("workspaceCenter", NSPoint(x: g.workspace.midX, y: g.workspace.midY)),
                     ("windowCornerOutsideShape", NSPoint(x: s.panel.frame.minX + 2, y: s.panel.frame.minY + 2)),
@@ -726,11 +743,14 @@ final class NotchController {
                 if let capsule {
                     let n = g.notchRect
                     let gapX = capsule.midX < n.midX ? (capsule.maxX + n.minX) / 2 : (n.maxX + capsule.minX) / 2
-                    d["timerCapsule"] = r(capsule)
+                    if g.hasHardwareNotch { d["timerCapsule"] = r(capsule) }
                     probes += [
                         ("timerCapsuleCenter", NSPoint(x: capsule.midX, y: capsule.midY)),
                         ("timerGap", NSPoint(x: gapX, y: capsule.midY)),
                     ]
+                }
+                if !expanded && !g.hasHardwareNotch {
+                    probes.append(("closedTabCenter", NSPoint(x: g.closedTab.midX, y: g.closedTab.midY)))
                 }
                 d["routing"] = Dictionary(uniqueKeysWithValues: probes.map { ($0.0, drawn(s) && isOnShape($0.1, s)) })
                 return d

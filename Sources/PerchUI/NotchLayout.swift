@@ -98,6 +98,50 @@ public enum NotchLayout {
     /// The camera housing if there is one, otherwise the drawn notch.
     public static func notch(screen: Screen) -> CGRect { camera(screen: screen) ?? drawnNotch(screen: screen) }
 
+    // MARK: Closed indicators
+
+    /// Immediately below the actual housing, not below a guessed menu-bar height.
+    public static func progressLine(
+        housing: CGRect, inset: CGFloat = NotchClosedTokens.lineInset
+    ) -> CGRect {
+        let inset = min(max(0, inset), housing.width / 2)
+        return CGRect(
+            x: housing.minX + inset, y: housing.minY - NotchClosedTokens.lineHeight,
+            width: max(0, housing.width - 2 * inset), height: NotchClosedTokens.lineHeight)
+    }
+
+    public static func progressFill(line: CGRect, fraction: Double) -> CGRect {
+        let fraction = fraction.isFinite ? min(1, max(0, fraction)) : 0
+        return CGRect(x: line.minX, y: line.minY, width: line.width * fraction, height: line.height)
+    }
+
+    public static func pausedDashes(line: CGRect) -> [CGRect] {
+        guard line.width > 0 else { return [] }
+        return stride(from: 0, to: line.width, by: NotchClosedTokens.dashLength + NotchClosedTokens.dashGap).map {
+            CGRect(
+                x: line.minX + $0, y: line.minY,
+                width: min(NotchClosedTokens.dashLength, line.width - $0), height: line.height)
+        }
+    }
+
+    public static func reminderDot(housing: CGRect, progressVisible: Bool) -> CGRect {
+        let size = NotchClosedTokens.dotSize
+        let top = progressVisible ? progressLine(housing: housing).minY : housing.minY
+        return CGRect(
+            x: housing.midX - size / 2, y: top - NotchClosedTokens.dotGap - size,
+            width: size, height: size)
+    }
+
+    /// The flat-screen alternative starts below the menu bar, including on built-in screens.
+    /// The old synthetic-housing preference is deliberately not consulted.
+    public static func closedTab(screen: Screen) -> CGRect {
+        let width = min(NotchClosedTokens.tabWidth, screen.frame.width)
+        return CGRect(
+            x: screen.frame.midX - width / 2,
+            y: screen.frame.maxY - screen.menuBarHeight - NotchClosedTokens.tabHeight,
+            width: width, height: NotchClosedTokens.tabHeight)
+    }
+
     // MARK: Frames
 
     /// The closed shape: wings either side of the notch, measured from the housing's real edges (not the screen center).
@@ -224,6 +268,27 @@ public enum NotchLayout {
         let y = min(max(r.minY, bounds.minY), bounds.maxY - h)
         return CGRect(x: x, y: y, width: w, height: h)
     }
+}
+
+/// Closed-state values are constant across appearances because the housing is black.
+/// Kept beside the portable geometry rather than embedded in a view.
+public enum NotchClosedTokens {
+    public static let lineInset: CGFloat = 12
+    public static let lineHeight: CGFloat = 3
+    public static let dashLength: CGFloat = 6
+    public static let dashGap: CGFloat = 5
+    public static let dotSize: CGFloat = 8
+    public static let dotGap: CGFloat = 3
+    public static let tabHeight = CGFloat(DesignTokens.Size.pillMinHeight.value)
+    public static let tabWidth: CGFloat = 76
+    public static let tabRadius = CGFloat(DesignTokens.Size.stepCheckboxRadius.value)
+    public static let tabSpacing: CGFloat = 6
+    public static let background = DesignTokens.ColorToken.band.hex(in: .dark)
+    public static let track: UInt32 = 0x4A4E58
+    public static let fill = DesignTokens.ColorToken.brandFill.hex(in: .dark)
+    public static let paused: UInt32 = 0x8A8F9B
+    public static let reminder = DesignTokens.ColorToken.butter.hex(in: .light)
+    public static let text = DesignTokens.ColorToken.ink.hex(in: .dark)
 }
 
 /// A rect as `{"x","y","w","h"}` for readable JSON dumps.

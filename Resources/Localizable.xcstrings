@@ -103,6 +103,23 @@
         }
       }
     },
+    "%@, %@. Open Today": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@, %@. Open Today"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦%@, %@. Öpën Tödày ·~⟧"
+          }
+        }
+      }
+    },
     "%@: %lld minutes focused": {
       "extractionState": "manual",
       "localizations": {
@@ -5892,6 +5909,23 @@
         }
       }
     },
+    "Open Today": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open Today"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Öpën Tödày ·~⟧"
+          }
+        }
+      }
+    },
     "Open a fresh Claude Code session, then ask it something like:": {
       "extractionState": "manual",
       "localizations": {
@@ -7044,6 +7078,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "⟦Rëmïndër schëdülïng fàïlëd: %@ ·~⟧"
+          }
+        }
+      }
+    },
+    "Reminder waiting. Open Today": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reminder waiting. Open Today"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Rëmïndër wàïtïng. Öpën Tödày ·~⟧"
           }
         }
       }
