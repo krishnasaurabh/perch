@@ -25,7 +25,7 @@ class SegmentedKeyboardExitTests(unittest.TestCase):
             'try assertSelectedAndFocused(45)',
             r'try send(code: 48, characters: "\u{19}", modifiers: .shift)',
             'await settle()',
-            'try assertKeyPassedThrough("Back-tab must not be swallowed by the group", selection: 45)',
+            'try assertKeyPassedThrough("Back-tab must not be swallowed by the group", selection: 25)',
             'driver.minutes = 60',
             'await settle()',
             'try require(window.makeFirstResponder(driver.before), "Return to the native destination before the final Tab")',
@@ -38,12 +38,12 @@ class SegmentedKeyboardExitTests(unittest.TestCase):
             normalized = ''.join(step.split())
             self.assertIn(normalized, remaining)
             remaining = remaining.split(normalized, 1)[1]
-        self.assertNotIn('assertEditor(driver.after)', scenario)
-        self.assertEqual(scenario.count('assertEditor(driver.before)'), 1)
-        self.assertEqual(scenario.count('assertFocusLeftSegmentGroup('), 2)
+        self.assertIn('assertEditor(driver.after)', scenario)
+        self.assertEqual(scenario.count('assertEditor(driver.before)'), 2)
+        self.assertEqual(scenario.count('assertFocusLeftSegmentGroup('), 3)
         self.assertEqual(scenario.count('assertKeyPassedThrough('), 1)
-        self.assertNotIn('Back-tab must leave the segmented group', scenario)
-        self.assertNotIn(r'try send(code: 123, characters: "\u{f702}")', scenario)
+        self.assertIn('Back-tab must leave the segmented group', scenario)
+        self.assertIn(r'try await key(code: 123, characters: "\u{f702}")', scenario)
 
     def test_back_tab_passthrough_checks_binding_and_logs_without_forcing_focus(self):
         assertion = body(PROBE.read_text(), "assertKeyPassedThrough")
@@ -132,8 +132,10 @@ class SegmentedKeyboardExitTests(unittest.TestCase):
             normalized = ''.join(step.split())
             self.assertIn(normalized, remaining)
             remaining = remaining.split(normalized, 1)[1]
-        self.assertEqual(scenario.count('assertFocusLeftSegmentGroup('), 3)
-        self.assertEqual(source.count('try assertFocusLeftSegmentGroup('), 6)
+        self.assertEqual(scenario.count('assertFocusLeftSegmentGroup('), 5)
+        self.assertEqual(source.count('try assertFocusLeftSegmentGroup('), 9)
+        self.assertIn('try assertNoSegmentFocus(retained: removedSegments)', scenario)
+        self.assertIn('try assertNoSegmentFocus()', scenario)
 
 
 if __name__ == "__main__":
