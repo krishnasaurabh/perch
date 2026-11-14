@@ -688,6 +688,14 @@ final class NotchController {
         func layoutDump() -> [[String: Any]] {
             slots.values.sorted { $0.state.id < $1.state.id }.map { s in
                 let g = s.state.geometry
+                let expanded = model.expanded && model.screenID == s.state.id
+                let activity = model.screenID == s.state.id && model.displayedActivity != nil
+                let closed = model.closed(in: store, screenID: s.state.id)
+                // Match the closed indicator layer, not the legacy external-display preference or the hidden housing.
+                let closedVisible =
+                    !expanded && !activity
+                    && (g.hasHardwareNotch ? closed.isVisible : closed.hasBlock || closed.reminder)
+                let tabVisible = closedVisible && !g.hasHardwareNotch
                 func r(_ x: NSRect) -> [String: Double] { ["x": x.minX, "y": x.minY, "w": x.width, "h": x.height] }
                 var d: [String: Any] = [
                     "displayID": Int(s.state.id),
@@ -698,14 +706,14 @@ final class NotchController {
                     "idle": r(g.idle(timer: timerShowing(), activity: false)), "workspace": r(g.workspace),
                     "window": r(s.panel.frame), "hardwareNotch": g.hasHardwareNotch, "fullScreen": s.state.fullScreen,
                     "menuBarHeight": g.screen.menuBarHeight, "workspaceAttached": g.workspaceAttached,
-                    "visible": s.panel.isVisible,
+                    "visible": s.panel.isVisible, "closedVisible": closedVisible,
                 ]
                 if let c = g.camera { d["camera"] = r(c) }
+                if tabVisible { d["closedTab"] = r(g.closedTab) }
                 // Mouse-routing probes: the decision `updateMouseRouting` makes at each point, from the live code path.
-                let expanded = model.expanded && model.screenID == s.state.id
                 let shape = expanded ? g.workspace : g.idle(timer: timerShowing(), activity: false)
-                let capsule =
-                    !expanded && model.displayedActivity == nil ? timerShowing().map { g.pill(side: $0) } : nil
+                // Keep probing the retired capsule location to prove it does not capture the menu bar.
+                let capsule = !expanded && !activity ? g.pill(side: timerShowing() ?? .right) : nil
                 // A detached capsule leaves the union's top midpoint/corners empty. Sample the individual components,
                 // retaining the original outline probes unchanged for the expanded workspace and timer-free notch.
                 let topOutside =
@@ -718,7 +726,10 @@ final class NotchController {
                     ("notchCenterTopEdge", NSPoint(x: g.notchRect.midX, y: g.screenFrame.maxY)),
                     ("leftWing", NSPoint(x: shape.minX + 14, y: shape.maxY - 10)),
                     ("shoulderCorner", NSPoint(x: shape.minX + 0.5, y: shape.minY + 1)),
-                    ("justBelowShape", NSPoint(x: shape.midX, y: shape.minY - 2)),
+                    (
+                        "justBelowShape",
+                        NSPoint(x: shape.midX, y: (tabVisible ? g.closedTab.minY : shape.minY) - 2)
+                    ),
                     ("leftOfShape", NSPoint(x: shape.minX - 3, y: shape.maxY - 5)),
                     ("workspaceCenter", NSPoint(x: g.workspace.midX, y: g.workspace.midY)),
                     ("windowCornerOutsideShape", NSPoint(x: s.panel.frame.minX + 2, y: s.panel.frame.minY + 2)),
@@ -732,11 +743,14 @@ final class NotchController {
                 if let capsule {
                     let n = g.notchRect
                     let gapX = capsule.midX < n.midX ? (capsule.maxX + n.minX) / 2 : (n.maxX + capsule.minX) / 2
-                    d["timerCapsule"] = r(capsule)
+                    if g.hasHardwareNotch { d["timerCapsule"] = r(capsule) }
                     probes += [
                         ("timerCapsuleCenter", NSPoint(x: capsule.midX, y: capsule.midY)),
                         ("timerGap", NSPoint(x: gapX, y: capsule.midY)),
                     ]
+                }
+                if !expanded && !g.hasHardwareNotch {
+                    probes.append(("closedTabCenter", NSPoint(x: g.closedTab.midX, y: g.closedTab.midY)))
                 }
                 d["routing"] = Dictionary(uniqueKeysWithValues: probes.map { ($0.0, drawn(s) && isOnShape($0.1, s)) })
                 return d

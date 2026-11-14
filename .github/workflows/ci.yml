@@ -275,16 +275,35 @@ jobs:
               for s in screens:
                   print(state, s["name"], "frame", s["frame"], "notch", s["notch"], "idle", s["idle"], "workspace", s["workspace"],
                         "window", s["window"], "visible", s["visible"], "attached", s.get("workspaceAttached"))
-                  if not s["visible"]: continue
+                  if state == "open" and not s["visible"]: continue
                   if state == "open" and not s["expanded"]: continue
-                  exp = dict(exp, menuBarRight=False)
+                  exp = dict(want[state], menuBarRight=False)
                   if state == "closed":
-                      assert "timerCapsule" in s, "closed timer capsule missing from live layout"
-                      exp.update(timerCapsuleCenter=True, timerGap=False)
-                      pill, notch = s["timerCapsule"], s["notch"]
-                      assert pill["w"] == 76, "timer capsule width changed"
-                      gap = max(pill["x"] - notch["x"] - notch["w"], notch["x"] - pill["x"] - pill["w"])
-                      assert abs(gap - 6) < 0.001, "timer capsule must be detached by 6pt"
+                      assert "closedVisible" in s, "closed paint visibility missing from live layout"
+                      exp.update(menuBarAboveWorkspaceEdge=False)
+                      if s["hardwareNotch"]:
+                          assert "timerCapsule" in s, "closed timer capsule missing from live layout"
+                          # The legacy side capsule is not a closed indicator, but its geometry stays guarded.
+                          exp.update(timerCapsuleCenter=False, timerGap=False)
+                          pill, notch = s["timerCapsule"], s["notch"]
+                          assert pill["w"] == 76, "timer capsule width changed"
+                          gap = max(pill["x"] - notch["x"] - notch["w"], notch["x"] - pill["x"] - pill["w"])
+                          assert abs(gap - 6) < 0.001, "timer capsule must be detached by 6pt"
+                      else:
+                          # No housing: only the active tab routes. Idle must not capture any point.
+                          exp = dict.fromkeys(s["routing"], False)
+                          required = set(want["closed"]) | {"timerCapsuleCenter", "timerGap", "menuBarRight", "menuBarAboveWorkspaceEdge", "closedTabCenter"}
+                          assert required <= exp.keys(), "closed routing probes missing"
+                          exp["closedTabCenter"] = s["closedVisible"]
+                          if s["closedVisible"]:
+                              assert "closedTab" in s, "visible closed tab missing from live layout"
+                              tab, frame = s["closedTab"], s["frame"]
+                              assert tab["h"] == 22, "closed tab must be 22pt high"
+                              assert tab["x"] + tab["w"] / 2 == frame["x"] + frame["w"] / 2, "closed tab not centred"
+                              assert tab["y"] + tab["h"] == frame["y"] + frame["h"] - s["menuBarHeight"], "closed tab must start below menu bar"
+                          else:
+                              assert "closedTab" not in s, "idle flat display must not draw a closed tab"
+                              if not s["ignoresMouse"]: print("  IDLE CLOSED WINDOW CAPTURES MENU BAR"); bad += 1
                   if state == "open":
                       # Flat screen: the workspace floats below the menu bar, so the menu bar (incl. the strip above the
                       # notch and above the workspace's edge) clicks through. Beside a housing it hangs from the top.
