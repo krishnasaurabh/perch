@@ -26,3 +26,8 @@ notch-flat-idle --scenario notch-idle --open notch-flat
 notch-flat-running --scenario notch-running --open notch-flat
 notch-flat-paused --scenario notch-paused --open notch-flat
 notch-flat-reminder --scenario notch-reminder --open notch-flat
+workspace-band-today --scenario today-running --open workspace-today
+workspace-band-week --scenario week-full --open workspace-week
+workspace-width-960 --scenario today-before --open workspace-today
+workspace-width-1280 --scenario week-full --open workspace-week
+workspace-week-narrow --scenario week-full --open workspace-narrow

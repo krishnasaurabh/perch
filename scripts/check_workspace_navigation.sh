@@ -10,7 +10,8 @@ PROBE=$(mktemp -d "$OUT/build.XXXXXX")
 trap 'rm -rf "$PROBE"' EXIT
 cp "$ROOT/Package.swift" "$PROBE/"
 cp -R "$ROOT/Sources" "$ROOT/Tests" "$PROBE/"
-cp "$ROOT/scripts/workspace_navigation_probe.swift" "$PROBE/Sources/Perch/main.swift"
+cp "$ROOT/Tests/PerchAppTests/WorkspaceBandProbe.swift" "$PROBE/Sources/Perch/main.swift"
+printf '\nawait runWorkspaceBandProbe()\n' >> "$PROBE/Sources/Perch/main.swift"
 python3 - "$PROBE" "$OUT" <<'PY'
 import os
 import pathlib

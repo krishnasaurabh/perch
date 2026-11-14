@@ -5,6 +5,7 @@ import SwiftUI
 
 /// A calendar week. Inbox has its own full-width view, not an eighth day.
 struct WeekPage: View {
+    var workspaceShell = false
     @EnvironmentObject var store: PlannerStore
     @Environment(\.isEnabled) private var enabled
     @State private var anchor = 0
@@ -67,6 +68,7 @@ struct WeekPage: View {
                     if active && showInbox { showInbox = false }
                 }
             }
+            .modifier(WorkspaceHeaderVisibility(hidden: workspaceShell))
             if showInbox {
                 column(title: "Inbox", subtitle: "Unscheduled", ref: .inbox, isToday: false, past: false)
             } else {
@@ -74,12 +76,23 @@ struct WeekPage: View {
                     ScrollViewReader { proxy in
                         ScrollView(.horizontal) {
                             HStack(alignment: .top, spacing: Theme.gutter) {
-                                ForEach(days, id: \.self) { day in
+                                ForEach(
+                                    workspaceShell
+                                        ? WorkspaceLayout.weekColumns(
+                                            days: days, today: store.today, available: geometry.size.width
+                                        ).days : days, id: \.self
+                                ) { day in
                                     column(
                                         title: label(day, template: "EEE"), subtitle: label(day, template: "MMMd"),
                                         ref: .day(day), isToday: day == store.today, past: day < store.today
                                     )
-                                    .frame(width: WeekColumnLayout.columnWidth(available: geometry.size.width))
+                                    .frame(
+                                        width: workspaceShell
+                                            ? WorkspaceLayout.weekColumns(
+                                                days: days, today: store.today, available: geometry.size.width
+                                            ).width(for: day)
+                                            : WeekColumnLayout.columnWidth(available: geometry.size.width)
+                                    )
                                     .id(day)
                                 }
                             }
@@ -102,6 +115,12 @@ struct WeekPage: View {
         }
         // Register the selected dates, not stale offsets from a previous logical week.
         // Observe only the range so task edits cannot reapply lifecycle mutations after Undo.
+        .onReceive(NotificationCenter.default.publisher(for: .perchWorkspaceWeekChanged)) {
+            if workspaceShell, let value = $0.object as? Int { anchor = value }
+        }
+        .onChange(of: anchor) { _, value in
+            if workspaceShell { NotificationCenter.default.post(name: .perchWorkspaceWeekChanged, object: value) }
+        }
         .onChange(of: days, initial: true) { _, value in
             store.materializeRepeats(on: value)
         }

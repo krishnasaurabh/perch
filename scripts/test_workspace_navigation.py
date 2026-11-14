@@ -11,8 +11,8 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 
 class WorkspaceProbeTests(unittest.TestCase):
     def test_assertions_reject_missing_focus_targets_and_ring_pixels(self):
-        source = (ROOT / "scripts/workspace_navigation_probe.swift").read_text()
-        helpers = source.split("private func failure(", 1)[1].split("let application =", 1)[0]
+        source = (ROOT / "Tests/PerchAppTests/WorkspaceBandProbe.swift").read_text()
+        helpers = source.split("private func failure(", 1)[1].split("/// Called only", 1)[0]
         program = """
 import Foundation
 private enum WorkspaceNavigationError: Error {
@@ -58,9 +58,9 @@ print("Workspace assertion positive and negative controls passed")
             self.assertIn("positive and negative controls passed", result.stdout)
 
     def test_tab_event_characters_and_reject_either_forward_tab_field(self):
-        source = (ROOT / "scripts/workspace_navigation_probe.swift").read_text()
+        source = (ROOT / "Tests/PerchAppTests/WorkspaceBandProbe.swift").read_text()
         constructor = source.split("@MainActor\nprivate func workspaceKeyEvent(", 1)[1].split("private func failure(", 1)[0]
-        helpers = source.split("private func failure(", 1)[1].split("let application =", 1)[0]
+        helpers = source.split("private func failure(", 1)[1].split("/// Called only", 1)[0]
         # Compile the actual event constructor with a data-only NSEvent adapter.
         # The native preflight and UI traversal separately exercise real AppKit.
         adapter = r"""
@@ -153,11 +153,12 @@ print("Tab event construction controls passed")
         # rejects requests until a target is registered, but is not SwiftUI/AppKit.
         program = """
 import Foundation
-private enum NotchPage: CaseIterable { case home, week, clips, insights }
+private enum NotchPage: CaseIterable { case home, week; static let workspacePages: [NotchPage] = [.home, .week] }
 private enum KeyPress { enum Result { case ignored, handled } }
 @MainActor private enum Motion {
-    static let page = 1
-    static func animate(_ value: Int, _ action: () -> Void) { action() }
+    enum Token { case pop }
+    static func token(_ value: Token) -> Int { 1 }
+    static func animate(_ value: Int, policy: Int, _ action: () -> Void) { action() }
 }
 @MainActor private final class Model { var page = NotchPage.home }
 @MainActor private final class Window { var isKeyWindow = true }
@@ -166,6 +167,7 @@ private enum KeyPress { enum Result { case ignored, handled } }
     let model = Model()
     let moreAnchor = Anchor()
     var enabled = true
+    let motionPolicy = 0
     var pageGroupHasFocus = false
     var registeredPage = NotchPage.home
     var rejectedFocusRequests = 0
@@ -211,7 +213,7 @@ private enum KeyPress { enum Result { case ignored, handled } }
 
         // Keys change selection only; render-time handoff retains group ownership
         // across the temporary nil and waits for native registration.
-        for (step, expected) in [(1, NotchPage.week), (1, .clips), (-1, .week)] {
+        for (step, expected) in [(1, NotchPage.week), (-1, .home), (1, .week)] {
             let old = model.page
             precondition(movePage(from: old, by: step) == .handled)
             precondition(model.page == expected && nativeFocus == old)
@@ -220,7 +222,7 @@ private enum KeyPress { enum Result { case ignored, handled } }
             try await settle()
             precondition(nativeFocus == expected && rejectedFocusRequests == 0)
         }
-        for page in [NotchPage.insights, .home] {
+        for page in [NotchPage.week, .home] {
             precondition(focusPage(page) == .handled)
             renderSelection()
             try await settle()
@@ -228,11 +230,11 @@ private enum KeyPress { enum Result { case ignored, handled } }
         }
         precondition(movePage(from: .home, by: -1) == .handled)
         precondition(nativeFocus == .home)
-        _ = focusPage(.insights)
+        _ = focusPage(.week)
         renderSelection()
         try await settle()
-        precondition(movePage(from: .insights, by: 1) == .handled)
-        precondition(nativeFocus == .insights)
+        precondition(movePage(from: .week, by: 1) == .handled)
+        precondition(nativeFocus == .week)
 
         // Both Tab directions use the same unconsumed handler. A queued request
         // cannot pull focus back from More or a preceding text field.
@@ -244,7 +246,7 @@ private enum KeyPress { enum Result { case ignored, handled } }
             nativeFocus = nil
             try await settle()
             precondition(nativeFocus == nil && !pageGroupHasFocus)
-            _ = focusPage(.insights)
+            _ = focusPage(.week)
             renderSelection()
             try await settle()
             precondition(nativeFocus == nil)
@@ -254,14 +256,14 @@ private enum KeyPress { enum Result { case ignored, handled } }
         enter()
         _ = focusPage(.week)
         renderSelection()
-        _ = focusPage(.clips)
+        _ = focusPage(.week)
         renderSelection()
         try await settle()
-        precondition(nativeFocus == .clips && rejectedFocusRequests == 0)
+        precondition(nativeFocus == .week && rejectedFocusRequests == 0)
 
         // Leaving without a page change clears ownership. A non-key window and
         // a disabled picker also reject pending requests.
-        pageFocusChanged(from: .clips, to: nil)
+        pageFocusChanged(from: .week, to: nil)
         nativeFocus = nil
         precondition(!pageGroupHasFocus)
         for disabled in [false, true] {
@@ -344,7 +346,7 @@ extension WorkspaceMenuAnchorView {
     func activate(_ item: NSMenuItem) { performMenuAction(item) }
 }
 private let view = WorkspaceMenuAnchorView()
-private var calls = [0, 0, 0]
+private var calls = [0, 0, 0, 0, 0]
 private var retained: [NSMenuItem] = []
 precondition(!view.isAccessibilityElement())
 precondition(view.isFlipped)
@@ -353,27 +355,29 @@ for enabled in [false, true] {
         precondition(owner === view)
         precondition(point == CGPoint(x: 0, y: 30))
         precondition(menu.title == "More" && !menu.autoenablesItems)
-        precondition(menu.items.map(\\.title) == ["Undo", "", "Open Dashboard", "Settings…"])
-        precondition(menu.items[0].isEnabled == enabled)
-        precondition(menu.items[2].isEnabled && menu.items[3].isEnabled)
+        precondition(menu.items.map(\\.title) == ["Your week", "History", "Projects", "Settings", "Keys"])
+        precondition(menu.items[4].isEnabled == enabled)
+        precondition(menu.items.prefix(4).allSatisfy(\.isEnabled))
         retained = menu.items
         for item in menu.items where !item.title.isEmpty && item.isEnabled {
             view.activate(item)
         }
     }
-    view.show(canUndo: enabled, undo: { calls[0] += 1 },
-              dashboard: { calls[1] += 1 }, settings: { calls[2] += 1 })
+    view.show(keysAvailable: enabled, yourWeek: { calls[0] += 1 },
+              history: { calls[1] += 1 }, projects: { calls[2] += 1 },
+              settings: { calls[3] += 1 }, keys: { calls[4] += 1 })
 }
-precondition(calls == [1, 2, 2])
+precondition(calls == [2, 2, 2, 2, 1])
 for item in retained { view.activate(item) }
-precondition(calls == [1, 2, 2], "Menu callbacks must not outlive tracking")
+precondition(calls == [2, 2, 2, 2, 1], "Menu callbacks must not outlive tracking")
 view.window = nil
 NSMenu.popup = { _, _, _ in preconditionFailure("Unattached anchors cannot present") }
-view.show(canUndo: true, undo: { calls[0] += 1 },
-          dashboard: { calls[1] += 1 }, settings: { calls[2] += 1 })
-precondition(calls == [1, 2, 2])
-precondition(AppL10n.requestedKeys == ["Undo", "Open Dashboard", "Settings…",
-                                      "Undo", "Open Dashboard", "Settings…"])
+view.show(keysAvailable: true, yourWeek: { calls[0] += 1 },
+          history: { calls[1] += 1 }, projects: { calls[2] += 1 },
+          settings: { calls[3] += 1 }, keys: { calls[4] += 1 })
+precondition(calls == [2, 2, 2, 2, 1])
+precondition(AppL10n.requestedKeys == ["Your week", "History", "Projects", "Settings", "Keys",
+                                      "Your week", "History", "Projects", "Settings", "Keys"])
 print("Menu routing and lifetime adapter checks passed")
 """
         with tempfile.TemporaryDirectory() as directory:
