@@ -104,8 +104,7 @@ struct NotchClosedLayer: View {
     }
 
     private var timeText: String {
-        guard let focus = presentation.focus else { return now.formatted(date: .omitted, time: .shortened) }
-        return NotchTimerPresentation(seconds: focus.remaining(at: now) ?? focus.elapsed(at: now)).text
+        presentation.timeText(at: now)
     }
 
     private var blockLabel: String {

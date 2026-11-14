@@ -110,6 +110,52 @@ final class NotchClosedTests: XCTestCase {
         XCTAssertEqual(state.fraction(at: now), 0)
     }
 
+    func testClockRunsForFlatReminderButNotIdleOrPausedCountdowns() {
+        var planner = Planner()
+        for hardware in [true, false] {
+            XCTAssertFalse(NotchClosedPresentation(planner: planner).needsClock(hasHardwareNotch: hardware))
+            XCTAssertEqual(
+                NotchClosedPresentation(planner: planner, reminderWaiting: true)
+                    .needsClock(hasHardwareNotch: hardware), !hardware)
+        }
+        planner.preferences.notchReminderDot = false
+        XCTAssertFalse(
+            NotchClosedPresentation(planner: planner, reminderWaiting: true).needsClock(hasHardwareNotch: false))
+        planner.preferences.notchReminderDot = true
+        planner.focus = FocusSession(taskID: nil, limit: 600, now: now)
+        for hardware in [true, false] {
+            XCTAssertTrue(NotchClosedPresentation(planner: planner).needsClock(hasHardwareNotch: hardware))
+            planner.preferences.notchProgressLine = false
+            XCTAssertTrue(NotchClosedPresentation(planner: planner).needsClock(hasHardwareNotch: hardware))
+            planner.preferences.notchProgressLine = true
+        }
+        planner.focus?.state = .paused
+        planner.focus?.resumedAt = nil
+        for hardware in [true, false] {
+            XCTAssertFalse(
+                NotchClosedPresentation(planner: planner, reminderWaiting: true)
+                    .needsClock(hasHardwareNotch: hardware))
+        }
+        planner.focus?.state = .finished
+        XCTAssertTrue(
+            NotchClosedPresentation(planner: planner, reminderWaiting: true).needsClock(hasHardwareNotch: false))
+    }
+
+    func testReminderOnlyTimeCrossesMinuteBoundaryWithoutPlannerMutation() {
+        let planner = Planner()
+        let original = planner
+        let reminder = NotchClosedPresentation(planner: planner, reminderWaiting: true)
+        let locale = Locale(identifier: "en_US_POSIX")
+        let before = now.addingTimeInterval(59)
+        let after = before.addingTimeInterval(1)
+        XCTAssertTrue(reminder.needsClock(hasHardwareNotch: false))
+        XCTAssertNotEqual(reminder.timeText(at: before, locale: locale), reminder.timeText(at: after, locale: locale))
+        XCTAssertEqual(
+            reminder.timeText(at: after, locale: locale),
+            after.formatted(Date.FormatStyle(date: .omitted, time: .shortened, locale: locale)))
+        XCTAssertEqual(planner, original)
+    }
+
     func testClosedTokensMeetSignalContrastOnPermanentBlackSurface() {
         func luminance(_ hex: UInt32) -> Double {
             let channels = [16, 8, 0].map { shift -> Double in

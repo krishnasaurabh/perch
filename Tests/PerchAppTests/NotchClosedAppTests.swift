@@ -113,8 +113,9 @@ final class NotchClosedAppTests: XCTestCase {
         model.dismissPresentedActivity(in: store.planner)
         XCTAssertFalse(model.closed(in: store, screenID: 9, now: now).reminder)
         model.show(activity)
-        store.updateTask(task.id) { $0.done = true }
+        let completed = try XCTUnwrap(store.apply { try $0.complete(task.id) })
         XCTAssertNil(store.lastError)
+        XCTAssertTrue(completed.done)
         XCTAssertFalse(model.closed(in: store, screenID: 9, now: now).reminder)
     }
 

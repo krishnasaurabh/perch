@@ -58,7 +58,7 @@ struct NotchRootView: View {
                         .offset(x: g.activityRect.minX - window.minX, y: window.maxY - g.activityRect.maxY)
                         .transition(.opacity)
                 } else {
-                    LocalClock(running: closed.focus?.state == .running) { now in
+                    LocalClock(running: closed.needsClock(hasHardwareNotch: g.hasHardwareNotch)) { now in
                         NotchClosedLayer(geometry: g, bounds: window, presentation: closed, now: now) {
                             model.activateClosed(in: store, on: screen)
                         }

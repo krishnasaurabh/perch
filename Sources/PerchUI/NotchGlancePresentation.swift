@@ -24,6 +24,19 @@ public struct NotchClosedPresentation: Equatable, Sendable {
         reminder = planner.preferences.notchReminderDot && reminderWaiting
     }
 
+    /// A waiting reminder on a flat display shows wall time rather than a countdown.
+    /// Paused countdowns and invisible idle states do not need scheduled updates.
+    public func needsClock(hasHardwareNotch: Bool) -> Bool {
+        focus?.state == .running || (!hasHardwareNotch && focus == nil && reminder)
+    }
+
+    public func timeText(at now: Date, locale: Locale = .current) -> String {
+        guard let focus else {
+            return now.formatted(Date.FormatStyle(date: .omitted, time: .shortened, locale: locale))
+        }
+        return NotchTimerPresentation(seconds: focus.remaining(at: now) ?? focus.elapsed(at: now)).text
+    }
+
     /// A nil click count represents keyboard or accessibility activation.
     public static func allowsActivation(trigger: NotchOpenTrigger, clickCount: Int?) -> Bool {
         guard let clickCount else { return true }
