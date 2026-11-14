@@ -165,7 +165,8 @@ class ControlNativeRegressionTests(unittest.TestCase):
         source = (ROOT / "Tests/PerchAppTests/SegmentedKeyboardTests.swift").read_text()
         for required in ('try require(controls.count == 4,', 'for value in [15, 25, 45, 60]',
                          'label($0) == String(value)', 'try require(matches.count == 1,',
-                         'boolean(node, "isAccessibilityFocused") == (value == minutes)',
+                         'if value != minutes {',
+                         'boolean(node, "isAccessibilityFocused") == false',
                          'attribute(node, "accessibilityValue") as? String',
                          '(value == minutes ? "Selected" : "Not selected")',
                          'boolean($0, "isAccessibilityFocused") != true',

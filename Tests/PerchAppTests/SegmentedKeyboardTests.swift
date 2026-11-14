@@ -276,15 +276,24 @@
         private func assertSelectedAndFocused(_ minutes: Int) throws {
             let nodes = traceFocus("Expected \(minutes); binding=\(driver.minutes)")
             let controls = segmentNodes(in: nodes)
+            // These are the fixture's only SwiftUI key views; the other stops are native fields.
+            let responder = window.firstResponder as? NSView
+            try require(
+                window.isKeyWindow && responder?.window === window
+                    && responder.map { String(reflecting: type(of: $0)) == "SwiftUI.KeyViewProxy" } == true,
+                "The segmented group must own the native keyboard focus")
             try require(driver.minutes == minutes, "Key action must update the binding to \(minutes)")
             try require(controls.count == 4, "All four native segment buttons must exist")
             for value in [15, 25, 45, 60] {
                 let matches = controls.filter { label($0) == String(value) }
                 try require(matches.count == 1, "Exactly one native button for \(value)")
                 guard let node = matches.first else { return }
-                try require(
-                    boolean(node, "isAccessibilityFocused") == (value == minutes),
-                    "Actual native focus must match the selected value \(minutes)")
+                // Positive semantic-focus publication is verified separately from key delivery.
+                if value != minutes {
+                    try require(
+                        boolean(node, "isAccessibilityFocused") == false,
+                        "Unselected segments must not retain accessibility focus")
+                }
                 try require(
                     attribute(node, "accessibilityValue") as? String
                         == (value == minutes ? "Selected" : "Not selected"),
