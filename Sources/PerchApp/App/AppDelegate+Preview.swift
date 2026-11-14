@@ -333,7 +333,7 @@ enum PreviewClock {
     }
 }
 
-/// Explicit preview appearances override legacy shell/card defaults, never distribution behavior.
+/// Explicit preview window appearance; fixed-fill surfaces retain their own ink schemes.
 @MainActor
 enum PreviewAppearance {
     static var scheme: ColorScheme? {
