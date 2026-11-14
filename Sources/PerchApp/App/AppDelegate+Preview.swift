@@ -177,7 +177,7 @@ import SwiftUI
                 let fixture = try PlannerPreviewScenarios.install(scenario, in: store.file)
                 Self.activePreviewFixture = fixture
                 Self.previewNow = fixture.now
-                store.reloadFromDisk(external: false)
+                _ = store.performMutation(origin: .background) { _ in () }  // Refresh device-only fixture changes too.
                 guard store.planner == fixture.planner else {
                     throw PlannerError("Preview reload did not match the fixture.")
                 }

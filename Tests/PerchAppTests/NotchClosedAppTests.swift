@@ -84,6 +84,24 @@ final class NotchClosedAppTests: XCTestCase {
     }
 
     @MainActor
+    func testClosedPreviewRefreshLoadsDevicePreferencesWithoutDocumentChange() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let file = PlannerFile(
+            url: root.appendingPathComponent("planner.json"), preferences: MemoryPlannerPreferences())
+        let empty = try PlannerPreviewScenarios.install("empty", in: file)
+        let store = PlannerStore(file: file, now: { empty.now }, watching: false)
+        let revision = PlannerFileRevision(url: file.url)
+        let closed = try PlannerPreviewScenarios.install("notch-idle", in: file)
+        XCTAssertEqual(PlannerFileRevision(url: file.url), revision)
+        XCTAssertNotEqual(store.planner, closed.planner)
+        _ = store.performMutation(origin: .background) { _ in () }
+        XCTAssertNil(store.lastError)
+        XCTAssertEqual(store.planner, closed.planner)
+        XCTAssertEqual(PlannerFileRevision(url: file.url), revision)
+    }
+
+    @MainActor
     func testReminderDotSurvivesTransientExpiryAndClearsAfterAnswer() async throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: root) }
