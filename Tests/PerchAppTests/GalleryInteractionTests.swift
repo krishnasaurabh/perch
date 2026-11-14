@@ -1,4 +1,5 @@
 import AppKit
+import ApplicationServices
 import SwiftUI
 import XCTest
 @testable import PerchApp
@@ -9,6 +10,7 @@ import XCTest
             let app = NSApplication.shared
             let originalPolicy = app.activationPolicy()
             app.setActivationPolicy(.accessory)
+            await primeAccessibility()
             let host = NSHostingView(
                 rootView: GalleryPage(page: .motion)
                     .environment(\.accessibilityEnabled, true)
@@ -45,6 +47,46 @@ import XCTest
             XCTAssertEqual((attribute(toggled, "accessibilityValue") as? NSNumber)?.intValue, 0)
         }
 
+        /// Activate AppKit's lazy AX publication before constructing the nested SwiftUI scroll host.
+        /// Keep self-AX off the main actor and limit it to a plain native window, not gallery bindings.
+        @MainActor private func primeAccessibility() async {
+            let primer = NSWindow(
+                contentRect: NSRect(x: 0, y: 0, width: 100, height: 100),
+                styleMask: [.titled], backing: .buffered, defer: false)
+            primer.isReleasedWhenClosed = false
+            primer.title = "Gallery accessibility fixture"
+            primer.contentView = NSTextField(labelWithString: "Gallery accessibility fixture")
+            primer.orderFront(nil)
+            defer { primer.close() }
+            await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+                DispatchQueue.global().async {
+                    let app = AXUIElementCreateApplication(getpid())
+                    AXUIElementSetMessagingTimeout(app, 2)
+                    var raw: CFTypeRef?
+                    let status = AXUIElementCopyAttributeValue(app, kAXWindowsAttribute as CFString, &raw)
+                    FileHandle.standardError.write(Data("Gallery AX root priming: \(status.rawValue)\n".utf8))
+                    if let windows = raw as? [AXUIElement] {
+                        for window in windows {
+                            AXUIElementSetMessagingTimeout(window, 2)
+                            var title: CFTypeRef?
+                            let titleResult = AXUIElementCopyAttributeValue(
+                                window, kAXTitleAttribute as CFString, &title)
+                            guard titleResult == .success,
+                                title as? String == "Gallery accessibility fixture"
+                            else { continue }
+                            var children: CFTypeRef?
+                            let result = AXUIElementCopyAttributeValue(
+                                window, kAXChildrenAttribute as CFString, &children)
+                            FileHandle.standardError.write(
+                                Data("Gallery AX window priming: \(result.rawValue)\n".utf8))
+                        }
+                    }
+                    // A denied external AX query is diagnostic, never a reason to skip the real assertions.
+                    continuation.resume()
+                }
+            }
+        }
+
         @MainActor private func find(_ label: String, role: String? = nil, value: Int? = nil, in window: NSWindow)
             async throws -> NSObject
         {
@@ -62,8 +104,35 @@ import XCTest
                 }
                 try await Task.sleep(for: .milliseconds(20))
             }
+            dumpAccessibility(in: window)
             XCTFail("Gallery is missing \(label)")
             throw GalleryInteractionError.missingElement
+        }
+
+        @MainActor private func dumpAccessibility(in window: NSWindow) {
+            let snapshot = nodes(window).map { node in
+                let fields = [
+                    "accessibilityRole", "accessibilityLabel", "accessibilityTitle", "accessibilityValue",
+                    "accessibilityIdentifier",
+                ].map { name in "\(name)=\(String(describing: attribute(node, name)))" }.joined(separator: "; ")
+                return "\(String(reflecting: type(of: node))): \(fields)"
+            }.joined(separator: "\n")
+            let header =
+                "Gallery: key=\(window.isKeyWindow); frame=\(window.frame); content=\(String(describing: window.contentView?.frame))"
+            let report = header + "\n" + snapshot + "\n"
+            FileHandle.standardError.write(Data(report.utf8))
+            let directory = URL(
+                fileURLWithPath: ProcessInfo.processInfo.environment["RUNNER_TEMP"]
+                    ?? FileManager.default.temporaryDirectory.path
+            ).appendingPathComponent("native-diagnostics/gallery")
+            try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            try? report.write(
+                to: directory.appendingPathComponent("accessibility.txt"), atomically: true, encoding: .utf8)
+            if let view = window.contentView,
+                let shot = try? AppDelegate.previewPNG(view: view, rect: view.bounds)
+            {
+                try? shot.data.write(to: directory.appendingPathComponent("gallery.png"))
+            }
         }
 
         @MainActor private func attribute(_ node: NSObject, _ name: String) -> Any? {
