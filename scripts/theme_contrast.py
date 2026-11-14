@@ -119,6 +119,83 @@ def source_rows():
     return rows
 
 
+def design_palette():
+    source = (ROOT / 'Sources/PerchUI/DesignTokens.swift').read_text()
+    pairs = re.findall(r'case \.(\w+):\s*return AdaptiveColor\(light: 0x([0-9A-Fa-f]+), dark: 0x([0-9A-Fa-f]+)\)', source)
+    palette = {name: dict(light=int(light, 16), dark=int(dark, 16)) for name, light, dark in pairs}
+    assert len(palette) == 27, 'Incomplete design palette'
+    fixes = re.findall(r'if self == \.(\w+) && background == \.(\w+) && appearance == \.(\w+) \{.*?return 0x([0-9A-Fa-f]+)', source, re.S)
+    corrections = {(mode, foreground, background): int(value, 16)
+                   for foreground, background, mode, value in fixes}
+    assert len(corrections) == 3, 'Missing pair-specific contrast corrections'
+    return palette, corrections
+
+
+def design_rows():
+    """Gate text and meaningful graphics; retain authored values alongside corrections.
+
+    Card edges and the dot grid are decorative, not control boundaries. They are
+    reported without claiming the 3:1 threshold. Band text is white, not light ink.
+    """
+    palette, corrections = design_palette()
+    surfaces = ('sheet', 'paper', 'butter', 'blush', 'apricot', 'mint', 'field')
+    rows = []
+    def add(mode, foreground, background, minimum):
+        original = palette[foreground][mode]
+        fg = corrections.get((mode, foreground, background), original)
+        bg = palette[background][mode]
+        actual = contrast(channels(fg), channels(bg))
+        assert actual >= minimum, (mode, foreground, background, actual, minimum)
+        rows.append(dict(appearance=mode, name=f'{foreground}/{background}',
+                         foreground=hex_rgb(channels(fg)), background=hex_rgb(channels(bg)),
+                         authored_foreground=hex_rgb(channels(original)),
+                         authored_ratio=contrast(channels(original), channels(bg)),
+                         ratio=actual, minimum=minimum))
+    for mode in ('light', 'dark'):
+        for surface in surfaces:
+            for ink in ('ink', 'ink2', 'brandText', 'carried', 'doneText'):
+                add(mode, ink, surface, 4.5)
+            for graphic in ('focusRing', 'brandFill', 'doneFill'):
+                add(mode, graphic, surface, 3)
+        for surface in ('sheet', 'paper', 'butter', 'mint'):
+            add(mode, 'ink3', surface, 4.5)
+        add(mode, 'onBrand', 'brandFill', 4.5)
+        add(mode, 'onDone', 'doneFill', 3)
+        add(mode, 'white', 'switchOff', 3)
+        add(mode, 'paper', 'ink', 4.5)  # Selected segment label.
+        add(mode, 'white', 'band', 4.5)
+        add(mode, 'focusRing', 'band', 3)
+        add(mode, 'dot', 'sheet', 0)
+        for surface in ('paper', 'butter', 'blush', 'apricot', 'mint'):
+            add(mode, surface + 'Edge', surface, 0)
+    assert len({(r['appearance'], r['name']) for r in rows}) == len(rows)
+    return rows
+
+
+def nearest_passing_rgb(foreground, background, minimum):
+    """Exact nearest 8-bit sRGB color by squared channel distance; ties use hex order."""
+    import bisect
+    linear = [v / 255 / 12.92 if v / 255 <= .04045 else ((v / 255 + .055) / 1.055) ** 2.4 for v in range(256)]
+    original = tuple((foreground >> shift) & 255 for shift in (16, 8, 0))
+    luminance = sum(w * linear[(background >> s) & 255] for w, s in zip((.2126, .7152, .0722), (16, 8, 0)))
+    best = None
+    for red in range(256):
+        for green in range(256):
+            partial = .2126 * linear[red] + .7152 * linear[green]
+            low = ((luminance + .05) / minimum - .05 - partial) / .0722
+            high = (minimum * (luminance + .05) - .05 - partial) / .0722
+            for blue in (min(original[2], bisect.bisect_right(linear, low) - 1),
+                         max(original[2], bisect.bisect_left(linear, high))):
+                if not 0 <= blue <= 255:
+                    continue
+                value = red << 16 | green << 8 | blue
+                distance = sum((a - b) ** 2 for a, b in zip(original, (red, green, blue)))
+                if best is None or (distance, value) < best:
+                    best = (distance, value)
+    assert best is not None, 'No color reaches the threshold'
+    return best[1]
+
+
 def ui_pixels(directory):
     """Gate actual edges, plus the filled selected pill, in production Home/Week."""
     from PIL import Image
@@ -279,9 +356,20 @@ def table(rows):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--pixels', type=Path)
+    parser.add_argument('--design', action='store_true', help='report the appearance-aware design palette')
     args = parser.parse_args()
-    rows = source_rows()
+    design = design_rows()  # Always gate the new palette, including native legacy probes.
+    rows = design if args.design else source_rows()
     if args.pixels:
+        assert not args.design, 'The legacy pixel probe does not render design tokens'
         rows = rendered_rows(args.pixels, rows)
     print(table(rows))
-    print(f'PASS: {len(rows)} pairs; all readable text and functional boundary gates met.')
+    if not args.design:
+        print("\nAppearance-aware palette:")
+        print(table(design))
+    for row in design:
+        if row['authored_foreground'] != row['foreground']:
+            print(f"Correction: {row['appearance']} {row['name']}: "
+                  f"{row['authored_foreground']} ({row['authored_ratio']:.6f}:1) -> "
+                  f"{row['foreground']} ({row['ratio']:.6f}:1)")
+    print(f'PASS: {len(rows)} reported pairs; text >=4.5:1 and meaningful graphics >=3:1.')

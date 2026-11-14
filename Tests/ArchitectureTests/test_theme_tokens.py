@@ -64,5 +64,93 @@ class ThemeContrastTests(unittest.TestCase):
             THEME.source_rows()
 
 
+class DesignTokenContractTests(unittest.TestCase):
+    def test_new_palette_checks_every_permitted_pair(self):
+        rows = THEME.design_rows()
+        identities = {(r['appearance'], r['name']) for r in rows}
+        self.assertEqual(len(identities), len(rows))
+        for appearance in ('light', 'dark'):
+            for surface in ('sheet', 'paper', 'butter', 'blush', 'apricot', 'mint', 'field'):
+                for ink in ('ink', 'ink2', 'brandText', 'carried', 'doneText'):
+                    self.assertIn((appearance, f'{ink}/{surface}'), identities)
+                for graphic in ('focusRing', 'brandFill', 'doneFill'):
+                    self.assertIn((appearance, f'{graphic}/{surface}'), identities)
+            for surface in ('sheet', 'paper', 'butter', 'mint'):
+                self.assertIn((appearance, f'ink3/{surface}'), identities)
+        self.assertTrue(all(r['ratio'] >= r['minimum'] for r in rows))
+        corrected = {(r['appearance'], r['name']) for r in rows if r['authored_foreground'] != r['foreground']}
+        self.assertEqual(corrected, {('dark', 'onDone/doneFill'), ('light', 'brandText/apricot'), ('light', 'focusRing/band')})
+
+    def test_low_contrast_design_token_is_rejected(self):
+        original = Path.read_text
+        def altered(path, *args, **kwargs):
+            value = original(path, *args, **kwargs)
+            return value.replace('light: 0x2A1B14', 'light: 0xAAAAAA') if path.name == 'DesignTokens.swift' else value
+        with patch.object(Path, 'read_text', altered), self.assertRaises(AssertionError):
+            THEME.design_rows()
+
+    def test_font_resources_and_packaging(self):
+        import struct
+        import plistlib
+        folder = ROOT / 'Sources/PerchUI/Resources/Fonts'
+        expected = {'Lexend-Regular.ttf': 400, 'Lexend-Medium.ttf': 500,
+                    'Lexend-SemiBold.ttf': 600, 'Lexend-Bold.ttf': 700}
+        for filename, weight in expected.items():
+            data = (folder / filename).read_bytes()
+            self.assertEqual(data[:4], b'\x00\x01\x00\x00')
+            count = struct.unpack_from('>H', data, 4)[0]
+            tables = {data[o:o+4]: struct.unpack_from('>II', data, o+8)
+                      for o in range(12, 12 + count * 16, 16)}
+            offset, _ = tables[b'OS/2']
+            self.assertEqual(struct.unpack_from('>H', data, offset + 4)[0], weight)
+        for weight in ('Regular', 'Medium', 'SemiBold', 'Bold'):
+            data = (folder / f'PerchText-{weight}.ttf').read_bytes()
+            count = struct.unpack_from('>H', data, 4)[0]
+            tables = {data[o:o+4]: struct.unpack_from('>II', data, o+8)
+                      for o in range(12, 12 + count * 16, 16)}
+            offset, _ = tables[b'hhea']
+            horizontal_metrics = struct.unpack_from('>H', data, offset + 34)[0]
+            offset, _ = tables[b'hmtx']
+            advances = {struct.unpack_from('>H', data, offset + index * 4)[0]
+                        for index in range(horizontal_metrics)}
+            self.assertGreater(len(advances), 1)  # Text stays proportional.
+            # A compact product table pins the actual digit advances without font libraries.
+            cmap, _ = tables[b'cmap']
+            subtables = struct.unpack_from('>H', data, cmap + 2)[0]
+            chosen = None
+            for index in range(subtables):
+                _, _, relative = struct.unpack_from('>HHI', data, cmap + 4 + index * 8)
+                if struct.unpack_from('>H', data, cmap + relative)[0] == 4:
+                    chosen = cmap + relative
+                    break
+            self.assertIsNotNone(chosen)
+            assert chosen is not None
+            segments = struct.unpack_from('>H', data, chosen + 6)[0] // 2
+            ends = chosen + 14
+            starts = ends + segments * 2 + 2
+            deltas = starts + segments * 2
+            ranges = deltas + segments * 2
+            widths = []
+            for code in range(ord('0'), ord('9') + 1):
+                for index in range(segments):
+                    start = struct.unpack_from('>H', data, starts + index * 2)[0]
+                    end = struct.unpack_from('>H', data, ends + index * 2)[0]
+                    if start <= code <= end:
+                        delta = struct.unpack_from('>h', data, deltas + index * 2)[0]
+                        distance = struct.unpack_from('>H', data, ranges + index * 2)[0]
+                        glyph = ((code + delta) & 65535) if distance == 0 else struct.unpack_from(
+                            '>H', data, ranges + index * 2 + distance + (code - start) * 2)[0]
+                        if distance and glyph:
+                            glyph = (glyph + delta) & 65535
+                        widths.append(struct.unpack_from('>H', data, offset + min(glyph, horizontal_metrics - 1) * 4)[0])
+                        break
+            self.assertEqual(len(widths), 10)
+            self.assertEqual(len(set(widths)), 1, weight)
+        self.assertIn('SIL OPEN FONT LICENSE Version 1.1', (folder / 'OFL.txt').read_text())
+        self.assertEqual(plistlib.loads((ROOT / 'Resources/Info.plist').read_bytes())['ATSApplicationFontsPath'], 'Fonts')
+        self.assertIn('.copy("Resources/Fonts")', (ROOT / 'Package.swift').read_text())
+        self.assertIn('Resources/Fonts/', (ROOT / 'scripts/bundle.sh').read_text())
+
+
 if __name__ == '__main__':
     unittest.main()

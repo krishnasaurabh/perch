@@ -57,6 +57,12 @@ for f in icon_16x16.png icon_32x32.png icon_128x128.png icon_256x256.png icon_51
 done
 rm -rf "$(dirname "$ICONSET")"
 install -m 0644 Resources/AppIcon.icns "$APP/Contents/Resources/"
+# macOS registers this directory at launch via ATSApplicationFontsPath.
+mkdir -p "$APP/Contents/Resources/Fonts"
+for font in Lexend-Regular.ttf Lexend-Medium.ttf Lexend-SemiBold.ttf Lexend-Bold.ttf \
+            PerchText-Regular.ttf PerchText-Medium.ttf PerchText-SemiBold.ttf PerchText-Bold.ttf OFL.txt; do
+  install -m 0644 "Sources/PerchUI/Resources/Fonts/$font" "$APP/Contents/Resources/Fonts/"
+done
 # SwiftPM copies string catalogs as data. Compile native resources explicitly for
 # SwiftUI's main-bundle lookup and keep the JSON used by the shared catalog reader.
 python3 scripts/compile_localization.py Resources/Localizable.xcstrings "$APP/Contents/Resources"

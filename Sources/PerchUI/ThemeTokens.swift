@@ -1,5 +1,7 @@
-/// Opaque sRGB values shared by native views and portable contrast tests.
-/// Select ink by the containing surface, not by the desktop appearance.
+/// Compatibility values for the original fixed-tone screens and their contrast gates.
+/// Select this legacy ink by the containing surface, not by the desktop appearance.
+/// New surface-based components use DesignTokens instead; sage and lavender are not
+/// aliases for mint and blush, and migrating one without its ink would break contrast.
 public enum ThemeTokens {
     public struct Palette: Sendable {
         public let text, secondary, tertiary: UInt32
@@ -39,7 +41,7 @@ public enum ThemeTokens {
     public static let cardPadding: Double = 14
     public static let gutter: Double = 8
     public static let focusWidth: Double = 2
-    public static let focusGap: Double = 2
-    public static let minimumTarget: Double = 28
+    public static let focusGap: Double = DesignTokens.Size.focusGap.value
+    public static let minimumTarget: Double = DesignTokens.Size.minimumTarget.value
     public static let primaryHeight: Double = 32
 }

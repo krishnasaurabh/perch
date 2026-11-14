@@ -19,6 +19,7 @@
 	<key>LSUIElement</key><true/>
 	<key>NSHighResolutionCapable</key><true/>
 	<key>NSPrincipalClass</key><string>NSApplication</string>
+	<key>ATSApplicationFontsPath</key><string>Fonts</string>
 	<key>NSCalendarsFullAccessUsageDescription</key><string>Perch shows your upcoming calendar events beside your tasks and focus timer. Your events stay on this Mac and are never changed.</string>
 	<key>NSRemindersFullAccessUsageDescription</key><string>Perch keeps a “Perch” list in Reminders in step with your tasks, so they reach your iPhone and Watch. It only changes that list.</string>
 	<key>NSMicrophoneUsageDescription</key><string>Perch listens only while you speak a task. Speech is recognized on this Mac and never recorded or sent anywhere.</string>
