@@ -1,3 +1,4 @@
+import AppKit
 import PerchUI
 import SwiftUI
 
@@ -9,6 +10,9 @@ struct PerchSegmented<Value: Hashable>: View {
     var surface: DesignTokens.Surface = .paper
     @Namespace private var highlight
     @FocusState private var focused: Value?
+    @State private var groupHasFocus = false
+    @State private var restorationID = UUID()
+    @State private var focusAnchor = PerchSegmentFocusAnchorView()
     @Environment(\.isEnabled) private var enabled
     @Environment(\.layoutDirection) private var direction
 
@@ -64,13 +68,54 @@ struct PerchSegmented<Value: Hashable>: View {
             RoundedRectangle(cornerRadius: DesignTokens.Size.segmentRadius.value)
                 .fill(Theme.field)
         }
+        .background(PerchSegmentFocusAnchor(view: focusAnchor).allowsHitTesting(false))
         .designMotion(.pop, value: selection)
         .accessibilityElement(children: .contain)
         .accessibilityLabel(AppL10n.text(title))
         .accessibilityValue(AppL10n.text(items.first(where: { $0.value == selection })?.label ?? ""))
-        .onChange(of: selection) { _, value in
-            if focused != nil { focused = value }
+        .onChange(of: focused) { oldValue, value in
+            if value != nil {
+                groupHasFocus = true
+            } else if oldValue == selection {
+                // The outgoing selection losing focus is temporary; the current one
+                // losing focus means the person has moved to a different control.
+                _ = leaveGroup()
+            }
         }
+        .onChange(of: selection) { _, value in restoreFocus(value) }
+        .onKeyPress(.tab) { leaveGroup() }
+        .onChange(of: enabled) { _, value in
+            if !value {
+                _ = leaveGroup()
+                focused = nil
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSWindow.didResignKeyNotification)) { notification in
+            guard let window = notification.object as? NSWindow, window === focusAnchor.window else { return }
+            _ = leaveGroup()
+            focused = nil
+        }
+        .onDisappear { _ = leaveGroup() }
+    }
+
+    private func restoreFocus(_ value: Value) {
+        guard groupHasFocus else { return }
+        let request = UUID()
+        restorationID = request
+        // Register the newly focusable button before asking SwiftUI to focus it.
+        DispatchQueue.main.async { [self] in
+            guard groupHasFocus, enabled, selection == value, restorationID == request,
+                focusAnchor.window?.isKeyWindow == true, items.contains(where: { $0.value == value })
+            else { return }
+            focused = value
+        }
+    }
+
+    private func leaveGroup() -> KeyPress.Result {
+        groupHasFocus = false
+        restorationID = UUID()
+        // Tab and Shift-Tab continue through AppKit's native key loop.
+        return .ignored
     }
 
     private func move(from index: Int, by step: Int) -> KeyPress.Result {
@@ -80,9 +125,19 @@ struct PerchSegmented<Value: Hashable>: View {
     private func select(_ index: Int) -> KeyPress.Result {
         guard enabled, items.indices.contains(index) else { return .ignored }
         selection = items[index].value
-        focused = items[index].value
         return .handled
     }
+}
+
+/// A non-accessible anchor scopes deferred focus work to this control's live window.
+private struct PerchSegmentFocusAnchor: NSViewRepresentable {
+    let view: PerchSegmentFocusAnchorView
+    func makeNSView(context: Context) -> PerchSegmentFocusAnchorView { view }
+    func updateNSView(_ view: PerchSegmentFocusAnchorView, context: Context) {}
+}
+
+private final class PerchSegmentFocusAnchorView: NSView {
+    override func isAccessibilityElement() -> Bool { false }
 }
 
 private struct PerchSegmentStyle: ButtonStyle {
