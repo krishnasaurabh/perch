@@ -30,7 +30,8 @@ struct WelcomeView: View {
 
     static func complete(store: PlannerStore, openToday: Bool, done: () -> Void) {
         if !store.prefs.welcomeCompleted { store.apply { try $0.updatePreference(.welcomeCompleted(true)) } }
-        guard store.prefs.welcomeCompleted else { return }
+        // A damaged or read-only planner must not trap someone in onboarding.
+        // Keep the failed save visible in the store, but let them reach recovery.
         if openToday {
             done()
         } else {

@@ -135,6 +135,24 @@ final class WelcomeScreenshotConsentTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: root.appendingPathComponent("planner.json").path))
     }
 
+    @MainActor func testUnreadablePlannerStillOpensTodayWithoutRewritingData() async throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let url = root.appendingPathComponent("planner.json")
+        let corrupt = Data(#"{"version":2,"tasks":5}"#.utf8)
+        try corrupt.write(to: url)
+        let store = makeStore(root)
+        XCTAssertNotNil(store.lastError)
+        var opened = 0
+        WelcomeView.complete(store: store, openToday: true) { opened += 1 }
+        XCTAssertEqual(opened, 1, "Recovery must remain reachable when completion cannot be saved")
+        XCTAssertNotNil(store.lastError, "Do not hide the storage failure")
+        XCTAssertFalse(store.prefs.welcomeCompleted, "A failed save must not pretend to persist completion")
+        XCTAssertEqual(try Data(contentsOf: url), corrupt)
+        XCTAssertFalse(store.prefs.catchScreenshots)
+        XCTAssertFalse(store.prefs.catchCopies)
+    }
+
     @MainActor private func makeStore(_ root: URL) -> PlannerStore {
         PlannerStore(
             file: PlannerFile(
