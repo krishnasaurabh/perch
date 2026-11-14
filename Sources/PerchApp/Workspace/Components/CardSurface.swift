@@ -30,7 +30,7 @@ struct CardSurface: ViewModifier {
                     .strokeBorder(Theme.cardStroke, lineWidth: 1)
             )
             .foregroundStyle(Theme.text)
-            .environment(\.colorScheme, tone.scheme)
+            .environment(\.colorScheme, PreviewAppearance.scheme ?? tone.scheme)
             .environment(\.controlSurface, tone.fill)
     }
 }

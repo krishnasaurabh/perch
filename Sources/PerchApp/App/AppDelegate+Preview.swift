@@ -332,3 +332,16 @@ enum PreviewClock {
         #endif
     }
 }
+
+/// Explicit preview appearances override legacy shell/card defaults, never distribution behavior.
+@MainActor
+enum PreviewAppearance {
+    static var scheme: ColorScheme? {
+        #if DEBUG || PERCH_TESTING
+            guard let name = AppDelegate.previewOption("--appearance") else { return nil }
+            return name == "dark" ? .dark : .light
+        #else
+            nil
+        #endif
+    }
+}

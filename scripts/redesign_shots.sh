@@ -112,6 +112,13 @@ def verify_batch(directory, shots, appearance, reduced):
             raise ValueError("image is not 2x its logical bounds")
 
 
+def process_output(result):
+    # TimeoutExpired retains bytes even when subprocess.run uses text=True.
+    parts = (result.stdout, result.stderr)
+    return "".join(part.decode("utf-8", errors="replace") if isinstance(part, bytes) else part or ""
+                   for part in parts)
+
+
 def run_shots(binary, output, shots, run=subprocess.run):
     output.mkdir(parents=True, exist_ok=True)
     count = 0
@@ -134,10 +141,13 @@ def run_shots(binary, output, shots, run=subprocess.run):
                     result = run(command, env=environment, capture_output=True, text=True,
                                  timeout=15 + len(shots) * 5)
                 except subprocess.TimeoutExpired as error:
-                    raise RuntimeError(f"{mode}: app timed out") from error
-                (output / (mode + ".log")).write_text(result.stdout + result.stderr)
+                    log = process_output(error)
+                    (output / (mode + ".log")).write_text(log)
+                    raise RuntimeError(f"{mode}: app timed out; see {mode}.log\n{log[-2000:]}") from error
+                log = process_output(result)
+                (output / (mode + ".log")).write_text(log)
                 if result.returncode != 0:
-                    raise RuntimeError(f"{mode}: app exited {result.returncode}; see {mode}.log")
+                    raise RuntimeError(f"{mode}: app exited {result.returncode}; see {mode}.log\n{log[-2000:]}")
                 verify_batch(work, shots, appearance, reduced)
                 destination = output / mode
                 if destination.exists():

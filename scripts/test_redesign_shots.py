@@ -111,6 +111,27 @@ class RedesignShotsTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "receipt"):
             self.execute(self.fake_run(lambda out, _: (out / "result.json").unlink()))
 
+    def test_app_diagnostic_is_in_failure_and_saved_log(self):
+        diagnostic = "Perch preview: Snapshot appearance did not apply."
+        def failed(command, **kwargs):
+            return subprocess.CompletedProcess(command, 64, "starting\n", diagnostic + "\n")
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            with self.assertRaisesRegex(RuntimeError, diagnostic):
+                self.runner["run_shots"](Path("/fake/Perch"), root,
+                                         self.runner["parse_list"]("one --scenario three"), run=failed)
+            self.assertEqual((root / "light.log").read_text(), "starting\n" + diagnostic + "\n")
+
+    def test_timeout_preserves_partial_output(self):
+        def timeout(command, **kwargs):
+            raise subprocess.TimeoutExpired(command, 1, output=b"opening today\n", stderr=b"still laying out\n")
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            with self.assertRaisesRegex(RuntimeError, "timed out"):
+                self.runner["run_shots"](Path("/fake/Perch"), root,
+                                         self.runner["parse_list"]("one --scenario three"), run=timeout)
+            self.assertEqual((root / "light.log").read_text(), "opening today\nstill laying out\n")
+
     def test_crash_and_timeout_fail(self):
         def crash(command, **kwargs):
             return subprocess.CompletedProcess(command, -6, "", "crashed")

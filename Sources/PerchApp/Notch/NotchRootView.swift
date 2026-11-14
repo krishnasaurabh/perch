@@ -73,9 +73,9 @@ struct NotchRootView: View {
         .ignoresSafeArea()
         .motion(expanded ? Motion.open : Motion.close, value: expanded)
         .motion(activity == nil ? Motion.activityDismiss : Motion.activity, value: activity)
-        .preferredColorScheme(.dark)
+        .preferredColorScheme(PreviewAppearance.scheme ?? .dark)
         // Ink tokens resolve against the scheme: the shell is always "dark". Cards override it for themselves.
-        .environment(\.colorScheme, .dark)
+        .environment(\.colorScheme, PreviewAppearance.scheme ?? .dark)
         .opacity(hidden ? 0 : 1)
         .motionBoundary()
     }

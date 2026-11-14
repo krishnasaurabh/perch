@@ -72,6 +72,7 @@ jobs:
         run: |
           python3 -m unittest discover -s scripts -p test_redesign_shots.py
           python3 -m unittest discover -s scripts -p test_preview_clock.py
+          python3 -m unittest discover -s scripts -p test_preview_appearance.py
       - name: Domain, MCP and portable UI tests
         run: |
           python3 -m unittest discover -s Tests/ArchitectureTests
