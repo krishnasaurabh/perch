@@ -86,6 +86,8 @@ private final class ShortcutRecorderView: NSView {
     }
 }
 
+extension ShortcutRecorderView: KeysShortcutInputOwner {}
+
 private struct ShortcutRecorder: NSViewRepresentable {
     let onRecord: (ShortcutKey) -> Void
     let onCancel: () -> Void
