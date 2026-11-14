@@ -1,4 +1,4 @@
-"""Roving focus survives replacement without reclaiming a departed group."""
+"""Native segment ownership cannot restore focus after leaving the group."""
 from pathlib import Path
 import unittest
 
@@ -7,30 +7,23 @@ COMPONENT = ROOT / "Sources/PerchApp/Workspace/Components/PerchSegmented.swift"
 
 
 class SegmentedFocusLifecycleTests(unittest.TestCase):
-    def test_key_selection_waits_for_registration(self):
+    def test_key_selection_uses_registered_native_views_synchronously(self):
         source = COMPONENT.read_text()
-        handler = source.split("private func select(_ index:", 1)[1].split("\n    }", 1)[0]
-        self.assertNotIn("focused =", handler)
-        self.assertIn("selection = items[index].value", handler)
-        self.assertIn(".onChange(of: selection)", source)
-        self.assertIn(".onChange(of: focused)", source)
-        self.assertIn("@State private var groupHasFocus = false", source)
-        restore = source.split("private func restoreFocus(", 1)[1].split("private func", 1)[0]
-        for guard in ("DispatchQueue.main.async", "groupHasFocus", "enabled", "selection == value",
-                      "isKeyWindow == true", "restorationID == request", "focused = value"):
-            self.assertIn(guard, restore)
+        for token in ("views[value] = WeakSegmentView(view)", "selection = value", "change(value)",
+                      "if acquireFocus { focus(value) }", "window.makeFirstResponder(view)",
+                      "else if changed && ownsFocus", "let window = view.window, window.isKeyWindow"):
+            self.assertIn(token, source)
+        self.assertNotIn("DispatchQueue.main.async", source)
+        self.assertNotIn("@FocusState", source)
 
-    def test_group_exit_invalidates_queued_work(self):
+    def test_group_exit_invalidates_ownership_without_queued_work(self):
         source = COMPONENT.read_text()
-        for hook in (".onKeyPress(.tab)", ".onChange(of: enabled)", ".onDisappear",
-                     "NSWindow.didResignKeyNotification", "window === focusAnchor.window"):
-            self.assertIn(hook, source)
-        leave = source.split("private func leaveGroup(", 1)[1].split("\n    }", 1)[0]
-        self.assertIn("groupHasFocus = false", leave)
-        self.assertIn("restorationID = UUID()", leave)
-        self.assertIn("return .ignored", leave, "Tab must reach the next native destination")
-        self.assertIn("oldValue == selection", source,
-                      "Only a real exit, not the outgoing selection's temporary nil, ends ownership")
+        for token in ("NSWindow.didResignKeyNotification", "focus.resign(in: window)",
+                      ".onDisappear { focus.resign() }", "if !enabled", "resign()",
+                      "view.window === window", "view.window?.makeFirstResponder(nil)",
+                      "dismantleNSView", "active = false", "focusChanged(false)"):
+            self.assertIn(token, source)
+        self.assertNotIn("restorationID", source)
 
     def test_native_regression_drives_keys_and_observes_focus(self):
         source = (ROOT / "Tests/PerchAppTests/SegmentedKeyboardTests.swift").read_text()
@@ -38,8 +31,7 @@ class SegmentedFocusLifecycleTests(unittest.TestCase):
                          'characters: "\\u{19}"', "testArrowsAndEnds", "testExitAndCancellation",
                          "testDisabledAndInactive", "testExternalSelection", "try await check.run()"):
             self.assertIn(evidence, source)
-        self.assertNotIn("accessibilityPerformPress", source,
-                         "An AX press bypasses the keyboard registration regression")
+        self.assertNotIn("accessibilityPerformPress", source)
 
 
 if __name__ == "__main__":
