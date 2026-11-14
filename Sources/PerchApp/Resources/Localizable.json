@@ -154,6 +154,57 @@
         }
       }
     },
+    "%d minutes left of %d": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%d minutes left of %d"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦%d mïnütës lëft öf %d ·~⟧"
+          }
+        }
+      }
+    },
+    "%d ms": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%d ms"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦%d ms ·~⟧"
+          }
+        }
+      }
+    },
+    "%d ms spring": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%d ms spring"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦%d ms sprïng ·~⟧"
+          }
+        }
+      }
+    },
     "%lld day repeat": {
       "extractionState": "manual",
       "localizations": {
@@ -775,6 +826,108 @@
         }
       }
     },
+    "10:00 – 10:45 · %d of 4 steps": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "10:00 – 10:45 · %d of 4 steps"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦10:00 – 10:45 · %d öf 4 stëps ·~⟧"
+          }
+        }
+      }
+    },
+    "10:00 – 10:45 · 2 of 4": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "10:00 – 10:45 · 2 of 4"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦10:00 – 10:45 · 2 öf 4 ·~⟧"
+          }
+        }
+      }
+    },
+    "12 medium · times, never smaller": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "12 medium · times, never smaller"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦12 mëdïüm · tïmës, nëvër smàllër ·~⟧"
+          }
+        }
+      }
+    },
+    "14 medium · tasks and steps": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "14 medium · tasks and steps"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦14 mëdïüm · tàsks ànd stëps ·~⟧"
+          }
+        }
+      }
+    },
+    "16 semibold · the current task": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "16 semibold · the current task"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦16 sëmïböld · thë cürrënt tàsk ·~⟧"
+          }
+        }
+      }
+    },
+    "20 bold · card titles": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "20 bold · card titles"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦20 böld · càrd tïtlës ·~⟧"
+          }
+        }
+      }
+    },
     "A %lld-minute reminder for %@. Choose an action below.": {
       "extractionState": "manual",
       "localizations": {
@@ -788,6 +941,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "⟦Å %lld-mïnütë rëmïndër för %@. Chöösë àn àctïön bëlöw. ·~⟧"
+          }
+        }
+      }
+    },
+    "A 24 point grid and round strokes, to sit well beside the letters.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A 24 point grid and round strokes, to sit well beside the letters."
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Å 24 pöïnt grïd ànd röünd strökës, tö sït wëll bësïdë thë lëttërs. ·~⟧"
           }
         }
       }
@@ -1030,6 +1200,40 @@
         }
       }
     },
+    "A step": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A step"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Å stëp ·~⟧"
+          }
+        }
+      }
+    },
+    "A task": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A task"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Å tàsk ·~⟧"
+          }
+        }
+      }
+    },
     "A whole number from 1 to %lld": {
       "extractionState": "manual",
       "localizations": {
@@ -1077,6 +1281,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "⟦ÅÎ sörtïng fàïlëd: %@ ·~⟧"
+          }
+        }
+      }
+    },
+    "Aa Bb Cc Gg Qq Rr 0123456789": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aa Bb Cc Gg Qq Rr 0123456789"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Åà Bb Cc Gg Qq Rr 0123456789 ·~⟧"
           }
         }
       }
@@ -1931,6 +2152,23 @@
         }
       }
     },
+    "Apricot": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Apricot"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Åprïcöt ·~⟧"
+          }
+        }
+      }
+    },
     "Around the notch": {
       "extractionState": "manual",
       "localizations": {
@@ -2050,6 +2288,23 @@
         }
       }
     },
+    "Back to 24:10": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Back to 24:10"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Bàck tö 24:10 ·~⟧"
+          }
+        }
+      }
+    },
     "Back to week": {
       "extractionState": "manual",
       "localizations": {
@@ -2101,6 +2356,23 @@
         }
       }
     },
+    "Blush": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Blush"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Blüsh ·~⟧"
+          }
+        }
+      }
+    },
     "Bring all to today": {
       "extractionState": "manual",
       "localizations": {
@@ -2131,6 +2403,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "⟦Büïlt-ïn dïsplày ·~⟧"
+          }
+        }
+      }
+    },
+    "Butter": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Butter"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Büttër ·~⟧"
+          }
+        }
+      }
+    },
+    "Buttons": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Buttons"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Büttöns ·~⟧"
           }
         }
       }
@@ -2318,6 +2624,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "⟦Chëckëd öff ïn Përch. %lld àll tïmë; Càlëndàr ïs ünchàngëd. ·~⟧"
+          }
+        }
+      }
+    },
+    "Checking things off": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Checking things off"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Chëckïng thïngs öff ·~⟧"
+          }
+        }
+      }
+    },
+    "Checklist": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Checklist"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Chëcklïst ·~⟧"
           }
         }
       }
@@ -2675,6 +3015,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "⟦Clösë ·~⟧"
+          }
+        }
+      }
+    },
+    "Color, one job per card": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Color, one job per card"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Cölör, önë jöb për càrd ·~⟧"
           }
         }
       }
@@ -3359,6 +3716,23 @@
         }
       }
     },
+    "Dictate": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dictate"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Dïctàtë ·~⟧"
+          }
+        }
+      }
+    },
     "Dictate a task": {
       "extractionState": "manual",
       "localizations": {
@@ -3546,6 +3920,23 @@
         }
       }
     },
+    "Dot-grid paper": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dot-grid paper"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Döt-grïd pàpër ·~⟧"
+          }
+        }
+      }
+    },
     "Double-click": {
       "extractionState": "manual",
       "localizations": {
@@ -3695,6 +4086,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "⟦Ëàrlïër dàys càn't bë ëdïtëd. ·~⟧"
+          }
+        }
+      }
+    },
+    "Ease out, no bounce.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ease out, no bounce."
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Ëàsë öüt, nö böüncë. ·~⟧"
           }
         }
       }
@@ -4090,6 +4498,23 @@
         }
       }
     },
+    "Flat color with a soft edge one shade deeper. No shadows.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Flat color with a soft edge one shade deeper. No shadows."
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Flàt cölör wïth à söft ëdgë önë shàdë dëëpër. Nö shàdöws. ·~⟧"
+          }
+        }
+      }
+    },
     "Focus": {
       "extractionState": "manual",
       "localizations": {
@@ -4294,6 +4719,23 @@
         }
       }
     },
+    "Foundations": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Foundations"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Föündàtïöns ·~⟧"
+          }
+        }
+      }
+    },
     "From %@": {
       "extractionState": "manual",
       "localizations": {
@@ -4375,6 +4817,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "⟦Gïvë më 20 mïnütës öf föcüs tïmë ïn Përch ·~⟧"
+          }
+        }
+      }
+    },
+    "Heads-up before a block ends": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Heads-up before a block ends"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Hëàds-üp bëförë à blöck ënds ·~⟧"
           }
         }
       }
@@ -4498,6 +4957,57 @@
         }
       }
     },
+    "Hover lifts, press sinks, release springs back. Try them.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hover lifts, press sinks, release springs back. Try them."
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Hövër lïfts, prëss sïnks, rëlëàsë sprïngs bàck. Try thëm. ·~⟧"
+          }
+        }
+      }
+    },
+    "Hover, color": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hover, color"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Hövër, cölör ·~⟧"
+          }
+        }
+      }
+    },
+    "Icons": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Icons"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Îcöns ·~⟧"
+          }
+        }
+      }
+    },
     "Identify the task by id from list_tasks or by title.": {
       "extractionState": "manual",
       "localizations": {
@@ -4613,6 +5123,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "⟦Încönsïstënt Rëmïndërs rëtïrëmënt mëtàdàtà. Nö chàngës wërë àpplïëd. ·~⟧"
+          }
+        }
+      }
+    },
+    "Index cards": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Index cards"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Îndëx càrds ·~⟧"
+          }
+        }
+      }
+    },
+    "Ink %.1f : 1": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ink %.1f : 1"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Înk %.1f : 1 ·~⟧"
           }
         }
       }
@@ -5008,6 +5552,57 @@
         }
       }
     },
+    "Letter and number samples": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Letter and number samples"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Lëttër ànd nümbër sàmplës ·~⟧"
+          }
+        }
+      }
+    },
+    "Lexend": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lexend"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Lëxënd ·~⟧"
+          }
+        }
+      }
+    },
+    "List the release areas": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "List the release areas"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Lïst thë rëlëàsë àrëàs ·~⟧"
+          }
+        }
+      }
+    },
     "Low": {
       "extractionState": "manual",
       "localizations": {
@@ -5161,6 +5756,23 @@
         }
       }
     },
+    "Mint": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mint"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Mïnt ·~⟧"
+          }
+        }
+      }
+    },
     "Minutes focused": {
       "extractionState": "manual",
       "localizations": {
@@ -5191,6 +5803,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "⟦Mïnütës föcüsëd, làst 7 dàys ·~⟧"
+          }
+        }
+      }
+    },
+    "Minutes to set aside": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Minutes to set aside"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Mïnütës tö sët àsïdë ·~⟧"
           }
         }
       }
@@ -5293,6 +5922,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "⟦Mörë ·~⟧"
+          }
+        }
+      }
+    },
+    "Motion rules": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Motion rules"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Mötïön rülës ·~⟧"
           }
         }
       }
@@ -5722,6 +6368,23 @@
         }
       }
     },
+    "Not today": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Not today"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Nöt tödày ·~⟧"
+          }
+        }
+      }
+    },
     "Notch and menu bar": {
       "extractionState": "manual",
       "localizations": {
@@ -5803,6 +6466,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "⟦Nöthïng ëlsë ön thë càlëndàr tödày. ·~⟧"
+          }
+        }
+      }
+    },
+    "Nothing loops or moves by itself. With Reduce Motion on, every change becomes a quick fade.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nothing loops or moves by itself. With Reduce Motion on, every change becomes a quick fade."
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Nöthïng lööps ör mövës by ïtsëlf. Wïth Rëdücë Mötïön ön, ëvëry chàngë bëcömës à qüïck fàdë. ·~⟧"
           }
         }
       }
@@ -5939,6 +6619,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "⟦Ön thë lïnë ·~⟧"
+          }
+        }
+      }
+    },
+    "One main button": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "One main button"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Önë màïn büttön ·~⟧"
+          }
+        }
+      }
+    },
+    "One small overshoot for ticks, knobs and highlights.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "One small overshoot for ticks, knobs and highlights."
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Önë smàll övërshööt för tïcks, knöbs ànd hïghlïghts. ·~⟧"
           }
         }
       }
@@ -6279,6 +6993,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "⟦Övërdüë tàsks ·~⟧"
+          }
+        }
+      }
+    },
+    "Paper": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Paper"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Pàpër ·~⟧"
+          }
+        }
+      }
+    },
+    "Park": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Park"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Pàrk ·~⟧"
           }
         }
       }
@@ -6640,6 +7388,23 @@
         }
       }
     },
+    "Persimmon": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Persimmon"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Përsïmmön ·~⟧"
+          }
+        }
+      }
+    },
     "Pill details": {
       "extractionState": "manual",
       "localizations": {
@@ -6963,6 +7728,40 @@
         }
       }
     },
+    "Pop, slide": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pop, slide"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Pöp, slïdë ·~⟧"
+          }
+        }
+      }
+    },
+    "Press": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Press"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Prëss ·~⟧"
+          }
+        }
+      }
+    },
     "Press the keys you want. Esc cancels.": {
       "extractionState": "manual",
       "localizations": {
@@ -7116,6 +7915,23 @@
         }
       }
     },
+    "Pull last week's bug list": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pull last week's bug list"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Püll làst wëëk's büg lïst ·~⟧"
+          }
+        }
+      }
+    },
     "Put code review, a walk and laundry on my Perch list for today": {
       "extractionState": "manual",
       "localizations": {
@@ -7248,6 +8064,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "⟦Rëmàïnïng ·~⟧"
+          }
+        }
+      }
+    },
+    "Remind": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remind"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Rëmïnd ·~⟧"
           }
         }
       }
@@ -8007,6 +8840,23 @@
         }
       }
     },
+    "Return": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Return"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Rëtürn ·~⟧"
+          }
+        }
+      }
+    },
     "Return adds a task. Paste multiple lines to add multiple tasks.": {
       "extractionState": "manual",
       "localizations": {
@@ -8483,6 +9333,40 @@
         }
       }
     },
+    "Share it with Sam": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Share it with Sam"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Shàrë ït wïth Sàm ·~⟧"
+          }
+        }
+      }
+    },
+    "Shift Tab": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shift Tab"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Shïft Tàb ·~⟧"
+          }
+        }
+      }
+    },
     "Shortcut": {
       "extractionState": "manual",
       "localizations": {
@@ -8568,6 +9452,23 @@
         }
       }
     },
+    "Sinks at once, so a click feels heard.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sinks at once, so a click feels heard."
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Sïnks àt öncë, sö à clïck fëëls hëàrd. ·~⟧"
+          }
+        }
+      }
+    },
     "Skip any permission. You can review it later in Settings.": {
       "extractionState": "manual",
       "localizations": {
@@ -8581,6 +9482,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "⟦Skïp àny përmïssïön. Yöü càn rëvïëw ït làtër ïn Sëttïngs. ·~⟧"
+          }
+        }
+      }
+    },
+    "Slow and smooth for the ring and progress.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Slow and smooth for the ring and progress."
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Slöw ànd smööth för thë rïng ànd prögrëss. ·~⟧"
           }
         }
       }
@@ -8666,6 +9584,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "⟦Snöözë 5 mïn ·~⟧"
+          }
+        }
+      }
+    },
+    "Space": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Space"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Spàcë ·~⟧"
           }
         }
       }
@@ -8802,6 +9737,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "⟦Stàrt föcüsïng ·~⟧"
+          }
+        }
+      }
+    },
+    "Start it now": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Start it now"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Stàrt ït nöw ·~⟧"
           }
         }
       }
@@ -9027,6 +9979,23 @@
         }
       }
     },
+    "Switches and choices": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Switches and choices"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Swïtchës ànd chöïcës ·~⟧"
+          }
+        }
+      }
+    },
     "System": {
       "extractionState": "manual",
       "localizations": {
@@ -9057,6 +10026,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "⟦Systëm làngüàgë ·~⟧"
+          }
+        }
+      }
+    },
+    "Tab": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tab"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Tàb ·~⟧"
           }
         }
       }
@@ -9316,6 +10302,23 @@
         }
       }
     },
+    "Texture": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Texture"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Tëxtürë ·~⟧"
+          }
+        }
+      }
+    },
     "The Perch Reminders list was removed or moved. Sync is stopped; no replacement list was created.": {
       "extractionState": "manual",
       "localizations": {
@@ -9346,6 +10349,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "⟦Thë Rëmïndërs lïst chàngëd whïlë syncïng. Rëtry sync. ·~⟧"
+          }
+        }
+      }
+    },
+    "The box pops, the tick draws itself, the count follows.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The box pops, the tick draws itself, the count follows."
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Thë böx pöps, thë tïck dràws ïtsëlf, thë cöünt föllöws. ·~⟧"
+          }
+        }
+      }
+    },
+    "The checklist's parts": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The checklist's parts"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Thë chëcklïst's pàrts ·~⟧"
           }
         }
       }
@@ -9397,6 +10434,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "⟦Thë föcüs sëssïön ïs nöt rünnïng. ·~⟧"
+          }
+        }
+      }
+    },
+    "The knob and the highlight slide; nothing jumps.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The knob and the highlight slide; nothing jumps."
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Thë knöb ànd thë hïghlïght slïdë; nöthïng jümps. ·~⟧"
           }
         }
       }
@@ -9537,6 +10591,40 @@
         }
       }
     },
+    "The ring eases to its new length, so added time reads as a gift, not a jolt.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The ring eases to its new length, so added time reads as a gift, not a jolt."
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Thë rïng ëàsës tö ïts nëw lëngth, sö àddëd tïmë rëàds às à gïft, nöt à jölt. ·~⟧"
+          }
+        }
+      }
+    },
+    "The sheet behind the cards, like a planner page.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The sheet behind the cards, like a planner page."
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Thë shëët bëhïnd thë càrds, lïkë à plànnër pàgë. ·~⟧"
+          }
+        }
+      }
+    },
     "The task could not be added. The thought is safe; try again.": {
       "extractionState": "manual",
       "localizations": {
@@ -9550,6 +10638,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "⟦Thë tàsk cöüld nöt bë àddëd. Thë thöüght ïs sàfë; try àgàïn. ·~⟧"
+          }
+        }
+      }
+    },
+    "The task now": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The task now"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Thë tàsk nöw ·~⟧"
           }
         }
       }
@@ -9822,6 +10927,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "⟦Thöüght nöt föünd ïn thë pàrkïng löt. ·~⟧"
+          }
+        }
+      }
+    },
+    "Time": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Time"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Tïmë ·~⟧"
           }
         }
       }
@@ -10213,6 +11335,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "⟦Twö-wày sync rëqüïrës à vàlïdàtëd plànnër àdàptër. ·~⟧"
+          }
+        }
+      }
+    },
+    "Typeface": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Typeface"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Typëfàcë ·~⟧"
           }
         }
       }
@@ -10897,6 +12036,23 @@
         }
       }
     },
+    "Wide, open letters with generous spacing, drawn to be easy to read at a glance.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wide, open letters with generous spacing, drawn to be easy to read at a glance."
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Wïdë, öpën lëttërs wïth gënëröüs spàcïng, dràwn tö bë ëàsy tö rëàd àt à glàncë. ·~⟧"
+          }
+        }
+      }
+    },
     "With no day chosen, it repeats on the task's weekday.": {
       "extractionState": "manual",
       "localizations": {
@@ -10965,6 +12121,23 @@
         }
       }
     },
+    "Write the smoke tests": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Write the smoke tests"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Wrïtë thë smökë tësts ·~⟧"
+          }
+        }
+      }
+    },
     "YYYY-MM-DD": {
       "extractionState": "manual",
       "localizations": {
@@ -11029,6 +12202,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "⟦Yöür dày ·~⟧"
+          }
+        }
+      }
+    },
+    "Your day, done": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Your day, done"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Yöür dày, dönë ·~⟧"
           }
         }
       }
@@ -11118,6 +12308,57 @@
         }
       }
     },
+    "a round box, something to finish today": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "a round box, something to finish today"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦à röünd böx, sömëthïng tö fïnïsh tödày ·~⟧"
+          }
+        }
+      }
+    },
+    "a square box, one small action inside it": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "a square box, one small action inside it"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦à sqüàrë böx, önë smàll àctïön ïnsïdë ït ·~⟧"
+          }
+        }
+      }
+    },
+    "adds a task": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "adds a task"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦àdds à tàsk ·~⟧"
+          }
+        }
+      }
+    },
     "calendar": {
       "extractionState": "manual",
       "localizations": {
@@ -11186,6 +12427,23 @@
         }
       }
     },
+    "checks it off": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "checks it off"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦chëcks ït öff ·~⟧"
+          }
+        }
+      }
+    },
     "circle": {
       "extractionState": "manual",
       "localizations": {
@@ -11237,6 +12495,23 @@
         }
       }
     },
+    "fills green and counts toward the task": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "fills green and counts toward the task"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦fïlls grëën ànd cöünts töwàrd thë tàsk ·~⟧"
+          }
+        }
+      }
+    },
     "focused this week": {
       "extractionState": "manual",
       "localizations": {
@@ -11254,6 +12529,23 @@
         }
       }
     },
+    "left": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "left"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦lëft ·~⟧"
+          }
+        }
+      }
+    },
     "macOS wouldn't give up that combination. Kept %@.": {
       "extractionState": "manual",
       "localizations": {
@@ -11267,6 +12559,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "⟦màcÖS wöüldn't gïvë üp thàt cömbïnàtïön. Këpt %@. ·~⟧"
+          }
+        }
+      }
+    },
+    "makes it a step": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "makes it a step"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦màkës ït à stëp ·~⟧"
+          }
+        }
+      }
+    },
+    "moves it back out": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "moves it back out"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦mövës ït bàck öüt ·~⟧"
           }
         }
       }
@@ -11369,6 +12695,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "⟦tàsks dönë thïs wëëk ·~⟧"
+          }
+        }
+      }
+    },
+    "time set aside, shown on the task and in Your day": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "time set aside, shown on the task and in Your day"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦tïmë sët àsïdë, shöwn ön thë tàsk ànd ïn Yöür dày ·~⟧"
           }
         }
       }
