@@ -1,7 +1,8 @@
+import PerchUI
 import SwiftUI
 
 private struct ControlSurfaceKey: EnvironmentKey {
-    static let defaultValue = Color.black
+    static let defaultValue = Color.token(.band)
 }
 
 extension EnvironmentValues {
@@ -32,6 +33,7 @@ struct ControlFocusRing<S: InsettableShape>: View {
     }
 }
 
+@available(*, deprecated, message: "Use PerchButton.")
 struct PillStyle: PrimitiveButtonStyle {
     var prominent = false
     var disabledReason: String = "This action is currently unavailable."
@@ -94,12 +96,15 @@ struct PillStyle: PrimitiveButtonStyle {
         var body: some View {
             configuration.label
                 .font(Theme.label)
-                .padding(.horizontal, 10)
+                .padding(.horizontal, DesignTokens.Size.segmentRadius.value)
                 .frame(minWidth: Theme.minimumTarget, minHeight: Theme.primaryHeight)
                 .foregroundStyle(prominent && enabled ? Theme.onAccent : Theme.text)
                 .background(Capsule().fill(fill))
                 .overlay(
-                    Capsule().strokeBorder(Theme.inputStroke, lineWidth: enabled && configuration.isPressed ? 2 : 1)
+                    Capsule().strokeBorder(
+                        Theme.inputStroke,
+                        lineWidth: enabled && configuration.isPressed
+                            ? DesignTokens.Size.checkboxStroke.value : DesignTokens.Size.checkboxStroke.value / 2)
                 )
                 .overlay(ControlFocusRing(shape: Capsule(), focused: enabled && focused))
                 .contentShape(Capsule())
