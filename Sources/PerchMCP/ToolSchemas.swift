@@ -143,7 +143,14 @@ extension AgentTools {
             return outputSchema(["task": taskSchema], required: ["task"])
         case "list_tasks", "list_inbox", "list_overdue":
             return taskListSchema
-        case "get_task", "complete_task", "reopen_task", "rename_task", "delete_task", "move_task", "update_task",
+        case "delete_task":
+            return outputSchema(
+                [
+                    "task": taskSchema, "status": ["type": "string", "enum": ["pending"]],
+                    "pending_action_id": ["type": "string", "format": "uuid"],
+                    "expires_at": ["type": "string", "format": "date-time"],
+                ], required: ["task"])
+        case "get_task", "complete_task", "reopen_task", "rename_task", "move_task", "update_task",
             "snooze_reminder":
             return outputSchema(["task": taskSchema], required: ["task"])
         case "start_timer", "pause_timer", "resume_timer", "stop_timer":

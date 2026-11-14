@@ -230,6 +230,7 @@ struct PlannerDiskDocument: Codable {
                 [String: DayKey].self, forKey: .completedCalendarEventDays)
             planner.preferences = try c.decode(Preferences.self, forKey: .preferences)
         }
+        planner.agentActions = try AgentActionLedger.decodeField(from: decoder)
         guard Set(planner.parkedThoughts.map(\.id)).count == planner.parkedThoughts.count else {
             throw DecodingError.dataCorruptedError(
                 forKey: .parkedThoughts, in: c, debugDescription: "Duplicate thought identity.")
@@ -247,6 +248,7 @@ struct PlannerDiskDocument: Codable {
     }
     func encode(to encoder: Encoder) throws {
         var c = encoder.container(keyedBy: Keys.self)
+        try planner.agentActions.encodeField(to: encoder)
         try c.encode(Self.currentVersion, forKey: .version)
         try c.encode(planner.tasks.map(TaskDiskRecord.init), forKey: .tasks)
         try c.encode(planner.tasks.map(\.id), forKey: .taskOrder)

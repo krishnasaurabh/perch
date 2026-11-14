@@ -10,7 +10,8 @@ final class MCPServerTests: XCTestCase {
     override func setUp() {
         dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         let tools = AgentTools(
-            file: PlannerFile(url: dir.appendingPathComponent("planner.json")),
+            file: PlannerFile(
+                url: dir.appendingPathComponent("planner.json"), preferences: AgentContractPreferences.enabled()),
             now: { Fixture.now }, calendar: Fixture.calendar)
         server = MCPServer(tools: tools, version: "test")
     }

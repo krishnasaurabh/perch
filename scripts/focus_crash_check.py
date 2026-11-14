@@ -21,7 +21,7 @@ for p in (DATA, DATA + ".lock"):
     if os.path.exists(p): os.remove(p)
 with open(DATA, "w") as f:
     json.dump({"preferences": {"welcomeCompleted": True, "catchCopies": False,
-                               "catchScreenshots": False, "remindersSync": False}}, f)
+                               "catchScreenshots": False, "remindersSync": False, "agentsCanControlTime": True}}, f)
 ENV = dict(os.environ, PERCH_DATA=DATA)
 KILL_AT = 80      # s after start: 20 s past the 60 s checkpoint, so a real unbanked tail is at stake
 OFFLINE = 5       # s the app stays dead; none of it may be credited

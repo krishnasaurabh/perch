@@ -443,6 +443,7 @@ public struct Planner: Codable, Equatable, Sendable {
     public var projects: [TaskProject] = []
     public var notes: [QuickNote] = []
     public var parkedThoughts: [ParkedThought] = []
+    public var agentActions = AgentActionLedger()
     /// Present even after the parking lot is emptied so old notes cannot reappear.
     var notepadMigrationComplete = true
     public var focusSegments: [FocusSegment] = []
@@ -469,6 +470,7 @@ public struct Planner: Codable, Equatable, Sendable {
 
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
+        agentActions = try AgentActionLedger.decodeField(from: decoder)
         version = try c.decodeMissing(Int.self, forKey: .version, default: Self.currentVersion)
         guard version == Self.currentVersion else { throw PlannerSchemaError(version: version) }
         tasks = try c.decodeMissing([PlanTask].self, forKey: .tasks, default: [])
@@ -494,6 +496,7 @@ public struct Planner: Codable, Equatable, Sendable {
 
     public func encode(to encoder: Encoder) throws {
         var c = encoder.container(keyedBy: CodingKeys.self)
+        try agentActions.encodeField(to: encoder)
         try c.encode(version, forKey: .version)
         try c.encode(tasks, forKey: .tasks)
         try c.encode(projects, forKey: .projects)

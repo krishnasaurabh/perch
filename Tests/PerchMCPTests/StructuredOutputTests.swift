@@ -15,7 +15,9 @@ final class StructuredOutputTests: XCTestCase {
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         url = dir.appendingPathComponent("planner.json")
         server = MCPServer(
-            tools: AgentTools(file: PlannerFile(url: url), now: { Fixture.now }, calendar: Fixture.calendar),
+            tools: AgentTools(
+                file: PlannerFile(url: url, preferences: AgentContractPreferences.enabled()), now: { Fixture.now },
+                calendar: Fixture.calendar),
             version: "structured")
     }
 
