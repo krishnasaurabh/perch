@@ -28,6 +28,9 @@ public final class PlannerCommands {
     private let writable: Bool
     fileprivate init(engine: PlannerEngine, writable: Bool) { self.engine = engine; self.writable = writable }
     public var planner: Planner { engine.planner }
+    func withAgentEngine<T>(_ body: (inout PlannerEngine) throws -> T) throws -> T {
+        guard writable else { throw PlannerError("This planner session is read-only.") }; return try body(&engine)
+    }
     public var today: DayKey { engine.today }
     public var read: PlannerEngine { engine }
     public func dayKey(_ date: Date) -> DayKey { engine.dayKey(date) }
@@ -134,11 +137,15 @@ public final class PlannerCommandPipeline {
     private let calendar: Calendar
     private let gate = NSLock()
     private var history = PlannerUndoHistory()
+    private let agentUndoOrdering = AgentUndoOrdering()
 
     public init(file: PlannerFile, clock: any PlannerClock = SystemPlannerClock(), calendar: Calendar = .current) {
         self.file = file; self.clock = clock; self.calendar = calendar
     }
-    public var canUndo: Bool { gate.lock(); defer { gate.unlock() }; return history.canUndo }
+    public var canUndo: Bool {
+        gate.lock(); defer { gate.unlock() };
+        return history.canUndo || agentUndoOrdering.canUndo(file: file)
+    }
     public var canRedo: Bool { gate.lock(); defer { gate.unlock() }; return history.canRedo }
 
     public func inspect<T>(_ body: (PlannerCommands) throws -> T) throws -> T {
@@ -170,7 +177,10 @@ public final class PlannerCommandPipeline {
             planner.stampTaskChanges(from: before, at: time)
             return PlannerCommandResult(value: value, before: before, state: planner)
         }
-        if origin == .user { history.record(before: result.before, after: result.state) }
+        if origin == .user {
+            history.record(before: result.before, after: result.state);
+            agentUndoOrdering.record(before: result.before, after: result.state)
+        }
         return result
     }
 
@@ -178,6 +188,12 @@ public final class PlannerCommandPipeline {
     @discardableResult public func redo() throws -> Planner? { try traverse(redo: true) }
     private func traverse(redo: Bool) throws -> Planner? {
         gate.lock(); defer { gate.unlock() }
+        if !redo,
+            let saved = try agentUndoOrdering.undoIfNewer(
+                file: file, at: clock.now, calendar: calendar, hasLocalUndo: history.canUndo)
+        {
+            return saved
+        }
         var saved: Planner?
         let transaction: ((inout Planner) -> Void) throws -> Void = { change in
             saved = try self.file.mutate { planner in
@@ -188,6 +204,7 @@ public final class PlannerCommandPipeline {
             }
         }
         if redo { try history.redo(transaction: transaction) } else { try history.undo(transaction: transaction) }
+        if saved != nil { agentUndoOrdering.traversed(redo: redo) }
         return saved
     }
 }

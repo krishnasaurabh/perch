@@ -12,7 +12,7 @@ final class ParkingAndStartTests: XCTestCase {
         directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         file = PlannerFile(
-            url: directory.appendingPathComponent("planner.json"), preferences: MemoryPlannerPreferences())
+            url: directory.appendingPathComponent("planner.json"), preferences: AgentContractPreferences.enabled())
         tools = AgentTools(file: file, now: { Fixture.now }, calendar: Fixture.calendar)
     }
     override func tearDownWithError() throws { try FileManager.default.removeItem(at: directory) }

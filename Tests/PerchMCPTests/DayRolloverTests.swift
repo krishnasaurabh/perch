@@ -72,7 +72,9 @@ final class DayRolloverTests: XCTestCase {
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: dir) }
         let file = PlannerFile(url: dir.appendingPathComponent("planner.json"))
-        try file.mutate { $0.preferences.resetHour = 4 }
+        try file.mutate {
+            $0.preferences.resetHour = 4; $0.preferences.agentsCanReadParkingLot = true
+        }
         let tools = AgentTools(file: file, now: { Fixture.date("2026-11-10 02:00") }, calendar: cal)
         _ = try tools.call("add_tasks", ["titles": ["work"], "date": "today"])
         _ = try tools.call("add_tasks", ["titles": ["later"], "date": "tomorrow"])
