@@ -1166,6 +1166,23 @@
         }
       }
     },
+    "Add a task. Tab makes it a step.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Add a task. Tab makes it a step."
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Ådd à tàsk. Tàb màkës ït à stëp. ·~⟧"
+          }
+        }
+      }
+    },
     "Add at least one task title with text.": {
       "extractionState": "manual",
       "localizations": {
@@ -2080,6 +2097,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "⟦Cànnöt löck Rëmïndërs sync mëtàdàtà. ·~⟧"
+          }
+        }
+      }
+    },
+    "Carried over": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Carried over"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Càrrïëd övër ·~⟧"
           }
         }
       }
@@ -3206,6 +3240,23 @@
         }
       }
     },
+    "Dictate instead": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dictate instead"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Dïctàtë ïnstëàd ·~⟧"
+          }
+        }
+      }
+    },
     "Dictation for your language isn't installed on this Mac. Download it under System Settings › Keyboard › Dictation.": {
       "extractionState": "manual",
       "localizations": {
@@ -3372,6 +3423,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "⟦Döüblë-clïck ·~⟧"
+          }
+        }
+      }
+    },
+    "Draft the test checklist": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Draft the test checklist"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Dràft thë tëst chëcklïst ·~⟧"
           }
         }
       }
@@ -4634,6 +4702,23 @@
         }
       }
     },
+    "Jot a stray thought": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Jot a stray thought"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Jöt à strày thöüght ·~⟧"
+          }
+        }
+      }
+    },
     "Just focusing": {
       "extractionState": "manual",
       "localizations": {
@@ -5552,6 +5637,23 @@
         }
       }
     },
+    "Now": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Now"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Nöw ·~⟧"
+          }
+        }
+      }
+    },
     "Off": {
       "extractionState": "manual",
       "localizations": {
@@ -5922,6 +6024,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "⟦Övërdüë tàsks ·~⟧"
+          }
+        }
+      }
+    },
+    "Parking lot": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Parking lot"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Pàrkïng löt ·~⟧"
           }
         }
       }
@@ -8483,6 +8602,23 @@
         }
       }
     },
+    "Surfaces": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Surfaces"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Sürfàcës ·~⟧"
+          }
+        }
+      }
+    },
     "System": {
       "extractionState": "manual",
       "localizations": {
@@ -9295,6 +9431,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "⟦Tïmë nöt rëcögnïzëd: %@. Try 18:15, 6:15 pm, 2026-12-01 18:15 ör ïn 15 mïnütës. ·~⟧"
+          }
+        }
+      }
+    },
+    "Time set aside": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Time set aside"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Tïmë sët àsïdë ·~⟧"
           }
         }
       }
@@ -10332,6 +10485,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "⟦Yöür dàtà ·~⟧"
+          }
+        }
+      }
+    },
+    "Your day": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Your day"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Yöür dày ·~⟧"
           }
         }
       }

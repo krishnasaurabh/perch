@@ -14,3 +14,5 @@ week-full --scenario week-full --open week
 your-week --scenario window-review --open your-week
 history --scenario window-history --open history
 projects --scenario window-projects --open projects
+surfaces --scenario empty --open surfaces
+surfaces-focused --scenario empty --open surfaces-focused
