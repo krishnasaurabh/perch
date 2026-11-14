@@ -601,6 +601,20 @@ func mxFind(_ root: MatrixElement, name: String) -> MatrixElement? {
     mxTree(root).first { mxNames($0).contains(name) }
 }
 
+/// Settings rows publish a separate label with the control's name. Require the actual
+/// checkbox and an observed enabled value; missing or ambiguous controls must fail closed.
+@MainActor
+func mxSettingsCheckboxEnabled(_ root: MatrixElement, name: String) throws -> Bool {
+    let matches = mxTree(root).filter { mxRole($0) == "AXCheckBox" && mxNames($0).contains(name) }
+    guard matches.count == 1, let checkbox = matches.first else {
+        throw MatrixFailure(label: "expected one settings checkbox for \(name), saw \(matches.count)")
+    }
+    guard let enabled = mxEnabled(checkbox) else {
+        throw MatrixFailure(label: "missing enabled state for settings checkbox \(name)")
+    }
+    return enabled
+}
+
 @MainActor
 func mxIdentified(_ root: MatrixElement, _ identifier: String) throws -> MatrixElement {
     let matches = mxTree(root).filter { mxIdentifier($0) == identifier }
@@ -1352,14 +1366,10 @@ final class AllPageMatrix {
         try report.require(
             mxHas(root, expectedExplanation), "general pane explains the AI failure state",
             "isSupported=\(AISorter.isSupported)")
-        if let checkbox = mxFind(root, name: AppL10n.text("Auto-sort new tasks")) {
-            let enabled = mxEnabled(checkbox) ?? false
-            try report.require(
-                enabled == AISorter.isSupported, "auto-sort enablement follows real AI availability",
-                "enabled=\(enabled) supported=\(AISorter.isSupported)")
-        } else {
-            try report.require(false, "general pane exposes the auto-sort checkbox")
-        }
+        let autoSortEnabled = try mxSettingsCheckboxEnabled(root, name: AppL10n.text("Auto-sort new tasks"))
+        try report.require(
+            autoSortEnabled == AISorter.isSupported, "auto-sort enablement follows real AI availability",
+            "enabled=\(autoSortEnabled) supported=\(AISorter.isSupported)")
         try report.require(SMAppService.mainApp.status == loginStatus, "general pane never mutates the login item")
 
         // Calendar: the calendar row must report the state the system actually holds, and
@@ -1414,13 +1424,11 @@ final class AllPageMatrix {
         try report.require(
             mxHas(root, reminderState.title), "calendar pane reports the real reminders permission state",
             "expected \(reminderState.title)")
-        if let phoneToggle = mxFind(root, name: AppL10n.text("Alert on iPhone and Apple Watch too")) {
-            try report.require(
-                (mxEnabled(phoneToggle) ?? true) == fixture.store.prefs.remindersSync,
-                "phone alert stays disabled while mirroring is off")
-        } else {
-            try report.require(false, "calendar pane exposes the phone alert control")
-        }
+        let phoneAlertEnabled = try mxSettingsCheckboxEnabled(
+            root, name: AppL10n.text("Alert on iPhone and Apple Watch too"))
+        try report.require(
+            phoneAlertEnabled == fixture.store.prefs.remindersSync,
+            "phone alert stays disabled while mirroring is off")
         try report.require(
             EKEventStore.authorizationStatus(for: .reminder) == reminderBefore,
             "calendar pane never requests reminders access")
