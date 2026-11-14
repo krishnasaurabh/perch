@@ -51,7 +51,13 @@ enum DashboardWindow {
 
 @MainActor
 final class DashboardSelection: ObservableObject {
-    @Published var tab: DashboardView.Tab
+    @Published var tab: DashboardView.Tab {
+        didSet {
+            guard tab != oldValue else { return }
+            tabHost?.selectionDidChange()
+        }
+    }
+    weak var tabHost: DashboardTabsHost?
     init(tab: DashboardView.Tab = .yourWeek) { self.tab = tab }
 }
 
@@ -100,7 +106,7 @@ struct DashboardView: View {
                             .fixedSize(horizontal: false, vertical: true)
                     }
                     Spacer(minLength: .zero)
-                    DashboardTabs(selection: $selection.tab)
+                    DashboardTabs(selection: selection)
                         .fixedSize()
                 }
                 .padding(.horizontal, SurfaceMetrics.gap / 2)
@@ -125,25 +131,17 @@ struct DashboardView: View {
 /// A scoped native host makes the selected SwiftUI key view discoverable without
 /// guessing a private class name or matching unrelated controls in the window.
 private struct DashboardTabs: NSViewRepresentable {
-    @Binding var selection: DashboardView.Tab
+    let selection: DashboardSelection
     @Environment(\.self) private var environment
 
-    private var content: AnyView {
-        AnyView(
-            PerchSegmented(
-                title: "Section", items: DashboardView.Tab.allCases.map { ($0, $0.rawValue) },
-                selection: $selection, surface: .sheet
-            ).accessibilityIdentifier("dashboard-tabs").environment(\.self, environment))
-    }
-
     func makeNSView(context: Context) -> DashboardTabsHost {
-        let view = DashboardTabsHost(rootView: content)
+        let view = DashboardTabsHost(selection: selection, environment: environment)
         view.setAccessibilityIdentifier("dashboard-tabs-host")
         return view
     }
 
     func updateNSView(_ view: DashboardTabsHost, context: Context) {
-        view.rootView = content
+        view.updateEnvironment(environment)
         view.refreshKeyLoop()
     }
 
@@ -152,17 +150,136 @@ private struct DashboardTabs: NSViewRepresentable {
     }
 }
 
+@MainActor
+private final class DashboardTabEnvironment: ObservableObject {
+    @Published var values: EnvironmentValues
+    init(_ values: EnvironmentValues) { self.values = values }
+}
+
+/// Retain the segmented control's focus state across content changes. Updating
+/// the model or environment must not replace the nested hosting root.
+private struct DashboardTabContent: View {
+    @ObservedObject var selection: DashboardSelection
+    @ObservedObject var environment: DashboardTabEnvironment
+    let navigate: (Bool) -> Bool
+
+    var body: some View {
+        PerchSegmented(
+            title: "Section", items: DashboardView.Tab.allCases.map { ($0, $0.rawValue) },
+            selection: $selection.tab, surface: .sheet
+        )
+        .accessibilityIdentifier("dashboard-tabs")
+        .environment(\.self, environment.values)
+        // The component first cancels its deferred focus restoration, then this
+        // outer handler crosses the nested hosting boundary through native links.
+        .onKeyPress(.tab, phases: .down) { press in navigate(press.modifiers.contains(.shift)) ? .handled : .ignored }
+        .onKeyPress(KeyEquivalent("\u{19}")) { navigate(true) ? .handled : .ignored }
+    }
+}
+
 final class DashboardTabsHost: NSHostingView<AnyView> {
+    private(set) weak var selectionState: DashboardSelection?
+    private var tabEnvironment: DashboardTabEnvironment?
+    private var keyMonitor: Any?
+    fileprivate var installingKeyLoop = false
+    private var refreshing = false
+
+    convenience init(selection: DashboardSelection, environment: EnvironmentValues) {
+        self.init(rootView: AnyView(EmptyView()))
+        selectionState = selection
+        selection.tabHost = self
+        let values = DashboardTabEnvironment(environment)
+        tabEnvironment = values
+        rootView = AnyView(
+            DashboardTabContent(selection: selection, environment: values) { [weak self] backward in
+                self?.moveFocus(backward: backward) ?? false
+            })
+    }
+
+    func updateEnvironment(_ environment: EnvironmentValues) {
+        tabEnvironment?.values = environment
+    }
+
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
+        if let keyMonitor { NSEvent.removeMonitor(keyMonitor) }
+        keyMonitor = nil
+        guard window != nil else { return }
+        keyMonitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .keyUp]) { [weak self] event in
+            let handled = MainActor.assumeIsolated { self?.handleSelectionKey(event) ?? false }
+            return handled ? nil : event
+        }
         refreshKeyLoop()
     }
 
+    override func layout() {
+        super.layout()
+        if let window { DashboardKeyLoop.install(in: window) }
+    }
+
+    /// All inputs, including a menu selection, publish through the same model.
+    /// Preserve focus only when it is already inside this strip, never in a page.
+    func selectionDidChange() {
+        let keepFocus = ownsFirstResponder
+        refreshKeyLoop()
+        if keepFocus, let window, let tabs = DashboardKeyLoop.tabKeyView(in: window) {
+            window.makeFirstResponder(tabs)
+        }
+    }
+
     func refreshKeyLoop() {
-        DispatchQueue.main.async { [weak self] in
-            guard let window = self?.window else { return }
+        guard !refreshing, let window else { return }
+        refreshing = true
+        window.contentView?.layoutSubtreeIfNeeded()
+        DashboardKeyLoop.install(in: window)
+        refreshing = false
+        // SwiftUI can mount the conditional page after the model's didSet. The
+        // immediate install is required; this follow-up only links new controls.
+        DispatchQueue.main.async { [weak self, weak window] in
+            guard let self, let window, self.window === window else { return }
             DashboardKeyLoop.install(in: window)
         }
+    }
+
+    private var ownsFirstResponder: Bool {
+        guard let window, window.isKeyWindow, let view = window.firstResponder as? NSView else { return false }
+        return view === self || view.isDescendant(of: self)
+    }
+
+    /// Scope native selection to this strip. In particular, Space must not call
+    /// an outgoing SwiftUI Button's action after an arrow changes the selection.
+    func handleSelectionKey(_ event: NSEvent) -> Bool {
+        guard (event.type == .keyDown || event.type == .keyUp), ownsFirstResponder,
+            event.window === window,
+            event.modifierFlags.intersection([.command, .control, .option]).isEmpty,
+            tabEnvironment?.values.isEnabled != false,
+            let selection = selectionState,
+            let index = DashboardView.Tab.allCases.firstIndex(of: selection.tab)
+        else { return false }
+        let tabs = DashboardView.Tab.allCases
+        let step = tabEnvironment?.values.layoutDirection == .rightToLeft ? -1 : 1
+        let destination: DashboardView.Tab
+        switch event.keyCode {
+        case 123: destination = tabs[min(max(index - step, 0), tabs.count - 1)]
+        case 124: destination = tabs[min(max(index + step, 0), tabs.count - 1)]
+        case 115: destination = tabs[0]
+        case 119: destination = tabs[tabs.count - 1]
+        case 49: destination = selection.tab
+        default: return false
+        }
+        if event.type == .keyDown, !event.isARepeat {
+            selection.tab = destination
+        }
+        return true
+    }
+
+    func moveFocus(backward: Bool) -> Bool {
+        guard ownsFirstResponder, let window else { return false }
+        DashboardKeyLoop.install(in: window)
+        guard let tabs = DashboardKeyLoop.tabKeyView(in: window),
+            let target = backward ? tabs.previousValidKeyView : tabs.nextValidKeyView
+        else { return false }
+        return window.makeFirstResponder(target)
     }
 }
 
@@ -179,16 +296,45 @@ enum DashboardKeyLoop {
     }
 
     static func install(in window: NSWindow) {
-        guard let root = window.contentView else { return }
+        guard let root = window.contentView,
+            let host = descendants(root).compactMap({ $0 as? DashboardTabsHost }).first,
+            !host.installingKeyLoop
+        else { return }
+        host.installingKeyLoop = true
+        defer { host.installingKeyLoop = false }
+        window.autorecalculatesKeyViewLoop = false
         window.recalculateKeyViewLoop()
-        guard let tabs = tabKeyView(in: window),
+        guard let tabs = tabKeyView(in: window) else { return }
+        let following = nextPageKeyView(after: tabs, outside: host)
+        // The strip is the first stop on every page, even when History's search
+        // does not exist. Capture the natural successor before adding this edge.
+        window.initialFirstResponder = tabs
+        root.nextKeyView = tabs
+        tabs.nextKeyView = following ?? tabs
+        guard host.selectionState?.tab == .history,
             let search = descendants(root).compactMap({ $0 as? NSTextField }).first(where: {
-                $0.identifier?.rawValue == searchIdentifier
+                $0.identifier?.rawValue == searchIdentifier && !$0.isHiddenOrHasHiddenAncestor
             })
         else { return }
-        let following = search.nextValidKeyView
+        let afterSearch = nextPageKeyView(after: search, outside: host)
         tabs.nextKeyView = search
-        search.nextKeyView = following === search ? tabs : (following ?? tabs)
+        search.nextKeyView = afterSearch === search ? tabs : (afterSearch ?? tabs)
+    }
+
+    /// Skip only hosting infrastructure and strip-internal proxies, preserving
+    /// the window's recalculated order for the current page's actual controls.
+    private static func nextPageKeyView(after view: NSView, outside host: DashboardTabsHost) -> NSView? {
+        var next = view.nextValidKeyView
+        var visited = Set<ObjectIdentifier>()
+        while let candidate = next, visited.insert(ObjectIdentifier(candidate)).inserted {
+            if candidate !== view, candidate !== host,
+                !candidate.isDescendant(of: host), !host.isDescendant(of: candidate)
+            {
+                return candidate
+            }
+            next = candidate.nextValidKeyView
+        }
+        return nil
     }
 
     private static func descendants(_ root: NSView) -> [NSView] {

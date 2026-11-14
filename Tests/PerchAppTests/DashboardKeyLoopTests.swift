@@ -22,7 +22,8 @@ final class DashboardKeyLoopTests: XCTestCase {
                     selection: .constant(.history), surface: .sheet
                 ).id(UUID()).environment(\.accessibilityEnabled, true))
         }
-        let tabHost = DashboardTabsHost(rootView: tabContent())
+        let selection = DashboardSelection(tab: .history)
+        let tabHost = DashboardTabsHost(selection: selection, environment: EnvironmentValues())
         tabHost.frame = NSRect(x: 20, y: 450, width: 280, height: 30)
         let search = DashboardSearchField(frame: NSRect(x: 20, y: 380, width: 280, height: 24))
         search.identifier = NSUserInterfaceItemIdentifier(DashboardKeyLoop.searchIdentifier)
@@ -78,6 +79,143 @@ final class DashboardKeyLoopTests: XCTestCase {
             XCTAssertNotNil(window.firstResponder)
             XCTAssertFalse(search.handleNavigation(tab))
         }
+    }
+
+    @MainActor
+    func testEverySectionInstallsInitialTabStopWithoutRequiringSearch() async throws {
+        _ = NSApplication.shared
+        let previousPolicy = NSApp.activationPolicy()
+        NSApp.setActivationPolicy(.accessory)
+        defer { NSApp.setActivationPolicy(previousPolicy) }
+        for section in DashboardView.Tab.allCases {
+            let selection = DashboardSelection(tab: section)
+            let window = NSWindow(
+                contentRect: NSRect(x: 0, y: 0, width: 720, height: 520),
+                styleMask: [.titled], backing: .buffered, defer: false)
+            window.isReleasedWhenClosed = false
+            defer { window.close() }
+            let root = NSView(frame: window.contentLayoutRect)
+            let host = DashboardTabsHost(selection: selection, environment: EnvironmentValues())
+            host.frame = NSRect(x: 20, y: 450, width: 280, height: 30)
+            let action = NSButton(title: "Page action", target: nil, action: nil)
+            action.frame = NSRect(x: 20, y: 350, width: 150, height: 30)
+            root.addSubview(host)
+            root.addSubview(action)
+            window.contentView = root
+            window.makeKeyAndOrderFront(nil)
+            for _ in 0..<30 {
+                root.layoutSubtreeIfNeeded()
+                if DashboardKeyLoop.tabKeyView(in: window) != nil { break }
+                try? await Task.sleep(nanoseconds: 50_000_000)
+            }
+            for _ in 0..<2 {
+                DashboardKeyLoop.install(in: window)
+                let tabs = try XCTUnwrap(DashboardKeyLoop.tabKeyView(in: window))
+                XCTAssertTrue(window.initialFirstResponder === tabs)
+                XCTAssertTrue(root.nextKeyView === tabs)
+                XCTAssertTrue(tabs.nextValidKeyView === action, Self.keyLoopDiagnostic(window, phase: section.rawValue))
+            }
+        }
+    }
+
+    @MainActor
+    func testArrowAndSpaceUseCurrentSelectionAndDoNotStealPageKeys() async throws {
+        _ = NSApplication.shared
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 720, height: 520),
+            styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
+        let previousPolicy = NSApp.activationPolicy()
+        NSApp.setActivationPolicy(.accessory)
+        defer { NSApp.setActivationPolicy(previousPolicy) }
+        let selection = DashboardSelection()
+        let host = DashboardTabsHost(selection: selection, environment: EnvironmentValues())
+        host.frame = NSRect(x: 20, y: 450, width: 280, height: 30)
+        let root = NSView(frame: window.contentLayoutRect)
+        let action = NSButton(title: "Page action", target: nil, action: nil)
+        action.frame = NSRect(x: 20, y: 350, width: 150, height: 30)
+        root.addSubview(host)
+        root.addSubview(action)
+        window.contentView = root
+        window.makeKeyAndOrderFront(nil)
+        for _ in 0..<30 {
+            root.layoutSubtreeIfNeeded()
+            if DashboardKeyLoop.tabKeyView(in: window) != nil { break }
+            try? await Task.sleep(nanoseconds: 50_000_000)
+        }
+        func event(_ code: UInt16, _ characters: String, flags: NSEvent.ModifierFlags = []) -> NSEvent {
+            NSEvent.keyEvent(
+                with: .keyDown, location: .zero, modifierFlags: flags,
+                timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber, context: nil,
+                characters: characters, charactersIgnoringModifiers: characters, isARepeat: false, keyCode: code)!
+        }
+        for expected in [DashboardView.Tab.history, .projects] {
+            let tabs = try XCTUnwrap(DashboardKeyLoop.tabKeyView(in: window))
+            XCTAssertTrue(window.makeFirstResponder(tabs))
+            XCTAssertTrue(host.handleSelectionKey(event(124, "\u{f703}")))
+            XCTAssertEqual(selection.tab, expected)
+            // No run-loop yield between Right and Space: activation reads the model,
+            // never the old SwiftUI Button closure from the preceding section.
+            XCTAssertTrue(host.handleSelectionKey(event(49, " ")))
+            XCTAssertEqual(selection.tab, expected)
+        }
+        XCTAssertTrue(window.makeFirstResponder(action))
+        XCTAssertFalse(host.handleSelectionKey(event(123, "\u{f702}")))
+        XCTAssertFalse(host.handleSelectionKey(event(49, " ")))
+        XCTAssertEqual(selection.tab, .projects)
+        let tabs = try XCTUnwrap(DashboardKeyLoop.tabKeyView(in: window))
+        XCTAssertTrue(window.makeFirstResponder(tabs))
+        XCTAssertFalse(host.handleSelectionKey(event(123, "\u{f702}", flags: .command)))
+        XCTAssertEqual(selection.tab, .projects)
+        XCTAssertTrue(host.moveFocus(backward: false))
+        XCTAssertTrue(window.firstResponder === action)
+        await Task.yield()
+        XCTAssertTrue(window.firstResponder === action, "Leaving the strip must cancel deferred restoration")
+    }
+
+    @MainActor
+    func testSelectionChangesPreserveHostedRootAndRefreshHistoryLinks() async throws {
+        _ = NSApplication.shared
+        let previousPolicy = NSApp.activationPolicy()
+        NSApp.setActivationPolicy(.accessory)
+        defer { NSApp.setActivationPolicy(previousPolicy) }
+        let selection = DashboardSelection()
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 720, height: 520),
+            styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
+        let root = NSView(frame: window.contentLayoutRect)
+        let host = DashboardTabsHost(selection: selection, environment: EnvironmentValues())
+        host.frame = NSRect(x: 20, y: 450, width: 280, height: 30)
+        let search = DashboardSearchField(frame: NSRect(x: 20, y: 380, width: 280, height: 24))
+        search.identifier = NSUserInterfaceItemIdentifier(DashboardKeyLoop.searchIdentifier)
+        let action = NSButton(title: "Page action", target: nil, action: nil)
+        action.frame = NSRect(x: 20, y: 350, width: 150, height: 30)
+        root.addSubview(host)
+        root.addSubview(action)
+        window.contentView = root
+        window.makeKeyAndOrderFront(nil)
+        for _ in 0..<30 {
+            root.layoutSubtreeIfNeeded()
+            if DashboardKeyLoop.tabKeyView(in: window) != nil { break }
+            try? await Task.sleep(nanoseconds: 50_000_000)
+        }
+        selection.tab = .history
+        root.addSubview(search)
+        host.refreshKeyLoop()
+        var tabs = try XCTUnwrap(DashboardKeyLoop.tabKeyView(in: window))
+        XCTAssertTrue(tabs.nextKeyView === search)
+        XCTAssertTrue(search.previousKeyView === tabs)
+        search.removeFromSuperview()
+        selection.tab = .projects
+        host.refreshKeyLoop()
+        tabs = try XCTUnwrap(DashboardKeyLoop.tabKeyView(in: window))
+        XCTAssertTrue(window.initialFirstResponder === tabs)
+        XCTAssertTrue(tabs.nextValidKeyView === action)
+        XCTAssertFalse(tabs.nextKeyView === search)
+        XCTAssertTrue(host.selectionState === selection)
     }
 
     @MainActor
