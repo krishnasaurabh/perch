@@ -48,6 +48,7 @@ final class MCPServerTests: XCTestCase {
                 "move_task", "update_task", "snooze_reminder", "start_timer", "pause_timer", "resume_timer",
                 "stop_timer",
                 "read_notepad", "write_notepad", "get_insights", "list_projects",
+                "list_parked_thoughts", "add_parked_thought", "promote_parked_thought",
             ])
     }
 

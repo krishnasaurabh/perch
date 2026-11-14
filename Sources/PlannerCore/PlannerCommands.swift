@@ -61,6 +61,20 @@ public final class PlannerCommands {
         try execute(.move(id, to)).tasks[0]
     }
     public func reorder(_ id: UUID, before: UUID?) throws { try execute(.reorder(id, before: before)) }
+    public func setStart(_ id: UUID, at time: Date?) throws { try execute(.setStart(id, time)) }
+    @discardableResult public func parkThought(_ text: String) throws -> ParkedThought {
+        try execute(.parkThought(text)).thoughts[0]
+    }
+    @discardableResult public func removeThought(_ id: UUID) throws -> ParkedThought {
+        try execute(.removeThought(id)).thoughts[0]
+    }
+    public func reorderThought(_ id: UUID, before: UUID?) throws { try execute(.reorderThought(id, before: before)) }
+    public func emptyParkingLot() throws { try execute(.emptyParkingLot) }
+    @discardableResult
+    public func promoteThought(_ id: UUID, on day: DayKey? = nil, agentID: String? = nil) throws -> PlanTask {
+        try execute(.promoteThought(id, day: day, agentID: agentID)).tasks[0]
+    }
+    @discardableResult public func bringOver() throws -> [PlanTask] { try execute(.bringOver).tasks }
     @discardableResult public func update(_ id: UUID, on day: DayRef, _ edit: TaskEdit) throws -> PlanTask {
         try execute(.update(id, edit)).tasks[0]
     }

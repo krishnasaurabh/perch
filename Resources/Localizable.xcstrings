@@ -2237,6 +2237,23 @@
         }
       }
     },
+    "Choose a start time on this open task's day.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Choose a start time on this open task's day."
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Chöösë à stàrt tïmë ön thïs öpën tàsk's dày. ·~⟧"
+          }
+        }
+      }
+    },
     "Choose an open task scheduled today before starting focus.": {
       "extractionState": "manual",
       "localizations": {
@@ -3610,6 +3627,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "⟦Ënglïsh ·~⟧"
+          }
+        }
+      }
+    },
+    "Enter a thought using 1 to 20000 characters.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enter a thought using 1 to 20000 characters."
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Ëntër à thöüght üsïng 1 tö 20000 chàràctërs. ·~⟧"
           }
         }
       }
@@ -8925,6 +8959,40 @@
         }
       }
     },
+    "The task could not be added. The thought is safe; try again.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The task could not be added. The thought is safe; try again."
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Thë tàsk cöüld nöt bë àddëd. Thë thöüght ïs sàfë; try àgàïn. ·~⟧"
+          }
+        }
+      }
+    },
+    "The thought could not be added. Try again.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The thought could not be added. Try again."
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Thë thöüght cöüld nöt bë àddëd. Try àgàïn. ·~⟧"
+          }
+        }
+      }
+    },
     "There are no unpinned clips to remove.": {
       "extractionState": "manual",
       "localizations": {
@@ -9142,6 +9210,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "⟦Thïs wëëk ·~⟧"
+          }
+        }
+      }
+    },
+    "Thought not found in the parking lot.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Thought not found in the parking lot."
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Thöüght nöt föünd ïn thë pàrkïng löt. ·~⟧"
           }
         }
       }
@@ -9873,6 +9958,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "⟦Üpcömïng ·~⟧"
+          }
+        }
+      }
+    },
+    "Use a full thought id from list_parked_thoughts.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Use a full thought id from list_parked_thoughts."
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Üsë à füll thöüght ïd fröm lïst_pàrkëd_thöüghts. ·~⟧"
           }
         }
       }

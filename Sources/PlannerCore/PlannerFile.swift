@@ -223,6 +223,7 @@ public final class PlannerFile: Sendable {
             planner.tasks = records(PlanTask.self, in: c, key: .tasks)
             planner.projects = records(TaskProject.self, in: c, key: .projects)
             planner.notes = records(QuickNote.self, in: c, key: .notes)
+            try recoverParking(decoder, &planner, &issues, &keptCount, &quarantinedCount, &quarantinedFieldCount)
             planner.focusSegments = records(PackedFocusHistory.self, in: c, key: .focusHistory)
                 .flatMap(\.indexedSegments).sorted { $0.0 < $1.0 }.map { $0.1 }
             planner.focusSegments += records(FocusSegment.self, in: c, key: .focusSegments)

@@ -1,5 +1,94 @@
 import Foundation
 
+/// Recover the additive parking fields alongside the file layer's existing record recovery.
+/// Missing migration metadata means an old file; damaged metadata must not resurrect notes.
+func recoverParking(
+    _ decoder: Decoder, _ planner: inout Planner, _ issues: inout [PlannerRecoveryIssue],
+    _ kept: inout Int, _ rejected: inout Int, _ fields: inout Int
+) throws {
+    let parking = try ParkingRecovery(from: decoder)
+    planner.parkedThoughts = parking.thoughts
+    planner.notepadMigrationComplete = parking.migrated
+    planner.migrateNotepad()
+    issues += parking.issues
+    kept += parking.thoughts.count
+    rejected += parking.rejected
+    fields += parking.fields
+}
+
+private struct ParkingRecovery: Decodable {
+    var thoughts: [ParkedThought] = []
+    var migrated = false
+    var issues: [PlannerRecoveryIssue] = []
+    var rejected = 0
+    var fields = 0
+    enum Keys: String, CodingKey { case parkedThoughts, notepadMigrationComplete }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: Keys.self)
+        if c.contains(.notepadMigrationComplete) {
+            do { migrated = try c.decode(Bool.self, forKey: .notepadMigrationComplete) } catch {
+                migrated = true
+                fields += 1
+                record(error, fallback: "notepadMigrationComplete")
+            }
+        }
+        if c.contains(.parkedThoughts) {
+            do {
+                var records = try c.nestedUnkeyedContainer(forKey: .parkedThoughts)
+                var seen = Set<UUID>()
+                while !records.isAtEnd {
+                    let index = records.currentIndex
+                    let recordDecoder = try records.superDecoder()
+                    do {
+                        let thought = try ParkedThought(from: recordDecoder)
+                        guard seen.insert(thought.id).inserted else {
+                            rejected += 1
+                            issues.append(
+                                PlannerRecoveryIssue(
+                                    path: "parkedThoughts[\(index)].id", reason: "Duplicate thought identity."))
+                            continue
+                        }
+                        thoughts.append(thought)
+                    } catch {
+                        rejected += 1
+                        record(error, fallback: "parkedThoughts[\(index)]")
+                    }
+                }
+            } catch {
+                fields += 1
+                record(error, fallback: "parkedThoughts")
+            }
+        }
+    }
+
+    private mutating func record(_ error: Error, fallback: String) {
+        let path: [CodingKey]
+        let reason: String
+        switch error {
+        case DecodingError.keyNotFound(let key, let context):
+            path = context.codingPath + [key]; reason = "Required field is missing."
+        case DecodingError.typeMismatch(_, let context):
+            path = context.codingPath; reason = "Value has the wrong type."
+        case DecodingError.valueNotFound(_, let context):
+            path = context.codingPath; reason = "Required value is null."
+        case DecodingError.dataCorrupted(let context):
+            path = context.codingPath; reason = "Value is invalid or unrecognized."
+        default:
+            path = []; reason = "Record could not be decoded."
+        }
+        var location = ""
+        for key in path {
+            if let index = key.intValue {
+                location += "[\(index)]"
+            } else {
+                location += (location.isEmpty ? "" : ".") + key.stringValue
+            }
+        }
+        issues.append(PlannerRecoveryIssue(path: location.isEmpty ? fallback : location, reason: reason))
+    }
+}
+
 /// Explicit disk task schema. Adding a domain field does not silently change this format.
 struct TaskDiskRecord: Codable {
     var id: UUID
@@ -10,6 +99,7 @@ struct TaskDiskRecord: Codable {
     var createdAt: Date
     var updatedAt: Date
     var unloggedFocusedSeconds: Double
+    var startAt: Date?
     var remindAt: Date?
     var deadline: DayKey?
     var priority: TaskPriority
@@ -20,6 +110,8 @@ struct TaskDiskRecord: Codable {
     var steps: [Subtask]
     var focusedSeconds: Double
     var carriedFrom: DayKey?
+    var carriedTaskID: UUID?
+    var parkedFrom: UUID?
     var reminderLink: String?
     var repeatedFrom: UUID?
     var repeatAnchor: DayKey?
@@ -34,6 +126,7 @@ struct TaskDiskRecord: Codable {
         createdAt = task.createdAt
         updatedAt = task.updatedAt
         unloggedFocusedSeconds = task.unloggedFocusedSeconds
+        startAt = task.startAt
         remindAt = task.remindAt
         deadline = task.deadline
         priority = task.priority
@@ -44,6 +137,8 @@ struct TaskDiskRecord: Codable {
         steps = task.steps
         focusedSeconds = task.focusedSeconds
         carriedFrom = task.carriedFrom
+        carriedTaskID = task.carriedTaskID
+        parkedFrom = task.parkedFrom
         reminderLink = task.reminderLink
         repeatedFrom = task.repeatedFrom
         repeatAnchor = task.repeatAnchor
@@ -57,7 +152,8 @@ struct TaskDiskRecord: Codable {
             projectID: projectID, notes: notes, repeatRule: repeatRule, minutes: minutes, steps: steps,
             focusedSeconds: focusedSeconds, carriedFrom: carriedFrom, reminderLink: reminderLink,
             repeatedFrom: repeatedFrom, carryCount: carryCount, agentID: agentID, repeatAnchor: repeatAnchor,
-            updatedAt: updatedAt, unloggedFocusedSeconds: unloggedFocusedSeconds)
+            updatedAt: updatedAt, unloggedFocusedSeconds: unloggedFocusedSeconds, startAt: startAt,
+            carriedTaskID: carriedTaskID, parkedFrom: parkedFrom)
         // The initializer chooses an anchor for new tasks; decoding must preserve an absent legacy anchor.
         value.repeatAnchor = repeatAnchor
         return value
@@ -81,7 +177,8 @@ struct PlannerDiskDocument: Codable {
         self.planner = planner; sourceVersion = Self.currentVersion
     }
     enum Keys: String, CodingKey {
-        case version, tasks, taskOrder, projects, notes, focusSegments, focusHistory, focusRecentIndices, focusLog,
+        case version, tasks, taskOrder, projects, notes, parkedThoughts, notepadMigrationComplete, focusSegments,
+            focusHistory, focusRecentIndices, focusLog,
             focus
         case dismissedOverdue, repeatOccurrences, completedCalendarEventIDs, completedCalendarEventDays, preferences
     }
@@ -117,6 +214,10 @@ struct PlannerDiskDocument: Codable {
             planner.tasks = try c.decode([TaskDiskRecord].self, forKey: .tasks).map(\.task)
             planner.projects = try c.decode([TaskProject].self, forKey: .projects)
             planner.notes = try c.decode([QuickNote].self, forKey: .notes)
+            planner.parkedThoughts = try c.decodeMissing([ParkedThought].self, forKey: .parkedThoughts, default: [])
+            planner.notepadMigrationComplete = try c.decodeMissing(
+                Bool.self, forKey: .notepadMigrationComplete, default: false)
+            planner.migrateNotepad()
             let archive = try c.decode([PackedFocusHistory].self, forKey: .focusHistory)
             let recent = try c.decode([FocusSegment].self, forKey: .focusSegments)
             let indices = try c.decode([Int].self, forKey: .focusRecentIndices)
@@ -128,6 +229,10 @@ struct PlannerDiskDocument: Codable {
             planner.completedCalendarEventDays = try c.decode(
                 [String: DayKey].self, forKey: .completedCalendarEventDays)
             planner.preferences = try c.decode(Preferences.self, forKey: .preferences)
+        }
+        guard Set(planner.parkedThoughts.map(\.id)).count == planner.parkedThoughts.count else {
+            throw DecodingError.dataCorruptedError(
+                forKey: .parkedThoughts, in: c, debugDescription: "Duplicate thought identity.")
         }
         let order = try c.decodeMissing([UUID].self, forKey: .taskOrder, default: planner.tasks.map(\.id))
         guard Set(order).count == order.count, Set(planner.tasks.map(\.id)).count == planner.tasks.count else {
@@ -147,6 +252,8 @@ struct PlannerDiskDocument: Codable {
         try c.encode(planner.tasks.map(\.id), forKey: .taskOrder)
         try c.encode(planner.projects, forKey: .projects)
         try c.encode(planner.notes, forKey: .notes)
+        try c.encode(planner.parkedThoughts, forKey: .parkedThoughts)
+        try c.encode(planner.notepadMigrationComplete, forKey: .notepadMigrationComplete)
         let history = FocusHistoryStorage(planner.focusSegments, current: planner.focus)
         try c.encode(history.recent, forKey: .focusSegments)
         try c.encode(history.recentIndices, forKey: .focusRecentIndices)

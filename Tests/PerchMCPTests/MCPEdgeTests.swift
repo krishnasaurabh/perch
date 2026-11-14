@@ -265,7 +265,11 @@ final class MCPEdgeTests: XCTestCase {
                 $0["name"]?.string
             })
         XCTAssertEqual(
-            names, ["get_task", "list_inbox", "list_overdue", "read_notepad", "get_insights", "list_projects"])
+            names,
+            [
+                "get_task", "list_inbox", "list_overdue", "read_notepad", "get_insights", "list_projects",
+                "list_parked_thoughts",
+            ])
         func snapshot() throws -> [String: Data] {
             var result: [String: Data] = [:]
             func walk(_ base: URL, _ prefix: String) throws {
@@ -389,8 +393,8 @@ final class MCPEdgeTests: XCTestCase {
     func testToolSchemasAreWellFormed() {
         let tools = AgentTools.definitions
         let names = tools.compactMap { $0["name"]?.string }
-        XCTAssertEqual(names.count, 21)
-        XCTAssertEqual(Set(names).count, 21)
+        XCTAssertEqual(names.count, 24)
+        XCTAssertEqual(Set(names).count, 24)
         for tool in tools {
             let name = tool["name"]?.string ?? "?"
             XCTAssertFalse(tool["description"]?.string?.isEmpty ?? true, "\(name) has no description")
