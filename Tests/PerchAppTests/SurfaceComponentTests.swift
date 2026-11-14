@@ -47,7 +47,9 @@ final class SurfaceComponentTests: XCTestCase {
     }
 
     @MainActor func testCaptureHasNamedFieldReturnActionAndSeparateDictationTarget() async throws {
-        _ = NSApplication.shared
+        let app = NSApplication.shared
+        let originalPolicy = app.activationPolicy()
+        app.setActivationPolicy(.accessory)
         let state = EntryState()
         let host = NSHostingView(rootView: EntryHarness(state: state).environment(\.accessibilityEnabled, true))
         let window = NSWindow(
@@ -55,15 +57,18 @@ final class SurfaceComponentTests: XCTestCase {
             styleMask: [.titled], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
         window.contentView = host
-        NSApp.activate(ignoringOtherApps: true)
+        app.activate(ignoringOtherApps: true)
         window.makeKeyAndOrderFront(nil)
-        defer { window.close() }
+        defer {
+            window.close()
+            app.setActivationPolicy(originalPolicy)
+        }
         for _ in 0..<50 {
             host.layoutSubtreeIfNeeded()
             if window.firstResponder is NSTextView { break }
             try await Task.sleep(for: .milliseconds(20))
         }
-        let nodes = Self.nodes(host)
+        let nodes = Self.nodes(window)
         let entry = try XCTUnwrap(
             nodes.first {
                 Self.attribute($0, "accessibilityRole") as? String == "AXTextField"
@@ -136,12 +141,15 @@ final class SurfaceComponentTests: XCTestCase {
 
     @MainActor private static func nodes(_ root: NSObject) -> [NSObject] {
         var seen = Set<ObjectIdentifier>()
-        @MainActor func walk(_ node: NSObject) -> [NSObject] {
-            guard seen.insert(ObjectIdentifier(node)).inserted else { return [] }
-            let children = (attribute(node, "accessibilityChildren") as? [NSObject]) ?? []
-            let contents = (attribute(node, "accessibilityContents") as? [NSObject]) ?? []
-            return [node] + (children + contents + ((node as? NSView)?.subviews ?? [])).flatMap(walk)
+        @MainActor func walk(_ node: NSObject, _ depth: Int) -> [NSObject] {
+            guard depth < 60, seen.insert(ObjectIdentifier(node)).inserted else { return [] }
+            var children = ["accessibilityChildren", "accessibilityContents", "accessibilityChildrenInNavigationOrder"]
+                .flatMap { (attribute(node, $0) as? [NSObject]) ?? [] }
+            // Ignored hosting views can expose descendants only through the native hierarchy.
+            if let view = node as? NSView { children += view.subviews }
+            if let window = node as? NSWindow, let content = window.contentView { children.append(content) }
+            return [node] + children.flatMap { walk($0, depth + 1) }
         }
-        return walk(root)
+        return walk(root, 0)
     }
 }
