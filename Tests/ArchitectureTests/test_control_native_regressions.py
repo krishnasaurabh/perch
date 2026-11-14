@@ -32,6 +32,29 @@ class ControlNativeRegressionTests(unittest.TestCase):
         self.assertIn("previous.returncode == 0", source)
         self.assertIn('"Native field=', source)
 
+    def test_native_focus_probe_primes_ax_before_asserting_focus(self):
+        source = (ROOT / "Tests/PerchAppTests/SegmentedKeyboardTests.swift").read_text()
+        self.assertIn("import ApplicationServices", source)
+        run = source.split("func run() async throws {", 1)[1].split("private func testArrowsAndEnds", 1)[0]
+        self.assertLess(run.index("await primeAccessibility()"), run.index("try assertEditor("))
+        prime = source.split("func primeAccessibility() async {", 1)[1].split("private func", 1)[0]
+        for query in ("DispatchQueue.global().async", "AXUIElementCreateApplication(getpid())",
+                      "kAXWindowsAttribute", "kAXChildrenAttribute", "kAXFocusedUIElementAttribute",
+                      "continuation.resume()"):
+            self.assertIn(query, prime)
+        self.assertLess(prime.index("kAXWindowsAttribute"), prime.index("kAXChildrenAttribute"))
+        self.assertLess(prime.index("kAXChildrenAttribute"), prime.index("kAXFocusedUIElementAttribute"))
+
+    def test_every_native_focus_assertion_logs_responder_and_editor_ownership(self):
+        source = (ROOT / "Tests/PerchAppTests/SegmentedKeyboardTests.swift").read_text()
+        for name in ("assertEditor", "assertSelectedAndFocused", "assertNoSegmentFocus"):
+            body = source.split(f"private func {name}(", 1)[1].split("\n        private func", 1)[0]
+            self.assertLess(body.index("traceFocus("), body.index("try require("))
+        trace = source.split("private func traceFocus(", 1)[1].split("\n        private func", 1)[0]
+        for evidence in ("window.firstResponder", "textEditorResigned=", "beforeEditorOwnsFocus=",
+                         "afterEditorOwnsFocus=", "isAccessibilityFocused"):
+            self.assertIn(evidence, trace)
+
     def test_native_launcher_restores_setting_on_success_failure_and_timeout(self):
         source = (ROOT / "Tests/PerchAppTests/SegmentedKeyboardTests.swift").read_text()
         program = textwrap.dedent(source.split('#"""', 1)[1].split('"""#', 1)[0])
@@ -58,6 +81,8 @@ class ControlNativeRegressionTests(unittest.TestCase):
                             with self.assertRaises(type(failure)):
                                 exec(compile(program, "<native-launcher>", "exec"), {})
                     self.assertIn(["defaults", "write", "-g", "AppleKeyboardUIMode", "-int", "3"], calls)
+                    self.assertIn(["/fixture/bin/Perch"], calls,
+                                  "Keyboard mode belongs in global defaults, never app arguments")
                     expected = (["defaults", "write", "-g", "AppleKeyboardUIMode", "-int", "2"]
                                 if had_setting else ["defaults", "delete", "-g", "AppleKeyboardUIMode"])
                     self.assertEqual(calls[-1], expected)

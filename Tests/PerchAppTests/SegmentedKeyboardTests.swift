@@ -1,5 +1,6 @@
 #if SEGMENTED_KEYBOARD_PROBE
     import AppKit
+    import ApplicationServices
     import SwiftUI
     @testable import PerchApp
 
@@ -54,6 +55,8 @@
                 window.makeKeyAndOrderFront(nil)
                 await settle()
             } while !window.isKeyWindow && ContinuousClock.now < deadline
+            await primeAccessibility()
+            traceFocus("Key window activated")
             try require(window.isKeyWindow, "The keyboard fixture must own the key window")
             log("Full keyboard access: \(NSApp.isFullKeyboardAccessEnabled)")
             try require(NSApp.isFullKeyboardAccessEnabled, "The fixture requires effective full keyboard access")
@@ -143,6 +146,10 @@
             try require(other.makeFirstResponder(field), "Focus the other window")
             driver.minutes = 60
             await settle()
+            traceFocus("Other window active")
+            log(
+                "Other window responder=\(String(describing: other.firstResponder)); textEditorResigned=\(!(other.firstResponder is NSTextView)); editor=\(String(describing: field.currentEditor()))"
+            )
             try require(other.isKeyWindow, "A stale restore must not activate its old window")
             try require(field.currentEditor() === other.firstResponder, "Preserve the other window's editor")
             try assertNoSegmentFocus()
@@ -181,15 +188,47 @@
             }
         }
 
+        // AX queries into this process must leave the main actor free to serve them.
+        private nonisolated func primeAccessibility() async {
+            await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+                DispatchQueue.global().async {
+                    let app = AXUIElementCreateApplication(getpid())
+                    var raw: CFTypeRef?
+                    let status = AXUIElementCopyAttributeValue(app, kAXWindowsAttribute as CFString, &raw)
+                    FileHandle.standardError.write(Data("Segmented AX root priming: \(status.rawValue)\n".utf8))
+                    if let windows = raw as? [AXUIElement] {
+                        for window in windows {
+                            var children: CFTypeRef?
+                            _ = AXUIElementCopyAttributeValue(window, kAXChildrenAttribute as CFString, &children)
+                        }
+                    }
+                    var focused: CFTypeRef?
+                    let focusStatus = AXUIElementCopyAttributeValue(
+                        app, kAXFocusedUIElementAttribute as CFString, &focused)
+                    FileHandle.standardError.write(
+                        Data("Segmented AX focus priming: \(focusStatus.rawValue)\n".utf8))
+                    continuation.resume()
+                }
+            }
+        }
+
         private func settle() async {
             try? await Task.sleep(for: .milliseconds(180))
             window.contentView?.layoutSubtreeIfNeeded()
         }
 
-        private func assertEditor(_ field: NSTextField) throws {
+        private func traceFocus(_ context: String) {
+            let beforeEditor = driver.before.currentEditor()
+            let afterEditor = driver.after.currentEditor()
+            let beforeOwnsFocus = beforeEditor != nil && beforeEditor === window.firstResponder
+            let afterOwnsFocus = afterEditor != nil && afterEditor === window.firstResponder
             log(
-                "Native field=\(field.stringValue); editor=\(String(describing: field.currentEditor())); responder=\(String(describing: window.firstResponder)); focused=\(segmentNodes().filter { boolean($0, "isAccessibilityFocused") == true }.map { label($0) ?? "nil" })"
+                "\(context); responder=\(String(describing: window.firstResponder)); textEditorResigned=\(!(window.firstResponder is NSTextView)); beforeEditorOwnsFocus=\(beforeOwnsFocus); afterEditorOwnsFocus=\(afterOwnsFocus); focused=\(segmentNodes().filter { boolean($0, "isAccessibilityFocused") == true }.map { label($0) ?? "nil" })"
             )
+        }
+
+        private func assertEditor(_ field: NSTextField) throws {
+            traceFocus("Native field=\(field.stringValue); editor=\(String(describing: field.currentEditor()))")
             try require(
                 field.currentEditor() != nil && field.currentEditor() === window.firstResponder,
                 "The intended native field must retain actual first responder")
@@ -197,9 +236,7 @@
 
         private func assertSelectedAndFocused(_ minutes: Int) throws {
             let controls = segmentNodes()
-            log(
-                "Expected \(minutes); binding=\(driver.minutes); focused=\(controls.filter { boolean($0, "isAccessibilityFocused") == true }.map { label($0) ?? "nil" })"
-            )
+            traceFocus("Expected \(minutes); binding=\(driver.minutes)")
             try require(driver.minutes == minutes, "Key action must update the binding to \(minutes)")
             try require(controls.count == 4, "All four native segment buttons must exist")
             for value in [15, 25, 45, 60] {
@@ -217,6 +254,7 @@
         }
 
         private func assertNoSegmentFocus() throws {
+            traceFocus("No segment should retain focus")
             try require(
                 segmentNodes().allSatisfy { boolean($0, "isAccessibilityFocused") != true },
                 "Departed, disabled or inactive segments must not retain native focus")
@@ -335,7 +373,7 @@
                         'defaults', 'write', '-g', 'AppleKeyboardUIMode', '-int', '3',
                     ], check=True, timeout=10)
                     subprocess.run([
-                        str(pathlib.Path(bin_path) / 'Perch'), '-AppleKeyboardUIMode', '3',
+                        str(pathlib.Path(bin_path) / 'Perch'),
                     ], check=True, timeout=60)
                 finally:
                     if previous.returncode == 0:
