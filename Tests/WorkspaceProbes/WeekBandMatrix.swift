@@ -2,12 +2,14 @@
 // The standalone Week probe still covers its Inbox toolbar unchanged.
 private struct WorkspaceLegacyWeekProbe: View {
     let fixture: MatrixFixture
+    @EnvironmentObject private var model: NotchModel
+
     var body: some View {
         WeekPage()
             .sheet(
                 item: Binding(
-                    get: { fixture.model.detailsTaskID.map(IDBox.init) },
-                    set: { fixture.model.detailsTaskID = $0?.id }
+                    get: { model.detailsTaskID.map(IDBox.init) },
+                    set: { model.detailsTaskID = $0?.id }
                 )
             ) { box in
                 TaskDetailsSheet(taskID: box.id)

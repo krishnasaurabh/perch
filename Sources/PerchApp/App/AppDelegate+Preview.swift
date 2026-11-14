@@ -217,7 +217,8 @@ import SwiftUI
                         throw PlannerError("Snapshot appearance did not apply.")
                     }
                     if let text = Self.activePreviewFixture?.captureText, !text.isEmpty {
-                        guard target == "today", let editor = window.firstResponder as? NSTextView, editor.isEditable
+                        guard ["today", "workspace-today"].contains(target),
+                            let editor = window.firstResponder as? NSTextView, editor.isEditable
                         else {
                             if attempt < 7 {
                                 self.capturePreviewShot(shot, target: target, index: index, attempt: attempt + 1);

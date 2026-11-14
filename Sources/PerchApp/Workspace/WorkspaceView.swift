@@ -441,7 +441,8 @@ private struct WorkspaceAppearanceBridge: NSViewRepresentable {
     @MainActor enum WorkspaceShellPreview {
         static func show(page: NotchPage, narrow: Bool = false, app: AppDelegate) {
             let model = NotchModel()
-            model.page = page
+            model.open(page: page, pinned: true)
+            if page == .home { model.captureFocusRequest = UUID() }
             let measured = NSScreen.main.map { NotchLayout.Screen($0).menuBarHeight } ?? .zero
             let bar = measured > 0 ? measured : NSStatusBar.system.thickness
             var size = WorkspaceLayout.preferredSize(page: page.workspacePage, menuBarHeight: bar)
