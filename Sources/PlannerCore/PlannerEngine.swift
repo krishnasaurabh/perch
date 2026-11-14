@@ -821,19 +821,10 @@ public struct PlannerEngine {
     }
 
     public mutating func setNotepad(on day: DayKey, text: String) {
-        // Legacy callers keep their exact daily text. Newly written lines also enter the
-        // parking lot; replacing the legacy view never deletes an already parked thought.
-        var previousCounts: [String: Int] = [:]
-        for line in notepad(on: day).components(separatedBy: .newlines) {
-            previousCounts[line, default: 0] += 1
-        }
-        for line in text.components(separatedBy: .newlines) {
-            if previousCounts[line, default: 0] > 0 {
-                previousCounts[line, default: 0] -= 1
-            } else if !line.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                planner.parkedThoughts.append(ParkedThought(text: line, createdAt: day.date(calendar: calendar)))
-            }
-        }
+        // Migration imports legacy lines once. Keep subsequent editor autosaves separate:
+        // typing, replacing or clearing a note must not create drafts in the parking lot
+        // or resurrect a thought that has already been promoted.
+        planner.migrateNotepad()
         if let i = planner.notes.firstIndex(where: { $0.day == day }) {
             planner.notes[i].text = text
         } else {

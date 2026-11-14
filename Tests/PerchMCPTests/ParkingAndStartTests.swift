@@ -83,6 +83,21 @@ final class ParkingAndStartTests: XCTestCase {
         XCTAssertEqual(try Data(contentsOf: file.url), before)
     }
 
+    func testLegacyNotepadReplacementsDoNotCreateOrResurrectParkedThoughts() throws {
+        let added = try tools.callResult("add_parked_thought", ["text": "Idea"])
+        let thought = try XCTUnwrap(added.structuredContent["thought"])
+        for text in ["Plan", "Plan the trip", "Plan the trip to the coast"] {
+            _ = try tools.callResult("write_notepad", ["text": .string(text), "mode": "replace"])
+            let listed = try tools.callResult("list_parked_thoughts", [:])
+            XCTAssertEqual(listed.structuredContent["thoughts"]?.array, [thought])
+            XCTAssertEqual(try file.load().notes.first?.text, text)
+        }
+        _ = try tools.callResult("promote_parked_thought", ["thought": thought["id"]!])
+        _ = try tools.callResult("write_notepad", ["text": "Idea", "mode": "replace"])
+        XCTAssertEqual(try tools.callResult("list_parked_thoughts", [:]).structuredContent["thoughts"]?.array, [])
+        XCTAssertEqual(try file.load().tasks.map(\.title), ["Idea"])
+    }
+
     func testSchemasAreAdditiveAndNewReadIsReadOnly() throws {
         XCTAssertEqual(AgentTools.definitions.count, 24)
         let definitions = Dictionary(uniqueKeysWithValues: AgentTools.definitions.map { ($0["name"]!.string!, $0) })

@@ -271,17 +271,17 @@ final class TaskStartAndParkingTests: XCTestCase {
         XCTAssertEqual(try pipeline.execute(.bringOver, origin: .user).value.tasks.count, 1)
     }
 
-    func testLegacyWritesParkOnlyNewLinesAndKeepOriginalText() throws {
+    func testLegacyWritesKeepOriginalTextWithoutChangingTheParkingLot() throws {
         try pipeline.perform(origin: .user) { try $0.writeNotepad(on: $0.today, text: "  First  \nFirst") }
-        XCTAssertEqual(try file.load().parkedThoughts.map(\.text), ["  First  ", "First"])
+        XCTAssertTrue(try file.load().parkedThoughts.isEmpty)
         try pipeline.perform(origin: .user) {
             try $0.writeNotepad(on: $0.today, text: "  First  \nFirst", mode: "replace")
         }
-        XCTAssertEqual(try file.load().parkedThoughts.count, 2)
+        XCTAssertTrue(try file.load().parkedThoughts.isEmpty)
         try pipeline.perform(origin: .user) { try $0.writeNotepad(on: $0.today, text: "Second", mode: "replace") }
-        XCTAssertEqual(try file.load().parkedThoughts.map(\.text), ["  First  ", "First", "Second"])
+        XCTAssertTrue(try file.load().parkedThoughts.isEmpty)
         _ = try pipeline.undo()
-        XCTAssertEqual(try file.load().parkedThoughts.map(\.text), ["  First  ", "First"])
+        XCTAssertTrue(try file.load().parkedThoughts.isEmpty)
         XCTAssertEqual(try file.load().notes.first?.text, "  First  \nFirst")
     }
 

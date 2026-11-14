@@ -1,5 +1,94 @@
 import Foundation
 
+/// Recover the additive parking fields alongside the file layer's existing record recovery.
+/// Missing migration metadata means an old file; damaged metadata must not resurrect notes.
+func recoverParking(
+    _ decoder: Decoder, _ planner: inout Planner, _ issues: inout [PlannerRecoveryIssue],
+    _ kept: inout Int, _ rejected: inout Int, _ fields: inout Int
+) throws {
+    let parking = try ParkingRecovery(from: decoder)
+    planner.parkedThoughts = parking.thoughts
+    planner.notepadMigrationComplete = parking.migrated
+    planner.migrateNotepad()
+    issues += parking.issues
+    kept += parking.thoughts.count
+    rejected += parking.rejected
+    fields += parking.fields
+}
+
+private struct ParkingRecovery: Decodable {
+    var thoughts: [ParkedThought] = []
+    var migrated = false
+    var issues: [PlannerRecoveryIssue] = []
+    var rejected = 0
+    var fields = 0
+    enum Keys: String, CodingKey { case parkedThoughts, notepadMigrationComplete }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: Keys.self)
+        if c.contains(.notepadMigrationComplete) {
+            do { migrated = try c.decode(Bool.self, forKey: .notepadMigrationComplete) } catch {
+                migrated = true
+                fields += 1
+                record(error, fallback: "notepadMigrationComplete")
+            }
+        }
+        if c.contains(.parkedThoughts) {
+            do {
+                var records = try c.nestedUnkeyedContainer(forKey: .parkedThoughts)
+                var seen = Set<UUID>()
+                while !records.isAtEnd {
+                    let index = records.currentIndex
+                    let recordDecoder = try records.superDecoder()
+                    do {
+                        let thought = try ParkedThought(from: recordDecoder)
+                        guard seen.insert(thought.id).inserted else {
+                            rejected += 1
+                            issues.append(
+                                PlannerRecoveryIssue(
+                                    path: "parkedThoughts[\(index)].id", reason: "Duplicate thought identity."))
+                            continue
+                        }
+                        thoughts.append(thought)
+                    } catch {
+                        rejected += 1
+                        record(error, fallback: "parkedThoughts[\(index)]")
+                    }
+                }
+            } catch {
+                fields += 1
+                record(error, fallback: "parkedThoughts")
+            }
+        }
+    }
+
+    private mutating func record(_ error: Error, fallback: String) {
+        let path: [CodingKey]
+        let reason: String
+        switch error {
+        case DecodingError.keyNotFound(let key, let context):
+            path = context.codingPath + [key]; reason = "Required field is missing."
+        case DecodingError.typeMismatch(_, let context):
+            path = context.codingPath; reason = "Value has the wrong type."
+        case DecodingError.valueNotFound(_, let context):
+            path = context.codingPath; reason = "Required value is null."
+        case DecodingError.dataCorrupted(let context):
+            path = context.codingPath; reason = "Value is invalid or unrecognized."
+        default:
+            path = []; reason = "Record could not be decoded."
+        }
+        var location = ""
+        for key in path {
+            if let index = key.intValue {
+                location += "[\(index)]"
+            } else {
+                location += (location.isEmpty ? "" : ".") + key.stringValue
+            }
+        }
+        issues.append(PlannerRecoveryIssue(path: location.isEmpty ? fallback : location, reason: reason))
+    }
+}
+
 /// Explicit disk task schema. Adding a domain field does not silently change this format.
 struct TaskDiskRecord: Codable {
     var id: UUID

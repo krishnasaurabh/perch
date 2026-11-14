@@ -4,45 +4,51 @@ import Foundation
 /// Runtime, service links and caller identity are never restored; focus credit comes from the current ledger.
 public struct PlannerEdit {
     private var changes: [(inout Planner) -> Void] = []
+    private var transferChanges: [(inout Planner) -> Void] = []
     private var transitionGuard: ((Planner) -> Bool)?
-    public var isEmpty: Bool { changes.isEmpty }
+    public var isEmpty: Bool { changes.isEmpty && transferChanges.isEmpty }
 
     public init(before: Planner, after: Planner) {
         self.init(before: before, after: after, reversingRestoration: false)
     }
 
     fileprivate init(before: Planner, after: Planner, reversingRestoration: Bool) {
-        let addedTasks = after.tasks.filter { task in !before.tasks.contains { $0.id == task.id } }
-        let removedTasks = before.tasks.filter { task in !after.tasks.contains { $0.id == task.id } }
+        let addedTasks = after.tasks.filter { task in
+            !before.tasks.contains { $0.id == task.id }
+                && before.parkedThoughts.contains { $0.id == task.parkedFrom }
+                && !after.parkedThoughts.contains { $0.id == task.parkedFrom }
+        }
+        let removedTasks = before.tasks.filter { task in
+            !after.tasks.contains { $0.id == task.id }
+                && after.parkedThoughts.contains { $0.id == task.parkedFrom }
+                && !before.parkedThoughts.contains { $0.id == task.parkedFrom }
+        }
         let addedThoughts = after.parkedThoughts.filter { thought in
             !before.parkedThoughts.contains { $0.id == thought.id }
         }
         let removedThoughts = before.parkedThoughts.filter { thought in
             !after.parkedThoughts.contains { $0.id == thought.id }
         }
-        // Promotion and its inverse are one transaction. Never restore the thought while
-        // a later edit or focus session requires retaining its promoted task.
-        if !addedTasks.isEmpty, addedThoughts.isEmpty, removedTasks.isEmpty,
-            addedTasks.count == removedThoughts.count,
-            Set(addedTasks.compactMap(\.parkedFrom)) == Set(removedThoughts.map(\.id))
-        {
+        let transferTaskIDs = Set((addedTasks + removedTasks).map(\.id))
+        let removedSourceIDs = Set(addedTasks.compactMap(\.parkedFrom))
+        let addedSourceIDs = Set(removedTasks.compactMap(\.parkedFrom))
+        let transferThoughtIDs = removedSourceIDs.union(addedSourceIDs)
+        // All transfers in a batch stay atomic, but unrelated changes remain undoable.
+        // Build this guard from identities, not from the transaction's total item counts.
+        if !transferTaskIDs.isEmpty {
             transitionGuard = { planner in
-                removedThoughts.allSatisfy { thought in !planner.parkedThoughts.contains { $0.id == thought.id } }
+                removedThoughts.filter { removedSourceIDs.contains($0.id) }.allSatisfy { thought in
+                    !planner.parkedThoughts.contains { $0.id == thought.id }
+                }
                     && addedTasks.allSatisfy { task in
                         guard let current = planner.tasks.first(where: { $0.id == task.id }) else { return false }
+                        let credit = reversingRestoration ? task.focusedSeconds : 0
+                        let ledger = reversingRestoration ? after.focusSegments.filter { $0.taskID == task.id } : []
                         return Self.content(of: current) == Self.content(of: task)
-                            && current.focusedSeconds == task.focusedSeconds && planner.focus?.taskID != task.id
-                            && planner.focusSegments.filter { $0.taskID == task.id }
-                                == after.focusSegments.filter { $0.taskID == task.id }
-                    }
-            }
-        } else if !removedTasks.isEmpty, removedThoughts.isEmpty, addedTasks.isEmpty,
-            removedTasks.count == addedThoughts.count,
-            Set(removedTasks.compactMap(\.parkedFrom)) == Set(addedThoughts.map(\.id))
-        {
-            transitionGuard = { planner in
-                removedTasks.allSatisfy { task in !planner.tasks.contains { $0.id == task.id } }
-                    && addedThoughts.allSatisfy { thought in
+                            && current.focusedSeconds == credit && planner.focus?.taskID != task.id
+                            && planner.focusSegments.filter { $0.taskID == task.id } == ledger
+                    } && removedTasks.allSatisfy { task in !planner.tasks.contains { $0.id == task.id } }
+                    && addedThoughts.filter { addedSourceIDs.contains($0.id) }.allSatisfy { thought in
                         planner.parkedThoughts.first { $0.id == thought.id } == thought
                     }
             }
@@ -50,10 +56,9 @@ public struct PlannerEdit {
         for old in before.tasks {
             if let new = after.tasks.first(where: { $0.id == old.id }) {
                 taskField(\.title, id: old.id, before: old, after: new)
-                taskField(\.day, id: old.id, before: old, after: new)
+                schedule(id: old.id, before: old, after: new)
                 taskField(\.done, id: old.id, before: old, after: new)
                 taskField(\.completedAt, id: old.id, before: old, after: new)
-                taskField(\.startAt, id: old.id, before: old, after: new)
                 taskField(\.remindAt, id: old.id, before: old, after: new)
                 taskField(\.deadline, id: old.id, before: old, after: new)
                 taskField(\.priority, id: old.id, before: old, after: new)
@@ -74,7 +79,7 @@ public struct PlannerEdit {
                 // Recreate only user content, not an old timer, service link or credit snapshot.
                 let content = Self.content(of: old)
                 let index = before.tasks.firstIndex { $0.id == old.id }!
-                changes.append { planner in
+                append(toTransfer: transferTaskIDs.contains(old.id)) { planner in
                     guard !planner.tasks.contains(where: { $0.id == content.id }) else { return }
                     var restored = content
                     restored.focusedSeconds =
@@ -92,7 +97,7 @@ public struct PlannerEdit {
             // with existing focus. These values are conflict guards, never snapshots to restore.
             let expectedCredit = reversingRestoration ? added.focusedSeconds : 0
             let expectedLedger = reversingRestoration ? after.focusSegments.filter { $0.taskID == added.id } : []
-            changes.append { planner in
+            append(toTransfer: transferTaskIDs.contains(added.id)) { planner in
                 guard let i = planner.tasks.firstIndex(where: { $0.id == content.id }),
                     Self.content(of: planner.tasks[i]) == content,
                     planner.tasks[i].focusedSeconds == expectedCredit,
@@ -118,14 +123,14 @@ public struct PlannerEdit {
             let new = after.parkedThoughts.first { $0.id == thought.id }
             let index = before.parkedThoughts.firstIndex { $0.id == thought.id }!
             guard new != thought else { continue }
-            changes.append { planner in
+            append(toTransfer: transferThoughtIDs.contains(thought.id)) { planner in
                 guard planner.parkedThoughts.first(where: { $0.id == thought.id }) == new else { return }
                 planner.parkedThoughts.removeAll { $0.id == thought.id }
                 planner.parkedThoughts.insert(thought, at: min(index, planner.parkedThoughts.count))
             }
         }
         for thought in after.parkedThoughts where !before.parkedThoughts.contains(where: { $0.id == thought.id }) {
-            changes.append { planner in
+            append(toTransfer: transferThoughtIDs.contains(thought.id)) { planner in
                 planner.parkedThoughts.removeAll { $0 == thought }
             }
         }
@@ -207,8 +212,25 @@ public struct PlannerEdit {
     }
 
     public func restore(in planner: inout Planner) {
-        guard transitionGuard?(planner) != false else { return }
+        if transitionGuard?(planner) != false {
+            for change in transferChanges { change(&planner) }
+        }
         for change in changes { change(&planner) }
+    }
+
+    private mutating func append(toTransfer: Bool, _ change: @escaping (inout Planner) -> Void) {
+        if toTransfer { transferChanges.append(change) } else { changes.append(change) }
+    }
+
+    private mutating func schedule(id: UUID, before: PlanTask, after: PlanTask) {
+        guard before.day != after.day || before.startAt != after.startAt else { return }
+        changes.append { planner in
+            guard let i = planner.tasks.firstIndex(where: { $0.id == id }),
+                planner.tasks[i].day == after.day, planner.tasks[i].startAt == after.startAt
+            else { return }
+            planner.tasks[i].day = before.day
+            planner.tasks[i].startAt = before.startAt
+        }
     }
 
     private mutating func field<V: Equatable>(_ key: WritableKeyPath<Planner, V>, before: Planner, after: Planner) {
