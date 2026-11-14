@@ -355,7 +355,11 @@ MainActor.assumeIsolated {
                     require(
                         abs(
                             workspace.height
-                                - WorkspaceLayout.preferredSize(notchHeight: geometry.notchSize.height).height) < 1,
+                                - WorkspaceLayout.preferredSize(
+                                    page: .today,
+                                    menuBarHeight: geometry.workspacePresentation?.menuBarHeight
+                                        ?? geometry.screen.menuBarHeight
+                                ).height) < 1,
                         "\(scenario): actual geometry uses the compact budget")
                     let lists = descendants(root).compactMap { $0 as? NSScrollView }.filter {
                         $0.documentView !== editor && $0.frame.height > 70 && $0.frame.width > 100

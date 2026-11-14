@@ -64,8 +64,8 @@ struct WorkspaceView: View {
                 }
             }
         // Compatibility for the existing drop and deep-link callers, not navigation tabs.
-        case .clips: ClipsPage()
-        case .insights: InsightsPage()
+        case .clips: ClipsPage().modifier(WorkspaceLegacyPageInsets())
+        case .insights: InsightsPage().modifier(WorkspaceLegacyPageInsets())
         }
     }
 
@@ -359,6 +359,16 @@ enum WorkspaceWindowRegistry {
         guard let keys else { return false }
         keys(store)
         return true
+    }
+}
+
+/// Retired destinations keep their compact card insets until their window lanes replace them.
+private struct WorkspaceLegacyPageInsets: ViewModifier {
+    func body(content: Content) -> some View {
+        content
+            .padding(.horizontal, ThemeTokens.gutter)
+            .padding(.bottom, WorkspaceLayout.bottomInset)
+            .environment(\.colorScheme, .dark)
     }
 }
 
