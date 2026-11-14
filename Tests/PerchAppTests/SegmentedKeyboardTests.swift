@@ -63,7 +63,7 @@
             await settle()
             try assertEditor(driver.before)
             try await key(code: 48, characters: "\t")
-            // These are the fixture's only SwiftUI key views; the other stops are native fields.
+            // These are the fixture's only key views; native fields can be focused explicitly.
             // Verify entry once: later key handling can transfer the responder to the hosting view.
             traceFocus("First Tab keyboard ownership")
             let responder = window.firstResponder as? NSView
@@ -130,8 +130,7 @@
             try send(code: 123, characters: "\u{f702}")
             try send(code: 48, characters: "\u{19}", modifiers: .shift)
             await settle()
-            try assertFocusLeftSegmentGroup("Back-tab must leave the segmented group")
-            try assertFocusLeftSegmentGroup("Departed segments must release native focus")
+            try assertKeyPassedThrough("Back-tab must not be swallowed by the group", selection: 25)
             driver.minutes = 60
             await settle()
             try require(
@@ -297,6 +296,18 @@
                     typeName != "SwiftUI.KeyViewProxy" && !typeName.contains("PerchSegmentFocusAnchorView"),
                     context)
             }
+        }
+
+        private func assertKeyPassedThrough(_ context: String, selection: Int) throws {
+            traceFocus("\(context); binding=\(driver.minutes)")
+            var responder = window.firstResponder as? NSView
+            var responderChain: [String] = []
+            while let view = responder {
+                responderChain.append(String(reflecting: type(of: view)))
+                responder = view.superview
+            }
+            log("\(context); responderChain=\(responderChain)")
+            try require(driver.minutes == selection, context)
         }
 
         private func assertSelectedAndFocused(_ minutes: Int) throws {

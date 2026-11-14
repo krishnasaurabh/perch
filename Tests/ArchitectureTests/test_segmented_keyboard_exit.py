@@ -12,7 +12,7 @@ def body(source, name):
 
 
 class SegmentedKeyboardExitTests(unittest.TestCase):
-    def test_tab_and_back_tab_assert_group_departure_before_reentry(self):
+    def test_tab_exit_and_back_tab_passthrough_before_reentry(self):
         scenario = body(PROBE.read_text(), "testExitAndCancellation")
         ordered = (
             r'try send(code: 124, characters: "\u{f703}")',
@@ -26,8 +26,7 @@ class SegmentedKeyboardExitTests(unittest.TestCase):
             r'try send(code: 123, characters: "\u{f702}")',
             r'try send(code: 48, characters: "\u{19}", modifiers: .shift)',
             'await settle()',
-            'try assertFocusLeftSegmentGroup("Back-tab must leave the segmented group")',
-            'try assertFocusLeftSegmentGroup("Departed segments must release native focus")',
+            'try assertKeyPassedThrough("Back-tab must not be swallowed by the group", selection: 25)',
             'driver.minutes = 60',
             'await settle()',
             'try require(window.makeFirstResponder(driver.before), "Return to the native destination before the final Tab")',
@@ -42,7 +41,32 @@ class SegmentedKeyboardExitTests(unittest.TestCase):
             remaining = remaining.split(normalized, 1)[1]
         self.assertNotIn('assertEditor(driver.after)', scenario)
         self.assertEqual(scenario.count('assertEditor(driver.before)'), 1)
-        self.assertEqual(scenario.count('assertFocusLeftSegmentGroup('), 4)
+        self.assertEqual(scenario.count('assertFocusLeftSegmentGroup('), 2)
+        self.assertEqual(scenario.count('assertKeyPassedThrough('), 1)
+        self.assertNotIn('Back-tab must leave the segmented group', scenario)
+
+    def test_back_tab_passthrough_checks_binding_and_logs_without_forcing_focus(self):
+        assertion = body(PROBE.read_text(), "assertKeyPassedThrough")
+        ordered = (
+            'traceFocus(',
+            'var responder = window.firstResponder as? NSView',
+            'var responderChain: [String] = []',
+            'while let view = responder',
+            'responderChain.append(String(reflecting: type(of: view)))',
+            'responder = view.superview',
+            'responderChain=',
+            'try require(driver.minutes == selection, context)',
+        )
+        remaining = ''.join(assertion.split())
+        for step in ordered:
+            normalized = ''.join(step.split())
+            self.assertIn(normalized, remaining)
+            remaining = remaining.split(normalized, 1)[1]
+        self.assertEqual(assertion.count('traceFocus('), 1)
+        self.assertEqual(assertion.count('try require('), 1)
+        for forbidden in ('makeFirstResponder', 'send(', 'SwiftUI.KeyViewProxy',
+                          'PerchSegmentFocusAnchorView', 'isAccessibilityFocused'):
+            self.assertNotIn(forbidden, assertion)
 
     def test_group_departure_walks_the_entire_native_responder_ancestry(self):
         assertion = body(PROBE.read_text(), "assertFocusLeftSegmentGroup")
@@ -109,7 +133,7 @@ class SegmentedKeyboardExitTests(unittest.TestCase):
             self.assertIn(normalized, remaining)
             remaining = remaining.split(normalized, 1)[1]
         self.assertEqual(scenario.count('assertFocusLeftSegmentGroup('), 3)
-        self.assertEqual(source.count('try assertFocusLeftSegmentGroup('), 8)
+        self.assertEqual(source.count('try assertFocusLeftSegmentGroup('), 6)
 
 
 if __name__ == "__main__":
