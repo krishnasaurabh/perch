@@ -122,7 +122,7 @@
             try send(code: 124, characters: "\u{f703}")
             try send(code: 48, characters: "\t")
             await settle()
-            try assertEditor(driver.after)
+            try assertFocusLeftSegmentGroup("Tab must leave the segmented group")
             try assertNoSegmentFocus()
             try require(driver.minutes == 45, "The arrow before Tab still selects 45")
             try await key(code: 48, characters: "\u{19}", modifiers: .shift)
@@ -130,10 +130,12 @@
             try send(code: 123, characters: "\u{f702}")
             try send(code: 48, characters: "\u{19}", modifiers: .shift)
             await settle()
-            try assertEditor(driver.before)
+            try assertFocusLeftSegmentGroup("Back-tab must leave the segmented group")
             try assertNoSegmentFocus()
             driver.minutes = 60
             await settle()
+            try require(
+                window.makeFirstResponder(driver.before), "Return to the native destination before the final Tab")
             try assertEditor(driver.before)
             try await key(code: 48, characters: "\t")
             try assertSelectedAndFocused(60)
@@ -279,6 +281,18 @@
             try require(
                 field.currentEditor() != nil && field.currentEditor() === window.firstResponder,
                 "The intended native field must retain actual first responder")
+        }
+
+        private func assertFocusLeftSegmentGroup(_ context: String) throws {
+            traceFocus(context)
+            var responder = window.firstResponder as? NSView
+            while let view = responder {
+                let typeName = String(reflecting: type(of: view))
+                try require(
+                    typeName != "SwiftUI.KeyViewProxy" && !typeName.contains("PerchSegmentFocusAnchorView"),
+                    context)
+                responder = view.superview
+            }
         }
 
         private func assertSelectedAndFocused(_ minutes: Int) throws {

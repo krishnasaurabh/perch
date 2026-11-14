@@ -23,7 +23,7 @@ class SegmentedKeyboardOwnershipTests(unittest.TestCase):
             self.assertIn(step, run)
         positions = [run.index(step) for step in ordered]
         self.assertEqual(positions, sorted(positions))
-        self.assertEqual(source.count('"SwiftUI.KeyViewProxy"'), 1)
+        self.assertEqual(run.count('"SwiftUI.KeyViewProxy"'), 1)
         assertion = source.split("private func assertSelectedAndFocused(", 1)[1]
         assertion = assertion.split("private func assertNoSegmentFocus(", 1)[0]
         self.assertNotIn("SwiftUI.KeyViewProxy", assertion)
