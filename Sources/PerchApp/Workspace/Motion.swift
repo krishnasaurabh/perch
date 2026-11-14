@@ -25,8 +25,9 @@ enum Motion {
     /// One Insights bar growing from the baseline: spring R 0.30, ζ 1 (≈ 200 ms), staggered 130 ms left to right.
     static let bar = Animation.spring(response: 0.30, dampingFraction: 1.0)
     static let barStagger = 0.13
-    /// Reserved for opacity-only effects. Never substitute this on a layout/scale transaction.
-    static let reduced = Animation.easeOut(duration: DesignTokens.Motion.reducedFade)
+    /// Legacy opacity-only effect. New components use designMotion's 120 ms fade.
+    /// Never substitute this on a layout/scale transaction.
+    static let reduced = Animation.easeInOut(duration: 0.15)
 
     /// Token curves for new components. Spatial changes must use designMotion so
     /// reduced mode can isolate the opacity transition from the changing layout.

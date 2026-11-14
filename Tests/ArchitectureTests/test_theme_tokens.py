@@ -89,6 +89,15 @@ class DesignTokenContractTests(unittest.TestCase):
         with patch.object(Path, 'read_text', altered), self.assertRaises(AssertionError):
             THEME.design_rows()
 
+    def test_legacy_opacity_token_is_independent_of_design_fade(self):
+        source = (ROOT / 'Sources/PerchApp/Workspace/Motion.swift').read_text()
+        tokens = (ROOT / 'Sources/PerchUI/DesignTokens.swift').read_text()
+        self.assertIn('static let reduced = Animation.easeInOut(duration: 0.15)', source)
+        self.assertIn('public static let reducedFade: Double = 0.12', tokens)
+        fade = source.split('static func fadeKeyframes', 1)[1].split('static var reduceMotion', 1)[0]
+        self.assertIn('duration: DesignTokens.Motion.reducedFade', fade)
+        self.assertNotIn('Motion.reduced', fade.replace('DesignTokens.Motion.reducedFade', ''))
+
     def test_token_motion_keeps_component_identity(self):
         source = (ROOT / 'Sources/PerchApp/Workspace/Motion.swift').read_text()
         modifier = source.split('private struct DesignMotionModifier', 1)[1].split('private struct MotionBoundary', 1)[0]
