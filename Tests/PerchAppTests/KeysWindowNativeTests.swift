@@ -27,6 +27,8 @@
             log("PASS: Keys preserves shortcut recording, timer, Undo and navigation")
             try await testInstalledMonitorLeavesTaskDetailsSheetInControl()
             log("PASS: Keys preserves sheet editing, Escape, timer, Undo and navigation")
+            try await testInstalledMonitorPreservesWindowUndoOwnersAndFallback()
+            log("PASS: Keys preserves window Undo ownership and fallback")
         }
 
         private nonisolated static func primeAccessibility() async {
@@ -255,6 +257,85 @@
                 fixture.store.planner.tasks.map(\.id), [task.id], "The sheet must preserve the original Undo entry")
         }
 
+        static func testInstalledMonitorPreservesWindowUndoOwnersAndFallback() async throws {
+            let fallback = try KeysNativeFixture()
+            defer { fallback.cleanUp() }
+            try require(fallback.store.addTasks(["Keep the fallback history"], on: .day(fallback.store.today)) != nil)
+            let fallbackBefore = fallback.store.planner
+            let model = NotchModel()
+            let router = KeysShortcutRouter(store: fallback.store, model: model)
+            router.start()
+            defer { withExtendedLifetime(router) {} }
+
+            for notch in [true, false] {
+                let owner = try KeysNativeFixture()
+                defer { owner.cleanUp() }
+                let first = try unwrap(
+                    owner.store.addTasks(["First window change"], on: .day(owner.store.today))?.first)
+                try require(owner.store.addTasks(["Second window change"], on: .day(owner.store.today)) != nil)
+                var calls: [Bool] = []
+                let onUndo: (Bool) -> Void = { redo in
+                    calls.append(redo)
+                    if redo { owner.store.redo() } else { owner.store.undo() }
+                }
+                let window: NSWindow
+                if notch {
+                    let panel = NotchPanel(frame: NSRect(x: 50, y: 100, width: 400, height: 200))
+                    panel.isReleasedWhenClosed = false
+                    panel.ignoresMouseEvents = false
+                    panel.onUndo = onUndo
+                    panel.contentView = NSTextField(labelWithString: "Window Undo owner")
+                    window = panel
+                } else {
+                    WindowHost.show(
+                        "keys-undo-fixture", title: "Window Undo owner",
+                        size: CGSize(width: 400, height: 200), onUndo: onUndo
+                    ) {
+                        Text("Window Undo owner")
+                    }
+                    window = try unwrap(WindowHost.windows["keys-undo-fixture"])
+                }
+                defer { window.close() }
+                try await activate(window)
+                try require(window.makeFirstResponder(nil))
+                try reject(window.firstResponder is NSTextView)
+
+                for remaining in [1, 0] {
+                    NSApp.sendEvent(event(code: 6, characters: "z", window: window, modifiers: .command))
+                    try equal(owner.store.planner.tasks.count, remaining, "Undo must reach the window's store")
+                    try equal(calls, Array(repeating: false, count: 2 - remaining), "One callback per Command-Z")
+                    try equal(try owner.store.file.load().tasks, owner.store.planner.tasks)
+                    try equal(fallback.store.planner, fallbackBefore, "Window Undo must not touch fallback history")
+                }
+                // A window owner still consumes Undo when its own history is empty.
+                NSApp.sendEvent(event(code: 6, characters: "z", window: window, modifiers: .command))
+                try equal(calls, [false, false, false])
+                try require(owner.store.planner.tasks.isEmpty)
+                try equal(fallback.store.planner, fallbackBefore)
+
+                NSApp.sendEvent(event(code: 6, characters: "z", window: window, modifiers: [.command, .shift]))
+                try equal(calls, [false, false, false, true], "Window Redo must still run once")
+                try equal(owner.store.planner.tasks.map(\.id), [first.id])
+                try equal(try owner.store.file.load().tasks, owner.store.planner.tasks)
+                try equal(fallback.store.planner, fallbackBefore)
+                try reject(fallback.store.canRedo)
+            }
+
+            let plain = makeWindow()
+            defer { plain.close() }
+            plain.contentView = NSTextField(labelWithString: "No window Undo handler")
+            try await activate(plain)
+            try require(plain.makeFirstResponder(nil))
+            try reject(plain.firstResponder is NSTextView)
+            NSApp.sendEvent(event(code: 6, characters: "z", window: plain, modifiers: .command))
+            try require(fallback.store.planner.tasks.isEmpty, "An unhandled window must use the catalog fallback")
+            try require(fallback.store.canRedo)
+            try require(try fallback.store.file.load().tasks.isEmpty)
+            try reject(
+                router.handle(event(code: 6, characters: "z", window: plain, modifiers: .command)),
+                "An unhandled Undo with empty history must not be consumed")
+        }
+
         private static func makeWindow() -> NSWindow {
             let window = NSWindow(
                 contentRect: NSRect(x: 0, y: 0, width: 640, height: 780),
@@ -469,6 +550,7 @@
                 "PASS: Keys preserves text-editor punctuation",
                 "PASS: Keys preserves shortcut recording, timer, Undo and navigation",
                 "PASS: Keys preserves sheet editing, Escape, timer, Undo and navigation",
+                "PASS: Keys preserves window Undo ownership and fallback",
             ] {
                 XCTAssertEqual(result.components(separatedBy: marker).count - 1, 1, "Missing or duplicate: \(marker)")
             }

@@ -60,6 +60,20 @@ class KeysContractTests(unittest.TestCase):
         self.assertNotIn('XCTAssert', native.split('#else', 1)[0])
         self.assertNotIn('app.run()', (ROOT / 'Tests/PerchAppTests/KeysWindowTests.swift').read_text())
 
+    def test_window_undo_owner_runs_before_the_fallback(self):
+        source = (ROOT / 'Sources/PerchApp/Settings/KeysView.swift').read_text()
+        handler = source.split('.undo: {', 1)[1].split('.pauseOrContinue:', 1)[0]
+        self.assertIn('window.performKeyEquivalent(with: event)', handler)
+        self.assertLess(handler.index('window.performKeyEquivalent'), handler.index('store.canUndo'))
+        self.assertIn('event = nil', source)
+        tests = (ROOT / 'Tests/PerchAppTests/KeysWindowNativeTests.swift').read_text()
+        self.assertIn('testInstalledMonitorPreservesWindowUndoOwnersAndFallback', tests)
+        self.assertIn('panel.onUndo = onUndo', tests)
+        self.assertRegex(tests, r'size: CGSize\(width: 400, height: 200\), onUndo: onUndo\s*\)')
+        self.assertIn('try equal(fallback.store.planner, fallbackBefore', tests)
+        self.assertIn('One callback per Command-Z', tests)
+        self.assertIn('An unhandled window must use the catalog fallback', tests)
+
     def test_sheet_reads_only_the_portable_catalog(self):
         source = (ROOT / 'Sources/PerchApp/Settings/KeysView.swift').read_text()
         self.assertIn('ForEach(KeyMap.columns[column])', source)

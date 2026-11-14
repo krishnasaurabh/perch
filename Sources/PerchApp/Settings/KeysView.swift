@@ -126,7 +126,7 @@ final class KeysShortcutRouter {
     private let lifetime = MainActorLifetime(MonitorState()) { state in
         if let monitor = state.monitor { NSEvent.removeMonitor(monitor) }
     }
-    private var eventWindow: NSWindow?
+    private var event: NSEvent?
 
     init(store: PlannerStore, model: NotchModel) {
         self.store = store
@@ -142,7 +142,7 @@ final class KeysShortcutRouter {
             return true
         },
         .close: { [weak self] in
-            guard let self, let window = eventWindow else { return false }
+            guard let self, let window = event?.window else { return false }
             if window is NotchPanel {
                 model?.close()
             } else {
@@ -152,6 +152,11 @@ final class KeysShortcutRouter {
             return true
         },
         .undo: { [weak self] in
+            // Native windows may own a different Undo history. Let their existing
+            // key-equivalent route handle this event once before using the fallback.
+            if let event = self?.event, let window = event.window, window.performKeyEquivalent(with: event) {
+                return true
+            }
             guard let store = self?.store, store.canUndo else { return false }
             store.undo()
             return true
@@ -188,8 +193,8 @@ final class KeysShortcutRouter {
     func handle(_ event: NSEvent) -> Bool {
         guard let window = event.window, window === NSApp.keyWindow else { return false }
         guard !(window.firstResponder is KeysShortcutInputOwner) else { return false }
-        eventWindow = window
-        defer { eventWindow = nil }
+        self.event = event
+        defer { self.event = nil }
         let context: KeyMap.Context
         if window.attachedSheet != nil || NSApp.modalWindow != nil || window.isSheet || window.sheetParent != nil {
             context = .modal
