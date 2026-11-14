@@ -133,10 +133,14 @@ private struct DashboardTabs: NSViewRepresentable {
             PerchSegmented(
                 title: "Section", items: DashboardView.Tab.allCases.map { ($0, $0.rawValue) },
                 selection: $selection, surface: .sheet
-            ).environment(\.self, environment))
+            ).accessibilityIdentifier("dashboard-tabs").environment(\.self, environment))
     }
 
-    func makeNSView(context: Context) -> DashboardTabsHost { DashboardTabsHost(rootView: content) }
+    func makeNSView(context: Context) -> DashboardTabsHost {
+        let view = DashboardTabsHost(rootView: content)
+        view.setAccessibilityIdentifier("dashboard-tabs-host")
+        return view
+    }
 
     func updateNSView(_ view: DashboardTabsHost, context: Context) {
         view.rootView = content
