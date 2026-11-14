@@ -282,7 +282,9 @@ func verifySeedDay(_ out: URL, day: DayKey) throws {
         out.appendingPathComponent("week-seed-requests.json"))) as! [[String: Any]]
     for seconds in [5 * 60, 23 * 60 * 60 + 55 * 60] {
         let now = day.date().addingTimeInterval(Double(seconds))
-        var engine = PlannerEngine(planner: Planner(), now: { now })
+        // The 4:00 AM default is covered by verifyCalendarRollover and RedesignPreferencesTests.
+        var seed = Planner(); seed.preferences.resetHour = 0
+        var engine = PlannerEngine(planner: seed, now: { now })
         for request in requests {
             guard let params = request["params"] as? [String: Any],
                   let name = params["name"] as? String,
