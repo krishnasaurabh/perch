@@ -294,6 +294,14 @@
         @discardableResult
         private func traceFocus(_ context: String) -> [NSObject] {
             let nodes = accessibilityNodes(window)
+            let focusOwners: [NSObject] =
+                [NSApp, window] + [window.contentView, window.firstResponder].compactMap { $0 }
+            for owner in focusOwners {
+                let target = attribute(owner, "accessibilityFocusedUIElement") as? NSObject
+                log(
+                    "Focus getter owner=\(type(of: owner)); target=\(String(describing: target)); type=\(target.map { String(reflecting: type(of: $0)) } ?? "nil")"
+                )
+            }
             let beforeEditor = driver.before.currentEditor()
             let afterEditor = driver.after.currentEditor()
             let beforeOwnsFocus = beforeEditor != nil && beforeEditor === window.firstResponder
