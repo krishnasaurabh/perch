@@ -117,7 +117,8 @@ private struct PerchSegmentGroupTarget<Value: Hashable>: NSViewRepresentable {
         view.setAccessibilityValue(AppL10n.text(items.first(where: { $0.value == selection })?.label ?? ""))
         view.setAccessibilityChildren(items.compactMap { view.segments[AnyHashable($0.value)] })
         focus.update(items: items.map(\.value), selection: selection, enabled: enabled, rightToLeft: rightToLeft) {
-            selection = $0
+            [binding = $selection] value in
+            binding.wrappedValue = value
         }
     }
 
