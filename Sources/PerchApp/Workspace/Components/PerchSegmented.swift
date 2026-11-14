@@ -255,7 +255,7 @@ private struct PerchSegmentKeyTarget<Value: Hashable>: NSViewRepresentable {
         active && selectionEnabled() && selected() && !isHiddenOrHasHiddenAncestor
             && window?.isKeyWindow == true && ownsKeyboardFocus
     }
-    @objc func accessibilityFocusedUIElement() -> Any? {
+    override var accessibilityFocusedUIElement: Any? {
         isAccessibilityFocused() ? self : nil
     }
 
