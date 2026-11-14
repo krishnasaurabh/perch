@@ -10,6 +10,7 @@ struct TaskDiskRecord: Codable {
     var createdAt: Date
     var updatedAt: Date
     var unloggedFocusedSeconds: Double
+    var startAt: Date?
     var remindAt: Date?
     var deadline: DayKey?
     var priority: TaskPriority
@@ -20,6 +21,8 @@ struct TaskDiskRecord: Codable {
     var steps: [Subtask]
     var focusedSeconds: Double
     var carriedFrom: DayKey?
+    var carriedTaskID: UUID?
+    var parkedFrom: UUID?
     var reminderLink: String?
     var repeatedFrom: UUID?
     var repeatAnchor: DayKey?
@@ -34,6 +37,7 @@ struct TaskDiskRecord: Codable {
         createdAt = task.createdAt
         updatedAt = task.updatedAt
         unloggedFocusedSeconds = task.unloggedFocusedSeconds
+        startAt = task.startAt
         remindAt = task.remindAt
         deadline = task.deadline
         priority = task.priority
@@ -44,6 +48,8 @@ struct TaskDiskRecord: Codable {
         steps = task.steps
         focusedSeconds = task.focusedSeconds
         carriedFrom = task.carriedFrom
+        carriedTaskID = task.carriedTaskID
+        parkedFrom = task.parkedFrom
         reminderLink = task.reminderLink
         repeatedFrom = task.repeatedFrom
         repeatAnchor = task.repeatAnchor
@@ -57,7 +63,8 @@ struct TaskDiskRecord: Codable {
             projectID: projectID, notes: notes, repeatRule: repeatRule, minutes: minutes, steps: steps,
             focusedSeconds: focusedSeconds, carriedFrom: carriedFrom, reminderLink: reminderLink,
             repeatedFrom: repeatedFrom, carryCount: carryCount, agentID: agentID, repeatAnchor: repeatAnchor,
-            updatedAt: updatedAt, unloggedFocusedSeconds: unloggedFocusedSeconds)
+            updatedAt: updatedAt, unloggedFocusedSeconds: unloggedFocusedSeconds, startAt: startAt,
+            carriedTaskID: carriedTaskID, parkedFrom: parkedFrom)
         // The initializer chooses an anchor for new tasks; decoding must preserve an absent legacy anchor.
         value.repeatAnchor = repeatAnchor
         return value
@@ -81,7 +88,8 @@ struct PlannerDiskDocument: Codable {
         self.planner = planner; sourceVersion = Self.currentVersion
     }
     enum Keys: String, CodingKey {
-        case version, tasks, taskOrder, projects, notes, focusSegments, focusHistory, focusRecentIndices, focusLog,
+        case version, tasks, taskOrder, projects, notes, parkedThoughts, notepadMigrationComplete, focusSegments,
+            focusHistory, focusRecentIndices, focusLog,
             focus
         case dismissedOverdue, repeatOccurrences, completedCalendarEventIDs, completedCalendarEventDays, preferences
     }
@@ -117,6 +125,10 @@ struct PlannerDiskDocument: Codable {
             planner.tasks = try c.decode([TaskDiskRecord].self, forKey: .tasks).map(\.task)
             planner.projects = try c.decode([TaskProject].self, forKey: .projects)
             planner.notes = try c.decode([QuickNote].self, forKey: .notes)
+            planner.parkedThoughts = try c.decodeMissing([ParkedThought].self, forKey: .parkedThoughts, default: [])
+            planner.notepadMigrationComplete = try c.decodeMissing(
+                Bool.self, forKey: .notepadMigrationComplete, default: false)
+            planner.migrateNotepad()
             let archive = try c.decode([PackedFocusHistory].self, forKey: .focusHistory)
             let recent = try c.decode([FocusSegment].self, forKey: .focusSegments)
             let indices = try c.decode([Int].self, forKey: .focusRecentIndices)
@@ -128,6 +140,10 @@ struct PlannerDiskDocument: Codable {
             planner.completedCalendarEventDays = try c.decode(
                 [String: DayKey].self, forKey: .completedCalendarEventDays)
             planner.preferences = try c.decode(Preferences.self, forKey: .preferences)
+        }
+        guard Set(planner.parkedThoughts.map(\.id)).count == planner.parkedThoughts.count else {
+            throw DecodingError.dataCorruptedError(
+                forKey: .parkedThoughts, in: c, debugDescription: "Duplicate thought identity.")
         }
         let order = try c.decodeMissing([UUID].self, forKey: .taskOrder, default: planner.tasks.map(\.id))
         guard Set(order).count == order.count, Set(planner.tasks.map(\.id)).count == planner.tasks.count else {
@@ -147,6 +163,8 @@ struct PlannerDiskDocument: Codable {
         try c.encode(planner.tasks.map(\.id), forKey: .taskOrder)
         try c.encode(planner.projects, forKey: .projects)
         try c.encode(planner.notes, forKey: .notes)
+        try c.encode(planner.parkedThoughts, forKey: .parkedThoughts)
+        try c.encode(planner.notepadMigrationComplete, forKey: .notepadMigrationComplete)
         let history = FocusHistoryStorage(planner.focusSegments, current: planner.focus)
         try c.encode(history.recent, forKey: .focusSegments)
         try c.encode(history.recentIndices, forKey: .focusRecentIndices)

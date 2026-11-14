@@ -50,6 +50,7 @@ public enum DayRef: Equatable, Sendable {
 public struct TaskEdit: Sendable {
     public var title: String?
     /// "none" clears.
+    public var start: String?
     public var remindAt: String?
     public var deadline: String?
     public var priority: String?
@@ -61,7 +62,8 @@ public struct TaskEdit: Sendable {
     public var doneSteps: [String]?
     public init() {}
     public var isEmpty: Bool {
-        title == nil && remindAt == nil && deadline == nil && priority == nil && project == nil && notes == nil
+        title == nil && start == nil && remindAt == nil && deadline == nil && priority == nil && project == nil
+            && notes == nil
             && repeatRule == nil && minutes == nil && steps == nil && doneSteps == nil
     }
 }
@@ -159,6 +161,7 @@ public struct PlannerEngine {
                     task.day = nil
                 }
                 if let d = task.day, d < today { throw PlannerError("Choose today or a later date for new tasks.") }
+                task.startAt = task.day == nil ? nil : c.startAt
                 task.remindAt = task.day == nil ? nil : c.remindAt
                 task.deadline = c.deadline
                 task.priority = c.priority
@@ -269,7 +272,7 @@ public struct PlannerEngine {
                     "Already unscheduled in inbox: %@.", arguments: [t.title],
                     message: "Already unscheduled in inbox: \(t.title).")
             }
-            t.day = nil; t.remindAt = nil; t.repeatRule = nil
+            t.day = nil; t.startAt = nil; t.remindAt = nil; t.repeatRule = nil
         case .day(let d):
             guard d >= today else { throw PlannerError("Choose today or a later date as the destination.") }
             guard t.day != d else {
@@ -280,6 +283,11 @@ public struct PlannerEngine {
             if let r = t.remindAt {
                 let c = calendar.dateComponents([.hour, .minute], from: r)
                 t.remindAt = d.reminderDate(
+                    hour: c.hour!, minute: c.minute!, resetHour: planner.preferences.resetHour, calendar: calendar)
+            }
+            if let start = t.startAt {
+                let c = calendar.dateComponents([.hour, .minute], from: start)
+                t.startAt = d.reminderDate(
                     hour: c.hour!, minute: c.minute!, resetHour: planner.preferences.resetHour, calendar: calendar)
             }
             t.day = d
@@ -348,6 +356,13 @@ public struct PlannerEngine {
                 t.remindAt = at
                 t.day = dayKey(at)
             }
+        }
+        if t.day != planner.tasks[i].day, e.start == nil, let day = t.day {
+            t.startAt = startTime(t.startAt, on: day)
+        }
+        if let start = e.start {
+            t.startAt = start.lowercased() == "none" ? nil : try parseStart(start, on: t.day ?? today)
+            try validateStart(t.startAt, for: t)
         }
         if let d = e.deadline {
             if d.lowercased() == "none" {
@@ -448,7 +463,9 @@ public struct PlannerEngine {
         preserveRepeatAnchor(of: planner.tasks[i].id)
         let at = now().addingTimeInterval(Double(minutes) * 60)
         planner.tasks[i].remindAt = at
-        planner.tasks[i].day = dayKey(at)
+        let day = dayKey(at)
+        if day != planner.tasks[i].day { planner.tasks[i].startAt = startTime(planner.tasks[i].startAt, on: day) }
+        planner.tasks[i].day = day
         return planner.tasks[i]
     }
 
@@ -548,7 +565,13 @@ public struct PlannerEngine {
                 dismissOverdue([id])
                 continue
             }
-            let copy = t.carryInstance(to: day, from: from, at: now())
+            var copy = t.carryInstance(to: day, from: from, at: now())
+            copy.carriedTaskID = t.id
+            if let start = t.startAt {
+                let c = calendar.dateComponents([.hour, .minute], from: start)
+                copy.startAt = day.reminderDate(
+                    hour: c.hour!, minute: c.minute!, resetHour: planner.preferences.resetHour, calendar: calendar)
+            }
             if t.repeatRule != nil {
                 let occurrence = RepeatOccurrence(seriesID: t.repeatSeriesID, day: day)
                 if !planner.repeatOccurrences.contains(occurrence) { planner.repeatOccurrences.append(occurrence) }
@@ -685,6 +708,102 @@ public struct PlannerEngine {
         }
     }
 
+    // MARK: Parking lot
+
+    func startTime(_ time: Date?, on day: DayKey) -> Date? {
+        guard let time else { return nil }
+        let components = calendar.dateComponents([.hour, .minute], from: time)
+        return day.reminderDate(
+            hour: components.hour!, minute: components.minute!,
+            resetHour: planner.preferences.resetHour, calendar: calendar)
+    }
+
+    public func parseStart(_ text: String, on day: DayKey) throws -> Date {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        if let date = formatter.date(from: text) { return date }
+        formatter.formatOptions = [.withInternetDateTime]
+        if let date = formatter.date(from: text) { return date }
+        return try parseReminder(text, on: day)
+    }
+
+    func validateStart(_ start: Date?, for task: PlanTask) throws {
+        guard let start else { return }
+        guard start.timeIntervalSince1970.isFinite, let day = task.day, dayKey(start) == day, !task.done else {
+            throw PlannerError("Choose a start time on this open task's day.")
+        }
+    }
+
+    public func parkedThoughts() -> [ParkedThought] { planner.parkedThoughts }
+
+    @discardableResult
+    public mutating func parkThought(_ text: String) throws -> ParkedThought {
+        let clean = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !clean.isEmpty, clean.count <= 20_000 else {
+            throw PlannerError("Enter a thought using 1 to 20000 characters.")
+        }
+        let thought = ParkedThought(text: clean, createdAt: now())
+        planner.parkedThoughts.append(thought)
+        return thought
+    }
+
+    @discardableResult
+    public mutating func removeThought(_ id: UUID) throws -> ParkedThought {
+        guard let index = planner.parkedThoughts.firstIndex(where: { $0.id == id }) else {
+            throw PlannerError("Thought not found in the parking lot.")
+        }
+        return planner.parkedThoughts.remove(at: index)
+    }
+
+    public mutating func reorderThought(_ id: UUID, before other: UUID?) throws {
+        guard let index = planner.parkedThoughts.firstIndex(where: { $0.id == id }),
+            other == nil || planner.parkedThoughts.contains(where: { $0.id == other })
+        else { throw PlannerError("Thought not found in the parking lot.") }
+        if other == id { return }
+        let thought = planner.parkedThoughts.remove(at: index)
+        let target = other.flatMap { id in planner.parkedThoughts.firstIndex { $0.id == id } }
+        planner.parkedThoughts.insert(thought, at: target ?? planner.parkedThoughts.count)
+    }
+
+    @discardableResult
+    public mutating func promoteThought(_ id: UUID, on day: DayKey? = nil, agentID: String? = nil) throws -> PlanTask {
+        guard let thought = planner.parkedThoughts.first(where: { $0.id == id }) else {
+            throw PlannerError("Thought not found in the parking lot.")
+        }
+        let destination = day ?? today
+        guard destination >= today else { throw PlannerError("Choose today or a later date as the destination.") }
+        // A chosen destination is authoritative; thought text is not capture syntax.
+        let task = PlanTask(title: thought.text, day: destination, createdAt: now(), agentID: agentID, parkedFrom: id)
+        planner.tasks.append(task)
+        planner.parkedThoughts.removeAll { $0.id == id }
+        return task
+    }
+
+    /// The most recent populated day is authoritative, even when all its tasks are done.
+    public func bringOverCandidates() -> [PlanTask] {
+        guard planner.preferences.carryMode != .auto,
+            let day = planner.tasks.compactMap(\.day).filter({ $0 < today }).max()
+        else { return [] }
+        let carriedIDs = Set(planner.tasks.compactMap(\.carriedTaskID))
+        let legacyCarried = Set(
+            planner.tasks.filter { $0.carriedTaskID == nil }.compactMap { task in
+                task.carriedFrom.map { "\($0)|\(task.title)" }
+            })
+        let todaySeries = Set(planner.tasks.filter { $0.day == today }.map(\.repeatSeriesID))
+        return planner.tasks.filter {
+            $0.day == day && !$0.done && !carriedIDs.contains($0.id) && !legacyCarried.contains("\(day)|\($0.title)")
+                && ($0.repeatRule == nil || !todaySeries.contains($0.repeatSeriesID))
+        }
+    }
+
+    @discardableResult
+    public mutating func bringOver() -> [PlanTask] {
+        let ids = bringOverCandidates().map(\.id)
+        // Leave-them dismissals do not prevent an explicit request to bring these tasks over.
+        planner.dismissedOverdue.removeAll { ids.contains($0) }
+        return carryForward(ids, to: today)
+    }
+
     // MARK: Notepad
 
     public func notepad(on day: DayKey) -> String {
@@ -698,14 +817,23 @@ public struct PlannerEngine {
         let current = notepad(on: day)
         let next = mode == "replace" ? text : (current.isEmpty ? text : current + "\n" + text)
         guard next.count <= 20_000 else { throw PlannerError("Enter note text using 20000 characters or fewer.") }
-        if let i = planner.notes.firstIndex(where: { $0.day == day }) {
-            planner.notes[i].text = next
-        } else {
-            planner.notes.append(QuickNote(day: day, text: next))
-        }
+        setNotepad(on: day, text: next)
     }
 
     public mutating func setNotepad(on day: DayKey, text: String) {
+        // Legacy callers keep their exact daily text. Newly written lines also enter the
+        // parking lot; replacing the legacy view never deletes an already parked thought.
+        var previousCounts: [String: Int] = [:]
+        for line in notepad(on: day).components(separatedBy: .newlines) {
+            previousCounts[line, default: 0] += 1
+        }
+        for line in text.components(separatedBy: .newlines) {
+            if previousCounts[line, default: 0] > 0 {
+                previousCounts[line, default: 0] -= 1
+            } else if !line.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                planner.parkedThoughts.append(ParkedThought(text: line, createdAt: day.date(calendar: calendar)))
+            }
+        }
         if let i = planner.notes.firstIndex(where: { $0.day == day }) {
             planner.notes[i].text = text
         } else {

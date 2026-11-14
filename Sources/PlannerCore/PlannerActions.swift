@@ -12,6 +12,7 @@ public struct TaskChanges {
     public var notes: FieldChange<String> = .keep
     public var priority: FieldChange<TaskPriority> = .keep
     public var projectID: FieldChange<UUID?> = .keep
+    public var startAt: FieldChange<Date?> = .keep
     public var remindAt: FieldChange<Date?> = .keep
     public var deadline: FieldChange<DayKey?> = .keep
     public var minutes: FieldChange<Int?> = .keep
@@ -24,12 +25,14 @@ public struct TaskChanges {
         var permitted = before
         permitted.title = draft.title; permitted.notes = draft.notes; permitted.priority = draft.priority
         permitted.projectID = draft.projectID; permitted.remindAt = draft.remindAt
+        permitted.startAt = draft.startAt
         permitted.deadline = draft.deadline; permitted.minutes = draft.minutes; permitted.steps = draft.steps
         guard permitted == draft else { throw PlannerError("Use a task action to change its schedule or completion.") }
         if before.title != draft.title { title = .set(draft.title) }
         if before.notes != draft.notes { notes = .set(draft.notes) }
         if before.priority != draft.priority { priority = .set(draft.priority) }
         if before.projectID != draft.projectID { projectID = .set(draft.projectID) }
+        if before.startAt != draft.startAt { startAt = .set(draft.startAt) }
         if before.remindAt != draft.remindAt { remindAt = .set(draft.remindAt) }
         if before.deadline != draft.deadline { deadline = .set(draft.deadline) }
         if before.minutes != draft.minutes { minutes = .set(draft.minutes) }
@@ -42,6 +45,10 @@ public enum PlannerAction {
     case addTasks([String], day: DayRef?, literal: Bool, agentID: String?)
     case complete(UUID), reopen(UUID), rename(UUID, String), delete(UUID)
     case move(UUID, DayRef), reorder(UUID, before: UUID?)
+    case setStart(UUID, Date?)
+    case parkThought(String), removeThought(UUID), reorderThought(UUID, before: UUID?), emptyParkingLot
+    case promoteThought(UUID, day: DayKey?, agentID: String?)
+    case bringOver
     case update(UUID, TaskEdit), editTask(UUID, TaskChanges)
     case snooze(UUID, minutes: Int), endRepeat(UUID)
     case completeOverdue([UUID]), carryForward([UUID], DayKey), dismissOverdue([UUID])
@@ -72,6 +79,7 @@ public enum PlannerLifecycle {
 
 public struct PlannerActionResult: Sendable {
     public var tasks: [PlanTask] = []
+    public var thoughts: [ParkedThought] = []
     public var focus: FocusSession?
     public var flag = false
     public init() {}
@@ -83,6 +91,21 @@ extension PlannerEngine {
     public mutating func execute(_ action: PlannerAction) throws -> PlannerActionResult {
         var candidate = self
         var result = try candidate.reduce(action)
+        // Generated occurrences share their template's wall time, not its absolute date.
+        if candidate.planner.tasks.count > planner.tasks.count {
+            let knownIDs = Set(planner.tasks.map(\.id))
+            let series = Dictionary(grouping: planner.tasks.filter { $0.repeatRule != nil }, by: \.repeatSeriesID)
+            for index in candidate.planner.tasks.indices {
+                let task = candidate.planner.tasks[index]
+                guard !knownIDs.contains(task.id), task.repeatedFrom != nil, task.startAt == nil,
+                    let day = task.day,
+                    let source = series[task.repeatSeriesID]?.filter({ ($0.day ?? day) <= day }).max(by: {
+                        ($0.day ?? day) < ($1.day ?? day)
+                    })
+                else { continue }
+                candidate.planner.tasks[index].startAt = candidate.startTime(source.startAt, on: day)
+            }
+        }
         candidate.planner.stampTaskChanges(from: planner, at: now())
         let current = Dictionary(candidate.planner.tasks.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         result.tasks = result.tasks.map { current[$0.id] ?? $0 }
@@ -101,6 +124,18 @@ extension PlannerEngine {
         case .delete(let id): result.tasks = [try delete(id, on: .day(today))]
         case let .move(id, day): result.tasks = [try move(id, from: .day(today), to: day)]
         case let .reorder(id, before): try reorder(id, before: before)
+        case let .setStart(id, time):
+            var changes = TaskChanges()
+            changes.startAt = .set(time)
+            result.tasks = [try editTask(id, changes)]
+        case .parkThought(let text): result.thoughts = [try parkThought(text)]
+        case .removeThought(let id): result.thoughts = [try removeThought(id)]
+        case let .reorderThought(id, before): try reorderThought(id, before: before)
+        case .emptyParkingLot:
+            result.thoughts = planner.parkedThoughts
+            planner.parkedThoughts.removeAll()
+        case let .promoteThought(id, day, agentID): result.tasks = [try promoteThought(id, on: day, agentID: agentID)]
+        case .bringOver: result.tasks = bringOver()
         case let .update(id, edit): result.tasks = [try update(id, on: .day(today), edit)]
         case let .editTask(id, changes): result.tasks = [try editTask(id, changes)]
         case let .snooze(id, minutes):
@@ -211,6 +246,7 @@ extension PlannerEngine {
         var next = old
         changes.title.apply(to: &next.title); changes.notes.apply(to: &next.notes)
         changes.priority.apply(to: &next.priority); changes.projectID.apply(to: &next.projectID)
+        changes.startAt.apply(to: &next.startAt)
         changes.remindAt.apply(to: &next.remindAt); changes.deadline.apply(to: &next.deadline)
         changes.minutes.apply(to: &next.minutes); changes.steps.apply(to: &next.steps)
         next.title = next.title.replacingOccurrences(of: "\n", with: " ").trimmingCharacters(
@@ -235,6 +271,10 @@ extension PlannerEngine {
             next.repeatAnchor = planner.tasks[i].repeatAnchor
             next.day = dayKey(at)
         }
+        if next.day != old.day, case .keep = changes.startAt, let day = next.day {
+            next.startAt = startTime(old.startAt, on: day)
+        }
+        if next.startAt != old.startAt { try validateStart(next.startAt, for: next) }
         guard Set(next.steps.map(\.id)).count == next.steps.count,
             next.steps.allSatisfy({ !$0.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty })
         else {

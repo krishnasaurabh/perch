@@ -4,6 +4,7 @@ import Foundation
 /// Runtime, service links and caller identity are never restored; focus credit comes from the current ledger.
 public struct PlannerEdit {
     private var changes: [(inout Planner) -> Void] = []
+    private var transitionGuard: ((Planner) -> Bool)?
     public var isEmpty: Bool { changes.isEmpty }
 
     public init(before: Planner, after: Planner) {
@@ -11,12 +12,48 @@ public struct PlannerEdit {
     }
 
     fileprivate init(before: Planner, after: Planner, reversingRestoration: Bool) {
+        let addedTasks = after.tasks.filter { task in !before.tasks.contains { $0.id == task.id } }
+        let removedTasks = before.tasks.filter { task in !after.tasks.contains { $0.id == task.id } }
+        let addedThoughts = after.parkedThoughts.filter { thought in
+            !before.parkedThoughts.contains { $0.id == thought.id }
+        }
+        let removedThoughts = before.parkedThoughts.filter { thought in
+            !after.parkedThoughts.contains { $0.id == thought.id }
+        }
+        // Promotion and its inverse are one transaction. Never restore the thought while
+        // a later edit or focus session requires retaining its promoted task.
+        if !addedTasks.isEmpty, addedThoughts.isEmpty, removedTasks.isEmpty,
+            addedTasks.count == removedThoughts.count,
+            Set(addedTasks.compactMap(\.parkedFrom)) == Set(removedThoughts.map(\.id))
+        {
+            transitionGuard = { planner in
+                removedThoughts.allSatisfy { thought in !planner.parkedThoughts.contains { $0.id == thought.id } }
+                    && addedTasks.allSatisfy { task in
+                        guard let current = planner.tasks.first(where: { $0.id == task.id }) else { return false }
+                        return Self.content(of: current) == Self.content(of: task)
+                            && current.focusedSeconds == task.focusedSeconds && planner.focus?.taskID != task.id
+                            && planner.focusSegments.filter { $0.taskID == task.id }
+                                == after.focusSegments.filter { $0.taskID == task.id }
+                    }
+            }
+        } else if !removedTasks.isEmpty, removedThoughts.isEmpty, addedTasks.isEmpty,
+            removedTasks.count == addedThoughts.count,
+            Set(removedTasks.compactMap(\.parkedFrom)) == Set(addedThoughts.map(\.id))
+        {
+            transitionGuard = { planner in
+                removedTasks.allSatisfy { task in !planner.tasks.contains { $0.id == task.id } }
+                    && addedThoughts.allSatisfy { thought in
+                        planner.parkedThoughts.first { $0.id == thought.id } == thought
+                    }
+            }
+        }
         for old in before.tasks {
             if let new = after.tasks.first(where: { $0.id == old.id }) {
                 taskField(\.title, id: old.id, before: old, after: new)
                 taskField(\.day, id: old.id, before: old, after: new)
                 taskField(\.done, id: old.id, before: old, after: new)
                 taskField(\.completedAt, id: old.id, before: old, after: new)
+                taskField(\.startAt, id: old.id, before: old, after: new)
                 taskField(\.remindAt, id: old.id, before: old, after: new)
                 taskField(\.deadline, id: old.id, before: old, after: new)
                 taskField(\.priority, id: old.id, before: old, after: new)
@@ -29,6 +66,7 @@ public struct PlannerEdit {
                 }
                 taskField(\.steps, id: old.id, before: old, after: new)
                 taskField(\.carriedFrom, id: old.id, before: old, after: new)
+                taskField(\.carriedTaskID, id: old.id, before: old, after: new)
                 taskField(\.repeatedFrom, id: old.id, before: old, after: new)
                 taskField(\.repeatAnchor, id: old.id, before: old, after: new)
                 taskField(\.carryCount, id: old.id, before: old, after: new)
@@ -74,6 +112,35 @@ public struct PlannerEdit {
                 guard slots.map({ planner.tasks[$0].id }) == newOrder else { return }
                 let tasks = Dictionary(uniqueKeysWithValues: slots.map { (planner.tasks[$0].id, planner.tasks[$0]) })
                 for (slot, id) in zip(slots, oldOrder) { planner.tasks[slot] = tasks[id]! }
+            }
+        }
+        for thought in before.parkedThoughts {
+            let new = after.parkedThoughts.first { $0.id == thought.id }
+            let index = before.parkedThoughts.firstIndex { $0.id == thought.id }!
+            guard new != thought else { continue }
+            changes.append { planner in
+                guard planner.parkedThoughts.first(where: { $0.id == thought.id }) == new else { return }
+                planner.parkedThoughts.removeAll { $0.id == thought.id }
+                planner.parkedThoughts.insert(thought, at: min(index, planner.parkedThoughts.count))
+            }
+        }
+        for thought in after.parkedThoughts where !before.parkedThoughts.contains(where: { $0.id == thought.id }) {
+            changes.append { planner in
+                planner.parkedThoughts.removeAll { $0 == thought }
+            }
+        }
+        let sharedThoughts = Set(before.parkedThoughts.map(\.id)).intersection(after.parkedThoughts.map(\.id))
+        let oldThoughtOrder = before.parkedThoughts.map(\.id).filter { sharedThoughts.contains($0) }
+        let newThoughtOrder = after.parkedThoughts.map(\.id).filter { sharedThoughts.contains($0) }
+        if oldThoughtOrder != newThoughtOrder {
+            changes.append { planner in
+                let slots = planner.parkedThoughts.indices.filter {
+                    sharedThoughts.contains(planner.parkedThoughts[$0].id)
+                }
+                guard slots.map({ planner.parkedThoughts[$0].id }) == newThoughtOrder else { return }
+                let thoughts = Dictionary(
+                    uniqueKeysWithValues: slots.map { (planner.parkedThoughts[$0].id, planner.parkedThoughts[$0]) })
+                for (slot, id) in zip(slots, oldThoughtOrder) { planner.parkedThoughts[slot] = thoughts[id]! }
             }
         }
         for day in Set(before.notes.map(\.day) + after.notes.map(\.day)) {
@@ -140,6 +207,7 @@ public struct PlannerEdit {
     }
 
     public func restore(in planner: inout Planner) {
+        guard transitionGuard?(planner) != false else { return }
         for change in changes { change(&planner) }
     }
 

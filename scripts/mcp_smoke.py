@@ -16,7 +16,7 @@ from mcp.client.stdio import stdio_client
 
 # Public names and parameter keys are the interop contract, not prose responses.
 PARAMETERS = {
-    "add_tasks": {"titles", "date", "literal"},
+    "add_tasks": {"titles", "date", "literal", "start"},
     "list_tasks": {"date"},
     "list_inbox": set(),
     "list_overdue": set(),
@@ -27,7 +27,7 @@ PARAMETERS = {
     "rename_task": {"task", "title", "date"},
     "delete_task": {"task", "date"},
     "move_task": {"task", "to", "from"},
-    "update_task": {"task", "date", "title", "remind_at", "deadline", "priority", "project",
+    "update_task": {"task", "date", "title", "start", "remind_at", "deadline", "priority", "project",
                     "notes", "repeat", "minutes", "steps", "done_steps"},
     "snooze_reminder": {"task", "minutes"},
     "start_timer": {"task", "minutes"},
@@ -38,8 +38,11 @@ PARAMETERS = {
     "write_notepad": {"text", "mode", "date"},
     "get_insights": set(),
     "list_projects": set(),
+    "list_parked_thoughts": set(),
+    "add_parked_thought": {"text"},
+    "promote_parked_thought": {"thought", "date"},
 }
-READ_ONLY = {"list_inbox", "list_overdue", "get_task", "read_notepad", "get_insights", "list_projects"}
+READ_ONLY = {"list_inbox", "list_overdue", "get_task", "read_notepad", "get_insights", "list_projects", "list_parked_thoughts"}
 OVERDUE_ID = "00000000-0000-4000-8000-00000000ca11"
 
 
@@ -151,6 +154,24 @@ async def main(binary):
         await call("read_notepad", contains="Smoke note")
         await call("get_insights")
         await call("list_projects", contains="#Smoke")
+        _, parked = await call("add_parked_thought", {"text": "Consider a quieter workspace"})
+        assert parked is not None
+        thought_id = parked["thought"]["id"]
+        _, lot = await call("list_parked_thoughts")
+        assert lot is not None
+        assert thought_id in {thought["id"] for thought in lot["thoughts"]}
+        _, promoted = await call("promote_parked_thought", {"thought": thought_id})
+        assert promoted is not None
+        assert promoted["task"]["title"] == "Consider a quieter workspace"
+        assert promoted["task"]["start"] is None
+        _, updated = await call("update_task", {"task": promoted["task"]["id"], "start": "12:30 pm"})
+        assert updated is not None
+        assert updated["task"]["start"] is not None
+        await call("update_task", {"task": promoted["task"]["id"], "start": "none"})
+        _, started = await call("add_tasks", {"titles": ["Plan a short walk"], "literal": True, "start": "1:30 pm"})
+        assert started is not None
+        assert started["tasks"][0]["start"] is not None
+        assert started["tasks"][0]["remind_at"] is None
         await call("move_task", {"task": task_id, "to": "inbox"})
         await call("list_inbox", contains=renamed)
         await call("get_task", {"task": renamed, "date": "inbox"}, contains="Day: Inbox")
