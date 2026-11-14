@@ -104,5 +104,26 @@ class ControlPixelTests(unittest.TestCase):
                 theme_contrast.control_pixels(directory)
 
 
+class DesignContrastTests(unittest.TestCase):
+    def test_wcag_reference_values(self):
+        self.assertEqual(theme_contrast.contrast((0, 0, 0), (1, 1, 1)), 21)
+        self.assertEqual(theme_contrast.contrast((1, 1, 1), (1, 1, 1)), 1)
+
+    def test_nearest_corrections_and_dark_focus(self):
+        self.assertEqual(theme_contrast.nearest_passing_rgb(0xA9391F, 0xFFC89A, 4.5), 0xA4351E)
+        self.assertEqual(theme_contrast.nearest_passing_rgb(0x2456C8, 0x0E0D0C, 3), 0x2456C9)
+        # Keep a white tick neutral. #646464 is the nearest neutral passing value.
+        ratio = lambda v: theme_contrast.contrast(theme_contrast.channels(v), theme_contrast.channels(0x6FCB98))
+        self.assertGreaterEqual(ratio(0x646464), 3)
+        self.assertLess(ratio(0x656565), 3)
+        rows = theme_contrast.design_rows()
+        focus = [r for r in rows if r['appearance'] == 'dark' and r['name'].startswith('focusRing/')]
+        self.assertEqual(len(focus), 8)
+        self.assertTrue(all(r['ratio'] >= 3 for r in focus))
+        corrected = [r for r in rows if r['foreground'] != r['authored_foreground']]
+        self.assertEqual(len(corrected), 3)
+        self.assertTrue(all(r['authored_ratio'] < r['minimum'] <= r['ratio'] for r in corrected))
+
+
 if __name__ == '__main__':
     unittest.main()
