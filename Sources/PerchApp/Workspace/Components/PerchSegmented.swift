@@ -43,12 +43,8 @@ struct PerchSegmented<Value: Hashable>: View {
                             focused: focus.focused == item.value && enabled, surface: surface)
                     )
                     .perchControlFeedback(pressed: focus.pressed == item.value)
-                    .accessibilityHidden(true)
-                    .overlay {
-                        PerchSegmentKeyTarget(
-                            value: item.value, label: AppL10n.text(item.label), items: items.map(\.value),
-                            selection: $selection, enabled: enabled, rightToLeft: direction == .rightToLeft,
-                            focus: focus)
+                    .anchorPreference(key: PerchSegmentBounds<Value>.self, value: .bounds) {
+                        [item.value: $0]
                     }
             }
         }
@@ -59,9 +55,15 @@ struct PerchSegmented<Value: Hashable>: View {
                 .fill(Theme.field)
         }
         .designMotion(.pop, value: selection)
-        .accessibilityElement(children: .contain)
-        .accessibilityLabel(AppL10n.text(title))
-        .accessibilityValue(AppL10n.text(items.first(where: { $0.value == selection })?.label ?? ""))
+        .accessibilityHidden(true)
+        .overlayPreferenceValue(PerchSegmentBounds<Value>.self) { anchors in
+            GeometryReader { geometry in
+                PerchSegmentGroupTarget(
+                    title: AppL10n.text(title), items: items,
+                    frames: anchors.mapValues { geometry[$0] }, selection: $selection,
+                    enabled: enabled, rightToLeft: direction == .rightToLeft, focus: focus)
+            }
+        }
         .onReceive(NotificationCenter.default.publisher(for: NSWindow.didResignKeyNotification)) { notification in
             guard let window = notification.object as? NSWindow else { return }
             focus.resign(in: window)
@@ -70,33 +72,71 @@ struct PerchSegmented<Value: Hashable>: View {
     }
 }
 
-/// Paint stays in SwiftUI; the transparent AppKit overlay owns both keys and its AXButton.
-private struct PerchSegmentKeyTarget<Value: Hashable>: NSViewRepresentable {
-    let value: Value
-    let label: String
-    let items: [Value]
+/// Geometry comes from the token-based paint, without making native focus a SwiftUI focus target.
+private struct PerchSegmentBounds<Value: Hashable>: PreferenceKey {
+    static var defaultValue: [Value: Anchor<CGRect>] { [:] }
+    static func reduce(value: inout [Value: Anchor<CGRect>], nextValue: () -> [Value: Anchor<CGRect>]) {
+        value.merge(nextValue(), uniquingKeysWith: { _, new in new })
+    }
+}
+
+/// A single native accessibility group owns its children, avoiding semantic mirrors of each button.
+private struct PerchSegmentGroupTarget<Value: Hashable>: NSViewRepresentable {
+    let title: String
+    let items: [(value: Value, label: String)]
+    let frames: [Value: CGRect]
     @Binding var selection: Value
     let enabled: Bool
     let rightToLeft: Bool
     let focus: PerchSegmentFocus<Value>
 
-    func makeNSView(context: Context) -> PerchSegmentKeyView {
-        let view = PerchSegmentKeyView()
-        focus.register(view, value: value)
-        return view
-    }
+    func makeNSView(context: Context) -> PerchSegmentGroupView { PerchSegmentGroupView() }
 
-    func updateNSView(_ view: PerchSegmentKeyView, context: Context) {
-        view.setAccessibilityLabel(label)
-        focus.update(items: items, selection: selection, enabled: enabled, rightToLeft: rightToLeft) {
+    func updateNSView(_ view: PerchSegmentGroupView, context: Context) {
+        let values = Set(items.map { AnyHashable($0.value) })
+        for (value, segment) in view.segments where !values.contains(value) {
+            segment.releaseFocus()
+            segment.removeFromSuperview()
+            view.segments.removeValue(forKey: value)
+        }
+        for item in items {
+            let key = AnyHashable(item.value)
+            let segment: PerchSegmentKeyView
+            if let existing = view.segments[key] {
+                segment = existing
+            } else {
+                segment = PerchSegmentKeyView()
+                view.segments[key] = segment
+                focus.register(segment, value: item.value)
+                view.addSubview(segment)
+            }
+            segment.frame = frames[item.value] ?? .zero
+            segment.setAccessibilityLabel(AppL10n.text(item.label))
+        }
+        view.setAccessibilityLabel(title)
+        view.setAccessibilityValue(AppL10n.text(items.first(where: { $0.value == selection })?.label ?? ""))
+        view.setAccessibilityChildren(items.compactMap { view.segments[AnyHashable($0.value)] })
+        focus.update(items: items.map(\.value), selection: selection, enabled: enabled, rightToLeft: rightToLeft) {
             selection = $0
         }
     }
 
-    static func dismantleNSView(_ view: PerchSegmentKeyView, coordinator: ()) {
-        if view.window?.firstResponder === view { view.window?.makeFirstResponder(nil) }
-        view.focusChanged(false)
-        view.active = false
+    static func dismantleNSView(_ view: PerchSegmentGroupView, coordinator: ()) {
+        for segment in view.segments.values { segment.releaseFocus() }
+    }
+}
+
+@MainActor private final class PerchSegmentGroupView: NSView {
+    var segments: [AnyHashable: PerchSegmentKeyView] = [:]
+    override var isFlipped: Bool { true }
+    override init(frame: NSRect) {
+        super.init(frame: frame)
+        setAccessibilityElement(true)
+        setAccessibilityRole(.group)
+    }
+    required init?(coder: NSCoder) { nil }
+    override var accessibilityFocusedUIElement: Any? {
+        segments.values.first { $0.isAccessibilityFocused() }
     }
 }
 
@@ -206,6 +246,12 @@ private struct PerchSegmentKeyTarget<Value: Hashable>: NSViewRepresentable {
     }
 
     required init?(coder: NSCoder) { nil }
+
+    func releaseFocus() {
+        if window?.firstResponder === self { window?.makeFirstResponder(nil) }
+        focusChanged(false)
+        active = false
+    }
 
     override var acceptsFirstResponder: Bool { active && selectionEnabled() && selected() }
     var ownsKeyboardFocus: Bool { window?.firstResponder === self }

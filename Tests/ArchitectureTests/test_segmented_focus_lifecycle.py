@@ -21,7 +21,7 @@ class SegmentedFocusLifecycleTests(unittest.TestCase):
         for token in ("NSWindow.didResignKeyNotification", "focus.resign(in: window)",
                       ".onDisappear { focus.resign() }", "if !enabled", "resign()",
                       "view.window === window", "view.window?.makeFirstResponder(nil)",
-                      "dismantleNSView", "view.active = false", "view.focusChanged(false)"):
+                      "dismantleNSView", "active = false", "focusChanged(false)"):
             self.assertIn(token, source)
         self.assertNotIn("restorationID", source)
 

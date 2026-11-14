@@ -77,7 +77,7 @@ class FoundationControlTests(unittest.TestCase):
 
     def test_segment_group_has_value_selected_trait_and_roving_keyboard(self):
         source = (COMPONENTS / 'PerchSegmented.swift').read_text()
-        for token in ('.accessibilityValue(', 'isAccessibilitySelected()', 'case 123:', 'case 124:',
+        for token in ('setAccessibilityValue(', 'isAccessibilitySelected()', 'case 123:', 'case 124:',
                       'case 115:', 'case 119:', 'matchedGeometryEffect', '.designMotion(.pop',
                       '.layoutDirection', 'acceptsFirstResponder: Bool { active && selectionEnabled() && selected() }'):
             self.assertIn(token, source)

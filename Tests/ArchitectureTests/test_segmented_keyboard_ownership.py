@@ -32,6 +32,11 @@ class SegmentedKeyboardOwnershipTests(unittest.TestCase):
         self.assertNotIn("press()", setter)
         self.assertIn("window?.makeFirstResponder(self)", setter)
         self.assertIn("ForEach(items, id: \.value)", component)
+        self.assertIn("PerchSegmentGroupView: NSView", component)
+        self.assertIn("setAccessibilityRole(.group)", component)
+        self.assertIn("view.setAccessibilityChildren(items.compactMap", component)
+        self.assertIn("segment.frame = frames[item.value]", component)
+        self.assertIn(".anchorPreference(key: PerchSegmentBounds<Value>.self", component)
         self.assertIn("driver.minutes == minutes", assertion)
         self.assertLess(assertion.index("traceFocus("), assertion.index("try require("))
 
