@@ -2781,6 +2781,23 @@
         }
       }
     },
+    "Could not allocate snapshot.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Could not allocate snapshot."
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Cöüld nöt àllöcàtë snàpshöt. ·~⟧"
+          }
+        }
+      }
+    },
     "Could not confirm the reminder's absence. Retry sync.": {
       "extractionState": "manual",
       "localizations": {
@@ -2811,6 +2828,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "⟦Cöüld nöt dëlëtë thïs tàsk. ·~⟧"
+          }
+        }
+      }
+    },
+    "Could not encode snapshot.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Could not encode snapshot."
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Cöüld nöt ëncödë snàpshöt. ·~⟧"
           }
         }
       }
@@ -4566,6 +4600,23 @@
         }
       }
     },
+    "Invalid snapshot batch.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Invalid snapshot batch."
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Învàlïd snàpshöt bàtch. ·~⟧"
+          }
+        }
+      }
+    },
     "Jot a note": {
       "extractionState": "manual",
       "localizations": {
@@ -5293,6 +5344,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "⟦Nö tàsk föünd för \"%@\" %@. Chëck lïst_tàsks för àn ïd. ·~⟧"
+          }
+        }
+      }
+    },
+    "No visible surface for %@.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No visible surface for %@."
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Nö vïsïblë sürfàcë för %@. ·~⟧"
           }
         }
       }
@@ -6500,6 +6568,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "⟦Prëvïëw ïnïtïàlïzàtïön nëëds àn ëmpty plànnër. ·~⟧"
+          }
+        }
+      }
+    },
+    "Preview reload did not match the fixture.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Preview reload did not match the fixture."
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Prëvïëw rëlöàd dïd nöt màtch thë fïxtürë. ·~⟧"
           }
         }
       }
@@ -8003,6 +8088,74 @@
           "stringUnit": {
             "state": "translated",
             "value": "⟦Skïp àny përmïssïön. Yöü càn rëvïëw ït làtër ïn Sëttïngs. ·~⟧"
+          }
+        }
+      }
+    },
+    "Snapshot appearance did not apply.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Snapshot appearance did not apply."
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Snàpshöt àppëàràncë dïd nöt àpply. ·~⟧"
+          }
+        }
+      }
+    },
+    "Snapshot bounds are outside the visible surface.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Snapshot bounds are outside the visible surface."
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Snàpshöt böünds àrë öütsïdë thë vïsïblë sürfàcë. ·~⟧"
+          }
+        }
+      }
+    },
+    "Snapshot capture field did not become ready.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Snapshot capture field did not become ready."
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Snàpshöt càptürë fïëld dïd nöt bëcömë rëàdy. ·~⟧"
+          }
+        }
+      }
+    },
+    "Snapshot capture text did not apply.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Snapshot capture text did not apply."
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Snàpshöt càptürë tëxt dïd nöt àpply. ·~⟧"
           }
         }
       }
@@ -9656,6 +9809,57 @@
         }
       }
     },
+    "Unknown open target: %@": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unknown open target: %@"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Ünknöwn öpën tàrgët: %@ ·~⟧"
+          }
+        }
+      }
+    },
+    "Unknown preview scenario: %@": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unknown preview scenario: %@"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Ünknöwn prëvïëw scënàrïö: %@ ·~⟧"
+          }
+        }
+      }
+    },
+    "Unknown target or invalid shot: %@": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unknown target or invalid shot: %@"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Ünknöwn tàrgët ör ïnvàlïd shöt: %@ ·~⟧"
+          }
+        }
+      }
+    },
     "Unpin": {
       "extractionState": "manual",
       "localizations": {
@@ -9703,6 +9907,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "⟦Ünschëdülëd ·~⟧"
+          }
+        }
+      }
+    },
+    "Unsupported snapshot option.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unsupported snapshot option."
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Ünsüppörtëd snàpshöt öptïön. ·~⟧"
           }
         }
       }

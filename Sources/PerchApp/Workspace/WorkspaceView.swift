@@ -52,7 +52,7 @@ struct WorkspaceView: View {
         HStack(spacing: 10) {
             HStack(spacing: 7) {
                 OwlMark(size: 18)
-                Text(Date.now, format: .dateTime.weekday(.wide).month(.abbreviated).day())
+                Text(store.engine.now(), format: .dateTime.weekday(.wide).month(.abbreviated).day())
                     .font(Theme.label).foregroundStyle(Theme.text)
                     .lineLimit(1)
                     .accessibilityIdentifier("workspace-date")
