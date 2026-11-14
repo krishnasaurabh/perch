@@ -1,4 +1,5 @@
 import AppKit
+import PerchUI
 import PlannerCore
 import SwiftUI
 import XCTest
@@ -25,6 +26,15 @@ private final class WelcomeFilePreferences: PlannerPreferencesAdapter, Sendable 
 }
 
 final class WelcomeScreenshotConsentTests: XCTestCase {
+    func testWelcomeHeadlineUsesSharedDynamicTypeScale() {
+        let title = DesignTokens.TypeRole.currentTask.spec
+        let normal = title.scaledSize(for: DynamicTypeSize.large.tokenScale)
+        let enlarged = title.scaledSize(for: DynamicTypeSize.accessibility3.tokenScale)
+        XCTAssertEqual(normal, title.scaledSize(for: .large))
+        XCTAssertEqual(enlarged, title.scaledSize(for: .accessibility3))
+        XCTAssertGreaterThan(enlarged, normal)
+    }
+
     @MainActor func testStartCompletesWelcomeAndOpensTodayWithoutEnablingCapture() async throws {
         let root = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }

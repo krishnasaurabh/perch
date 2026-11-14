@@ -32,6 +32,16 @@ class WelcomeAccessTests(unittest.TestCase):
         self.assertIn('keyboardShortcut(.cancelAction)', content)
         self.assertIn('PerchSwitch(title: title, isOn: value)', content)
 
+    def test_welcome_can_use_the_shared_dynamic_type_scale(self):
+        palette = (APP / "Workspace/Color+Palette.swift").read_text()
+        scale = body("Workspace/Color+Palette.swift", "extension DynamicTypeSize")
+        self.assertIn("var tokenScale: DesignTokens.TextScale", scale)
+        self.assertNotIn("fileprivate var tokenScale", scale)
+        self.assertNotIn("private var tokenScale", scale)
+        self.assertEqual(palette.count("var tokenScale:"), 1)
+        welcome = (APP / "Settings/WelcomeView.swift").read_text()
+        self.assertIn("scaledSize(for: textSize.tokenScale)", welcome)
+
     def test_service_construction_does_not_request_permissions(self):
         for path in ("Services", "CalendarService", "ReminderService", "RemindersSync", "VoiceCapture"):
             self.assert_no_request(body(f"Services/{path}.swift", "init("))
