@@ -178,6 +178,58 @@ final class PendingAgentActionsTests: XCTestCase {
         }
     }
 
+    func testUndoAgentStopDoesNotRestartCompletedOrRescheduledTask() throws {
+        for edit in ["complete", "tomorrow", "inbox"] {
+            let (directory, file, pipeline) = fixture()
+            defer { try? FileManager.default.removeItem(at: directory) }
+            let id = try addAgentTask(pipeline)
+            let change = try stopTaskForAgent(id, pipeline: pipeline, file: file)
+            try pipeline.perform(origin: .user) { commands in
+                switch edit {
+                case "complete": _ = try commands.complete(id)
+                case "tomorrow":
+                    _ = try commands.move(
+                        id, from: .day(commands.today),
+                        to: .day(commands.today.adding(days: 1, calendar: Fixture.calendar)))
+                default: _ = try commands.move(id, from: .day(commands.today), to: .inbox)
+                }
+            }
+            let beforeUndo = try file.load()
+            XCTAssertNil(beforeUndo.focus)
+            try pipeline.undoAgentChange(change.id)
+            let afterUndo = try file.load()
+            XCTAssertNil(afterUndo.focus, edit)
+            XCTAssertEqual(afterUndo.tasks, beforeUndo.tasks, edit)
+            XCTAssertEqual(afterUndo.focusSegments, beforeUndo.focusSegments, edit)
+            XCTAssertEqual(afterUndo.agentActions.changes.last?.undoneAt, Fixture.now)
+            XCTAssertEqual(afterUndo.agentActions.events.last?.kind, .undone)
+        }
+    }
+
+    func testUndoAgentStopRestartsEligibleTaskWithoutReplacingLaterTitle() throws {
+        let (directory, file, pipeline) = fixture()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let id = try addAgentTask(pipeline)
+        let change = try stopTaskForAgent(id, pipeline: pipeline, file: file)
+        try pipeline.perform(origin: .user) { try $0.rename(id, on: .day($0.today), to: "Revised title") }
+        try pipeline.undoAgentChange(change.id)
+        XCTAssertEqual(try file.load().focus?.taskID, id)
+        XCTAssertEqual(try file.load().focus?.state, .running)
+        XCTAssertEqual(try file.load().tasks.first?.title, "Revised title")
+    }
+
+    private func stopTaskForAgent(_ id: UUID, pipeline: PlannerCommandPipeline, file: PlannerFile) throws -> AgentChange
+    {
+        try pipeline.perform(origin: .user) { _ = try $0.startTimer(task: id, minutes: 25) }
+        try pipeline.perform(origin: .background) { commands in
+            let before = commands.planner
+            try commands.stopTimer()
+            try commands.recordAgentChange(
+                from: before, agentID: "test-agent", operation: "stop_timer", at: Fixture.now)
+        }
+        return try XCTUnwrap(file.load().agentActions.changes.last)
+    }
+
     func testEventStreamReadsPersistedCrossProcessChange() async throws {
         let (directory, file, pipeline) = fixture()
         defer { try? FileManager.default.removeItem(at: directory) }

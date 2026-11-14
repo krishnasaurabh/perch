@@ -104,7 +104,9 @@ public struct AgentChange: Codable, Equatable, Sendable, Identifiable {
         if mayRestoreFocus {
             var restored = before.focus
             if var session = restored {
-                if let taskID = session.taskID, !engine.planner.tasks.contains(where: { $0.id == taskID }) {
+                if let taskID = session.taskID,
+                    !engine.planner.tasks.contains(where: { $0.id == taskID && !$0.done && $0.day == engine.today })
+                {
                     restored = nil
                 } else {
                     session.banked =
@@ -227,6 +229,99 @@ public struct AgentActionLedger: Codable, Equatable, Sendable {
 
     fileprivate mutating func expire(at time: Date) {
         for action in pending where action.expiresAt <= time { remove(action, kind: .expired, at: time) }
+    }
+}
+
+/// Recover each ledger record independently; malformed neighbors never erase valid history.
+func recoverAgentActions(
+    _ decoder: Decoder, _ planner: inout Planner, _ issues: inout [PlannerRecoveryIssue],
+    _ kept: inout Int, _ rejected: inout Int, _ fields: inout Int
+) throws {
+    let recovery = try AgentActionRecovery(from: decoder)
+    planner.agentActions = AgentActionLedger(recovering: recovery)
+    issues += recovery.issues
+    kept += recovery.pending.count + recovery.changes.count + recovery.events.count
+    rejected += recovery.rejected
+    fields += recovery.fields
+}
+
+extension AgentActionLedger {
+    fileprivate init(recovering recovery: AgentActionRecovery) {
+        pending = recovery.pending
+        changes = recovery.changes
+        events = recovery.events
+        // A damaged counter must not cause later events to reuse surviving sequence numbers.
+        sequence = max(recovery.sequence, changes.map(\.sequence).max() ?? 0, events.map(\.sequence).max() ?? 0)
+    }
+}
+
+private struct AgentActionRecovery: Decodable {
+    var pending: [PendingAgentAction] = []
+    var changes: [AgentChange] = []
+    var events: [AgentActionEvent] = []
+    var sequence = 0
+    var issues: [PlannerRecoveryIssue] = []
+    var rejected = 0
+    var fields = 0
+    private enum Root: String, CodingKey { case agentActions }
+    private enum Field: String, CodingKey { case pending, changes, events, sequence }
+
+    init(from decoder: Decoder) throws {
+        let root = try decoder.container(keyedBy: Root.self)
+        guard root.contains(.agentActions), !(try root.decodeNil(forKey: .agentActions)) else { return }
+        do {
+            let container = try root.nestedContainer(keyedBy: Field.self, forKey: .agentActions)
+            pending = records(PendingAgentAction.self, in: container, key: .pending)
+            changes = records(AgentChange.self, in: container, key: .changes)
+            events = records(AgentActionEvent.self, in: container, key: .events)
+            do { sequence = try container.decode(Int.self, forKey: .sequence) } catch {
+                record(error, fallback: "agentActions.sequence")
+            }
+        } catch { record(error, fallback: "agentActions") }
+    }
+
+    private mutating func records<Value: Decodable>(
+        _ type: Value.Type, in container: KeyedDecodingContainer<Field>, key: Field
+    ) -> [Value] {
+        var values: [Value] = []
+        do {
+            var list = try container.nestedUnkeyedContainer(forKey: key)
+            while !list.isAtEnd {
+                let index = list.currentIndex
+                let decoder = try list.superDecoder()
+                do { values.append(try Value(from: decoder)) } catch {
+                    record(error, fallback: "agentActions.\(key.rawValue)[\(index)]", isRecord: true)
+                }
+            }
+        } catch { record(error, fallback: "agentActions.\(key.rawValue)") }
+        return values
+    }
+
+    private mutating func record(_ error: Error, fallback: String, isRecord: Bool = false) {
+        if isRecord { rejected += 1 } else { fields += 1 }
+        let path: [CodingKey]
+        let reason: String
+        switch error {
+        case DecodingError.keyNotFound(let key, let context):
+            path = context.codingPath + [key]; reason = "Required field is missing."
+        case DecodingError.typeMismatch(_, let context):
+            path = context.codingPath; reason = "Value has the wrong type."
+        case DecodingError.valueNotFound(_, let context):
+            path = context.codingPath; reason = "Required value is null."
+        case DecodingError.dataCorrupted(let context):
+            path = context.codingPath; reason = "Value is invalid or unrecognized."
+        default:
+            path = []; reason = "Record could not be decoded."
+        }
+        var location = ""
+        for key in path {
+            if let index = key.intValue {
+                location += "[\(index)]"
+            } else {
+                location += (location.isEmpty ? "" : ".") + key.stringValue
+            }
+        }
+        issues.append(PlannerRecoveryIssue(path: location.isEmpty ? fallback : location, reason: reason))
     }
 }
 
