@@ -37,6 +37,8 @@ public struct PlanTask: Codable, Equatable, Identifiable, Sendable {
     public var updatedAt: Date
     /// Credit predating a detailed ledger; retained independently of recorded intervals.
     public var unloggedFocusedSeconds: Double
+    /// Time set aside begins here; independent of notifications.
+    public var startAt: Date?
     public var remindAt: Date?
     public var deadline: DayKey?
     public var priority: TaskPriority
@@ -50,6 +52,10 @@ public struct PlanTask: Codable, Equatable, Identifiable, Sendable {
     public var focusedSeconds: Double
     /// Set when the task was carried forward from an earlier day.
     public var carriedFrom: DayKey?
+    /// Identity of the source occurrence; titles need not be unique.
+    public var carriedTaskID: UUID?
+    /// Source thought identity keeps promotion undo atomic even if the task title changes.
+    public var parkedFrom: UUID?
     /// Linked EKReminder calendarItemIdentifier when Reminders sync is on.
     public var reminderLink: String?
     /// Series-generation identity; initially the root task ID, fresh after a cadence edit.
@@ -69,11 +75,13 @@ public struct PlanTask: Codable, Equatable, Identifiable, Sendable {
         repeatRule: TaskRepeat? = nil, minutes: Int? = nil, steps: [Subtask] = [],
         focusedSeconds: Double = 0, carriedFrom: DayKey? = nil, reminderLink: String? = nil,
         repeatedFrom: UUID? = nil, carryCount: Int = 0, agentID: String? = nil, repeatAnchor: DayKey? = nil,
-        updatedAt: Date? = nil, unloggedFocusedSeconds: Double = 0
+        updatedAt: Date? = nil, unloggedFocusedSeconds: Double = 0, startAt: Date? = nil, carriedTaskID: UUID? = nil,
+        parkedFrom: UUID? = nil
     ) {
         self.id = id; self.title = title; self.day = day; self.done = done
         self.updatedAt = updatedAt ?? createdAt; self.unloggedFocusedSeconds = unloggedFocusedSeconds
         self.completedAt = completedAt; self.createdAt = createdAt; self.remindAt = remindAt
+        self.startAt = startAt; self.carriedTaskID = carriedTaskID; self.parkedFrom = parkedFrom
         self.deadline = deadline; self.priority = priority; self.projectID = projectID
         self.notes = notes; self.repeatRule = repeatRule; self.minutes = minutes; self.steps = steps
         self.focusedSeconds = focusedSeconds; self.carriedFrom = carriedFrom; self.reminderLink = reminderLink
@@ -91,6 +99,7 @@ public struct PlanTask: Codable, Equatable, Identifiable, Sendable {
         createdAt = try c.decode(Date.self, forKey: .createdAt)
         updatedAt = try c.decodeMissing(Date.self, forKey: .updatedAt, default: createdAt)
         unloggedFocusedSeconds = try c.decodeMissing(Double.self, forKey: .unloggedFocusedSeconds, default: 0)
+        startAt = try c.decodeIfPresent(Date.self, forKey: .startAt)
         remindAt = try c.decodeIfPresent(Date.self, forKey: .remindAt)
         deadline = try c.decodeIfPresent(DayKey.self, forKey: .deadline)
         priority = try c.decodeMissing(TaskPriority.self, forKey: .priority, default: .none)
@@ -101,6 +110,8 @@ public struct PlanTask: Codable, Equatable, Identifiable, Sendable {
         steps = try c.decodeMissing([Subtask].self, forKey: .steps, default: [])
         focusedSeconds = try c.decodeMissing(Double.self, forKey: .focusedSeconds, default: 0)
         carriedFrom = try c.decodeIfPresent(DayKey.self, forKey: .carriedFrom)
+        carriedTaskID = try c.decodeIfPresent(UUID.self, forKey: .carriedTaskID)
+        parkedFrom = try c.decodeIfPresent(UUID.self, forKey: .parkedFrom)
         reminderLink = try c.decodeIfPresent(String.self, forKey: .reminderLink)
         repeatedFrom = try c.decodeIfPresent(UUID.self, forKey: .repeatedFrom)
         repeatAnchor = try c.decodeIfPresent(DayKey.self, forKey: .repeatAnchor)
@@ -213,11 +224,46 @@ public struct DayKey: Codable, Hashable, Comparable, Sendable, CustomStringConve
     }
 }
 
+/// A dayless thought. Its text is literal until explicitly made into a task.
+public struct ParkedThought: Codable, Equatable, Identifiable, Sendable {
+    public var id: UUID
+    public var text: String
+    public var createdAt: Date
+    public init(id: UUID = UUID(), text: String, createdAt: Date = Date()) {
+        self.id = id; self.text = text; self.createdAt = createdAt
+    }
+}
+
 /// Free-form daily notes.
 public struct QuickNote: Codable, Equatable, Sendable {
     public var day: DayKey
     public var text: String
     public init(day: DayKey, text: String) { self.day = day; self.text = text }
+}
+
+extension Planner {
+    /// Retain the original notes for legacy readers. The marker also survives an empty lot.
+    mutating func migrateNotepad() {
+        guard !notepadMigrationComplete else { return }
+        let ordered = notes.enumerated().sorted {
+            $0.element.day == $1.element.day ? $0.offset < $1.offset : $0.element.day < $1.element.day
+        }
+        var ordinal: UInt64 = 0
+        for entry in ordered {
+            let note = entry.element
+            for line in note.text.components(separatedBy: .newlines) {
+                guard !line.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { continue }
+                // Stable identities make repeated read-only loads of an old file identical.
+                let date = UInt64(note.day.raw.replacingOccurrences(of: "-", with: ""))!
+                let tail = String(format: "%016llx", (date << 32) | ordinal)
+                let split = tail.index(tail.startIndex, offsetBy: 4)
+                let id = UUID(uuidString: "70657263-6800-8000-" + tail[..<split] + "-" + tail[split...])!
+                parkedThoughts.append(ParkedThought(id: id, text: line, createdAt: note.day.date()))
+                ordinal += 1
+            }
+        }
+        notepadMigrationComplete = true
+    }
 }
 
 /// A completed or in-progress slice of focus time, used for Insights.
@@ -343,6 +389,9 @@ public struct Planner: Codable, Equatable, Sendable {
     public var tasks: [PlanTask] = []
     public var projects: [TaskProject] = []
     public var notes: [QuickNote] = []
+    public var parkedThoughts: [ParkedThought] = []
+    /// Present even after the parking lot is emptied so old notes cannot reappear.
+    var notepadMigrationComplete = true
     public var focusSegments: [FocusSegment] = []
     /// Keep the original on-disk key for existing planner.json documents.
     public var focusLog: [FocusSegment] {
@@ -360,7 +409,8 @@ public struct Planner: Codable, Equatable, Sendable {
     public init() {}
 
     enum CodingKeys: String, CodingKey {
-        case version, tasks, projects, notes, focusSegments, focus, dismissedOverdue
+        case version, tasks, projects, notes, parkedThoughts, notepadMigrationComplete, focusSegments, focus,
+            dismissedOverdue
         case repeatOccurrences, completedCalendarEventIDs, completedCalendarEventDays, preferences
     }
 
@@ -371,6 +421,13 @@ public struct Planner: Codable, Equatable, Sendable {
         tasks = try c.decodeMissing([PlanTask].self, forKey: .tasks, default: [])
         projects = try c.decodeMissing([TaskProject].self, forKey: .projects, default: [])
         notes = try c.decodeMissing([QuickNote].self, forKey: .notes, default: [])
+        parkedThoughts = try c.decodeMissing([ParkedThought].self, forKey: .parkedThoughts, default: [])
+        notepadMigrationComplete = try c.decodeMissing(Bool.self, forKey: .notepadMigrationComplete, default: false)
+        migrateNotepad()
+        guard Set(parkedThoughts.map(\.id)).count == parkedThoughts.count else {
+            throw DecodingError.dataCorruptedError(
+                forKey: .parkedThoughts, in: c, debugDescription: "Duplicate thought identity.")
+        }
         focusSegments = try c.decodeMissing([FocusSegment].self, forKey: .focusSegments, default: [])
         focus = try c.decodeIfPresent(FocusSession.self, forKey: .focus)
         repeatOccurrences = try c.decodeMissing([RepeatOccurrence].self, forKey: .repeatOccurrences, default: [])
@@ -388,6 +445,8 @@ public struct Planner: Codable, Equatable, Sendable {
         try c.encode(tasks, forKey: .tasks)
         try c.encode(projects, forKey: .projects)
         try c.encode(notes, forKey: .notes)
+        try c.encode(parkedThoughts, forKey: .parkedThoughts)
+        try c.encode(notepadMigrationComplete, forKey: .notepadMigrationComplete)
         try c.encode(focusSegments, forKey: .focusSegments)
         try c.encodeIfPresent(focus, forKey: .focus)
         try c.encode(dismissedOverdue, forKey: .dismissedOverdue)

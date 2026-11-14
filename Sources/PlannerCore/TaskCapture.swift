@@ -6,6 +6,7 @@ public struct CapturedTask: Equatable, Sendable {
     /// nil means "not named": the caller decides (usually today). Use `inbox` for the Inbox.
     public var day: DayKey?
     public var inbox: Bool = false
+    public var startAt: Date?
     public var remindAt: Date?
     public var deadline: DayKey?
     public var priority: TaskPriority = .none
@@ -153,7 +154,7 @@ public struct TaskCapture {
                 day = today.adding(days: 1, calendar: calendar)
                 at = day.reminderDate(hour: t.h, minute: t.m, resetHour: resetHour, calendar: calendar)
             }
-            out.remindAt = at
+            if out.minutes != nil { out.startAt = at } else { out.remindAt = at }
             explicitDay = day
         }
 

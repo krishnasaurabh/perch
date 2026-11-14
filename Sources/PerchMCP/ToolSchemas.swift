@@ -60,6 +60,7 @@ extension AgentTools {
                 "done": ["type": "boolean"],
                 "completed_at": nullableDate,
                 "remind_at": nullableDate,
+                "start": nullableDate,
                 "deadline": ["type": ["string", "null"], "format": "date"],
                 "priority": ["type": "string", "enum": ["none", "low", "medium", "high"]],
                 "project": projectReferenceSchema,
@@ -72,9 +73,19 @@ extension AgentTools {
                 "overdue": ["type": "boolean"],
             ],
             required: [
-                "id", "title", "day", "done", "completed_at", "remind_at", "deadline", "priority", "project", "notes",
+                "id", "title", "day", "done", "completed_at", "remind_at", "start", "deadline", "priority", "project",
+                "notes",
                 "repeat", "minutes", "steps", "focused_seconds", "carried_from", "overdue",
             ])
+    }
+
+    static var thoughtSchema: JSON {
+        objectSchema(
+            [
+                "id": ["type": "string", "format": "uuid"],
+                "text": ["type": "string", "description": .string(untrustedTextDescription)],
+                "created_at": ["type": "string", "format": "date-time"],
+            ], required: ["id", "text", "created_at"])
     }
 
     static var taskListSchema: JSON {
@@ -124,6 +135,12 @@ extension AgentTools {
         switch name {
         case "add_tasks":
             return outputSchema(["tasks": ["type": "array", "items": taskSchema]], required: ["tasks"])
+        case "list_parked_thoughts":
+            return outputSchema(["thoughts": ["type": "array", "items": thoughtSchema]], required: ["thoughts"])
+        case "add_parked_thought":
+            return outputSchema(["thought": thoughtSchema], required: ["thought"])
+        case "promote_parked_thought":
+            return outputSchema(["task": taskSchema], required: ["task"])
         case "list_tasks", "list_inbox", "list_overdue":
             return taskListSchema
         case "get_task", "complete_task", "reopen_task", "rename_task", "delete_task", "move_task", "update_task",
