@@ -19,7 +19,7 @@ class ControlNativeRegressionTests(unittest.TestCase):
         self.assertIn(".onKeyPress(.tab) { leaveGroup() }", source)
         self.assertIn(r'.onKeyPress(KeyEquivalent("\u{19}")) { leaveGroup() }', source)
 
-    def test_native_launcher_restores_keyboard_preference_without_changing_activation_policy(self):
+    def test_native_launcher_restores_keyboard_preference_without_changing_its_activation_policy(self):
         source = (ROOT / "Tests/PerchAppTests/SegmentedKeyboardTests.swift").read_text()
         test = source.split("func testNativeRovingFocusAndExitCancellation() throws {", 1)[1]
         self.assertIn('try require(NSApp.isFullKeyboardAccessEnabled,', source)
@@ -30,9 +30,31 @@ class ControlNativeRegressionTests(unittest.TestCase):
         self.assertIn('CFPreferencesSynchronize(', restore)
         normalized = ' '.join(test.split())
         self.assertEqual(normalized.count('kCFPreferencesAnyApplication, kCFPreferencesCurrentUser, kCFPreferencesAnyHost'), 5)
-        self.assertNotIn('setActivationPolicy', source)
+        self.assertNotIn('setActivationPolicy', source.split('#elseif os(macOS)', 1)[1])
         self.assertLess(test.index('defer {'), test.index('try process.run()'))
         self.assertIn('"Native field=', source)
+
+    def test_unbundled_probe_sets_regular_activation_before_scheduling_checks(self):
+        source = (ROOT / "Tests/PerchAppTests/SegmentedKeyboardTests.swift").read_text()
+        probe = source.split("private enum SegmentedKeyboardProbe {", 1)[1]
+        startup = probe.split("@MainActor private static func runCheck()", 1)[0]
+        ordered = ("MainActor.assumeIsolated {", "let app = NSApplication.shared",
+                   "app.setActivationPolicy(.regular)", "Task { @MainActor in",
+                   "try await runCheck()", "app.run()")
+        positions = [startup.index(step) for step in ordered]
+        self.assertEqual(positions, sorted(positions))
+        self.assertEqual(source.count("setActivationPolicy("), 1)
+
+    def test_every_activation_attempt_logs_policy_and_active_state(self):
+        source = (ROOT / "Tests/PerchAppTests/SegmentedKeyboardTests.swift").read_text()
+        activation = source.split("private func activateKeyWindow() async {", 1)[1]
+        activation = activation.split("private func settle()", 1)[0]
+        ordered = ("for attempt in 0..<25", "NSApp.activate(ignoringOtherApps: true)",
+                   "window.makeKeyAndOrderFront(nil)", "await settle()", 'log(',
+                   "NSApp.activationPolicy().rawValue", "NSApp.isActive", "if window.isKeyWindow")
+        positions = [activation.index(step) for step in ordered]
+        self.assertEqual(positions, sorted(positions))
+        self.assertIn(r"\(attempt + 1)", activation)
 
     def test_native_focus_probe_primes_ax_before_asserting_focus(self):
         source = (ROOT / "Tests/PerchAppTests/SegmentedKeyboardTests.swift").read_text()
@@ -86,7 +108,7 @@ class ControlNativeRegressionTests(unittest.TestCase):
             self.assertIn(required, source)
         self.assertEqual(source.count('func testNativeRovingFocusAndExitCancellation('), 1)
         self.assertNotIn('group.addTask { @MainActor', source)
-        self.assertNotIn('setActivationPolicy', source)
+        self.assertNotIn('setActivationPolicy', source.split('#elseif os(macOS)', 1)[1])
         self.assertNotIn('XCTSkip', source)
 
     def test_native_launcher_executes_exact_commands_and_propagates_failures(self):

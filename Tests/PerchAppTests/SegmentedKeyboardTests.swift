@@ -228,6 +228,9 @@
                 NSApp.activate(ignoringOtherApps: true)
                 window.makeKeyAndOrderFront(nil)
                 await settle()
+                log(
+                    "Segmented activation attempt \(attempt + 1); policy=\(NSApp.activationPolicy().rawValue); appActive=\(NSApp.isActive)"
+                )
                 if window.isKeyWindow {
                     if attempt > 0 { log("Segmented key window activated after \(attempt + 1) attempts") }
                     return
@@ -342,6 +345,7 @@
         static func run() {
             MainActor.assumeIsolated {
                 let app = NSApplication.shared
+                app.setActivationPolicy(.regular)
                 Task { @MainActor in
                     do {
                         try await runCheck()
