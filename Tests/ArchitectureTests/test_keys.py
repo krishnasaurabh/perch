@@ -19,7 +19,8 @@ class KeysContractTests(unittest.TestCase):
         # The native test inspects this same registry and verifies action effects.
         tests = (ROOT / 'Tests/PerchAppTests/KeysWindowTests.swift').read_text()
         self.assertIn('router.bindings.unboundEntries.isEmpty', tests)
-        self.assertIn('router.handle(escape)', tests)
+        native_tests = (ROOT / 'Tests/PerchAppTests/KeysWindowNativeTests.swift').read_text()
+        self.assertIn('router.handle(escape)', native_tests)
         self.assertIn('fixture.store.planner.focus?.limit, previousLimit + 300', tests)
 
     def test_application_launch_installs_the_router_once(self):
@@ -36,15 +37,28 @@ class KeysContractTests(unittest.TestCase):
         recorder = (ROOT / 'Sources/PerchApp/Settings/ShortcutPreferenceRow.swift').read_text()
         self.assertIn('window.firstResponder is KeysShortcutInputOwner', source)
         self.assertIn('extension ShortcutRecorderView: KeysShortcutInputOwner {}', recorder)
-        tests = (ROOT / 'Tests/PerchAppTests/KeysWindowTests.swift').read_text()
+        tests = (ROOT / 'Tests/PerchAppTests/KeysWindowNativeTests.swift').read_text()
         self.assertIn('testInstalledMonitorLeavesShortcutRecordingInControl', tests)
 
     def test_document_modal_sheet_keeps_exclusive_input(self):
         source = (ROOT / 'Sources/PerchApp/Settings/KeysView.swift').read_text()
         self.assertIn('window.isSheet', source)
         self.assertIn('window.sheetParent != nil', source)
-        tests = (ROOT / 'Tests/PerchAppTests/KeysWindowTests.swift').read_text()
+        tests = (ROOT / 'Tests/PerchAppTests/KeysWindowNativeTests.swift').read_text()
         self.assertIn('testInstalledMonitorLeavesTaskDetailsSheetInControl', tests)
+
+    def test_native_keyboard_checks_run_in_an_application_not_xctest(self):
+        native = (ROOT / 'Tests/PerchAppTests/KeysWindowNativeTests.swift').read_text()
+        self.assertIn('#if KEYS_WINDOW_NATIVE_PROBE', native)
+        self.assertIn('app.setActivationPolicy(.regular)', native)
+        self.assertIn('app.run()', native)
+        self.assertIn('NSApp.isActive && window === NSApp.keyWindow', native)
+        self.assertIn('NSApp.sendEvent(event(', native)
+        self.assertIn('timeout=120', native)
+        self.assertIn('XCTAssertEqual(process.terminationStatus, 0', native)
+        self.assertNotIn('XCTSkip', native)
+        self.assertNotIn('XCTAssert', native.split('#else', 1)[0])
+        self.assertNotIn('app.run()', (ROOT / 'Tests/PerchAppTests/KeysWindowTests.swift').read_text())
 
     def test_sheet_reads_only_the_portable_catalog(self):
         source = (ROOT / 'Sources/PerchApp/Settings/KeysView.swift').read_text()
