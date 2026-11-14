@@ -16,3 +16,13 @@ history --scenario window-history --open history
 projects --scenario window-projects --open projects
 surfaces --scenario empty --open surfaces
 surfaces-focused --scenario empty --open surfaces-focused
+notch-closed-idle --scenario notch-idle --open notch-closed
+notch-closed-running --scenario notch-running --open notch-closed
+notch-closed-paused --scenario notch-paused --open notch-closed
+notch-closed-reminder --scenario notch-reminder --open notch-closed
+notch-closed-progress-off --scenario notch-running --open notch-progress-off
+notch-closed-reminder-off --scenario notch-reminder --open notch-reminder-off
+notch-flat-idle --scenario notch-idle --open notch-flat
+notch-flat-running --scenario notch-running --open notch-flat
+notch-flat-paused --scenario notch-paused --open notch-flat
+notch-flat-reminder --scenario notch-reminder --open notch-flat

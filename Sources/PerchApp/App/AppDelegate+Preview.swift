@@ -10,6 +10,10 @@ import SwiftUI
         static var previewTargets: [String: PreviewTarget] {
             [
                 "today": .workspace(.home),
+                "notch-closed": .closedNotch(hardware: true),
+                "notch-flat": .closedNotch(hardware: false),
+                "notch-progress-off": .closedNotch(hardware: true, progress: false),
+                "notch-reminder-off": .closedNotch(hardware: true, reminder: false),
                 "week": .workspace(.week),
                 "settings": .window("settings") { $0.openSettings() },
                 "your-week": .window("dashboard") { DashboardWindow.show(store: $0.store, tab: .insights) },

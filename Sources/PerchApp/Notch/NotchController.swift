@@ -49,6 +49,7 @@ final class NotchModel: ObservableObject {
     }
     @Published var page: NotchPage = .home
     @Published var activity: PresentedNotchActivity?
+    @Published var closedReminderIDs = Set<UUID>()
     @Published private(set) var missedReminder: PresentedNotchActivity?
     private var missedTask: PlanTask?
     private var dismissedReminders = Set<String>()
@@ -110,6 +111,7 @@ final class NotchModel: ObservableObject {
     }
 
     func show(_ a: PresentedNotchActivity, for seconds: Double? = nil) {
+        if case .reminder(let id) = a.kind { closedReminderIDs.insert(id) }
         activityWork?.cancel()
         activityWork = nil
         Motion.animate(Motion.activity, policy: motionPolicy) { activity = a }
@@ -154,6 +156,7 @@ final class NotchModel: ObservableObject {
             let task = planner.tasks.first(where: { $0.id == id }), task.remindAt != nil
         {
             dismissedReminders.insert(ScheduledReminder(task: task).id)
+            closedReminderIDs.remove(id)
             if missedTask?.id == id { missedTask = nil; missedReminder = nil }
         }
         dismissActivity()
@@ -498,7 +501,7 @@ final class NotchController {
         if NotchLayout.closedNotchVisible(screen: slot.state.geometry.screen, enabled: store.prefs.notchOnMonitors) {
             return true
         }
-        return model.screenID == slot.state.id && (model.expanded || model.displayedActivity != nil)
+        return model.drawsClosed(in: store, on: slot.state.id)
     }
 
     func checkFullScreenSoon() {
@@ -546,14 +549,16 @@ final class NotchController {
             activity: active && model.displayedActivity != nil,
             glance: model.glance(
                 in: store, expanded: active && model.expanded,
-                activityVisible: active && model.displayedActivity != nil) != nil)
+                activityVisible: active && model.displayedActivity != nil) != nil,
+            closed: model.closed(in: store, screenID: slot.state.id))
     }
 
     private func hoverRect(_ slot: Slot) -> NSRect {
         let active = model.screenID == slot.state.id
         return slot.state.geometry.hover(
             expanded: active && model.expanded, timer: timerShowing(),
-            activity: active && model.displayedActivity != nil)
+            activity: active && model.displayedActivity != nil, closed: model.closed(in: store, screenID: slot.state.id)
+        )
     }
 
     // MARK: Pointer
@@ -597,7 +602,7 @@ final class NotchController {
                 let inside = slots[model.screenID].map { isOnShape(p, $0) } ?? false
                 if !inside && !anySheetOrPopoverOpen() { model.close() }
             } else if let id = slotUnderPointer(), let slot = slots[id], drawn(slot),
-                NotchLayout.contains(hoverRect(slot), pointer: p)
+                NotchLayout.contains(hoverRect(slot), pointer: p) && isOnShape(p, slot)
             {
                 if prefs.notchOpenTrigger == .click || (prefs.notchOpenTrigger == .doubleClick && e.clickCount >= 2) {
                     open(on: id, activate: true)
@@ -610,7 +615,7 @@ final class NotchController {
         if !model.expanded {
             guard prefs.notchOpenTrigger == .hover, e.type == .mouseMoved,
                 let id = slotUnderPointer(), let slot = slots[id], drawn(slot),
-                NotchLayout.contains(hoverRect(slot), pointer: p)
+                NotchLayout.contains(hoverRect(slot), pointer: p) && isOnShape(p, slot)
             else {
                 openWork?.cancel(); openWork = nil
                 _ = hoverIntent.enter(screen: nil)
@@ -630,6 +635,7 @@ final class NotchController {
                             && !($0.state.fullScreen) && self.drawn($0)
                             && NSEvent.pressedMouseButtons == 0
                             && NotchLayout.contains(self.hoverRect($0), pointer: NSEvent.mouseLocation)
+                            && self.isOnShape(NSEvent.mouseLocation, $0)
                     } ?? false
                 guard self.hoverIntent.consume(token, screen: id, eligible: eligible) else { return }
                 self.open(on: id)
