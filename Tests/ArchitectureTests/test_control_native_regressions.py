@@ -14,10 +14,12 @@ class ControlNativeRegressionTests(unittest.TestCase):
         self.assertIn(".toggleStyle(.checkbox)", representation)
         self.assertIn(".disabled(!enabled)", representation)
 
-    def test_back_tab_invalidates_deferred_focus_like_forward_tab(self):
+    def test_back_tab_and_forward_tab_leave_through_the_native_key_loop(self):
         source = (COMPONENTS / "PerchSegmented.swift").read_text()
-        self.assertIn(".onKeyPress(.tab) { leaveGroup() }", source)
-        self.assertIn(r'.onKeyPress(KeyEquivalent("\u{19}")) { leaveGroup() }', source)
+        for token in ("event.keyCode == 48", "event.modifierFlags.contains(.shift)",
+                      "window?.selectPreviousKeyView(self)", "window?.selectNextKeyView(self)"):
+            self.assertIn(token, source)
+        self.assertNotIn("DispatchQueue.main.async", source)
 
     def test_native_launcher_restores_keyboard_preference_without_changing_its_activation_policy(self):
         source = (ROOT / "Tests/PerchAppTests/SegmentedKeyboardTests.swift").read_text()
