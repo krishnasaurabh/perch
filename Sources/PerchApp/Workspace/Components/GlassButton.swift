@@ -1,10 +1,12 @@
+import PerchUI
 import SwiftUI
 
+@available(*, deprecated, message: "Use PerchButton with an icon label.")
 struct GlassButton: View {
     let symbol: String
     var help: String = ""
     var tint: Color = Theme.text
-    var size: CGFloat = 28
+    var size: CGFloat = DesignTokens.Size.minimumTarget.value
     var disabledReason: String = "This action is currently unavailable."
     let action: () -> Void
     @State private var hover = false
@@ -39,7 +41,9 @@ struct GlassButton: View {
                             ? Theme.fill
                             : configuration.isPressed ? Theme.fillPressed : hover ? Theme.fillStrong : Theme.fill)
                 )
-                .overlay(Circle().strokeBorder(Theme.inputStroke, lineWidth: 1))
+                .overlay(
+                    Circle().strokeBorder(Theme.inputStroke, lineWidth: DesignTokens.Size.checkboxStroke.value / 2)
+                )
                 .overlay(ControlFocusRing(shape: Circle(), focused: focused && enabled))
                 .contentShape(Circle())
         }

@@ -1,6 +1,8 @@
+import PerchUI
 import SwiftUI
 
 /// A single keyboard group: arrows/Home/End select, Tab leaves the group.
+@available(*, deprecated, message: "Use PerchSegmented with an accessible group title.")
 struct SegmentPills<T: Hashable>: View {
     let items: [(value: T, label: String)]
     @Binding var selection: T
@@ -8,7 +10,7 @@ struct SegmentPills<T: Hashable>: View {
     @Environment(\.isEnabled) private var enabled
 
     var body: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: DesignTokens.Size.segmentItemRadius.value) {
             ForEach(items.indices, id: \.self) { i in
                 let item = items[i]
                 let selected = selection == item.value
@@ -18,7 +20,7 @@ struct SegmentPills<T: Hashable>: View {
                     Text(item.label)
                         .font(selected ? Theme.label : Theme.meta)
                         .monospacedDigit()
-                        .padding(.horizontal, 9)
+                        .padding(.horizontal, DesignTokens.Size.buttonSidePadding.value / 2)
                         .frame(minWidth: Theme.minimumTarget, minHeight: Theme.minimumTarget)
                 }
                 .buttonStyle(SegmentStyle(selected: selected, focused: focused == item.value))
@@ -33,7 +35,7 @@ struct SegmentPills<T: Hashable>: View {
                 .onKeyPress(.end) { select(items.count - 1) }
             }
         }
-        .padding(4)
+        .padding(DesignTokens.Size.checkboxStroke.value * 2)
         .accessibilityElement(children: .contain)
         .transaction { $0.animation = nil }
     }
