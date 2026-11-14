@@ -72,6 +72,20 @@ class SurfaceComponentArchitectureTests(unittest.TestCase):
         self.assertNotIn('.id(', source)
         self.assertNotIn('.animation(', source)
 
+    def test_native_identity_is_scoped_to_one_intersecting_editable_field(self):
+        source = (COMPONENTS / 'AddField.swift').read_text()
+        for required in ('SurfaceFieldIdentity(', 'struct SurfaceFieldIdentity: NSViewRepresentable',
+                         'override func isAccessibilityElement() -> Bool { false }',
+                         'override func hitTest(', 'guard !bounds.isEmpty',
+                         'field.isEditable', 'field.bounds.contains(field.convert(center, from: self))',
+                         'candidates.dropFirst().isEmpty', 'owner.setAccessibilityLabel(label)',
+                         'owner.cell?.setAccessibilityLabel(label)',
+                         'owner.cell?.setAccessibilityIdentifier(identifierValue)'):
+            self.assertIn(required, source)
+        for forbidden in ('NSApp.windows', 'makeFirstResponder(', 'setAccessibilityRole(',
+                          'setAccessibilityElement(true)', 'Timer.scheduledTimer'):
+            self.assertNotIn(forbidden, source)
+
     def test_capture_fixture_preserves_semantics_with_typed_lookup(self):
         source = (ROOT / 'Tests/PerchAppTests/SurfaceComponentTests.swift').read_text()
         for required in ('compactMap { $0 as? NSTextField }', '.filter(\\.isEditable)',
@@ -79,7 +93,9 @@ class SurfaceComponentArchitectureTests(unittest.TestCase):
                          'accessibilityLabel() == "Add a task"',
                          'placeholderString == "Add a task. Tab makes it a step."',
                          'NSAttributedString', 'attributed.string', 'layoutSubtreeIfNeeded()',
-                         'Surface capture inventory:', 'window.makeFirstResponder(entry)',
+                         'Surface capture inventory:', 'window.makeFirstResponder(field)',
+                         'let entry = try XCTUnwrap(field.cell, diagnostics)',
+                         'nodes.contains { $0 === entry }',
                          '"accessibilityRole") as? String, "AXTextField"',
                          '"accessibilityLabel") as? String, "Add a task"'):
             self.assertIn(required, source)

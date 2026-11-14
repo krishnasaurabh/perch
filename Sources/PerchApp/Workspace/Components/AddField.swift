@@ -1,3 +1,4 @@
+import AppKit
 import PerchUI
 import SwiftUI
 
@@ -99,6 +100,10 @@ private struct SurfaceTextEntry: View {
             .accessibilityLabel(Text(AppL10n.text(label)))
             .accessibilityIdentifier(fieldIdentifier)
             .onSubmit(onSubmit)
+            .background(
+                SurfaceFieldIdentity(label: AppL10n.text(label), identifier: fieldIdentifier)
+                    .allowsHitTesting(false)
+            )
 
             if let onDictate {
                 Button(action: onDictate) {
@@ -141,6 +146,69 @@ private struct SurfaceTextEntry: View {
         )
         .environment(\.controlSurface, Theme.fill(surface))
         .environment(\.designSurface, surface)
+    }
+}
+
+/// Names the native editor and its public accessibility cell without replacing
+/// SwiftUI's text entry, focus handling, styling, or layout.
+struct SurfaceFieldIdentity: NSViewRepresentable {
+    let label: String
+    let identifier: String
+
+    func makeNSView(context: Context) -> Anchor { Anchor() }
+
+    func updateNSView(_ view: Anchor, context: Context) {
+        view.label = label
+        view.identifierValue = identifier
+        view.needsLayout = true
+        // SwiftUI can update the backing field after its background representable.
+        DispatchQueue.main.async { [weak view] in view?.publish() }
+    }
+
+    final class Anchor: NSView {
+        var label = ""
+        var identifierValue = ""
+
+        override func isAccessibilityElement() -> Bool { false }
+        override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            needsLayout = true
+        }
+
+        override func layout() {
+            super.layout()
+            publish()
+        }
+
+        func publish() {
+            guard !bounds.isEmpty else { return }
+            let center = NSPoint(x: bounds.midX, y: bounds.midY)
+            var ancestor = superview
+            while let container = ancestor {
+                let candidates = Self.fields(in: container).filter { field in
+                    field.bounds.contains(field.convert(center, from: self))
+                }
+                if let owner = candidates.first {
+                    // Refuse overlapping/ambiguous editors instead of renaming a neighbor.
+                    guard candidates.dropFirst().isEmpty else { return }
+                    owner.setAccessibilityLabel(label)
+                    owner.setAccessibilityIdentifier(identifierValue)
+                    owner.cell?.setAccessibilityLabel(label)
+                    owner.cell?.setAccessibilityIdentifier(identifierValue)
+                    return
+                }
+                ancestor = container.superview
+            }
+        }
+
+        private static func fields(in view: NSView) -> [NSTextField] {
+            if let field = view as? NSTextField {
+                return field.isEditable && !field.isHiddenOrHasHiddenAncestor ? [field] : []
+            }
+            return view.subviews.flatMap { fields(in: $0) }
+        }
     }
 }
 

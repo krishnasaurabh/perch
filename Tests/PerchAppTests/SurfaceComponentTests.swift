@@ -64,7 +64,8 @@ final class SurfaceComponentTests: XCTestCase {
             app.setActivationPolicy(originalPolicy)
         }
         let nodes = try await Self.readyNodes(in: window) { candidates in
-            Self.captureField(in: candidates) != nil
+            guard let cell = Self.captureField(in: candidates)?.cell else { return false }
+            return Self.attribute(cell, "accessibilityLabel") as? String == "Add a task"
                 && candidates.contains {
                     Self.attribute($0, "accessibilityRole") as? String == "AXButton"
                         && Self.attribute($0, "accessibilityLabel") as? String == "Dictate instead"
@@ -72,8 +73,11 @@ final class SurfaceComponentTests: XCTestCase {
         }
         let diagnostics = Self.diagnostics(in: window)
         print("Surface capture inventory:\n\(diagnostics)")
-        let entry = try XCTUnwrap(Self.captureField(in: nodes), diagnostics)
+        let field = try XCTUnwrap(Self.captureField(in: nodes), diagnostics)
+        // AppKit exposes the cell to accessibility; the ignored backing view owns editing.
+        let entry = try XCTUnwrap(field.cell, diagnostics)
         XCTAssertNotNil(entry)
+        XCTAssertTrue(nodes.contains { $0 === entry }, "The named cell is in the published AX tree\n\(diagnostics)")
         // A placeholder is only a locator, never a substitute for the accessible name.
         XCTAssertEqual(Self.attribute(entry, "accessibilityRole") as? String, "AXTextField", diagnostics)
         XCTAssertEqual(Self.attribute(entry, "accessibilityLabel") as? String, "Add a task", diagnostics)
@@ -85,10 +89,10 @@ final class SurfaceComponentTests: XCTestCase {
         let frame = try XCTUnwrap(microphone.value(forKey: "accessibilityFrame") as? NSValue).rectValue
         XCTAssertGreaterThanOrEqual(frame.width, 28)
         XCTAssertGreaterThanOrEqual(frame.height, 28)
-        XCTAssertTrue(entry.isEditable)
-        XCTAssertTrue(window.makeFirstResponder(entry), diagnostics)
+        XCTAssertTrue(field.isEditable)
+        XCTAssertTrue(window.makeFirstResponder(field), diagnostics)
         let editor = try XCTUnwrap(window.firstResponder as? NSTextView, diagnostics)
-        XCTAssertTrue(entry.currentEditor() === editor, "Typing targets the named field\n\(diagnostics)")
+        XCTAssertTrue(field.currentEditor() === editor, "Typing targets the named field\n\(diagnostics)")
         editor.insertText("A new task", replacementRange: NSRange(location: 0, length: editor.string.utf16.count))
         let enter = try XCTUnwrap(
             NSEvent.keyEvent(
@@ -110,6 +114,104 @@ final class SurfaceComponentTests: XCTestCase {
         XCTAssertEqual(state.dictations, 1)
         XCTAssertEqual(state.submissions, 1)
         XCTAssertEqual(state.text, "A new task")
+    }
+
+    @MainActor func testRenderedFieldsPublishDistinctNamesInsteadOfPrompts() async throws {
+        let app = NSApplication.shared
+        let originalPolicy = app.activationPolicy()
+        app.setActivationPolicy(.accessory)
+        let host = NSHostingView(
+            rootView: VStack {
+                AddField(
+                    "Add a task", text: .constant(""), prompt: "Add a task. Tab makes it a step.", onDictate: {})
+                PerchField("Jot a stray thought", text: .constant(""), prompt: "Nothing planned yet")
+            }.environment(\.accessibilityEnabled, true))
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 400, height: 160),
+            styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = host
+        window.makeKeyAndOrderFront(nil)
+        defer {
+            window.close()
+            app.setActivationPolicy(originalPolicy)
+        }
+        let expected = ["Add a task", "Jot a stray thought"]
+        let nodes = try await Self.readyNodes(in: window) { candidates in
+            expected.allSatisfy { label in
+                candidates.contains {
+                    Self.attribute($0, "accessibilityRole") as? String == "AXTextField"
+                        && Self.attribute($0, "accessibilityLabel") as? String == label
+                }
+            }
+        }
+        let fields = nodes.filter { Self.attribute($0, "accessibilityRole") as? String == "AXTextField" }
+        XCTAssertEqual(fields.count, expected.count, Self.diagnostics(in: window))
+        for label in expected {
+            XCTAssertEqual(fields.filter { Self.attribute($0, "accessibilityLabel") as? String == label }.count, 1)
+        }
+    }
+
+    @MainActor func testNativeFieldIdentityNamesTheCellAndPreservesAdjacentControls() throws {
+        _ = NSApplication.shared
+        let container = NSView(frame: NSRect(x: 0, y: 0, width: 400, height: 120))
+        let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 180, height: 40))
+        field.placeholderString = "Add a task. Tab makes it a step."
+        field.stringValue = "Keep this draft"
+        let neighbor = NSTextField(frame: NSRect(x: 200, y: 0, width: 180, height: 40))
+        neighbor.setAccessibilityLabel("Jot a stray thought")
+        let microphone = NSButton(frame: NSRect(x: 180, y: 0, width: 28, height: 28))
+        microphone.setAccessibilityLabel("Dictate instead")
+        let anchor = SurfaceFieldIdentity.Anchor(frame: field.frame)
+        let children: [NSView] = [field, neighbor, microphone, anchor]
+        for view in children { container.addSubview(view) }
+        anchor.label = "Add a task"
+        anchor.identifierValue = "capture-add-task"
+        anchor.publish()
+        let cell = try XCTUnwrap(field.cell)
+        XCTAssertEqual(field.accessibilityLabel(), "Add a task")
+        XCTAssertEqual(cell.accessibilityLabel(), "Add a task")
+        XCTAssertEqual(cell.accessibilityIdentifier(), "capture-add-task")
+        XCTAssertEqual(field.stringValue, "Keep this draft")
+        XCTAssertEqual(field.placeholderString, "Add a task. Tab makes it a step.")
+        XCTAssertEqual(neighbor.accessibilityLabel(), "Jot a stray thought")
+        XCTAssertEqual(microphone.accessibilityLabel(), "Dictate instead")
+        XCTAssertFalse(anchor.isAccessibilityElement())
+        XCTAssertNil(anchor.hitTest(.zero))
+
+        anchor.label = "Jot a stray thought"
+        anchor.publish()
+        XCTAssertEqual(field.accessibilityLabel(), "Jot a stray thought")
+        XCTAssertEqual(cell.accessibilityLabel(), "Jot a stray thought")
+        XCTAssertEqual(field.stringValue, "Keep this draft")
+    }
+
+    @MainActor func testNativeFieldIdentityRejectsMissingAmbiguousAndNoneditableOwners() {
+        _ = NSApplication.shared
+        let container = NSView(frame: NSRect(x: 0, y: 0, width: 400, height: 120))
+        let first = NSTextField(frame: NSRect(x: 0, y: 0, width: 180, height: 40))
+        let second = NSTextField(frame: first.frame)
+        let anchor = SurfaceFieldIdentity.Anchor(frame: first.frame)
+        anchor.label = "Add a task"
+        anchor.identifierValue = "capture-add-task"
+        container.addSubview(anchor)
+        anchor.publish()
+        container.addSubview(first)
+        container.addSubview(second)
+        anchor.publish()
+        XCTAssertNil(first.accessibilityLabel())
+        XCTAssertNil(second.accessibilityLabel())
+        second.removeFromSuperview()
+        first.isEditable = false
+        anchor.publish()
+        XCTAssertNil(first.accessibilityLabel())
+        first.isEditable = true
+        anchor.frame.origin.x = 220
+        anchor.publish()
+        XCTAssertNil(first.accessibilityLabel())
+        anchor.frame = .zero
+        anchor.publish()
+        XCTAssertNil(first.accessibilityLabel())
     }
 
     @MainActor func testTypedResolverPrefersIdentityAndNeverUsesNoneditableText() {
