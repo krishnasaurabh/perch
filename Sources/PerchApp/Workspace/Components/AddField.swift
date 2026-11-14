@@ -92,7 +92,7 @@ private struct SurfaceTextEntry: View {
             .foregroundStyle(Theme.foreground(.ink, on: surface))
             .focused(editing)
             .focusEffectDisabled()
-            .accessibilityLabel(AppL10n.text(label))
+            .accessibilityLabel(Text(AppL10n.text(label)))
             .onSubmit(onSubmit)
 
             if let onDictate {

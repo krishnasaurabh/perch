@@ -62,7 +62,8 @@ class SurfaceComponentArchitectureTests(unittest.TestCase):
 
     def test_add_field_has_real_label_submit_and_separate_dictation(self):
         source = (COMPONENTS / 'AddField.swift').read_text()
-        for required in ('TextField(', 'Text(AppL10n.text(label))', '.accessibilityLabel(AppL10n.text(label))',
+        for required in ('TextField(', 'Text(AppL10n.text(label))', '.labelsHidden()',
+                         '.accessibilityLabel(Text(AppL10n.text(label)))',
                          'AppL10n.text("Dictate instead")', '.onSubmit(onSubmit)', 'Button(action: onDictate)',
                          '.focused(', 'fieldFocusWidth', 'focusWidth', 'focusGap', '.paper', '.field',
                          'minimumTarget', 'addFieldHeight', 'addFieldRadius'):
