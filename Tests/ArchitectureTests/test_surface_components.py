@@ -72,6 +72,20 @@ class SurfaceComponentArchitectureTests(unittest.TestCase):
         self.assertNotIn('.id(', source)
         self.assertNotIn('.animation(', source)
 
+    def test_capture_fixture_preserves_semantics_with_typed_lookup(self):
+        source = (ROOT / 'Tests/PerchAppTests/SurfaceComponentTests.swift').read_text()
+        for required in ('compactMap { $0 as? NSTextField }', '.filter(\\.isEditable)',
+                         'accessibilityIdentifier() == "capture-add-task"',
+                         'accessibilityLabel() == "Add a task"',
+                         'placeholderString == "Add a task. Tab makes it a step."',
+                         'NSAttributedString', 'attributed.string', 'layoutSubtreeIfNeeded()',
+                         'Surface capture inventory:', 'window.makeFirstResponder(entry)',
+                         '"accessibilityRole") as? String, "AXTextField"',
+                         '"accessibilityLabel") as? String, "Add a task"'):
+            self.assertIn(required, source)
+        self.assertNotIn('if window.firstResponder is NSTextView { break }', source)
+        self.assertIn('"capture-add-task"', (COMPONENTS / 'AddField.swift').read_text())
+
 
 if __name__ == '__main__':
     unittest.main()

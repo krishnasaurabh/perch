@@ -70,6 +70,10 @@ private struct SurfaceTextEntry: View {
     private var surface: PerchSurface { isCapture ? .field : .paper }
     private var editing: FocusState<Bool>.Binding { focus ?? $localFocus }
     private var radius: CGFloat { isCapture ? Theme.Size.addFieldRadius.value : SurfaceMetrics.fieldRadius }
+    private var fieldIdentifier: String {
+        if isCapture { return "capture-add-task" }
+        return "surface-text-field"
+    }
 
     var body: some View {
         HStack(spacing: SurfaceMetrics.gap) {
@@ -93,6 +97,7 @@ private struct SurfaceTextEntry: View {
             .focused(editing)
             .focusEffectDisabled()
             .accessibilityLabel(Text(AppL10n.text(label)))
+            .accessibilityIdentifier(fieldIdentifier)
             .onSubmit(onSubmit)
 
             if let onDictate {

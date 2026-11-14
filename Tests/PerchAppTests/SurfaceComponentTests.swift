@@ -63,18 +63,20 @@ final class SurfaceComponentTests: XCTestCase {
             window.close()
             app.setActivationPolicy(originalPolicy)
         }
-        for _ in 0..<50 {
-            host.layoutSubtreeIfNeeded()
-            if window.firstResponder is NSTextView { break }
-            try await Task.sleep(for: .milliseconds(20))
+        let nodes = try await Self.readyNodes(in: window) { candidates in
+            Self.captureField(in: candidates) != nil
+                && candidates.contains {
+                    Self.attribute($0, "accessibilityRole") as? String == "AXButton"
+                        && Self.attribute($0, "accessibilityLabel") as? String == "Dictate instead"
+                }
         }
-        let nodes = Self.nodes(window)
-        let entry = try XCTUnwrap(
-            nodes.first {
-                Self.attribute($0, "accessibilityRole") as? String == "AXTextField"
-                    && Self.attribute($0, "accessibilityLabel") as? String == "Add a task"
-            })
+        let diagnostics = Self.diagnostics(in: window)
+        print("Surface capture inventory:\n\(diagnostics)")
+        let entry = try XCTUnwrap(Self.captureField(in: nodes), diagnostics)
         XCTAssertNotNil(entry)
+        // A placeholder is only a locator, never a substitute for the accessible name.
+        XCTAssertEqual(Self.attribute(entry, "accessibilityRole") as? String, "AXTextField", diagnostics)
+        XCTAssertEqual(Self.attribute(entry, "accessibilityLabel") as? String, "Add a task", diagnostics)
         let microphone = try XCTUnwrap(
             nodes.first {
                 Self.attribute($0, "accessibilityRole") as? String == "AXButton"
@@ -83,7 +85,10 @@ final class SurfaceComponentTests: XCTestCase {
         let frame = try XCTUnwrap(microphone.value(forKey: "accessibilityFrame") as? NSValue).rectValue
         XCTAssertGreaterThanOrEqual(frame.width, 28)
         XCTAssertGreaterThanOrEqual(frame.height, 28)
-        let editor = try XCTUnwrap(window.firstResponder as? NSTextView)
+        XCTAssertTrue(entry.isEditable)
+        XCTAssertTrue(window.makeFirstResponder(entry), diagnostics)
+        let editor = try XCTUnwrap(window.firstResponder as? NSTextView, diagnostics)
+        XCTAssertTrue(entry.currentEditor() === editor, "Typing targets the named field\n\(diagnostics)")
         editor.insertText("A new task", replacementRange: NSRange(location: 0, length: editor.string.utf16.count))
         let enter = try XCTUnwrap(
             NSEvent.keyEvent(
@@ -106,6 +111,80 @@ final class SurfaceComponentTests: XCTestCase {
         XCTAssertEqual(state.submissions, 1)
         XCTAssertEqual(state.text, "A new task")
     }
+
+    @MainActor func testTypedResolverPrefersIdentityAndNeverUsesNoneditableText() {
+        let decoration = NSTextField(labelWithString: "Add a task")
+        decoration.setAccessibilityIdentifier("capture-add-task")
+        let labeled = NSTextField()
+        labeled.isEditable = true
+        labeled.setAccessibilityLabel("Add a task")
+        let identified = NSTextField()
+        identified.isEditable = true
+        identified.setAccessibilityIdentifier("capture-add-task")
+        let placeholder = NSTextField()
+        placeholder.isEditable = true
+        placeholder.placeholderString = "Add a task. Tab makes it a step."
+        XCTAssertTrue(Self.captureField(in: [decoration, labeled, identified, placeholder]) === identified)
+        XCTAssertTrue(Self.captureField(in: [decoration, labeled, placeholder]) === labeled)
+        XCTAssertTrue(Self.captureField(in: [decoration, placeholder]) === placeholder)
+        XCTAssertNil(Self.captureField(in: [decoration]))
+        // Locating via a prompt must not manufacture an accessible name.
+        XCTAssertNotEqual(Self.attribute(placeholder, "accessibilityLabel") as? String, "Add a task")
+    }
+
+    @MainActor func testAccessibilityTextPreservesPlainAndAttributedNames() {
+        XCTAssertEqual(Self.accessibilityText("Add a task"), "Add a task")
+        XCTAssertEqual(Self.accessibilityText(NSAttributedString(string: "Add a task")), "Add a task")
+        XCTAssertEqual(Self.accessibilityText(NSAttributedString(string: "Dictate instead")), "Dictate instead")
+        XCTAssertNil(Self.accessibilityText(nil))
+        XCTAssertNil(Self.accessibilityText(42))
+    }
+
+    @MainActor private static func captureField(in nodes: [NSObject]) -> NSTextField? {
+        let fields = nodes.compactMap { $0 as? NSTextField }.filter(\.isEditable)
+        if let identified = fields.first(where: { $0.accessibilityIdentifier() == "capture-add-task" }) {
+            return identified
+        }
+        if let labeled = fields.first(where: { $0.accessibilityLabel() == "Add a task" }) {
+            return labeled
+        }
+        return fields.first { $0.placeholderString == "Add a task. Tab makes it a step." }
+    }
+
+    private static func accessibilityText(_ value: Any?) -> String? {
+        if let attributed = value as? NSAttributedString { return attributed.string }
+        return value as? String
+    }
+
+    @MainActor private static func readyNodes(
+        in window: NSWindow, matching predicate: ([NSObject]) -> Bool
+    ) async throws -> [NSObject] {
+        for _ in 0..<100 {
+            window.contentView?.layoutSubtreeIfNeeded()
+            let candidates = nodes(window)
+            if predicate(candidates) { return candidates }
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        XCTFail("Named surface controls did not become ready.\n\(diagnostics(in: window))")
+        throw SurfaceTestError.notReady
+    }
+
+    @MainActor private static func diagnostics(in window: NSWindow) -> String {
+        let responder = window.firstResponder.map { String(describing: type(of: $0)) } ?? "nil"
+        let observed = nodes(window).map { node in
+            let native =
+                (node as? NSTextField).map {
+                    "editable=\($0.isEditable) placeholder=\($0.placeholderString ?? "nil")"
+                } ?? ""
+            return "\(type(of: node)) role=\(attribute(node, "accessibilityRole") ?? "nil") "
+                + "label=\(attribute(node, "accessibilityLabel") ?? "nil") "
+                + "title=\(attribute(node, "accessibilityTitle") ?? "nil") "
+                + "id=\(attribute(node, "accessibilityIdentifier") ?? "nil") \(native)"
+        }.joined(separator: "\n")
+        return "key=\(window.isKeyWindow) visible=\(window.isVisible) firstResponder=\(responder)\n\(observed)"
+    }
+
+    private enum SurfaceTestError: Error { case notReady }
 
     @MainActor private static func measure<V: View>(_ view: V) -> CGSize {
         _ = NSApplication.shared
@@ -136,7 +215,10 @@ final class SurfaceComponentTests: XCTestCase {
 
     @MainActor private static func attribute(_ node: NSObject, _ name: String) -> Any? {
         let selector = NSSelectorFromString(name)
-        return node.responds(to: selector) ? node.perform(selector)?.takeUnretainedValue() : nil
+        guard node.responds(to: selector) else { return nil }
+        let value = node.perform(selector)?.takeUnretainedValue()
+        if let text = accessibilityText(value) { return text }
+        return value
     }
 
     @MainActor private static func nodes(_ root: NSObject) -> [NSObject] {
