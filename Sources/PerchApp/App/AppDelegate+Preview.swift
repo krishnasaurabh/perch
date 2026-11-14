@@ -20,6 +20,7 @@ import SwiftUI
                 "history": .window("dashboard") { DashboardWindow.show(store: $0.store, tab: .history) },
                 "projects": .window("dashboard") { DashboardWindow.show(store: $0.store, tab: .projects) },
                 "surfaces": .window("surface-preview") { _ in SurfacePreview.show(focused: false) },
+                "gallery": .window("gallery") { _ in GalleryPage.show() },
                 "surfaces-focused": .window("surface-preview") { _ in SurfacePreview.show(focused: true) },
             ]
         }
