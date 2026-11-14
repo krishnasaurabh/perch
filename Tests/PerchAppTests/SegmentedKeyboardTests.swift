@@ -30,7 +30,7 @@
             let check = SegmentedKeyboardCheck()
             // Preserve the former scenario's 60-second deadline now that it runs in XCTest.
             try await withThrowingTaskGroup(of: Void.self) { group in
-                group.addTask { @MainActor in try await check.run() }
+                group.addTask { try await check.run() }
                 group.addTask {
                     try await Task.sleep(for: .seconds(60))
                     throw SegmentedKeyboardFailure(message: "Native segmented keyboard check exceeded 60 seconds")
