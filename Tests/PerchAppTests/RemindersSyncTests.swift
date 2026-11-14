@@ -167,7 +167,10 @@ final class RemindersSyncTests: XCTestCase {
         let store = PlannerStore(
             file: PlannerFile(url: root.appendingPathComponent("planner.json")), now: { now }, watching: false)
         store.beginApplication()
-        store.updatePrefs { $0.remindersSync = true }
+        store.updatePrefs {
+            $0.remindersSync = true
+            $0.carryMode = .ask
+        }
         _ = store.send(.addTasks(["Synthetic"], day: nil, literal: true, agentID: nil))
         let source = FakeReminders(), ledger = TestReminderLedger(), scheduler = ReminderTestScheduler()
         ledger.ledger.enabled = true

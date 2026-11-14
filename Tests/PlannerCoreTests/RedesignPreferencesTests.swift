@@ -62,6 +62,62 @@ final class RedesignPreferencesTests: XCTestCase {
         }
     }
 
+    func testCompletionErrorUsesConfiguredDayBoundary() throws {
+        let day: DayKey = "2026-11-09"
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = try XCTUnwrap(TimeZone(identifier: "UTC"))
+        var planner = Planner()
+        let task = PlanTask(title: "Sample task", day: day, done: true)
+        planner.tasks = [task]
+        var beforeBoundary = PlannerEngine(
+            planner: planner, now: { day.date(calendar: calendar) }, calendar: calendar)
+        XCTAssertEqual(beforeBoundary.today, day.adding(days: -1, calendar: calendar))
+        XCTAssertThrowsError(try beforeBoundary.complete(task.id)) { error in
+            XCTAssertEqual(
+                (error as? PlannerError)?.message, "Reschedule this task for today before completing it.")
+        }
+
+        let start = day.start(resetHour: planner.preferences.resetHour, calendar: calendar)
+        var atBoundary = PlannerEngine(planner: planner, now: { start }, calendar: calendar)
+        XCTAssertEqual(atBoundary.today, day)
+        XCTAssertThrowsError(try atBoundary.complete(task.id)) { error in
+            XCTAssertEqual((error as? PlannerError)?.message, "Already completed: Sample task.")
+            XCTAssertEqual((error as? PlannerError)?.presentationKey, "Already completed: %@.")
+            XCTAssertEqual((error as? PlannerError)?.presentationArguments, ["Sample task"])
+        }
+    }
+
+    func testRolloverKeepsSavedAskPolicyAndUsesAutoOnlyWhenMissing() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        for saved in [[:], ["carryMode": "ask"]] {
+            let planner = try legacy(saved)
+            let file = PlannerFile(
+                url: directory.appendingPathComponent("\(planner.preferences.carryMode.rawValue).json"),
+                preferences: MemoryPlannerPreferences())
+            try file.save(planner)
+            var now = Fixture.now
+            let pipeline = PlannerCommandPipeline(
+                file: file, clock: ClosurePlannerClock { now }, calendar: Fixture.calendar)
+            try pipeline.execute(.lifecycle(.launch), origin: .background)
+            let added = try pipeline.execute(
+                .addTasks(["Synthetic"], day: nil, literal: true, agentID: nil), origin: .user)
+            let tasks = added.state.tasks
+            now = Fixture.date("2026-11-10 15:00")
+            let rolled = try pipeline.execute(.lifecycle(.dayChanged), origin: .background)
+            XCTAssertEqual(rolled.state.preferences.carryMode, planner.preferences.carryMode)
+            if saved.isEmpty {
+                XCTAssertEqual(rolled.state.tasks.count, 2)
+                XCTAssertEqual(rolled.state.tasks.first, tasks.first)
+                XCTAssertEqual(rolled.state.tasks.last?.carriedTaskID, tasks.first?.id)
+                XCTAssertEqual(rolled.state.tasks.last?.day, "2026-11-10")
+            } else {
+                XCTAssertEqual(rolled.state.tasks, tasks)
+            }
+            XCTAssertEqual(try file.load(), rolled.state)
+        }
+    }
+
     func testMalformedPresentValuesDoNotSilentlyResetPreferences() throws {
         let saved = try object(Data(savedJSON.utf8))
         for key in saved.keys.sorted() where key != "showOnDisplay" {
