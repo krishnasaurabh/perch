@@ -115,6 +115,9 @@ enum KeysWindow {
     }
 }
 
+/// First responders that record a chord own it before application shortcuts.
+protocol KeysShortcutInputOwner: AnyObject {}
+
 @MainActor
 final class KeysShortcutRouter {
     private weak var store: PlannerStore?
@@ -184,10 +187,11 @@ final class KeysShortcutRouter {
     @discardableResult
     func handle(_ event: NSEvent) -> Bool {
         guard let window = event.window, window === NSApp.keyWindow else { return false }
+        guard !(window.firstResponder is KeysShortcutInputOwner) else { return false }
         eventWindow = window
         defer { eventWindow = nil }
         let context: KeyMap.Context
-        if window.attachedSheet != nil || NSApp.modalWindow != nil {
+        if window.attachedSheet != nil || NSApp.modalWindow != nil || window.isSheet || window.sheetParent != nil {
             context = .modal
         } else if window.firstResponder is NSTextView {
             context = .textEditing

@@ -31,6 +31,21 @@ class KeysContractTests(unittest.TestCase):
         self.assertIn('window === NSApp.keyWindow', native)
         self.assertIn('NSEvent.removeMonitor(monitor)', native)
 
+    def test_shortcut_recorder_keeps_exclusive_input(self):
+        source = (ROOT / 'Sources/PerchApp/Settings/KeysView.swift').read_text()
+        recorder = (ROOT / 'Sources/PerchApp/Settings/ShortcutPreferenceRow.swift').read_text()
+        self.assertIn('window.firstResponder is KeysShortcutInputOwner', source)
+        self.assertIn('extension ShortcutRecorderView: KeysShortcutInputOwner {}', recorder)
+        tests = (ROOT / 'Tests/PerchAppTests/KeysWindowTests.swift').read_text()
+        self.assertIn('testInstalledMonitorLeavesShortcutRecordingInControl', tests)
+
+    def test_document_modal_sheet_keeps_exclusive_input(self):
+        source = (ROOT / 'Sources/PerchApp/Settings/KeysView.swift').read_text()
+        self.assertIn('window.isSheet', source)
+        self.assertIn('window.sheetParent != nil', source)
+        tests = (ROOT / 'Tests/PerchAppTests/KeysWindowTests.swift').read_text()
+        self.assertIn('testInstalledMonitorLeavesTaskDetailsSheetInControl', tests)
+
     def test_sheet_reads_only_the_portable_catalog(self):
         source = (ROOT / 'Sources/PerchApp/Settings/KeysView.swift').read_text()
         self.assertIn('ForEach(KeyMap.columns[column])', source)
