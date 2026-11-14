@@ -17,7 +17,7 @@ var targets: [Target] = [
     .target(
         name: "PerchUI", dependencies: ["PlannerCore"],
         exclude: localizationExcludes,
-        resources: localizationResources
+        resources: localizationResources + [.copy("Resources/Fonts")]
     ),
     .target(name: "PerchReminders", dependencies: ["PlannerCore"]),
     .testTarget(name: "PerchRemindersTests", dependencies: ["PerchReminders", "PlannerCore"]),

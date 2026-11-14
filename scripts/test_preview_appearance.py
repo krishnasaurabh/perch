@@ -97,7 +97,7 @@ func selections() -> [Pairing] {
     return result
 }
 print(String(decoding: try JSONEncoder().encode(selections()), as: UTF8.self))
-'''.replace("TOKENS", (ROOT / "Sources/PerchUI/ThemeTokens.swift").read_text()).replace(
+'''.replace("TOKENS", "\n".join(path.read_text() for path in sorted((ROOT / "Sources/PerchUI").glob("*Tokens.swift")))).replace(
             "THEME", theme_source).replace("TONE", tone_source).replace("HELPER", helper).replace(
             "PREFERRED", preferred.group(1)).replace("ENVIRONMENT", environment.group(1)).replace(
             "CARD", card_scheme.group(1)).replace("SHELL_FILL", shell_fill.group(1))

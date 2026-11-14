@@ -1,4 +1,5 @@
 import AppKit
+import PerchUI
 import SwiftUI
 
 // MARK: - Motion tokens
@@ -24,8 +25,30 @@ enum Motion {
     /// One Insights bar growing from the baseline: spring R 0.30, ζ 1 (≈ 200 ms), staggered 130 ms left to right.
     static let bar = Animation.spring(response: 0.30, dampingFraction: 1.0)
     static let barStagger = 0.13
-    /// Reserved for opacity-only effects. Never substitute this on a layout/scale transaction.
+    /// Legacy opacity-only effect. New components use designMotion's 120 ms fade.
+    /// Never substitute this on a layout/scale transaction.
     static let reduced = Animation.easeInOut(duration: 0.15)
+
+    /// Token curves for new components. Spatial changes must use designMotion so
+    /// reduced mode can isolate the opacity transition from the changing layout.
+    static func token(_ token: DesignTokens.MotionToken) -> Animation {
+        let plan = token.plan(reduceMotion: false)
+        if plan.curve == .spring {
+            let spring = DesignTokens.Motion.spring
+            return .spring(response: spring.response, dampingFraction: spring.dampingFraction)
+        }
+        return .easeOut(duration: plan.duration)
+    }
+
+    /// Only the opacity presentation is keyframed; the wrapped view stays mounted.
+    /// Triggered keyframes run once and do not re-enable descendant spatial animations.
+    @KeyframesBuilder<Double>
+    static func fadeKeyframes(reduceMotion: Bool) -> some Keyframes<Double> {
+        KeyframeTrack {
+            MoveKeyframe(reduceMotion ? 0.0 : 1.0)
+            LinearKeyframe(1.0, duration: DesignTokens.Motion.reducedFade, timingCurve: .easeOut)
+        }
+    }
 
     static var reduceMotion: Bool { MotionPolicy.system.reduceMotion }
     static func resolved(_ a: Animation) -> Animation? { MotionPolicy.system.animation(a) }
@@ -43,7 +66,7 @@ enum Motion {
 }
 
 /// One policy for explicit updates, implicit view animations and notch choreography.
-/// Reduced mode intentionally omits the optional 150 ms opacity fade: no layout, scale,
+/// Legacy spatial transactions intentionally omit the optional opacity fade: no layout, scale,
 /// travel or repeating effects may ride on a transaction intended only for opacity.
 struct MotionPolicy: Equatable, Sendable {
     let reduceMotion: Bool
@@ -113,6 +136,12 @@ extension View {
         modifier(MotionModifier(animation: a, value: value))
     }
 
+    /// Token-based changes fade in over 120 ms in reduced mode, without replacing
+    /// the component or its local state. Apply to a bounded component, not a whole list.
+    func designMotion<V: Equatable>(_ token: DesignTokens.MotionToken, value: V) -> some View {
+        modifier(DesignMotionModifier(token: token, value: value))
+    }
+
     /// Place outside the animated subtree so descendants cannot re-enable interpolation.
     func motionBoundary() -> some View { modifier(MotionBoundary()) }
 }
@@ -124,6 +153,24 @@ private struct MotionModifier<V: Equatable>: ViewModifier {
     func body(content: Content) -> some View {
         content.animation(policy.animation(animation), value: value)
             .transaction { policy.enforce(on: &$0) }
+    }
+}
+
+private struct DesignMotionModifier<V: Equatable>: ViewModifier {
+    let token: DesignTokens.MotionToken
+    let value: V
+    @Environment(\.motionPolicy) private var policy
+
+    func body(content: Content) -> some View {
+        let reduceMotion = policy.reduceMotion
+        content
+            .animation(policy.animation(Motion.token(token)), value: value)
+            .transaction { policy.enforce(on: &$0) }
+            .keyframeAnimator(initialValue: 1.0, trigger: value) { content, opacity in
+                content.opacity(reduceMotion ? opacity : 1)
+            } keyframes: { _ in
+                Motion.fadeKeyframes(reduceMotion: reduceMotion)
+            }
     }
 }
 
