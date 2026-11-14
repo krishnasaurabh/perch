@@ -219,7 +219,7 @@ def main():
     ui_document = catalog(ui_keys)
     write_or_check(UI_CATALOG, ui_document, args.check)
     write_or_check(UI_CATALOG.with_suffix('.json'), ui_document, args.check)
-    app_document = catalog(app_keys)
+    app_document = catalog(app_keys | set(json.loads(APP_CATALOG.read_text())["strings"]))  # Preserve published keys.
     write_or_check(APP_CATALOG, app_document, args.check)
     write_or_check(APP_CATALOG.with_suffix('.json'), app_document, args.check)
     write_or_check(BUNDLED_CATALOG, app_document, args.check)

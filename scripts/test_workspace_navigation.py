@@ -301,6 +301,7 @@ try await FocusLifecycle().run()
     def test_more_menu_routes_actions_and_clears_retained_callbacks(self):
         source = (ROOT / "Sources/PerchApp/Workspace/WorkspaceView.swift").read_text()
         anchor = source.split("@MainActor\nprivate final class WorkspaceMenuAnchorView", 1)[1].split("struct IDBox:", 1)[0]
+        anchor = anchor.replace("        DashboardWindow.installMenuItems(in: menu, open: dashboard)\n", "")  # Tab routing is covered by DashboardUndoTests.
         # Adapt only Objective-C dispatch; this is not an AppKit runtime test.
         anchor = anchor.replace("#selector(performMenuAction(_:))", '"performMenuAction:"').replace("@objc ", "")
         program = """

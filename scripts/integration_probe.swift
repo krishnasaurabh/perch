@@ -574,7 +574,7 @@ func checkSettingsFailure(
 
 @MainActor
 func checkDashboardMatrix(_ fixture: MatrixFixture, output: URL) async throws {
-    DashboardWindow.show(store: fixture.store, tab: .upcoming)
+    DashboardWindow.show(store: fixture.store, tab: .yourWeek)
     guard let window = WindowHost.windows["dashboard"], let host = window.contentView else {
         matrixRequire(false, "dashboard window opens")
         return
@@ -582,14 +582,12 @@ func checkDashboardMatrix(_ fixture: MatrixFixture, output: URL) async throws {
     defer { window.close() }
     await matrixSettle(1.0)
     matrixRequire(window.isKeyWindow, "dashboard window owns the key window")
-    let picker = matrixViews(host).compactMap { $0 as? NSSegmentedControl }.first {
-        $0.segmentCount == DashboardView.Tab.allCases.count
-    }
-    matrixRequire(picker != nil, "dashboard exposes its native tab control")
+    let picker = DashboardKeyLoop.tabKeyView(in: window)
+    matrixRequire(picker != nil, "dashboard exposes its selected tab key view")
     guard let picker else { return }
     matrixRequire(window.makeFirstResponder(picker), "dashboard tab control accepts keyboard focus")
     let tabs: [(DashboardView.Tab, String)] = [
-        (.upcoming, "matrix future errand"), (.history, "matrix history beta"), (.insights, "planned vs"),
+        (.yourWeek, "planned vs"), (.history, "matrix history beta"),
         (.projects, "delete project"),
     ]
     for (index, (tab, marker)) in tabs.enumerated() {
@@ -599,8 +597,8 @@ func checkDashboardMatrix(_ fixture: MatrixFixture, output: URL) async throws {
         }
         let text = try matrixText(host, name: "dashboard-\(tab.rawValue)", output: output)
         matrixRequire(
-            picker.selectedSegment == index, "dashboard keyboard selects the \(tab.rawValue) tab",
-            "selectedSegment=\(picker.selectedSegment)")
+            DashboardWindow.selection?.tab == tab, "dashboard keyboard selects the \(tab.rawValue) tab",
+            "selected tab=\(String(describing: DashboardWindow.selection?.tab))")
         matrixRequire(text.contains(marker), "dashboard \(tab.rawValue) tab renders its content", text)
         if tab == .history {
             // Task lines: a typed search narrows the history list.
@@ -617,7 +615,9 @@ func checkDashboardMatrix(_ fixture: MatrixFixture, output: URL) async throws {
                 filtered.contains("matrix history alpha") && !filtered.contains("matrix history beta"),
                 "typed history search filters the task lines", filtered)
             await matrixKey(window, 48, "\t", .shift)
-            matrixRequire(window.firstResponder === picker, "Shift-Tab returns focus to the dashboard tabs")
+            matrixRequire(
+                window.firstResponder === DashboardKeyLoop.tabKeyView(in: window),
+                "Shift-Tab returns focus to the dashboard tabs")
         }
     }
     // Project action: Tab to Delete project, Space deletes, Command-Z restores it.
