@@ -90,14 +90,89 @@ Reader.verify()
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             self.assertIn("Welcome accessibility text: 6 cases passed", result.stdout)
 
+    def test_native_event_fixture_checks_copied_payload_and_current_identity(self):
+        source = (ROOT / "Tests/PerchAppTests/NotchClickOpeningTests.swift").read_text()
+        dispatch = declaration(source, "@MainActor private static func dispatchQueuedEvent(")
+        program = r'''import Foundation
+#if canImport(CoreGraphics)
+import CoreGraphics
+#endif
+final class NSEvent {
+    enum EventType: Int { case leftMouseDown, leftMouseUp, keyDown, keyUp }
+    struct EventTypeMask { let rawValue: Int }
+    let type: EventType
+    var timestamp: Double = 12
+    let windowNumber = 5
+    let locationInWindow = CGPoint(x: 50, y: 50)
+    let modifierFlags = 0
+    let clickCount = 2
+    let characters: String? = " "
+    let keyCode = 49
+    init(type: EventType) { self.type = type }
+}
+@MainActor enum NSApp {
+    static var currentEvent: NSEvent?
+    static var queued: NSEvent?
+    static var sent: NSEvent?
+    static func postEvent(_ event: NSEvent, atStart: Bool) {
+        precondition(atStart)
+        let copy = NSEvent(type: event.type)
+        copy.timestamp = event.timestamp + (CommandLine.arguments.contains("--corrupt") ? 1 : 0)
+        queued = copy
+    }
+    static func nextEvent(matching: NSEvent.EventTypeMask, until: Date,
+                          inMode: RunLoop.Mode, dequeue: Bool) -> NSEvent? {
+        precondition(dequeue && matching.rawValue == 1 << queued!.type.rawValue)
+        currentEvent = queued
+        queued = nil
+        return currentEvent
+    }
+    static func sendEvent(_ event: NSEvent) { precondition(currentEvent === event); sent = event }
+}
+func XCTAssertTrue(_ value: Bool, _ message: String = "") { precondition(value, message) }
+func XCTAssertEqual<T: Equatable>(_ left: T, _ right: T) {
+    precondition(left == right, "Submitted payload mismatch")
+}
+func XCTUnwrap<T>(_ value: T?) throws -> T { precondition(value != nil); return value! }
+struct Fixture {
+''' + dispatch + r'''
+    @MainActor static func run() throws {
+        for type in [NSEvent.EventType.leftMouseDown, .leftMouseUp, .keyDown, .keyUp] {
+            let original = NSEvent(type: type)
+            try dispatchQueuedEvent(original)
+            precondition(NSApp.sent !== original, "The test must really copy the event")
+            precondition(NSApp.sent === NSApp.currentEvent)
+        }
+        print("Copied event payload and dequeued identity passed")
+    }
+}
+try Fixture.run()
+'''
+        swift = shutil.which("swiftc")
+        if swift is None:
+            self.fail("Swift is required to exercise the copied-event fixture")
+        with tempfile.TemporaryDirectory() as folder:
+            main = Path(folder) / "main.swift"
+            binary = Path(folder) / "event-copy"
+            main.write_text(program)
+            compiled = subprocess.run([swift, "-swift-version", "6", str(main), "-o", str(binary)],
+                                      capture_output=True, text=True, timeout=60)
+            self.assertEqual(compiled.returncode, 0, compiled.stderr)
+            result = subprocess.run([str(binary)], capture_output=True, text=True, timeout=30)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            corrupt = subprocess.run([str(binary), "--corrupt"], capture_output=True, text=True, timeout=30)
+            self.assertNotEqual(corrupt.returncode, 0)
+            self.assertIn("Submitted payload mismatch", corrupt.stderr)
+
     def test_native_event_fixture_dequeues_before_dispatch(self):
         source = (ROOT / "Tests/PerchAppTests/NotchClickOpeningTests.swift").read_text()
         dispatch = declaration(source, "private static func dispatchQueuedEvent(")
         self.assertLess(dispatch.index("NSApp.postEvent("), dispatch.index("NSApp.nextEvent("))
         self.assertLess(dispatch.index("NSApp.nextEvent("), dispatch.index("NSApp.sendEvent("))
         self.assertIn("dequeue: true", dispatch)
-        self.assertIn("dequeued === event", dispatch)
-        self.assertIn("NSApp.currentEvent === event", dispatch)
+        for field in ("type", "timestamp", "windowNumber", "locationInWindow", "modifierFlags", "clickCount"):
+            self.assertIn(f"XCTAssertEqual(dequeued.{field}, event.{field})", dispatch)
+        self.assertIn("NSApp.currentEvent === dequeued", dispatch)
         self.assertIn("try Self.dispatchQueuedEvent(event)", source)
         for assertion in (
             "XCTAssertTrue(delivered", "XCTAssertEqual(NSApp.currentEvent?.type, event.type",

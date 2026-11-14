@@ -65,9 +65,25 @@ struct SettingsView: View {
         Binding(get: { store.prefs[keyPath: kp] }, set: { v in store.updatePrefs { $0[keyPath: kp] = v } })
     }
 
+    /// Bridge the legacy picker at its UI boundary; hover keeps the independent click choice.
+    static func openingPreference(store: PlannerStore) -> Binding<NotchOpenTrigger> {
+        Binding(
+            get: { store.prefs.notchOpenTrigger },
+            set: { choice in
+                store.updatePrefs {
+                    $0.notchOpenTrigger = choice
+                    switch choice {
+                    case .click: $0.notchClickToOpen = true
+                    case .doubleClick: $0.notchClickToOpen = false
+                    default: break
+                    }
+                }
+            })
+    }
+
     @ViewBuilder var general: some View {
         Section("Opening") {
-            Picker("Open the notch on", selection: pref(\.notchOpenTrigger)) {
+            Picker("Open the notch on", selection: Self.openingPreference(store: store)) {
                 Text("Hover").tag(NotchOpenTrigger.hover)
                 Text("Click").tag(NotchOpenTrigger.click)
                 Text("Double-click").tag(NotchOpenTrigger.doubleClick)

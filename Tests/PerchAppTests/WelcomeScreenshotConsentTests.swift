@@ -108,7 +108,7 @@ final class WelcomeScreenshotConsentTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: root) }
         _ = NSApplication.shared
         let previousPolicy = NSApp.activationPolicy()
-        NSApp.setActivationPolicy(.accessory)
+        NSApp.setActivationPolicy(.regular)
         defer { NSApp.setActivationPolicy(previousPolicy) }
         let store = makeStore(root)
         let before = store.prefs

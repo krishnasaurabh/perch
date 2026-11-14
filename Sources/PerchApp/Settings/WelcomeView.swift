@@ -52,6 +52,7 @@ struct WelcomeView: View {
                         .frame(width: Metrics.rightWidth)
                     }
                     .padding(Metrics.padding - Theme.Size.windowPadding.value)
+                    .accessibilityElement(children: .contain)
                 }
                 .frame(minWidth: max(Metrics.width, geometry.size.width), minHeight: geometry.size.height)
             }
