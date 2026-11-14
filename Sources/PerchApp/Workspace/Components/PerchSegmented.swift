@@ -84,6 +84,8 @@ struct PerchSegmented<Value: Hashable>: View {
         }
         .onChange(of: selection) { _, value in restoreFocus(value) }
         .onKeyPress(.tab) { leaveGroup() }
+        // AppKit delivers Shift-Tab as back-tab, not as the Tab character.
+        .onKeyPress(KeyEquivalent("\u{19}")) { leaveGroup() }
         .onChange(of: enabled) { _, value in
             if !value {
                 _ = leaveGroup()

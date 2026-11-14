@@ -56,6 +56,7 @@
             } while !window.isKeyWindow && ContinuousClock.now < deadline
             try require(window.isKeyWindow, "The keyboard fixture must own the key window")
             log("Full keyboard access: \(NSApp.isFullKeyboardAccessEnabled)")
+            try require(NSApp.isFullKeyboardAccessEnabled, "The fixture requires effective full keyboard access")
             try require(window.makeFirstResponder(driver.before), "Focus the native positive control")
             await settle()
             try assertEditor(driver.before)
@@ -186,6 +187,9 @@
         }
 
         private func assertEditor(_ field: NSTextField) throws {
+            log(
+                "Native field=\(field.stringValue); editor=\(String(describing: field.currentEditor())); responder=\(String(describing: window.firstResponder)); focused=\(segmentNodes().filter { boolean($0, "isAccessibilityFocused") == true }.map { label($0) ?? "nil" })"
+            )
             try require(
                 field.currentEditor() != nil && field.currentEditor() === window.firstResponder,
                 "The intended native field must retain actual first responder")
@@ -323,9 +327,25 @@
                 bin_path = subprocess.check_output([
                     'swift', 'build', '--show-bin-path', '--package-path', package,
                 ], text=True, timeout=30).strip()
-                subprocess.run([
-                    str(pathlib.Path(bin_path) / 'Perch'), '-AppleKeyboardUIMode', '3',
-                ], check=True, timeout=60)
+                previous = subprocess.run([
+                    'defaults', 'read', '-g', 'AppleKeyboardUIMode',
+                ], capture_output=True, text=True, timeout=10)
+                try:
+                    subprocess.run([
+                        'defaults', 'write', '-g', 'AppleKeyboardUIMode', '-int', '3',
+                    ], check=True, timeout=10)
+                    subprocess.run([
+                        str(pathlib.Path(bin_path) / 'Perch'), '-AppleKeyboardUIMode', '3',
+                    ], check=True, timeout=60)
+                finally:
+                    if previous.returncode == 0:
+                        subprocess.run([
+                            'defaults', 'write', '-g', 'AppleKeyboardUIMode', '-int', previous.stdout.strip(),
+                        ], check=True, timeout=10)
+                    else:
+                        subprocess.run([
+                            'defaults', 'delete', '-g', 'AppleKeyboardUIMode',
+                        ], check=True, timeout=10)
                 """#, temporary.path,
             ]
             process.currentDirectoryURL = temporary

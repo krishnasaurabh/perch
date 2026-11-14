@@ -42,7 +42,8 @@ struct PerchSwitch: View {
         .focusEffectDisabled()
         .accessibilityRepresentation {
             Toggle(AppL10n.text(title), isOn: $isOn)
-                .toggleStyle(.switch)
+                .toggleStyle(.checkbox)
+                .accessibilityLabel(AppL10n.text(title))
                 .disabled(!enabled)
         }
     }

@@ -1,0 +1,67 @@
+"""Guards for explicit switch semantics and back-tab focus cancellation."""
+from pathlib import Path
+import subprocess
+import sys
+import textwrap
+import unittest
+from unittest.mock import patch
+
+ROOT = Path(__file__).resolve().parents[2]
+COMPONENTS = ROOT / "Sources/PerchApp/Workspace/Components"
+
+
+class ControlNativeRegressionTests(unittest.TestCase):
+    def test_switch_names_the_actionable_toggle_with_checkbox_semantics(self):
+        source = (COMPONENTS / "PerchSwitch.swift").read_text()
+        representation = source.split(".accessibilityRepresentation {", 1)[1]
+        self.assertIn(".accessibilityLabel(AppL10n.text(title))", representation)
+        self.assertIn(".toggleStyle(.checkbox)", representation)
+        self.assertIn(".disabled(!enabled)", representation)
+
+    def test_back_tab_invalidates_deferred_focus_like_forward_tab(self):
+        source = (COMPONENTS / "PerchSegmented.swift").read_text()
+        self.assertIn(".onKeyPress(.tab) { leaveGroup() }", source)
+        self.assertIn(r'.onKeyPress(KeyEquivalent("\u{19}")) { leaveGroup() }', source)
+
+    def test_native_probe_requires_effective_keyboard_access_and_restores_preference(self):
+        source = (ROOT / "Tests/PerchAppTests/SegmentedKeyboardTests.swift").read_text()
+        self.assertIn('try require(NSApp.isFullKeyboardAccessEnabled,', source)
+        self.assertIn("'defaults', 'write', '-g', 'AppleKeyboardUIMode', '-int', '3'", source)
+        self.assertIn("finally:", source)
+        self.assertIn("'defaults', 'delete', '-g', 'AppleKeyboardUIMode'", source)
+        self.assertIn("previous.returncode == 0", source)
+        self.assertIn('"Native field=', source)
+
+    def test_native_launcher_restores_setting_on_success_failure_and_timeout(self):
+        source = (ROOT / "Tests/PerchAppTests/SegmentedKeyboardTests.swift").read_text()
+        program = textwrap.dedent(source.split('#"""', 1)[1].split('"""#', 1)[0])
+        for had_setting in (False, True):
+            for failure in (None, subprocess.CalledProcessError(1, "Perch"),
+                            subprocess.TimeoutExpired("Perch", 60)):
+                with self.subTest(had_setting=had_setting, failure=type(failure).__name__):
+                    calls = []
+
+                    def run(arguments, **kwargs):
+                        calls.append(arguments)
+                        if arguments[:2] == ["defaults", "read"]:
+                            return subprocess.CompletedProcess(arguments, 0 if had_setting else 1, "2\n", "")
+                        if arguments[0].endswith("/Perch") and failure is not None:
+                            raise failure
+                        return subprocess.CompletedProcess(arguments, 0)
+
+                    with patch.object(subprocess, "run", side_effect=run), \
+                         patch.object(subprocess, "check_output", return_value="/fixture/bin\n"), \
+                         patch.object(sys, "argv", ["launcher", "/fixture/package"]):
+                        if failure is None:
+                            exec(compile(program, "<native-launcher>", "exec"), {})
+                        else:
+                            with self.assertRaises(type(failure)):
+                                exec(compile(program, "<native-launcher>", "exec"), {})
+                    self.assertIn(["defaults", "write", "-g", "AppleKeyboardUIMode", "-int", "3"], calls)
+                    expected = (["defaults", "write", "-g", "AppleKeyboardUIMode", "-int", "2"]
+                                if had_setting else ["defaults", "delete", "-g", "AppleKeyboardUIMode"])
+                    self.assertEqual(calls[-1], expected)
+
+
+if __name__ == "__main__":
+    unittest.main()
