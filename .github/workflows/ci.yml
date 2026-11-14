@@ -68,6 +68,8 @@ jobs:
         run: python3 -m unittest discover -s scripts -p test_check_localization.py
       - name: Motion evidence classification regression
         run: python3 -m unittest discover -s scripts -p test_motion_evidence.py
+      - name: Redesign snapshot runner regression
+        run: python3 -m unittest discover -s scripts -p test_redesign_shots.py
       - name: Domain, MCP and portable UI tests
         run: |
           python3 -m unittest discover -s Tests/ArchitectureTests
@@ -234,6 +236,17 @@ jobs:
             PID=$!; sleep 5; kill $PID || true; wait $PID 2>/dev/null || true
             ls $OUT/*.png || { echo "no snapshot for $name"; exit 1; }
           done
+      - name: Redesign snapshots (light, dark and Reduce Motion at 2x)
+        if: ${{ !cancelled() && steps.restore.outcome == 'success' }}
+        timeout-minutes: 4
+        run: bash scripts/redesign_shots.sh "$RUNNER_TEMP/redesign-shots"
+      - name: Upload redesign snapshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: redesign-shots
+          path: ${{ runner.temp }}/redesign-shots
+          if-no-files-found: error
       - name: Home cards legibility (exact timer value, default and dot-matrix faces, heavy notepad)
         if: ${{ !cancelled() && steps.restore.outcome == 'success' }}
         run: bash scripts/homecards_shots.sh "$RUNNER_TEMP/notch/homecards"

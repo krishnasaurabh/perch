@@ -19,9 +19,11 @@
     @MainActor
     enum MotionScript {
         private static var runner: Runner?
-        // Ordinary launches retain live OS policy; two explicit flags are required.
+        // Ordinary launches retain live OS policy; preview overrides are explicit.
         nonisolated static var policyOverride: MotionPolicy? {
             let args = CommandLine.arguments
+            if args.contains("--reduce-motion") { return MotionPolicy(reduceMotion: true) }
+            if args.contains("--redesign-shots") { return MotionPolicy(reduceMotion: false) }
             guard args.contains("--motion-script"), let i = args.firstIndex(of: "--motion-policy"), i + 1 < args.count
             else { return nil }
             switch args[i + 1] {
