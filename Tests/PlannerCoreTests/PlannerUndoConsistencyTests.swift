@@ -200,6 +200,24 @@ final class PlannerUndoConsistencyTests: XCTestCase {
         XCTAssertEqual(try file.load().parkedThoughts, [thoughts[3], thoughts[2], external])
     }
 
+    func testMixedParkingUndoKeepsExternalDeletionWithoutLosingRestoredOrder() throws {
+        let thoughts = try seedThoughts()
+        let task = try pipeline.perform(origin: .user) { commands in
+            let task = try commands.promoteThought(thoughts[1].id)
+            try commands.removeThought(thoughts[0].id)
+            return task
+        }.value
+        try pipeline.execute(.removeThought(thoughts[3].id), origin: .background)
+        for _ in 0..<2 {
+            _ = try pipeline.undo()
+            XCTAssertEqual(try file.load().parkedThoughts, Array(thoughts.prefix(3)))
+            XCTAssertTrue(try file.load().tasks.isEmpty)
+            _ = try pipeline.redo()
+            XCTAssertEqual(try file.load().parkedThoughts, [thoughts[2]])
+            XCTAssertEqual(try file.load().tasks.map(\.id), [task.id])
+        }
+    }
+
     func testConflictedPromotionStillRestoresUnrelatedDeletionInOrder() throws {
         let thoughts = try seedThoughts()
         let task = try pipeline.perform(origin: .user) { commands in

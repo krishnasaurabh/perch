@@ -235,8 +235,11 @@ public struct PlannerEdit {
         let expected = newOrder.filter { shared.contains($0) }
         orderChanges.append { current, planner in
             // Check the untouched input, before insertions change numeric positions.
-            let initialIDs = current[keyPath: key].map(\.id)
-            guard initialIDs.filter({ shared.contains($0) }) == expected else { return }
+            let initialOrder = current[keyPath: key].map(\.id)
+            let initialIDs = Set(initialOrder)
+            // A later deletion is not a reorder. Compare only surviving shared IDs.
+            guard initialOrder.filter({ shared.contains($0) }) == expected.filter({ initialIDs.contains($0) })
+            else { return }
             // Include restored records, but never adopt a conflicting external insertion.
             let eligible = Set(oldOrder).filter { shared.contains($0) || !initialIDs.contains($0) }
             let items = planner[keyPath: key]
