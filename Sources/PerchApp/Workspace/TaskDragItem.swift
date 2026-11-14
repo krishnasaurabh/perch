@@ -2,6 +2,7 @@ import CoreTransferable
 import Foundation
 import UniformTypeIdentifiers
 
+// Keep these identities and their data conformance in Resources/Info.plist.
 extension UTType {
     static let perchTask = UTType(exportedAs: "app.perch.task", conformingTo: .data)
     static let perchParkedThought = UTType(exportedAs: "app.perch.parked-thought", conformingTo: .data)

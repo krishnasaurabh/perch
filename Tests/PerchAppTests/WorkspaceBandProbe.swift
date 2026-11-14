@@ -86,6 +86,8 @@ private final class WorkspaceNavigationProbe {
             try await fixture.key(48, "\t")
             try fixture.assertFocused("workspace-page-home")
             try await fixture.key(119, "\u{f72b}")
+            try fixture.assertSelection(.week)
+            try fixture.assertFocused("workspace-page-week")
             try await fixture.key(48, "\t")
             try fixture.assertFocused("workspace-more")
             try await fixture.key(48, "\t", modifiers: .shift)
@@ -239,7 +241,11 @@ private final class WorkspaceNavigationFixture {
     }
 
     func settle() async {
-        try? await Task.sleep(nanoseconds: 180_000_000)
+        // The top-level app run loop can cancel its parent task. A swallowed
+        // CancellationError must not turn every native layout wait into a no-op.
+        await withCheckedContinuation { continuation in
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.18) { continuation.resume() }
+        }
         window.contentView?.layoutSubtreeIfNeeded()
     }
 

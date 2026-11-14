@@ -80,7 +80,7 @@ struct WeekPage: View {
                                     workspaceShell
                                         ? WorkspaceLayout.weekColumns(
                                             days: days, today: store.today, available: geometry.size.width
-                                        ).days : days, id: \.self
+                                        ).backingDays : days, id: \.self
                                 ) { day in
                                     column(
                                         title: label(day, template: "EEE"), subtitle: label(day, template: "MMMd"),

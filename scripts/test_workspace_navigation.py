@@ -246,11 +246,22 @@ private enum KeyPress { enum Result { case ignored, handled } }
             nativeFocus = nil
             try await settle()
             precondition(nativeFocus == nil && !pageGroupHasFocus)
-            _ = focusPage(.week)
+            selectPage(.week)
             renderSelection()
             try await settle()
             precondition(nativeFocus == nil)
         }
+
+        // Explicit keyboard re-entry owns focus even when SwiftUI reuses the
+        // prior FocusState value and does not publish another onChange.
+        nativeFocus = .home
+        registeredPage = .home
+        model.page = .home
+        pageGroupHasFocus = false
+        _ = focusPage(.week)
+        renderSelection()
+        try await settle()
+        precondition(nativeFocus == .week && pageGroupHasFocus)
 
         // Multiple selections before dispatch reject the stale destination.
         enter()
@@ -291,14 +302,77 @@ try await FocusLifecycle().run()
             swift = shutil.which("swiftc")
             if swift is None:
                 self.fail("Swift is required to verify focus lifecycle transitions")
-            binary = pathlib.Path(directory) / "focus-lifecycle"
+            for name, candidate in [
+                ("fixed", program),
+                ("missing-reentry", program.replace(
+                    "        pageGroupHasFocus = true\n        selectPage(page)", "        selectPage(page)")),
+            ]:
+                with self.subTest(name=name):
+                    if name != "fixed":
+                        self.assertNotEqual(candidate, program)
+                    main.write_text(candidate)
+                    binary = pathlib.Path(directory) / name
+                    compiled = subprocess.run(
+                        [swift, "-swift-version", "6", str(main), "-o", str(binary)], capture_output=True, text=True,
+                    )
+                    self.assertEqual(compiled.returncode, 0, compiled.stderr)
+                    result = subprocess.run([str(binary)], capture_output=True, text=True)
+                    if name == "fixed":
+                        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                        self.assertIn("Roving focus lifecycle adapter checks passed", result.stdout)
+                    else:
+                        self.assertNotEqual(result.returncode, 0, "Missing keyboard re-entry must fail")
+
+    def test_native_probe_waits_even_when_parent_task_is_cancelled(self):
+        source = (ROOT / "Tests/PerchAppTests/WorkspaceBandProbe.swift").read_text()
+        settle = source.split("    func settle() async {", 1)[1].split("    func key(", 1)[0]
+        self.assertIn("withCheckedContinuation", settle)
+        self.assertIn("DispatchQueue.main.asyncAfter", settle)
+        self.assertNotIn("try? await Task.sleep", settle)
+        program = """import Foundation
+@MainActor final class Content { var layouts = 0; func layoutSubtreeIfNeeded() { layouts += 1 } }
+@MainActor final class Window { let contentView: Content? = Content() }
+@MainActor final class Fixture {
+    let window = Window()
+    func settle() async {""" + settle + """
+}
+let fixture = Fixture()
+let start = ProcessInfo.processInfo.systemUptime
+let work = Task { @MainActor in await fixture.settle() }
+work.cancel()
+await work.value
+precondition(ProcessInfo.processInfo.systemUptime - start >= 0.15)
+precondition(fixture.window.contentView?.layouts == 1)
+print("Cancelled-parent settling passed")
+"""
+        with tempfile.TemporaryDirectory() as directory:
+            main = pathlib.Path(directory) / "main.swift"
+            main.write_text(program)
+            binary = pathlib.Path(directory) / "settling"
+            swift = shutil.which("swiftc")
+            if swift is None:
+                self.fail("Swift is required to verify cancellation-independent settling")
             compiled = subprocess.run(
-                [swift, "-swift-version", "6", str(main), "-o", str(binary)], capture_output=True, text=True,
+                [swift, "-swift-version", "6", str(main), "-o", str(binary)],
+                capture_output=True, text=True,
             )
             self.assertEqual(compiled.returncode, 0, compiled.stderr)
             result = subprocess.run([str(binary)], capture_output=True, text=True)
-            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-            self.assertIn("Roving focus lifecycle adapter checks passed", result.stdout)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn("Cancelled-parent settling passed", result.stdout)
+
+    def test_week_matrix_runs_legacy_and_integrated_navigation(self):
+        source = (ROOT / "scripts/allpage_matrix_probe.swift").read_text()
+        helper = (ROOT / "Tests/WorkspaceProbes/WeekBandMatrix.swift").read_text()
+        runner = (ROOT / "scripts/check_allpage_matrix.sh").read_text()
+        self.assertIn("try await workspaceWeekKeyboard()", source)
+        self.assertIn("WorkspaceLegacyWeekProbe(fixture: fixture)", source)
+        self.assertIn("Tests/WorkspaceProbes/WeekBandMatrix.swift", runner)
+        self.assertIn("try await weekKeyboard()", helper)
+        for token in ["workspace-previous-week", "workspace-next-week", "range(-1)", "range(0)",
+                      "mxAssertFocused(menuID", "window.attachedSheet == nil",
+                      "fixture.store.planner.tasks == before"]:
+            self.assertIn(token, helper)
 
     def test_more_menu_routes_actions_and_clears_retained_callbacks(self):
         source = (ROOT / "Sources/PerchApp/Workspace/WorkspaceView.swift").read_text()

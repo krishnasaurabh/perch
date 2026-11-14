@@ -59,7 +59,9 @@ extension WorkspaceLayout {
     }
 
     public struct WeekColumns: Equatable, Sendable {
+        /// Initially visible dates; earlier days remain in the scroll backing.
         public let days: [DayKey]
+        public let backingDays: [DayKey]
         public let today: DayKey
         public let standardWidth: CGFloat
         public let omittedPastDays: Int
@@ -89,7 +91,7 @@ extension WorkspaceLayout {
         }
         let width = unitWidth()
         return WeekColumns(
-            days: visible, today: today, standardWidth: max(minimumComingDayWidth, width),
-            omittedPastDays: removed, needsHorizontalScroll: width < minimumComingDayWidth)
+            days: visible, backingDays: days, today: today, standardWidth: max(minimumComingDayWidth, width),
+            omittedPastDays: removed, needsHorizontalScroll: removed > 0 || width < minimumComingDayWidth)
     }
 }

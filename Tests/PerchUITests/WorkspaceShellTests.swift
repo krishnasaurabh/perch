@@ -55,6 +55,7 @@ final class WorkspaceShellTests: XCTestCase {
         XCTAssertEqual(wide.days, days)
         XCTAssertGreaterThan(narrow.omittedPastDays, 0)
         XCTAssertEqual(narrow.days, Array(days.dropFirst(narrow.omittedPastDays)))
+        XCTAssertEqual(narrow.backingDays, days, "Earlier dates remain reachable by scrolling back")
         XCTAssertTrue(days.filter { $0 >= today }.allSatisfy { narrow.days.contains($0) })
         XCTAssertGreaterThanOrEqual(narrow.standardWidth, 140)
         XCTAssertEqual(narrow.width(for: today), narrow.standardWidth * 1.7)
@@ -62,8 +63,30 @@ final class WorkspaceShellTests: XCTestCase {
         let tiny = WorkspaceLayout.weekColumns(days: days, today: today, available: 100)
         XCTAssertEqual(tiny.days, days.filter { $0 >= today })
         XCTAssertTrue(tiny.needsHorizontalScroll)
+        XCTAssertEqual(tiny.backingDays, days)
+        XCTAssertTrue(narrow.needsHorizontalScroll)
         let past = days.map { $0.adding(days: -7, calendar: calendar) }
         XCTAssertEqual(WorkspaceLayout.weekColumns(days: past, today: today, available: 300).days.count, 1)
+    }
+
+    func testNarrowWeekBackingKeepsEveryDateAcrossRegionalStartsAndOffsets() {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+        let today = DayKey("2026-11-13")
+        for firstWeekday in [1, 2, 7] {
+            calendar.firstWeekday = firstWeekday
+            for offset in -1...1 {
+                let days = WeekColumnLayout.days(today: today, weekOffset: offset, calendar: calendar)
+                for available: CGFloat in [300, 896, 932, 1252] {
+                    let layout = WorkspaceLayout.weekColumns(days: days, today: today, available: available)
+                    XCTAssertEqual(layout.backingDays, days)
+                    XCTAssertEqual(Set(layout.backingDays).count, 7)
+                    XCTAssertTrue(layout.days.allSatisfy(layout.backingDays.contains))
+                    XCTAssertGreaterThanOrEqual(layout.standardWidth, 140)
+                    if layout.omittedPastDays > 0 { XCTAssertTrue(layout.needsHorizontalScroll) }
+                }
+            }
+        }
     }
 
     @MainActor

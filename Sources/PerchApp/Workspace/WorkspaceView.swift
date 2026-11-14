@@ -215,6 +215,9 @@ struct WorkspaceView: View {
 
     private func focusPage(_ page: NotchPage) -> KeyPress.Result {
         guard enabled else { return .ignored }
+        // Keyboard re-entry can reuse the same FocusState value without an onChange.
+        // The key itself establishes ownership of the group for this selection.
+        pageGroupHasFocus = true
         selectPage(page)
         return .handled
     }
