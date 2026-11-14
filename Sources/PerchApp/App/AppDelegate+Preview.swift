@@ -10,6 +10,11 @@ import SwiftUI
         static var previewTargets: [String: PreviewTarget] {
             [
                 "today": .workspace(.home),
+                "workspace-today": .window("workspace-home") { WorkspaceShellPreview.show(page: .home, app: $0) },
+                "workspace-week": .window("workspace-week") { WorkspaceShellPreview.show(page: .week, app: $0) },
+                "workspace-narrow": .window("workspace-narrow") {
+                    WorkspaceShellPreview.show(page: .week, narrow: true, app: $0)
+                },
                 "notch-closed": .closedNotch(hardware: true),
                 "notch-flat": .closedNotch(hardware: false),
                 "notch-progress-off": .closedNotch(hardware: true, progress: false),

@@ -10,8 +10,8 @@ class WorkspacePickerContractTests(unittest.TestCase):
         source = (ROOT / "Sources/PerchApp/Workspace/WorkspaceView.swift").read_text()
         self.assertNotIn(".system(size:", source)
         self.assertIn("Theme.minimumTarget", source)
-        self.assertIn("PillStyle(focus: $moreFocused)", source)
-        self.assertIn("ControlFocusRing(", source)
+        self.assertIn("WorkspacePageStyle(selected: false, focused: moreFocused, height: bandPillHeight)", source)
+        self.assertIn("FocusRing(", source)
         self.assertIn(".focused($focusedPage, equals:", source)
         self.assertIn(".focusable(on)", source)
         for key in ("leftArrow", "rightArrow", "home", "end"):
@@ -41,21 +41,21 @@ class WorkspacePickerContractTests(unittest.TestCase):
         source = (ROOT / "Sources/PerchApp/Workspace/WorkspaceView.swift").read_text()
         launcher = source.split("private var moreMenu: some View {", 1)[1].split("private struct WorkspaceMenuAnchor", 1)[0]
         self.assertIn("Button {", launcher)
-        self.assertIn(".buttonStyle(PillStyle(focus: $moreFocused))", launcher)
+        self.assertIn(".buttonStyle(WorkspacePageStyle(selected: false, focused: moreFocused, height: bandPillHeight))", launcher)
         self.assertNotIn("Menu {", launcher, "A native Menu launcher does not consume the primitive pill style")
         self.assertNotIn(".menuStyle(", launcher)
         self.assertIn(".allowsHitTesting(false)", launcher)
         self.assertIn("override func isAccessibilityElement() -> Bool { false }", source)
         self.assertIn("menu.popUp(positioning:", source)
-        self.assertIn("item.isEnabled = index != 0 || canUndo", source)
+        self.assertIn("item.isEnabled = index != 4 || keysAvailable", source)
 
     def test_more_has_an_explicit_keyboard_focus_owner(self):
         source = (ROOT / "Sources/PerchApp/Workspace/WorkspaceView.swift").read_text()
         launcher = source.split("private var moreMenu: some View {", 1)[1].split("private func showMoreMenu", 1)[0]
         self.assertIn("@FocusState private var moreFocused: Bool", source)
-        self.assertIn(".buttonStyle(PillStyle(focus: $moreFocused))", launcher)
-        self.assertNotIn(".focusable(", launcher, "The style's real Button, not its wrapper, owns focus")
-        self.assertNotIn(".focused(", launcher)
+        self.assertIn(".buttonStyle(WorkspacePageStyle(selected: false, focused: moreFocused, height: bandPillHeight))", launcher)
+        self.assertIn(".focusable(enabled)", launcher)
+        self.assertIn(".focused($moreFocused)", launcher)
         self.assertNotIn(".overlay(ControlFocusRing", launcher, "The shared style draws exactly one focus ring")
         self.assertIn(".onKeyPress(.space, phases: .down) { _ in", launcher)
         self.assertIn("guard moreFocused, enabled else { return .ignored }", launcher)
@@ -80,7 +80,7 @@ class WorkspacePickerContractTests(unittest.TestCase):
     def test_page_crossfade_is_retained(self):
         source = (ROOT / "Sources/PerchApp/Workspace/WorkspaceView.swift").read_text()
         self.assertIn("page.id(model.page).transition(.opacity)", source)
-        self.assertIn("Motion.animate(Motion.page)", source)
+        self.assertIn("Motion.animate(Motion.token(.pop), policy: motionPolicy)", source)
         self.assertIn(".transaction { $0.animation = nil }", source)
         self.assertNotIn(".onAppear", source, "Passive presentation must not request focus")
 
@@ -89,11 +89,35 @@ class WorkspacePickerContractTests(unittest.TestCase):
         self.assertIn("check_workspace_navigation.sh", launcher)
         self.assertIn("process.terminationStatus, 0", launcher)
         self.assertNotIn("Services(store:", launcher)
-        source = (ROOT / "scripts/workspace_navigation_probe.swift").read_text()
+        source = (ROOT / "Tests/PerchAppTests/WorkspaceBandProbe.swift").read_text()
         self.assertIn("WorkspaceView(notchHeight:", source)
         self.assertNotIn("SegmentPills(", source)
         for expected in ("testKeyboardGroup", "testPassive", "assertFocusRing", "isAccessibilityFocused"):
             self.assertIn(expected, source)
+
+    def test_shell_band_and_column_integration(self):
+        source = (ROOT / "Sources/PerchApp/Workspace/WorkspaceView.swift").read_text()
+        picker = source.split("private var pagePicker:", 1)[1].split("private func selectPage", 1)[0]
+        self.assertIn("ForEach(NotchPage.workspacePages)", picker)
+        self.assertIn("static var workspacePages: [NotchPage] { [.home, .week] }", source)
+        self.assertIn('keyboardShortcut(p == .home ? "1" : "2", modifiers: .command)', picker)
+        self.assertIn(".onExitCommand { model.close() }", source)
+        self.assertIn("WorkspaceWindowRegistry.openKeys(store: store)", source)
+        self.assertIn("model.geometry?.workspacePresentation?.menuBarHeight", source)
+        self.assertIn(".background(Theme.band)", source)
+        for title in ["Your week", "History", "Projects", "Settings", "Keys"]:
+            self.assertIn(f'AppL10n.text("{title}")', source)
+        home = (ROOT / "Sources/PerchApp/Workspace/HomePage.swift").read_text()
+        self.assertIn("HomeLayout.columns(sheetWidth:", home)
+        self.assertIn("DotGridSheet", home)
+        for slot in ["CHECKLIST CARD SLOT", "TIME CARD SLOT", "PARKING LOT SLOT", "YOUR DAY SLOT"]:
+            self.assertEqual(home.count(slot), 1)
+        self.assertNotIn("HomeLayout.sideCards", home)
+        self.assertNotIn("ViewThatFits", home)
+        registry = source.split("enum WorkspaceWindowRegistry {", 1)[1].split("extension NotchGeometry", 1)[0]
+        self.assertIn("window.contentView = NSHostingView", registry)
+        self.assertIn("DashboardView(tab: tab)", registry)
+        self.assertNotIn(".close()", registry)
 
 
 if __name__ == "__main__":
