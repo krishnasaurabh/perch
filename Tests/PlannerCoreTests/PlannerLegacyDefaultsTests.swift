@@ -62,8 +62,8 @@ final class PlannerLegacyDefaultsTests: XCTestCase {
 
         // Absent preferences migrate; the present one is retained.
         XCTAssertEqual(p.preferences.defaultFocusMinutes, 50)
-        XCTAssertEqual(p.preferences.resetHour, 0)
-        XCTAssertEqual(p.preferences.carryMode, .ask)
+        XCTAssertEqual(p.preferences.resetHour, 4)
+        XCTAssertEqual(p.preferences.carryMode, .auto)
         XCTAssertEqual(p.preferences.workspaceCardOrder, ["focus", "events", "notepad"])
         XCTAssertEqual(p.preferences.hiddenWorkspaceCards, ["notepad"])
         XCTAssertEqual(p.preferences.hiddenCalendarIDs, [])

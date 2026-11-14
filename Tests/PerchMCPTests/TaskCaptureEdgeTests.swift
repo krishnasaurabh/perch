@@ -476,7 +476,8 @@ final class TaskCaptureEdgeTests: XCTestCase {
         let after = cap.parse("x march 14 at 3:30am")
         XCTAssertEqual(Fixture.hm(after.remindAt), "2027-03-14 03:30")
 
-        var e = PlannerEngine(planner: Planner(), now: { Fixture.date("2027-03-13 12:00") }, calendar: cal)
+        var planner = Planner(); planner.preferences.resetHour = 0
+        var e = PlannerEngine(planner: planner, now: { Fixture.date("2027-03-13 12:00") }, calendar: cal)
         XCTAssertEqual(Fixture.hm(try e.parseReminder("2:30 am", on: "2027-03-14")), "2027-03-14 03:00")
     }
 

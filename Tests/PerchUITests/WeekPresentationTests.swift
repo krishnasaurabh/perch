@@ -114,7 +114,9 @@ final class WeekPresentationTests: XCTestCase {
         let first = PlanTask(title: "Same title", day: today)
         let other = PlanTask(title: "Same title", day: today)
         var planner = Planner(); planner.tasks = [first, other]
-        var engine = PlannerEngine(planner: planner, now: { today.start(resetHour: 0, calendar: cal) }, calendar: cal)
+        var engine = PlannerEngine(
+            planner: planner, now: { today.start(resetHour: planner.preferences.resetHour, calendar: cal) },
+            calendar: cal)
         let action = try XCTUnwrap(WeekTaskPolicy.completionAction(for: first, today: today))
         try engine.execute(action)
         XCTAssertTrue(try engine.task(first.id).done)
@@ -150,7 +152,9 @@ final class WeekPresentationTests: XCTestCase {
         var task = PlanTask(title: "Line one\nLine two with a long descriptive title", day: today)
         task.notes = "Keep this note"; task.minutes = 40
         var planner = Planner(); planner.tasks = [task, PlanTask(title: task.title, day: today)]
-        var engine = PlannerEngine(planner: planner, now: { today.start(resetHour: 0, calendar: cal) }, calendar: cal)
+        var engine = PlannerEngine(
+            planner: planner, now: { today.start(resetHour: planner.preferences.resetHour, calendar: cal) },
+            calendar: cal)
         for destination in [DayRef.inbox, .day("2026-11-13"), .day(today)] {
             let action = try XCTUnwrap(
                 WeekTaskPolicy.moveAction(
@@ -171,7 +175,9 @@ final class WeekPresentationTests: XCTestCase {
         let today: DayKey = "2026-11-11"
         let task = PlanTask(title: "Stale row", day: today)
         var planner = Planner(); planner.tasks = [task]
-        var engine = PlannerEngine(planner: planner, now: { today.start(resetHour: 0, calendar: cal) }, calendar: cal)
+        var engine = PlannerEngine(
+            planner: planner, now: { today.start(resetHour: planner.preferences.resetHour, calendar: cal) },
+            calendar: cal)
         let check = try XCTUnwrap(WeekTaskPolicy.completionAction(for: task, today: today))
         try engine.execute(.move(task.id, .day("2026-11-12")))
         XCTAssertThrowsError(try engine.execute(check))
