@@ -13,6 +13,7 @@ set -euo pipefail
 OUT=${1:?usage: homecards_shots.sh OUTPUT_DIRECTORY}; mkdir -p "$OUT"
 APP=dist/Perch.app/Contents/MacOS/Perch
 SRC="$OUT/seed.json"; rm -f "$SRC"
+python3 -c 'import json, sys; json.dump({"preferences": {"agentsCanControlTime": True, "agentsCanReadParkingLot": True}}, open(sys.argv[1], "w"))' "$SRC"
 
 python3 - > "$OUT/seed.jsonl" <<'EOF'
 import json
