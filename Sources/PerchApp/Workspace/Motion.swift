@@ -39,6 +39,16 @@ enum Motion {
         return .easeOut(duration: plan.duration)
     }
 
+    /// Only the opacity presentation is keyframed; the wrapped view stays mounted.
+    /// Triggered keyframes run once and do not re-enable descendant spatial animations.
+    @KeyframesBuilder<Double>
+    static func fadeKeyframes(reduceMotion: Bool) -> some Keyframes<Double> {
+        KeyframeTrack {
+            MoveKeyframe(reduceMotion ? 0.0 : 1.0)
+            LinearKeyframe(1.0, duration: DesignTokens.Motion.reducedFade, timingCurve: .easeOut)
+        }
+    }
+
     static var reduceMotion: Bool { MotionPolicy.system.reduceMotion }
     static func resolved(_ a: Animation) -> Animation? { MotionPolicy.system.animation(a) }
 
@@ -125,9 +135,9 @@ extension View {
         modifier(MotionModifier(animation: a, value: value))
     }
 
-    /// Token-based changes crossfade separate content identities in reduced mode.
-    /// Apply to a bounded component, not a whole scrolling list or text editor.
-    func designMotion<V: Equatable & Hashable>(_ token: DesignTokens.MotionToken, value: V) -> some View {
+    /// Token-based changes fade in over 120 ms in reduced mode, without replacing
+    /// the component or its local state. Apply to a bounded component, not a whole list.
+    func designMotion<V: Equatable>(_ token: DesignTokens.MotionToken, value: V) -> some View {
         modifier(DesignMotionModifier(token: token, value: value))
     }
 
@@ -145,29 +155,21 @@ private struct MotionModifier<V: Equatable>: ViewModifier {
     }
 }
 
-private struct DesignMotionModifier<V: Equatable & Hashable>: ViewModifier {
+private struct DesignMotionModifier<V: Equatable>: ViewModifier {
     let token: DesignTokens.MotionToken
     let value: V
     @Environment(\.motionPolicy) private var policy
 
-    @ViewBuilder
     func body(content: Content) -> some View {
-        if policy.reduceMotion {
-            ZStack {
-                content
-                    .transaction { policy.enforce(on: &$0) }
-                    .id(value)
-                    .transition(.opacity)
+        let reduceMotion = policy.reduceMotion
+        content
+            .animation(policy.animation(Motion.token(token)), value: value)
+            .transaction { policy.enforce(on: &$0) }
+            .keyframeAnimator(initialValue: 1.0, trigger: value) { content, opacity in
+                content.opacity(reduceMotion ? opacity : 1)
+            } keyframes: { _ in
+                Motion.fadeKeyframes(reduceMotion: reduceMotion)
             }
-            .animation(Motion.reduced, value: value)
-            .transaction { transaction in
-                // Opt only this opacity wrapper back in beneath a legacy motion boundary.
-                // The content's transaction above still blocks nested layout/scale animations.
-                transaction.disablesAnimations = false
-            }
-        } else {
-            content.animation(Motion.token(token), value: value)
-        }
     }
 }
 

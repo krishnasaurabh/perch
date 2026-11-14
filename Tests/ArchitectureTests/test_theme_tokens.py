@@ -89,6 +89,15 @@ class DesignTokenContractTests(unittest.TestCase):
         with patch.object(Path, 'read_text', altered), self.assertRaises(AssertionError):
             THEME.design_rows()
 
+    def test_token_motion_keeps_component_identity(self):
+        source = (ROOT / 'Sources/PerchApp/Workspace/Motion.swift').read_text()
+        modifier = source.split('private struct DesignMotionModifier', 1)[1].split('private struct MotionBoundary', 1)[0]
+        self.assertNotIn('.id(', modifier)
+        self.assertIn('.keyframeAnimator(initialValue: 1.0, trigger: value)', modifier)
+        self.assertIn('Motion.fadeKeyframes(reduceMotion: reduceMotion)', modifier)
+        self.assertIn('.transaction { policy.enforce(on: &$0) }', modifier)
+        self.assertIn('LinearKeyframe(1.0, duration: DesignTokens.Motion.reducedFade, timingCurve: .easeOut)', source)
+
     def test_font_resources_and_packaging(self):
         import struct
         import plistlib
