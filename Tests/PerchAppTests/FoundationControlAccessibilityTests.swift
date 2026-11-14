@@ -7,8 +7,11 @@ import XCTest
 final class FoundationControlAccessibilityTests: XCTestCase {
     @MainActor func testToggleNamesValuesTargetsAndActions() async throws {
         let driver = ControlAccessibilityDriver()
-        let (window, host) = makeWindow(driver)
-        defer { window.close() }
+        let (window, host, originalPolicy) = makeWindow(driver)
+        defer {
+            window.close()
+            NSApp.setActivationPolicy(originalPolicy)
+        }
         for (name, expectedRole) in [
             ("Complete Draft the test checklist", "AXCheckBox"),
             ("Complete Write the smoke tests", "AXCheckBox"),
@@ -35,8 +38,11 @@ final class FoundationControlAccessibilityTests: XCTestCase {
 
     @MainActor func testButtonAndSegmentActionsReachBindingsAndDisabledStatePreventsChanges() async throws {
         let driver = ControlAccessibilityDriver()
-        let (window, host) = makeWindow(driver)
-        defer { window.close() }
+        let (window, host, originalPolicy) = makeWindow(driver)
+        defer {
+            window.close()
+            NSApp.setActivationPolicy(originalPolicy)
+        }
         try press(try await find("Start it now", in: window, host: host))
         XCTAssertEqual(driver.starts, 1)
         try press(try await find("25", in: window, host: host))
@@ -52,16 +58,22 @@ final class FoundationControlAccessibilityTests: XCTestCase {
         XCTAssertEqual(driver.starts, 1)
     }
 
-    @MainActor private func makeWindow(_ driver: ControlAccessibilityDriver) -> (NSWindow, NSView) {
-        _ = NSApplication.shared
-        let host = NSHostingView(rootView: ControlAccessibilityFixture(driver: driver))
+    @MainActor private func makeWindow(_ driver: ControlAccessibilityDriver) -> (
+        NSWindow, NSView, NSApplication.ActivationPolicy
+    ) {
+        let app = NSApplication.shared
+        let originalPolicy = app.activationPolicy()
+        app.setActivationPolicy(.accessory)
+        let host = NSHostingView(
+            rootView: ControlAccessibilityFixture(driver: driver).environment(\.accessibilityEnabled, true))
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 500, height: 400),
             styleMask: [.titled, .closable], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
         window.contentView = host
         window.makeKeyAndOrderFront(nil)
-        return (window, host)
+        app.activate(ignoringOtherApps: true)
+        return (window, host, originalPolicy)
     }
 
     @MainActor private func find(_ label: String, in window: NSWindow, host: NSView) async throws -> NSObject {
