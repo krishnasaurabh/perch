@@ -6,10 +6,18 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 class SettingsPermissionWiringTests(unittest.TestCase):
-    def test_onboarding_uses_live_permission_panel(self):
+    def test_onboarding_defers_permissions_to_live_settings_panel(self):
         source = (ROOT / "Sources/PerchApp/Settings/WelcomeView.swift").read_text()
         self.assertNotIn("granted.insert", source)
-        self.assertIn("PermissionPanel", source)
+        self.assertNotIn("PermissionPanel", source)
+        self.assertNotIn("requestAccess", source)
+        self.assertNotIn("requestAuthorization", source)
+        self.assertNotIn("requestFullAccess", source)
+        settings = (ROOT / "Sources/PerchApp/Settings/SettingsView.swift").read_text()
+        self.assertIn("PermissionPanel(services: services", settings)
+        panel = (ROOT / "Sources/PerchApp/Settings/PermissionPanel.swift").read_text()
+        self.assertIn("services.calendar.requestAccess()", panel)
+        self.assertIn("services.reminders.requestAuthorization()", panel)
 
     def test_settings_exposes_overdue_policy(self):
         source = (ROOT / "Sources/PerchApp/Settings/SettingsView.swift").read_text()

@@ -5,10 +5,10 @@ import XCTest
 
 final class RedesignPreferencesTests: XCTestCase {
     private let defaultJSON = #"""
-        {"resetHour":4,"carryMode":"auto","defaultFocusMinutes":45,"focusCompletionSound":false,"notchTimerPlacement":"right","workspaceTimerStyle":"digital","notchOpenTrigger":"hover","notchTaskCount":false,"notchOnMonitors":false,"remindersSync":false,"ringOnPhone":false,"sortWithAI":false,"includeWeekendsInStreak":true,"catchScreenshots":false,"catchCopies":false,"workspaceCardOrder":["focus","events","notepad"],"hiddenWorkspaceCards":["notepad"],"hiddenCalendarIDs":[],"welcomeCompleted":false,"openShortcut":{"keyCode":45,"modifiers":2},"launchAtLogin":true,"blockHeadsUp":5,"blockEndAction":"ask","notchProgressLine":true,"notchTimePill":false,"notchNextBlock":false,"notchReminderDot":true,"menuBarDisplay":"icon","hideCountsAndTimes":true,"showCalendarMeetings":true,"meetingHeadsUp":5,"notifyWhenClosed":true,"persistentReminders":true,"snoozeMinutes":10,"phoneEdits":"ignore","agentsCanEditTasks":true,"agentsCanControlTime":false,"agentsCanReadParkingLot":false,"showAgentAttribution":true,"confirmAgentDeletes":true,"finishedTaskRetention":0}
+        {"resetHour":4,"carryMode":"auto","defaultFocusMinutes":45,"focusCompletionSound":false,"notchTimerPlacement":"right","workspaceTimerStyle":"digital","notchOpenTrigger":"hover","notchClickToOpen":true,"notchTaskCount":false,"notchOnMonitors":false,"remindersSync":false,"ringOnPhone":false,"sortWithAI":false,"includeWeekendsInStreak":true,"catchScreenshots":false,"catchCopies":false,"workspaceCardOrder":["focus","events","notepad"],"hiddenWorkspaceCards":["notepad"],"hiddenCalendarIDs":[],"welcomeCompleted":false,"openShortcut":{"keyCode":45,"modifiers":2},"launchAtLogin":true,"blockHeadsUp":5,"blockEndAction":"ask","notchProgressLine":true,"notchTimePill":false,"notchNextBlock":false,"notchReminderDot":true,"menuBarDisplay":"icon","hideCountsAndTimes":true,"showCalendarMeetings":true,"meetingHeadsUp":5,"notifyWhenClosed":true,"persistentReminders":true,"snoozeMinutes":10,"phoneEdits":"ignore","agentsCanEditTasks":true,"agentsCanControlTime":false,"agentsCanReadParkingLot":false,"showAgentAttribution":true,"confirmAgentDeletes":true,"finishedTaskRetention":0}
         """#
     private let savedJSON = #"""
-        {"resetHour":0,"carryMode":"ask","defaultFocusMinutes":50,"focusCompletionSound":true,"notchTimerPlacement":"left","workspaceTimerStyle":"dotMatrix","notchOpenTrigger":"doubleClick","notchTaskCount":true,"notchOnMonitors":true,"showOnDisplay":"Synthetic display","remindersSync":true,"ringOnPhone":true,"sortWithAI":true,"includeWeekendsInStreak":false,"catchScreenshots":true,"catchCopies":true,"workspaceCardOrder":["notepad","focus"],"hiddenWorkspaceCards":["events"],"hiddenCalendarIDs":["calendar-a"],"welcomeCompleted":true,"openShortcut":{"keyCode":49,"modifiers":9},"launchAtLogin":false,"blockHeadsUp":10,"blockEndAction":"takeBreak","notchProgressLine":false,"notchTimePill":true,"notchNextBlock":true,"notchReminderDot":false,"menuBarDisplay":"timeLeft","hideCountsAndTimes":false,"showCalendarMeetings":false,"meetingHeadsUp":0,"notifyWhenClosed":false,"persistentReminders":false,"snoozeMinutes":15,"phoneEdits":"bringBack","agentsCanEditTasks":false,"agentsCanControlTime":true,"agentsCanReadParkingLot":true,"showAgentAttribution":false,"confirmAgentDeletes":false,"finishedTaskRetention":90}
+        {"resetHour":0,"carryMode":"ask","defaultFocusMinutes":50,"focusCompletionSound":true,"notchTimerPlacement":"left","workspaceTimerStyle":"dotMatrix","notchOpenTrigger":"doubleClick","notchClickToOpen":false,"notchTaskCount":true,"notchOnMonitors":true,"showOnDisplay":"Synthetic display","remindersSync":true,"ringOnPhone":true,"sortWithAI":true,"includeWeekendsInStreak":false,"catchScreenshots":true,"catchCopies":true,"workspaceCardOrder":["notepad","focus"],"hiddenWorkspaceCards":["events"],"hiddenCalendarIDs":["calendar-a"],"welcomeCompleted":true,"openShortcut":{"keyCode":49,"modifiers":9},"launchAtLogin":false,"blockHeadsUp":10,"blockEndAction":"takeBreak","notchProgressLine":false,"notchTimePill":true,"notchNextBlock":true,"notchReminderDot":false,"menuBarDisplay":"timeLeft","hideCountsAndTimes":false,"showCalendarMeetings":false,"meetingHeadsUp":0,"notifyWhenClosed":false,"persistentReminders":false,"snoozeMinutes":15,"phoneEdits":"bringBack","agentsCanEditTasks":false,"agentsCanControlTime":true,"agentsCanReadParkingLot":true,"showAgentAttribution":false,"confirmAgentDeletes":false,"finishedTaskRetention":90}
         """#
 
     private func object(_ data: Data) throws -> [String: Any] {
@@ -59,6 +59,44 @@ final class RedesignPreferencesTests: XCTestCase {
             var single = defaults
             single[key] = saved[key]
             XCTAssertEqual(try encoded(legacy([key: saved[key]!]).preferences), single as NSDictionary, key)
+        }
+    }
+
+    func testClickOpeningDefaultsOnWhenBothOpeningKeysAreAbsent() throws {
+        XCTAssertTrue(Preferences().notchClickToOpen)
+        XCTAssertTrue(try legacy([:]).preferences.notchClickToOpen)
+        XCTAssertTrue(try JSONDecoder().decode(DevicePreferences.self, from: Data("{}".utf8)).notchClickToOpen)
+    }
+
+    func testClickOpeningMigratesOnlyLegacyClickAndDoubleClickToOn() throws {
+        for trigger in NotchOpenTrigger.allCases {
+            let saved = ["notchOpenTrigger": trigger.rawValue]
+            let expected = trigger == .click || trigger == .doubleClick
+            XCTAssertEqual(try legacy(saved).preferences.notchClickToOpen, expected, trigger.rawValue)
+            for version in [1, 2] {
+                XCTAssertEqual(try diskPreferences(saved, version: version).notchClickToOpen, expected)
+            }
+            let device = try JSONDecoder().decode(
+                DevicePreferences.self, from: JSONSerialization.data(withJSONObject: saved))
+            XCTAssertEqual(device.notchClickToOpen, expected)
+            XCTAssertEqual(device.notchOpenTrigger, trigger)
+        }
+    }
+
+    func testExplicitClickOpeningRoundTripsIndependentlyOfEveryHoverChoice() throws {
+        for trigger in NotchOpenTrigger.allCases {
+            for enabled in [true, false] {
+                let saved: [String: Any] = ["notchOpenTrigger": trigger.rawValue, "notchClickToOpen": enabled]
+                let preferences = try legacy(saved).preferences
+                XCTAssertEqual(preferences.notchClickToOpen, enabled)
+                XCTAssertEqual(preferences.notchOpenTrigger, trigger)
+                let device = try JSONDecoder().decode(
+                    DevicePreferences.self, from: JSONEncoder().encode(DevicePreferences(preferences)))
+                var restored = Preferences()
+                device.apply(to: &restored)
+                XCTAssertEqual(restored, preferences)
+                XCTAssertEqual(try object(JSONEncoder().encode(device))["notchClickToOpen"] as? Bool, enabled)
+            }
         }
     }
 
@@ -249,6 +287,7 @@ final class RedesignPreferencesTests: XCTestCase {
             ("notchTimerPlacement", .notchTimerPlacement(.left)),
             ("workspaceTimerStyle", .workspaceTimerStyle(.dotMatrix)),
             ("notchOpenTrigger", .notchOpenTrigger(.doubleClick)),
+            ("notchClickToOpen", .notchClickToOpen(false)),
             ("notchTaskCount", .notchTaskCount(true)),
             ("notchOnMonitors", .notchOnMonitors(true)),
             ("showOnDisplay", .showOnDisplay("Synthetic display")),

@@ -124,7 +124,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func showWelcome() {
-        WindowHost.show("welcome", title: "Welcome to Perch", size: CGSize(width: 560, height: 520)) {
+        WindowHost.show("welcome", title: "Welcome to Perch", size: WelcomeView.windowSize) {
             WelcomeView { [weak self] in self?.completeWelcome() }
                 .environmentObject(store).environmentObject(services)
         }
