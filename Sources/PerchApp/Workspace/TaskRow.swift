@@ -217,7 +217,7 @@ struct TaskRow: View {
         }
         if let r = task.remindAt {
             Label(r.formatted(date: .omitted, time: .shortened), systemImage: "bell")
-                .foregroundStyle(r < Date() && !task.done ? Theme.danger : Theme.secondary)
+                .foregroundStyle(r < store.engine.now() && !task.done ? Theme.danger : Theme.secondary)
         }
         if let p = store.engine.project(id: task.projectID) { Label(p.name, systemImage: "number") }
         if let d = task.deadline {

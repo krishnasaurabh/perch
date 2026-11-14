@@ -68,8 +68,10 @@ jobs:
         run: python3 -m unittest discover -s scripts -p test_check_localization.py
       - name: Motion evidence classification regression
         run: python3 -m unittest discover -s scripts -p test_motion_evidence.py
-      - name: Redesign snapshot runner regression
-        run: python3 -m unittest discover -s scripts -p test_redesign_shots.py
+      - name: Redesign snapshot runner and clock regressions
+        run: |
+          python3 -m unittest discover -s scripts -p test_redesign_shots.py
+          python3 -m unittest discover -s scripts -p test_preview_clock.py
       - name: Domain, MCP and portable UI tests
         run: |
           python3 -m unittest discover -s Tests/ArchitectureTests
