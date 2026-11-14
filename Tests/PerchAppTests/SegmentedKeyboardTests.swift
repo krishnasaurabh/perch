@@ -244,14 +244,26 @@
             window.contentView?.layoutSubtreeIfNeeded()
         }
 
-        private func traceFocus(_ context: String) {
+        @discardableResult
+        private func traceFocus(_ context: String) -> [NSObject] {
+            let nodes = accessibilityNodes(window)
             let beforeEditor = driver.before.currentEditor()
             let afterEditor = driver.after.currentEditor()
             let beforeOwnsFocus = beforeEditor != nil && beforeEditor === window.firstResponder
             let afterOwnsFocus = afterEditor != nil && afterEditor === window.firstResponder
             log(
-                "\(context); responder=\(String(describing: window.firstResponder)); textEditorResigned=\(!(window.firstResponder is NSTextView)); beforeEditorOwnsFocus=\(beforeOwnsFocus); afterEditorOwnsFocus=\(afterOwnsFocus); focused=\(segmentNodes().filter { boolean($0, "isAccessibilityFocused") == true }.map { label($0) ?? "nil" })"
+                "\(context); responder=\(String(describing: window.firstResponder)); textEditorResigned=\(!(window.firstResponder is NSTextView)); beforeEditorOwnsFocus=\(beforeOwnsFocus); afterEditorOwnsFocus=\(afterOwnsFocus); focused=\(nodes.filter { boolean($0, "isAccessibilityFocused") == true }.map { label($0) ?? "nil" })"
             )
+            // Dump the full inventory, including native fields and non-button focus proxies.
+            // Assertions below reuse this snapshot rather than walking a second AX tree.
+            log("Segmented AX inventory begin; context=\(context); count=\(nodes.count)")
+            for (index, node) in nodes.enumerated() {
+                log(
+                    "Segmented AX node \(index); type=\(type(of: node)); role=\(attribute(node, "accessibilityRole") as? String ?? "nil"); label=\(label(node) ?? "nil"); identifier=\(attribute(node, "accessibilityIdentifier") as? String ?? "nil"); isAccessibilityFocused=\(String(describing: boolean(node, "isAccessibilityFocused")))"
+                )
+            }
+            log("Segmented AX inventory end; context=\(context)")
+            return nodes
         }
 
         private func assertEditor(_ field: NSTextField) throws {
@@ -262,8 +274,8 @@
         }
 
         private func assertSelectedAndFocused(_ minutes: Int) throws {
-            let controls = segmentNodes()
-            traceFocus("Expected \(minutes); binding=\(driver.minutes)")
+            let nodes = traceFocus("Expected \(minutes); binding=\(driver.minutes)")
+            let controls = segmentNodes(in: nodes)
             try require(driver.minutes == minutes, "Key action must update the binding to \(minutes)")
             try require(controls.count == 4, "All four native segment buttons must exist")
             for value in [15, 25, 45, 60] {
@@ -281,31 +293,43 @@
         }
 
         private func assertNoSegmentFocus() throws {
-            traceFocus("No segment should retain focus")
+            let nodes = traceFocus("No segment should retain focus")
             try require(
-                segmentNodes().allSatisfy { boolean($0, "isAccessibilityFocused") != true },
+                segmentNodes(in: nodes).allSatisfy { boolean($0, "isAccessibilityFocused") != true },
                 "Departed, disabled or inactive segments must not retain native focus")
         }
 
-        private func segmentNodes() -> [NSObject] {
+        private func accessibilityNodes(_ root: NSObject) -> [NSObject] {
             var seen = Set<ObjectIdentifier>()
-            var result: [NSObject] = []
-            @MainActor func visit(_ node: NSObject) {
-                guard seen.insert(ObjectIdentifier(node)).inserted else { return }
-                result.append(node)
-                for key in [
+            var retained: [NSObject] = []
+            @MainActor func walk(_ node: NSObject, depth: Int) {
+                guard depth < 40, retained.count < 3000, seen.insert(ObjectIdentifier(node)).inserted else { return }
+                retained.append(node)
+                var children = [
                     "accessibilityChildren", "accessibilityContents", "accessibilityChildrenInNavigationOrder",
-                ] {
-                    for child in attribute(node, key) as? [NSObject] ?? [] { visit(child) }
+                ]
+                .flatMap { attribute(node, $0) as? [NSObject] ?? [] }
+                if let view = node as? NSView { children += view.subviews }
+                if let window = node as? NSWindow, let content = window.contentView { children.append(content) }
+                for child in children { walk(child, depth: depth + 1) }
+            }
+            walk(root, depth: 0)
+            // Some SwiftUI semantic focus nodes exist only through this public getter.
+            // Attach them after the normal roots so a hosting root cannot lose its children.
+            if let window = root as? NSWindow {
+                let owners: [NSObject] =
+                    [NSApp, window] + [window.contentView, window.firstResponder].compactMap { $0 }
+                for owner in owners {
+                    if let focused = attribute(owner, "accessibilityFocusedUIElement") as? NSObject {
+                        walk(focused, depth: 0)
+                    }
                 }
-                if let view = node as? NSView { view.subviews.forEach(visit) }
             }
-            visit(window)
-            if let content = window.contentView { visit(content) }
-            for owner in [NSApp as NSObject, window, window.contentView, window.firstResponder].compactMap({ $0 }) {
-                if let focused = attribute(owner, "accessibilityFocusedUIElement") as? NSObject { visit(focused) }
-            }
-            return result.filter {
+            return retained
+        }
+
+        private func segmentNodes(in nodes: [NSObject]) -> [NSObject] {
+            nodes.filter {
                 attribute($0, "accessibilityRole") as? String == "AXButton"
                     && ["15", "25", "45", "60"].contains(label($0) ?? "")
             }
