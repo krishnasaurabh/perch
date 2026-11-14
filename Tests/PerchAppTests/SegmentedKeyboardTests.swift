@@ -55,6 +55,7 @@
             window.contentView = host
             defer { window.close() }
             await activateKeyWindow()
+            try connectKeyLoop(in: host)
             traceFocus("Key window activated")
             try require(window.isKeyWindow, "The keyboard fixture must own the key window")
             log("Full keyboard access: \(NSApp.isFullKeyboardAccessEnabled)")
@@ -63,13 +64,12 @@
             await settle()
             try assertEditor(driver.before)
             try await key(code: 48, characters: "\t")
-            // These are the fixture's only key views; native fields can be focused explicitly.
-            // Verify entry once: later key handling can transfer the responder to the hosting view.
+            // The real native field stops bracket the group in both traversal directions.
             traceFocus("First Tab keyboard ownership")
             let responder = window.firstResponder as? NSView
             try require(
                 window.isKeyWindow && responder?.window === window
-                    && responder.map { String(reflecting: type(of: $0)) == "SwiftUI.KeyViewProxy" } == true,
+                    && responder is PerchSegmentKeyView,
                 "The segmented group must own the native keyboard focus")
             try assertSelectedAndFocused(45)
             try await testArrowsAndEnds()
@@ -103,6 +103,7 @@
             await settle()
             try assertEditor(driver.before)
             try assertFocusLeftSegmentGroup("Departed segments must release native focus")
+            try assertNoSegmentFocus()
             try await key(code: 48, characters: "\t")
             try assertSelectedAndFocused(25)
         }
@@ -122,14 +123,21 @@
             try send(code: 124, characters: "\u{f703}")
             try send(code: 48, characters: "\t")
             await settle()
+            try assertEditor(driver.after)
+            try assertNoSegmentFocus()
             try assertFocusLeftSegmentGroup("Tab must leave the segmented group")
             try assertFocusLeftSegmentGroup("Departed segments must release native focus")
             try require(driver.minutes == 45, "The arrow before Tab still selects 45")
             try await key(code: 48, characters: "\u{19}", modifiers: .shift)
             try assertSelectedAndFocused(45)
+            try await key(code: 123, characters: "\u{f702}")
+            try assertSelectedAndFocused(25)
             try send(code: 48, characters: "\u{19}", modifiers: .shift)
             await settle()
-            try assertKeyPassedThrough("Back-tab must not be swallowed by the group", selection: 45)
+            try assertKeyPassedThrough("Back-tab must not be swallowed by the group", selection: 25)
+            try assertEditor(driver.before)
+            try assertFocusLeftSegmentGroup("Back-tab must leave the segmented group")
+            try assertNoSegmentFocus()
             driver.minutes = 60
             await settle()
             try require(
@@ -144,13 +152,18 @@
             driver.enabled = false
             driver.minutes = 25
             await settle()
+            try assertNoSegmentFocus()
+            try assertFocusLeftSegmentGroup("Disabling the group must release native focus")
             try require(window.makeFirstResponder(driver.before), "Move out of the disabled group")
             try assertFocusLeftSegmentGroup("Disabled segments must release native focus")
+            try assertNoSegmentFocus()
             driver.enabled = true
             await settle()
             try assertEditor(driver.before)
             try await key(code: 48, characters: "\t")
             try assertSelectedAndFocused(25)
+            try await key(code: 124, characters: "\u{f703}")
+            try assertSelectedAndFocused(45)
 
             let other = NSWindow(
                 contentRect: NSRect(x: 0, y: 0, width: 200, height: 100),
@@ -171,6 +184,7 @@
             try require(other.isKeyWindow, "A stale restore must not activate its old window")
             try require(field.currentEditor() === other.firstResponder, "Preserve the other window's editor")
             try assertFocusLeftSegmentGroup("Inactive segments must release native focus")
+            try assertNoSegmentFocus()
 
             window.makeKeyAndOrderFront(nil)
             try require(window.makeFirstResponder(driver.before), "Return to the native destination")
@@ -178,13 +192,32 @@
             try await key(code: 48, characters: "\t")
             try assertSelectedAndFocused(60)
             try send(code: 123, characters: "\u{f702}")
+            let removedSegments = segmentNodes(in: traceFocus("Before removing the group"))
             driver.visible = false
             await settle()
+            try assertNoSegmentFocus(retained: removedSegments)
+            try assertFocusLeftSegmentGroup("Removed segments must release native focus")
             try require(window.makeFirstResponder(driver.before), "Leave the removed group")
             driver.visible = true
             await settle()
             try assertEditor(driver.before)
             try assertFocusLeftSegmentGroup("Reinserted segments must not reclaim native focus")
+            try assertNoSegmentFocus()
+            try connectKeyLoop(in: window.contentView!)
+            try await key(code: 48, characters: "\t")
+            try assertSelectedAndFocused(45)
+            try await key(code: 123, characters: "\u{f702}")
+            try assertSelectedAndFocused(25)
+        }
+
+        private func connectKeyLoop(in host: NSView) throws {
+            let segments = segmentNodes(in: traceFocus("Connect native key loop"))
+                .compactMap { $0 as? PerchSegmentKeyView }
+                .sorted { (label($0) ?? "") < (label($1) ?? "") }
+            try require(segments.count == 4, "The fixture must connect all four real segment key views")
+            window.autorecalculatesKeyViewLoop = false
+            let loop: [NSView] = [driver.before] + segments + [driver.after]
+            for index in loop.indices { loop[index].nextKeyView = loop[(index + 1) % loop.count] }
         }
 
         private func key(code: UInt16, characters: String, modifiers: NSEvent.ModifierFlags = []) async throws {
@@ -292,7 +325,8 @@
             log("\(context); responderChain=\(responderChain)")
             for typeName in responderChain {
                 try require(
-                    typeName != "SwiftUI.KeyViewProxy" && !typeName.contains("PerchSegmentFocusAnchorView"),
+                    typeName != "SwiftUI.KeyViewProxy" && !typeName.contains("PerchSegmentFocusAnchorView")
+                        && !typeName.contains("PerchSegmentKeyView"),
                     context)
             }
         }
@@ -318,11 +352,26 @@
                 let matches = controls.filter { label($0) == String(value) }
                 try require(matches.count == 1, "Exactly one native button for \(value)")
                 guard let node = matches.first else { return }
-                // Semantic-focus publication and clearing are verified separately from key delivery.
+                try require(
+                    boolean(node, "isAccessibilityFocused") == (value == minutes),
+                    "The accessibility-focused node must be the selected segment")
                 try require(
                     attribute(node, "accessibilityValue") as? String
                         == (value == minutes ? "Selected" : "Not selected"),
                     "Native selected value must match the binding")
+            }
+        }
+
+        private func assertNoSegmentFocus(retained: [NSObject] = []) throws {
+            let nodes = traceFocus("No segment may retain accessibility focus")
+            let controls = retained.isEmpty ? segmentNodes(in: nodes) : retained
+            try require(controls.count == 4, "All four segment nodes must be checked for cleared focus")
+            for node in controls {
+                log(
+                    "Cleared segment role=\(attribute(node, "accessibilityRole") as? String ?? "nil"); label=\(label(node) ?? "nil"); isAccessibilityFocused=\(String(describing: boolean(node, "isAccessibilityFocused")))"
+                )
+                try require(
+                    boolean(node, "isAccessibilityFocused") == false, "No segment may retain accessibility focus")
             }
         }
 

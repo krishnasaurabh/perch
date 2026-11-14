@@ -9,10 +9,7 @@ struct PerchSegmented<Value: Hashable>: View {
     @Binding var selection: Value
     var surface: DesignTokens.Surface = .paper
     @Namespace private var highlight
-    @FocusState private var focused: Value?
-    @State private var groupHasFocus = false
-    @State private var restorationID = UUID()
-    @State private var focusAnchor = PerchSegmentFocusAnchorView()
+    @StateObject private var focus = PerchSegmentFocus<Value>()
     @Environment(\.isEnabled) private var enabled
     @Environment(\.layoutDirection) private var direction
 
@@ -28,38 +25,32 @@ struct PerchSegmented<Value: Hashable>: View {
             ForEach(items.indices, id: \.self) { index in
                 let item = items[index]
                 let selected = selection == item.value
-                Button {
-                    selection = item.value
-                } label: {
-                    Text(AppL10n.text(item.label))
-                        .perchFont(.detailStrong)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .padding(.horizontal, DesignTokens.Size.stepCheckboxRadius.value)
-                        .frame(minWidth: DesignTokens.Size.minimumTarget.value, minHeight: Self.itemHeight)
-                        .foregroundStyle(selected ? Color.token(.paper) : Theme.ink)
-                        .background {
-                            if selected {
-                                RoundedRectangle(cornerRadius: DesignTokens.Size.segmentItemRadius.value)
-                                    .fill(Theme.ink)
-                                    .matchedGeometryEffect(id: "selection", in: highlight)
-                            }
+                Text(AppL10n.text(item.label))
+                    .perchFont(.detailStrong)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.horizontal, DesignTokens.Size.stepCheckboxRadius.value)
+                    .frame(minWidth: DesignTokens.Size.minimumTarget.value, minHeight: Self.itemHeight)
+                    .foregroundStyle(selected ? Color.token(.paper) : Theme.ink)
+                    .background {
+                        if selected {
+                            RoundedRectangle(cornerRadius: DesignTokens.Size.segmentItemRadius.value)
+                                .fill(Theme.ink)
+                                .matchedGeometryEffect(id: "selection", in: highlight)
                         }
-                        .overlay(
-                            FocusRing(
-                                shape: RoundedRectangle(cornerRadius: DesignTokens.Size.segmentItemRadius.value),
-                                focused: focused == item.value && enabled, surface: surface))
-                }
-                .buttonStyle(PerchSegmentStyle())
-                .focusable(enabled && selected)
-                .focused($focused, equals: item.value)
-                .focusEffectDisabled()
-                .accessibilityLabel(AppL10n.text(item.label))
-                .accessibilityValue(selected ? AppL10n.text("Selected") : AppL10n.text("Not selected"))
-                .accessibilityAddTraits(selected ? .isSelected : [])
-                .onKeyPress(.leftArrow) { move(from: index, by: direction == .rightToLeft ? 1 : -1) }
-                .onKeyPress(.rightArrow) { move(from: index, by: direction == .rightToLeft ? -1 : 1) }
-                .onKeyPress(.home) { select(items.startIndex) }
-                .onKeyPress(.end) { select(items.count - 1) }
+                    }
+                    .overlay(
+                        FocusRing(
+                            shape: RoundedRectangle(cornerRadius: DesignTokens.Size.segmentItemRadius.value),
+                            focused: focus.focused == item.value && enabled, surface: surface)
+                    )
+                    .perchControlFeedback(pressed: focus.pressed == item.value)
+                    .accessibilityHidden(true)
+                    .overlay {
+                        PerchSegmentKeyTarget(
+                            value: item.value, label: AppL10n.text(item.label), items: items.map(\.value),
+                            selection: $selection, enabled: enabled, rightToLeft: direction == .rightToLeft,
+                            focus: focus)
+                    }
             }
         }
         .padding(.horizontal, Self.inset)
@@ -68,82 +59,204 @@ struct PerchSegmented<Value: Hashable>: View {
             RoundedRectangle(cornerRadius: DesignTokens.Size.segmentRadius.value)
                 .fill(Theme.field)
         }
-        .background(PerchSegmentFocusAnchor(view: focusAnchor).allowsHitTesting(false))
         .designMotion(.pop, value: selection)
         .accessibilityElement(children: .contain)
         .accessibilityLabel(AppL10n.text(title))
         .accessibilityValue(AppL10n.text(items.first(where: { $0.value == selection })?.label ?? ""))
-        .onChange(of: focused) { oldValue, value in
-            if value != nil {
-                groupHasFocus = true
-            } else if oldValue == selection {
-                // The outgoing selection losing focus is temporary; the current one
-                // losing focus means the person has moved to a different control.
-                _ = leaveGroup()
-            }
-        }
-        .onChange(of: selection) { _, value in restoreFocus(value) }
-        .onKeyPress(.tab) { leaveGroup() }
-        // AppKit delivers Shift-Tab as back-tab, not as the Tab character.
-        .onKeyPress(KeyEquivalent("\u{19}")) { leaveGroup() }
-        .onChange(of: enabled) { _, value in
-            if !value {
-                _ = leaveGroup()
-                focused = nil
-            }
-        }
         .onReceive(NotificationCenter.default.publisher(for: NSWindow.didResignKeyNotification)) { notification in
-            guard let window = notification.object as? NSWindow, window === focusAnchor.window else { return }
-            _ = leaveGroup()
-            focused = nil
+            guard let window = notification.object as? NSWindow else { return }
+            focus.resign(in: window)
         }
-        .onDisappear { _ = leaveGroup() }
+        .onDisappear { focus.resign() }
+    }
+}
+
+/// Paint stays in SwiftUI; the transparent AppKit overlay owns both keys and its AXButton.
+private struct PerchSegmentKeyTarget<Value: Hashable>: NSViewRepresentable {
+    let value: Value
+    let label: String
+    let items: [Value]
+    @Binding var selection: Value
+    let enabled: Bool
+    let rightToLeft: Bool
+    let focus: PerchSegmentFocus<Value>
+
+    func makeNSView(context: Context) -> PerchSegmentKeyView {
+        let view = PerchSegmentKeyView()
+        focus.register(view, value: value)
+        return view
     }
 
-    private func restoreFocus(_ value: Value) {
-        guard groupHasFocus else { return }
-        let request = UUID()
-        restorationID = request
-        // Register the newly focusable button before asking SwiftUI to focus it.
-        DispatchQueue.main.async { [self] in
-            guard groupHasFocus, enabled, selection == value, restorationID == request,
-                focusAnchor.window?.isKeyWindow == true, items.contains(where: { $0.value == value })
-            else { return }
-            focused = value
+    func updateNSView(_ view: PerchSegmentKeyView, context: Context) {
+        view.setAccessibilityLabel(label)
+        focus.update(items: items, selection: selection, enabled: enabled, rightToLeft: rightToLeft) {
+            selection = $0
         }
     }
 
-    private func leaveGroup() -> KeyPress.Result {
-        groupHasFocus = false
-        restorationID = UUID()
-        // Tab and Shift-Tab continue through AppKit's native key loop.
-        return .ignored
-    }
-
-    private func move(from index: Int, by step: Int) -> KeyPress.Result {
-        select(min(max(index + step, items.startIndex), items.count - 1))
-    }
-
-    private func select(_ index: Int) -> KeyPress.Result {
-        guard enabled, items.indices.contains(index) else { return .ignored }
-        selection = items[index].value
-        return .handled
+    static func dismantleNSView(_ view: PerchSegmentKeyView, coordinator: ()) {
+        if view.window?.firstResponder === view { view.window?.makeFirstResponder(nil) }
+        view.focusChanged(false)
+        view.active = false
     }
 }
 
-/// A non-accessible anchor scopes deferred focus work to this control's live window.
-private struct PerchSegmentFocusAnchor: NSViewRepresentable {
-    let view: PerchSegmentFocusAnchorView
-    func makeNSView(context: Context) -> PerchSegmentFocusAnchorView { view }
-    func updateNSView(_ view: PerchSegmentFocusAnchorView, context: Context) {}
+@MainActor private final class PerchSegmentFocus<Value: Hashable>: ObservableObject {
+    @Published private(set) var focused: Value?
+    @Published var pressed: Value?
+    private var items: [Value] = []
+    private var selection: Value?
+    private var enabled = true
+    private var rightToLeft = false
+    private var change: (Value) -> Void = { _ in }
+    private var views: [Value: WeakSegmentView] = [:]
+
+    func register(_ view: PerchSegmentKeyView, value: Value) {
+        views[value] = WeakSegmentView(view)
+        view.selected = { [weak self] in self?.selection == value }
+        view.enabled = { [weak self] in self?.enabled == true }
+        view.press = { [weak self] in self?.select(value, acquireFocus: true) }
+        view.key = { [weak self] code in self?.key(code, from: value) == true }
+        view.focusChanged = { [weak self] ownsFocus in
+            guard let self else { return }
+            if ownsFocus { focused = value } else if focused == value { focused = nil }
+        }
+        view.pressChanged = { [weak self] down in self?.pressed = down ? value : nil }
+    }
+
+    func update(items: [Value], selection: Value, enabled: Bool, rightToLeft: Bool, change: @escaping (Value) -> Void) {
+        let ownsFocus = views.values.contains { $0.view?.ownsKeyboardFocus == true }
+        self.items = items
+        self.enabled = enabled
+        self.rightToLeft = rightToLeft
+        self.change = change
+        let changed = self.selection != selection
+        self.selection = selection
+        if !enabled {
+            resign()
+        } else if changed && ownsFocus {
+            // All segment key views persist across selection changes: no queued restoration.
+            focus(selection)
+        }
+    }
+
+    func resign(in window: NSWindow? = nil) {
+        for entry in views.values {
+            guard let view = entry.view, window == nil || view.window === window else { continue }
+            if view.window?.firstResponder === view { view.window?.makeFirstResponder(nil) }
+            view.focusChanged(false)
+        }
+        pressed = nil
+    }
+
+    private func select(_ value: Value, acquireFocus: Bool) {
+        guard enabled, items.contains(value) else { return }
+        selection = value
+        change(value)
+        if acquireFocus { focus(value) }
+    }
+
+    private func focus(_ value: Value) {
+        guard enabled, let view = views[value]?.view, view.active,
+            let window = view.window, window.isKeyWindow
+        else { return }
+        window.makeFirstResponder(view)
+    }
+
+    private func key(_ code: UInt16, from value: Value) -> Bool {
+        guard enabled, let index = items.firstIndex(of: value), !items.isEmpty else { return false }
+        let target: Int
+        switch code {
+        case 123: target = min(max(index + (rightToLeft ? 1 : -1), 0), items.count - 1)
+        case 124: target = min(max(index + (rightToLeft ? -1 : 1), 0), items.count - 1)
+        case 115: target = items.startIndex
+        case 119: target = items.count - 1
+        case 49, 36: target = index
+        default: return false
+        }
+        select(items[target], acquireFocus: true)
+        return true
+    }
 }
 
-private final class PerchSegmentFocusAnchorView: NSView {
-    override func isAccessibilityElement() -> Bool { false }
+@MainActor private final class WeakSegmentView {
+    weak var view: PerchSegmentKeyView?
+    init(_ view: PerchSegmentKeyView) { self.view = view }
 }
 
-private struct PerchSegmentStyle: ButtonStyle {
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label.perchControlFeedback(pressed: configuration.isPressed)
+/// The first responder and accessible segment are the same object, not a focus proxy.
+@MainActor final class PerchSegmentKeyView: NSControl {
+    var active = true
+    var selected: () -> Bool = { false }
+    var enabled: () -> Bool = { false }
+    var press: () -> Void = {}
+    var key: (UInt16) -> Bool = { _ in false }
+    var focusChanged: (Bool) -> Void = { _ in }
+    var pressChanged: (Bool) -> Void = { _ in }
+
+    override init(frame: NSRect) {
+        super.init(frame: frame)
+        focusRingType = .none
+        setAccessibilityElement(true)
+        setAccessibilityRole(.button)
+    }
+
+    required init?(coder: NSCoder) { nil }
+
+    override var acceptsFirstResponder: Bool { active && enabled() && selected() }
+    var ownsKeyboardFocus: Bool { window?.firstResponder === self }
+
+    override func becomeFirstResponder() -> Bool {
+        guard acceptsFirstResponder, super.becomeFirstResponder() else { return false }
+        focusChanged(true)
+        NSAccessibility.post(element: self, notification: .focusedUIElementChanged)
+        return true
+    }
+
+    override func resignFirstResponder() -> Bool {
+        guard super.resignFirstResponder() else { return false }
+        focusChanged(false)
+        return true
+    }
+
+    override func keyDown(with event: NSEvent) {
+        if event.keyCode == 48 {
+            if event.modifierFlags.contains(.shift) {
+                window?.selectPreviousKeyView(self)
+            } else {
+                window?.selectNextKeyView(self)
+            }
+        } else if !key(event.keyCode) {
+            // Escape and unhandled commands continue to the surrounding SwiftUI responder.
+            super.keyDown(with: event)
+        }
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        guard active, enabled() else { return }
+        pressChanged(true)
+        defer { pressChanged(false) }
+        while let next = window?.nextEvent(matching: [.leftMouseUp, .leftMouseDragged]) {
+            if next.type == .leftMouseUp {
+                if bounds.contains(convert(next.locationInWindow, from: nil)) { press() }
+                break
+            }
+        }
+    }
+
+    override func isAccessibilityEnabled() -> Bool { active && enabled() }
+    override func accessibilityValue() -> Any? { AppL10n.text(selected() ? "Selected" : "Not selected") }
+    override func isAccessibilitySelected() -> Bool { selected() }
+    override func isAccessibilityFocused() -> Bool {
+        active && enabled() && selected() && !isHiddenOrHasHiddenAncestor
+            && window?.isKeyWindow == true && ownsKeyboardFocus
+    }
+    override func setAccessibilityFocused(_ focused: Bool) {
+        if focused && active && enabled() { press() }
+    }
+    override func accessibilityPerformPress() -> Bool {
+        guard active, enabled() else { return false }
+        press()
+        return true
     }
 }
