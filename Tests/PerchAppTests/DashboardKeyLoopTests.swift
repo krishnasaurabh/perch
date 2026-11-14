@@ -37,7 +37,7 @@ final class DashboardKeyLoopTests: XCTestCase {
         let previousPolicy = NSApp.activationPolicy()
         NSApp.setActivationPolicy(.accessory)
         defer { NSApp.setActivationPolicy(previousPolicy) }
-        window.makeKeyAndOrderFront(nil)
+        try await Self.activateKeyWindow(window)
         let backtab = NSEvent.keyEvent(
             with: .keyDown, location: .zero, modifierFlags: .shift,
             timestamp: 0, windowNumber: window.windowNumber, context: nil,
@@ -102,7 +102,7 @@ final class DashboardKeyLoopTests: XCTestCase {
             root.addSubview(host)
             root.addSubview(action)
             window.contentView = root
-            window.makeKeyAndOrderFront(nil)
+            try await Self.activateKeyWindow(window)
             for _ in 0..<30 {
                 root.layoutSubtreeIfNeeded()
                 if DashboardKeyLoop.tabKeyView(in: window) != nil { break }
@@ -138,7 +138,7 @@ final class DashboardKeyLoopTests: XCTestCase {
         root.addSubview(host)
         root.addSubview(action)
         window.contentView = root
-        window.makeKeyAndOrderFront(nil)
+        try await Self.activateKeyWindow(window)
         for _ in 0..<30 {
             root.layoutSubtreeIfNeeded()
             if DashboardKeyLoop.tabKeyView(in: window) != nil { break }
@@ -196,7 +196,7 @@ final class DashboardKeyLoopTests: XCTestCase {
         root.addSubview(host)
         root.addSubview(action)
         window.contentView = root
-        window.makeKeyAndOrderFront(nil)
+        try await Self.activateKeyWindow(window)
         for _ in 0..<30 {
             root.layoutSubtreeIfNeeded()
             if DashboardKeyLoop.tabKeyView(in: window) != nil { break }
@@ -216,6 +216,26 @@ final class DashboardKeyLoopTests: XCTestCase {
         XCTAssertTrue(tabs.nextValidKeyView === action)
         XCTAssertFalse(tabs.nextKeyView === search)
         XCTAssertTrue(host.selectionState === selection)
+    }
+
+    @MainActor
+    private static func activateKeyWindow(
+        _ window: NSWindow, file: StaticString = #filePath, line: UInt = #line
+    ) async throws {
+        for attempt in 0..<25 {
+            NSApp.activate(ignoringOtherApps: true)
+            window.makeKeyAndOrderFront(nil)
+            try await Task.sleep(for: .milliseconds(180))
+            print(
+                "Dashboard activation attempt \(attempt + 1): key=\(window.isKeyWindow), "
+                    + "appActive=\(NSApp.isActive), policy=\(NSApp.activationPolicy().rawValue)")
+            if window.isKeyWindow { break }
+        }
+        _ = try XCTUnwrap(
+            window.isKeyWindow ? window : nil,
+            "The dashboard fixture must own the key window; "
+                + "appActive=\(NSApp.isActive), policy=\(NSApp.activationPolicy().rawValue)",
+            file: file, line: line)
     }
 
     @MainActor
