@@ -828,9 +828,10 @@ private extension Int {
 /// re-press tolerates a key delivered during SwiftUI's previous row teardown.
 @MainActor func advanceSettingsSidebar(
     to expectedPane: SettingsView.Pane, host: NSView, window: NSWindow,
-    navigation: SettingsNavigation, label: String
+    navigation: SettingsNavigation, label: String, arrowPresses: inout Int
 ) async -> Bool {
     for _ in 0..<2 {
+        arrowPresses += 1
         key(125, String(UnicodeScalar(0xF701)!), in: window, modifiers: [.numericPad, .function])
         let deadline = ProcessInfo.processInfo.systemUptime + 1
         while true {
@@ -978,9 +979,13 @@ private extension Int {
             app.activate(ignoringOtherApps: true)
             await settle()
             if let pane = page.settingsPane {
+                let navigationStarted = ProcessInfo.processInfo.systemUptime
+                var tabPresses = 0
+                var arrowPresses = 0
                 window.makeFirstResponder(nil)
                 for _ in 0..<16 {
                     if settingsSidebarFocused(host, pane: .general) { break }
+                    tabPresses += 1
                     key(48, "\t", in: window)
                     await settle()
                 }
@@ -991,13 +996,19 @@ private extension Int {
                 for expectedPane in SettingsView.Pane.allCases.prefix(index + 1).dropFirst() {
                     guard
                         await advanceSettingsSidebar(
-                            to: expectedPane, host: host, window: window, navigation: navigation, label: label)
+                            to: expectedPane, host: host, window: window, navigation: navigation, label: label,
+                            arrowPresses: &arrowPresses)
                     else { break }
                 }
                 Measured.check(
                     navigation.pane == pane && settingsSidebarFocused(host, pane: pane),
                     "\(label): Down Arrow selects the \(page.name) pane (selected \(navigation.pane.rawValue))")
                 await settle()
+                let navigationSeconds = ProcessInfo.processInfo.systemUptime - navigationStarted
+                print(
+                    "MEASURED: \(label) navigation \(tabPresses) tabs, \(arrowPresses) arrows, \(navigationSeconds) s"
+                )
+                fflush(nil)
             }
             await wakeControlAccessibility()
             await settle()

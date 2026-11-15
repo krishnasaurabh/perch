@@ -113,11 +113,14 @@ Task { @MainActor in
     let host = NSView(), window = NSWindow()
     for mode in ["immediate", "delayed", "lost-first"] {
         Replay.reset(mode)
+        var arrowPresses = 0
         for pane in SettingsView.Pane.allCases.dropFirst() {
             let ok = await advanceSettingsSidebar(to: pane, host: host, window: window,
-                                                  navigation: Replay.navigation, label: mode)
+                                                  navigation: Replay.navigation, label: mode,
+                                                  arrowPresses: &arrowPresses)
             precondition(ok, mode)
             precondition(Replay.focused == pane && Replay.navigation.pane == pane, mode)
+            precondition(arrowPresses == Replay.presses, "count every actual arrow, including retries")
         }
         precondition(Replay.presses == (mode == "lost-first" ? 8 : 4), mode)
         precondition(Measured.failures.isEmpty, mode)
@@ -125,9 +128,12 @@ Task { @MainActor in
     for mode in ["lost", "selection-only"] {
         Replay.reset(mode)
         let started = ProcessInfo.processInfo.systemUptime
+        var arrowPresses = 0
         let ok = await advanceSettingsSidebar(to: .notch, host: host, window: window,
-                                              navigation: Replay.navigation, label: mode)
+                                              navigation: Replay.navigation, label: mode,
+                                              arrowPresses: &arrowPresses)
         precondition(!ok && Replay.presses == 2, "retry must be bounded and fail closed")
+        precondition(arrowPresses == Replay.presses, "failed keys must also be counted")
         precondition(ProcessInfo.processInfo.systemUptime - started < 3)
         precondition(Measured.failures.count == 1)
         let failure = Measured.failures[0]
