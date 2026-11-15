@@ -580,9 +580,9 @@ final class NotchController {
         if isOnPill(p, slot) { return true }
         if active && model.expanded && model.peeking {
             let rect = peekFrame(slot)
-            guard rect.contains(p) else { return false }
+            guard let local = NotchPeekLayout.localPoint(p, in: rect) else { return false }
             return slot.state.geometry.outline(expanded: true).path(in: CGRect(origin: .zero, size: rect.size))
-                .contains(CGPoint(x: p.x - rect.minX, y: rect.maxY - p.y))
+                .contains(local)
         }
         return slot.state.geometry.shapeContains(
             p, expanded: active && model.expanded, timer: timerShowing(),

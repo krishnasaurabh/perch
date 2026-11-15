@@ -7,6 +7,20 @@ import XCTest
 
 final class NotchBehaviorTests: XCTestCase {
     @MainActor
+    func testPeekPaintedHousingIncludesScreenTopAndExcludesCorners() async throws {
+        let geometry = NotchGeometry(
+            screen: NotchLayout.Screen(
+                frame: CGRect(x: 0, y: 0, width: 1512, height: 982),
+                visibleFrame: CGRect(x: 0, y: 0, width: 1512, height: 948),
+                safeAreaTop: 34, auxiliaryLeftWidth: 661, auxiliaryRightWidth: 661))
+        let rect = NotchPeekLayout.frame(workspace: geometry.workspace, bandHeight: geometry.notchSize.height)
+        let local = try XCTUnwrap(NotchPeekLayout.localPoint(CGPoint(x: rect.midX, y: rect.maxY), in: rect))
+        let path = geometry.outline(expanded: true).path(in: CGRect(origin: .zero, size: rect.size))
+        XCTAssertTrue(path.contains(local))
+        XCTAssertFalse(path.contains(CGPoint(x: 1, y: rect.height - 1)))
+    }
+
+    @MainActor
     func testPeekPromotesToWorkspaceAndCloseClearsItsLevel() async {
         let model = NotchModel()
         model.openPeek()

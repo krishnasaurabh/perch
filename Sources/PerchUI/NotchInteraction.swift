@@ -55,6 +55,12 @@ public enum NotchPeekLayout {
         + DesignTokens.Size.stepRowHeight.value + DesignTokens.Size.buttonHeight.value
         + inset * 4 + gap * 3 + DesignTokens.TypeRole.detail.spec.size + DesignTokens.Size.sheetPadding.value
 
+    /// AppKit points are y-up; SwiftUI paths are y-down. Keep screen-top clicks inside the painted path.
+    public static func localPoint(_ pointer: CGPoint, in rect: CGRect) -> CGPoint? {
+        guard NotchLayout.contains(rect, pointer: pointer) else { return nil }
+        return CGPoint(x: pointer.x - rect.minX, y: max(0.5, rect.maxY - pointer.y))
+    }
+
     public static func frame(workspace: CGRect, bandHeight: CGFloat) -> CGRect {
         CGRect(
             x: workspace.midX - width / 2, y: workspace.maxY - bandHeight - contentHeight,

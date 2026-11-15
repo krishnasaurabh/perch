@@ -49,6 +49,14 @@ final class NotchPeekTests: XCTestCase {
         XCTAssertNil(NotchPeekCapture(" \n ", park: true))
     }
 
+    func testPeekHitKeepsTheScreenTopEdgeButRejectsOutsidePoints() {
+        let rect = CGRect(x: -800, y: 700, width: 460, height: 238)
+        let top = CGPoint(x: rect.midX, y: rect.maxY)
+        XCTAssertEqual(NotchPeekLayout.localPoint(top, in: rect), CGPoint(x: rect.width / 2, y: 0.5))
+        XCTAssertNil(NotchPeekLayout.localPoint(CGPoint(x: rect.midX, y: rect.maxY + 1), in: rect))
+        XCTAssertNil(NotchPeekLayout.localPoint(CGPoint(x: rect.minX - 1, y: rect.midY), in: rect))
+    }
+
     func testPeekFrameKeepsWorkspaceTopAndFitsOnOffsetDisplays() {
         for origin in [CGPoint.zero, CGPoint(x: -1800, y: 400)] {
             let workspace = CGRect(origin: origin, size: CGSize(width: 960, height: 540))
