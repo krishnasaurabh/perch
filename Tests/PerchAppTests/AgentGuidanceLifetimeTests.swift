@@ -144,6 +144,7 @@ private final class AgentGuidanceFixture: ObservableObject {
     let store: PlannerStore
     let feedback = SettingsFailureFeedback()
     let window: NSWindow
+    private let originalActivationPolicy: NSApplication.ActivationPolicy
     let originalPlanner: Data
     let guidance = "Restart the sample app."
     @Published var pane = SettingsView.Pane.agents
@@ -155,6 +156,7 @@ private final class AgentGuidanceFixture: ObservableObject {
 
     init(app: AgentConnector.App) throws {
         _ = NSApplication.shared
+        originalActivationPolicy = NSApp.activationPolicy()
         self.app = app
         root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         let file = PlannerFile(
@@ -171,6 +173,7 @@ private final class AgentGuidanceFixture: ObservableObject {
                 .environmentObject(store).environment(\.accessibilityEnabled, true))
         host.sizingOptions = []
         window.contentView = host
+        NSApp.setActivationPolicy(.accessory)
         window.makeKeyAndOrderFront(nil)
     }
 
@@ -195,6 +198,7 @@ private final class AgentGuidanceFixture: ObservableObject {
     func close() {
         window.contentView = nil
         window.close()
+        NSApp.setActivationPolicy(originalActivationPolicy)
         try? FileManager.default.removeItem(at: root)
     }
 }
