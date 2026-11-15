@@ -21,6 +21,7 @@ import SwiftUI
                 "settings/calendar": .window("settings") { SettingsWindow.preview(.calendar, app: $0) },
                 "settings/agents": .window("settings") { SettingsWindow.preview(.agents, app: $0) },
                 "settings/data": .window("settings") { SettingsWindow.preview(.data, app: $0) },
+                "keys": .window("keys") { KeysWindow.show(store: $0.store) },
                 "your-week": .window("dashboard") { DashboardWindow.show(store: $0.store, tab: .insights) },
                 "history": .window("dashboard") { DashboardWindow.show(store: $0.store, tab: .history) },
                 "projects": .window("dashboard") { DashboardWindow.show(store: $0.store, tab: .projects) },
