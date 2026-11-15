@@ -1,14 +1,69 @@
-"""Compile the voice fixture's actor boundary without an Apple SDK.
+"""Compile the extracted voice fixture's actor boundary on each host.
 
-The AX functions below are typechecking stubs only. Actual accessibility and
-voice-state assertions remain in the macOS test, not in this portable check.
+XCTest is real; only the AX functions are typechecking stubs. Actual accessibility
+and voice-state assertions remain in the macOS test, not in this portable check.
 """
 from pathlib import Path
 import re
 import shutil
 import subprocess
+import sys
 import tempfile
 import unittest
+from unittest.mock import call, patch
+
+
+def compiler_command(swift, source, output):
+    command = [swift]
+    if sys.platform == "darwin":
+        # XCTest lives in Xcode's platform developer frameworks, not the SDK.
+        # Standalone swiftc needs the same search roots SwiftPM adds for tests.
+        sdk = subprocess.check_output(
+            ["xcrun", "--sdk", "macosx", "--show-sdk-path"], text=True
+        ).strip()
+        platform = Path(subprocess.check_output(
+            ["xcrun", "--sdk", "macosx", "--show-sdk-platform-path"], text=True
+        ).strip())
+        developer = platform / "Developer"
+        command += [
+            "-sdk", sdk, "-F", str(developer / "Library/Frameworks"),
+            "-I", str(developer / "usr/lib"),
+        ]
+    return command + ["-swift-version", "6", "-emit-sil", str(source), "-o", str(output)]
+
+
+class VoiceCompilerConfigurationTests(unittest.TestCase):
+    def test_macos_uses_selected_sdk_and_developer_frameworks(self):
+        sdk = "/Applications/Xcode Test.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk"
+        platform = "/Applications/Xcode Test.app/Contents/Developer/Platforms/MacOSX.platform"
+        with patch("sys.platform", "darwin"), patch(
+            "subprocess.check_output", side_effect=[sdk + "\n", platform + "\n"]
+        ) as discover:
+            command = compiler_command("swiftc", Path("fixture.swift"), Path("fixture.sil"))
+        self.assertEqual(command, [
+            "swiftc", "-sdk", sdk, "-F", platform + "/Developer/Library/Frameworks",
+            "-I", platform + "/Developer/usr/lib",
+            "-swift-version", "6", "-emit-sil", "fixture.swift", "-o", "fixture.sil",
+        ])
+        self.assertEqual(discover.call_args_list, [
+            call(["xcrun", "--sdk", "macosx", "--show-sdk-path"], text=True),
+            call(["xcrun", "--sdk", "macosx", "--show-sdk-platform-path"], text=True),
+        ])
+
+    def test_linux_keeps_toolchain_xctest_without_xcrun(self):
+        with patch("sys.platform", "linux"), patch("subprocess.check_output") as discover:
+            command = compiler_command("swiftc", Path("fixture.swift"), Path("fixture.sil"))
+        self.assertEqual(command, [
+            "swiftc", "-swift-version", "6", "-emit-sil", "fixture.swift", "-o", "fixture.sil",
+        ])
+        discover.assert_not_called()
+
+    def test_sdk_discovery_failure_is_not_silently_skipped(self):
+        with patch("sys.platform", "darwin"), patch(
+            "subprocess.check_output", side_effect=subprocess.CalledProcessError(1, "xcrun")
+        ):
+            with self.assertRaises(subprocess.CalledProcessError):
+                compiler_command("swiftc", Path("fixture.swift"), Path("fixture.sil"))
 
 ROOT = Path(__file__).resolve().parents[2]
 SOURCE = ROOT / "Tests/PerchAppTests/ChecklistVoiceFeedbackTests.swift"
@@ -51,7 +106,7 @@ final class VoiceIsolationFixture: XCTestCase {
             path = Path(directory) / "VoiceIsolationFixture.swift"
             path.write_text(self.program(source))
             return subprocess.run(
-                [swift, "-swift-version", "6", "-emit-sil", str(path), "-o", str(path.with_suffix(".sil"))],
+                compiler_command(swift, path, path.with_suffix(".sil")),
                 capture_output=True, text=True, timeout=60,
             )
 
