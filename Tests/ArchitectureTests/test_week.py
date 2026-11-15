@@ -1,5 +1,6 @@
 """Week controls must use calendar boundaries and preserve visible task text."""
 from pathlib import Path
+import re
 import unittest
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -79,11 +80,20 @@ class WeekViewTests(unittest.TestCase):
         self.assertIn('private func dayColumn(', board)
         self.assertIn('private func scrollingBoard(', board)
         row = source.split('private struct WeekBoardTask:', 1)[1].split('struct WeekParkingColumn:', 1)[0]
-        self.assertIn('.onKeyPress(.rightArrow)', row)
-        self.assertIn('id: task.id', row.split('.onKeyPress(.rightArrow)', 1)[1])
+        self.assertIn('.onKeyPress(.rightArrow, phases: .down)', row)
+        self.assertIn('id: task.id', row.split('.onKeyPress(.rightArrow, phases: .down)', 1)[1])
         self.assertIn('WeekTaskPolicy.moveDestinations(', row)
         self.assertIn('displayedDays: days', row)
         self.assertNotIn('WeekColumnLayout.days(', row)
+
+    def test_arrow_handlers_use_the_event_receiving_keypress_overload(self):
+        source = (ROOT / "Sources/PerchApp/Workspace/WeekPage.swift").read_text()
+        handlers = re.findall(r'\.onKeyPress\((\.\w+)([^)]*)\)\s*\{\s*key in', source)
+        self.assertEqual([key for key, _ in handlers], ['.leftArrow', '.rightArrow', '.rightArrow'])
+        for key, arguments in handlers:
+            with self.subTest(key=key):
+                self.assertEqual(arguments, ', phases: .down',
+                                 "Single-key handlers receiving KeyPress need the phases overload")
 
     def test_native_keyboard_fixture_restores_task_only_before_neighbor_check(self):
         source = (ROOT / "Tests/PerchAppTests/WeekInboxKeyboardTests.swift").read_text()

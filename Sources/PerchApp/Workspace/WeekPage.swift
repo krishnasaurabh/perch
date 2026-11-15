@@ -95,11 +95,11 @@ struct WeekBoard: View {
                 shape: RoundedRectangle(cornerRadius: WeekColumnLayout.columnRadius),
                 focused: focusedDay == day, surface: day == store.today ? .butter : .paper)
         )
-        .onKeyPress(.leftArrow) { key in
+        .onKeyPress(.leftArrow, phases: .down) { key in
             guard key.modifiers.isEmpty else { return .ignored }
             navigate(from: day, by: -1); return .handled
         }
-        .onKeyPress(.rightArrow) { key in
+        .onKeyPress(.rightArrow, phases: .down) { key in
             if key.modifiers == .option {
                 pushSelected(from: day); return .handled
             }
@@ -355,7 +355,7 @@ private struct WeekBoardTask: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .help(WeekColumnLayout.chipHelp(title: task.title, past: past))
-        .onKeyPress(.rightArrow) { key in
+        .onKeyPress(.rightArrow, phases: .down) { key in
             guard key.modifiers == .option else { return .ignored }
             // Handle the focused row before the column's selected-task fallback.
             // Checkbox focus alone must not reuse another row's last menu selection.
