@@ -11,6 +11,7 @@ struct TasksCard: View {
     @State private var localHomeState = TodayHomeState()
     @State private var expandedTasks: Set<UUID> = []
     @State private var showsLater = false
+    @State private var foldSelected = false
     @State private var selectedStepID: UUID?
     @State private var reviewingOverdue = false
     @FocusState private var focus: TodayFocus?
@@ -48,7 +49,7 @@ struct TasksCard: View {
                                 TaskRow(
                                     task: task, current: task.id == currentID,
                                     selected: homeState.selectedTaskID == task.id,
-                                    keyboardFocused: focus == .checklist, inChecklist: true,
+                                    keyboardFocused: focus == .checklist && !foldSelected, inChecklist: true,
                                     selectedStepID: selectedStepID,
                                     expanded: Binding(
                                         get: { expandedTasks.contains(task.id) },
@@ -69,18 +70,24 @@ struct TasksCard: View {
                                     return store.apply { try $0.reorder(item.taskID, before: task.id) } != nil
                                 }
                             }
-                            if remaining > 0 {
-                                Button(AppL10n.format("%lld more for later today", remaining)) { showsLater = true }
-                                    .buttonStyle(.plain).perchFont(.detailStrong).foregroundStyle(Theme.brandText)
-                                    .frame(minHeight: Theme.Size.minimumTarget.value)
-                                    .focusable(false)
-                                    .accessibilityIdentifier("today-show-later")
-                            } else if showsLater && tasks.count > TodayTaskNavigation.foldedRowCount {
-                                Button("Show less") {
-                                    showsLater = false; homeState.selectedTaskID = tasks.first?.id
+                            if tasks.count > TodayTaskNavigation.foldedRowCount {
+                                Button {
+                                    toggleFold(tasks)
+                                } label: {
+                                    Text(
+                                        remaining > 0
+                                            ? AppL10n.format("%lld more for later today", remaining)
+                                            : AppL10n.text("Show less"))
                                 }
                                 .buttonStyle(.plain).perchFont(.detailStrong).foregroundStyle(Theme.brandText)
                                 .frame(minHeight: Theme.Size.minimumTarget.value).focusable(false)
+                                .overlay(
+                                    FocusRing(
+                                        shape: Capsule(), focused: focus == .checklist && foldSelected, surface: .paper)
+                                )
+                                .accessibilityAddTraits(foldSelected ? .isSelected : [])
+                                .accessibilityIdentifier(remaining > 0 ? "today-show-later" : "today-show-less")
+                                .id("today-fold")
                             }
                             if tasks.isEmpty {
                                 Text("What has to happen today?").perchFont(.body).foregroundStyle(Theme.ink2)
@@ -100,7 +107,13 @@ struct TasksCard: View {
                     .onKeyPress(phases: [.down, .repeat, .up]) { handle($0, tasks: tasks) }
                     .onChange(of: homeState.selectedTaskID) { _, id in
                         selectedStepID = nil
-                        if let id { scroll.scrollTo(id) }
+                        if let id, !foldSelected { scroll.scrollTo(id) }
+                    }
+                    .onChange(of: foldSelected) { _, selected in
+                        if selected { scroll.scrollTo("today-fold") }
+                    }
+                    .onChange(of: showsLater) { _, _ in
+                        if foldSelected { scroll.scrollTo("today-fold") }
                     }
                 }
             }
@@ -137,6 +150,7 @@ struct TasksCard: View {
             if let selectedStepID, !remaining.contains(selectedStepID) { self.selectedStepID = nil }
         }
         .onChange(of: ids) { previous, remaining in
+            if remaining.count <= TodayTaskNavigation.foldedRowCount { foldSelected = false }
             guard let selected = homeState.selectedTaskID, !remaining.contains(selected) else { return }
             homeState.selectedTaskID = TodayTaskNavigation.afterRemoval(
                 of: selected, previous: previous, remaining: remaining)
@@ -184,16 +198,49 @@ struct TasksCard: View {
         }
     }
 
-    private func select(_ id: UUID) { homeState.selectedTaskID = id; selectedStepID = nil; focus = .checklist }
+    private func select(_ id: UUID) {
+        foldSelected = false; homeState.selectedTaskID = id; selectedStepID = nil; focus = .checklist
+    }
+
+    private func toggleFold(_ tasks: [PlanTask]) {
+        showsLater = !TodayTaskNavigation.isExpanded(tasks, expanded: showsLater, selectedID: homeState.selectedTaskID)
+        foldSelected = true; selectedStepID = nil; focus = .checklist
+        if !showsLater { homeState.selectedTaskID = tasks.first?.id }
+    }
+
+    private func moveChecklist(_ tasks: [PlanTask], offset: Int) {
+        guard let id = homeState.selectedTaskID else { return }
+        let current: TodayTaskNavigation.Destination = foldSelected ? .fold : .task(id)
+        let expanded = TodayTaskNavigation.isExpanded(tasks, expanded: showsLater, selectedID: homeState.selectedTaskID)
+        switch TodayTaskNavigation.move(in: tasks.map(\.id), from: current, offset: offset, expanded: expanded) {
+        case .fold:
+            foldSelected = true; selectedStepID = nil
+        case .task(let next):
+            if tasks.dropFirst(TodayTaskNavigation.foldedRowCount).contains(where: { $0.id == next }) {
+                showsLater = true
+            }
+            select(next)
+        case nil: break
+        }
+    }
     private func edit(_ id: UUID) { homeState.selectedTaskID = id; homeState.editingTaskID = id }
 
     private func handle(_ press: KeyPress, tasks: [PlanTask]) -> KeyPress.Result {
-        guard focus == .checklist, let id = homeState.selectedTaskID,
-            let task = tasks.first(where: { $0.id == id })
-        else { return .ignored }
+        guard focus == .checklist else { return .ignored }
         let modifiers = press.modifiers.intersection([.command, .control, .option, .shift])
         let plain = modifiers.isEmpty
         let arrow = press.key == .upArrow || press.key == .downArrow
+        if foldSelected {
+            guard plain, arrow || press.key == .space || press.key == .return else { return .ignored }
+            guard press.phase == .down else { return .handled }
+            if arrow {
+                moveChecklist(tasks, offset: press.key == .upArrow ? -1 : 1)
+            } else {
+                toggleFold(tasks)
+            }
+            return .handled
+        }
+        guard let id = homeState.selectedTaskID, let task = tasks.first(where: { $0.id == id }) else { return .ignored }
         let reorder = arrow && modifiers == .option
         let park = press.characters.lowercased() == "k" && modifiers == .command
         let start = press.key == .return && modifiers == .command
@@ -222,14 +269,7 @@ struct TasksCard: View {
                 in: task.steps.map(\.id), from: stepID,
                 offset: press.key == .upArrow ? -1 : 1)
         } else if arrow {
-            if let next = TodayTaskNavigation.neighbor(
-                in: tasks.map(\.id), from: id, offset: press.key == .upArrow ? -1 : 1)
-            {
-                if tasks.dropFirst(TodayTaskNavigation.foldedRowCount).contains(where: { $0.id == next }) {
-                    showsLater = true
-                }
-                homeState.selectedTaskID = next
-            }
+            moveChecklist(tasks, offset: press.key == .upArrow ? -1 : 1)
         } else if press.key == .space, let stepID = selectedStepID {
             store.updateTask(id) { draft in
                 if let index = draft.steps.firstIndex(where: { $0.id == stepID }) { draft.steps[index].done.toggle() }
@@ -386,7 +426,7 @@ struct TaskComposer: View {
                 Text(pending).perchFont(.detail).foregroundStyle(Theme.ink2)
                     .fixedSize(horizontal: false, vertical: true)
                 PerchButton("Try adding the dictated task again", kind: .quiet, size: .small) {
-                    addDictation(pending, parentID: capture.pendingDictationParentID)
+                    _ = capture.retryDictation { submit($0, parentID: $1) }
                 }
             }
             if !text.isEmpty {

@@ -10,13 +10,39 @@ public enum TodayTaskNavigation {
         return current + tasks.filter { !$0.done && $0.id != currentID } + tasks.filter(\.done)
     }
 
+    public static func isExpanded(_ tasks: [PlanTask], expanded: Bool, selectedID: UUID?) -> Bool {
+        expanded || tasks.dropFirst(foldedRowCount).contains(where: { $0.id == selectedID })
+    }
+
     public static func visible(_ tasks: [PlanTask], expanded: Bool, selectedID: UUID?) -> [PlanTask] {
-        if expanded || tasks.dropFirst(foldedRowCount).contains(where: { $0.id == selectedID }) { return tasks }
+        if isExpanded(tasks, expanded: expanded, selectedID: selectedID) { return tasks }
         return Array(tasks.prefix(foldedRowCount))
     }
 
     public static func hiddenCount(_ tasks: [PlanTask], expanded: Bool, selectedID: UUID?) -> Int {
         tasks.count - visible(tasks, expanded: expanded, selectedID: selectedID).count
+    }
+
+    /// The fold action shares the checklist's Tab stop and arrow-key cursor.
+    public enum Destination: Equatable, Sendable {
+        case task(UUID)
+        case fold
+    }
+
+    public static func move(
+        in ids: [UUID], from current: Destination, offset: Int, expanded: Bool
+    ) -> Destination? {
+        guard !ids.isEmpty, abs(offset) == 1 else { return nil }
+        let hasFold = ids.count > foldedRowCount
+        switch current {
+        case .fold:
+            guard hasFold else { return ids.last.map(Destination.task) }
+            if offset > 0 { return .fold }
+            return (expanded ? ids.last : ids.prefix(foldedRowCount).last).map(Destination.task)
+        case .task(let id):
+            if hasFold, offset > 0, id == ids.last { return .fold }
+            return neighbor(in: ids, from: id, offset: offset).map(Destination.task)
+        }
     }
 
     public static func nextStep(in steps: [Subtask]) -> UUID? { steps.first { !$0.done }?.id }
@@ -61,8 +87,13 @@ public enum TodayTaskNavigation {
 public struct TodayTaskCapture: Equatable, Sendable {
     public var text = ""
     public private(set) var parentID: UUID?
-    public private(set) var pendingDictation: String?
-    public private(set) var pendingDictationParentID: UUID?
+    private struct Recording: Equatable, Sendable {
+        let text: String
+        let parentID: UUID?
+    }
+    private var pendingRecordings: [Recording] = []
+    public var pendingDictation: String? { pendingRecordings.first?.text }
+    public var pendingDictationParentID: UUID? { pendingRecordings.first?.parentID }
     public init() {}
 
     /// Speech has its own submission buffer. Neither successful insertion nor a
@@ -73,11 +104,21 @@ public struct TodayTaskCapture: Equatable, Sendable {
     ) -> Bool {
         let value = spoken.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !value.isEmpty else { return false }
-        pendingDictation = value
-        pendingDictationParentID = parentID
-        guard submit(value) else { return false }
-        pendingDictation = nil
-        pendingDictationParentID = nil
+        guard submit(value) else {
+            pendingRecordings.append(Recording(text: value, parentID: parentID))
+            return false
+        }
+        return true
+    }
+
+    /// Retry only the oldest unsaved recording, keeping its original destination.
+    /// A newer recording, even with identical text, never replaces this entry.
+    @discardableResult
+    public mutating func retryDictation(using submit: (String, UUID?) -> Bool) -> Bool {
+        guard let recording = pendingRecordings.first,
+            submit(recording.text, recording.parentID)
+        else { return false }
+        pendingRecordings.removeFirst()
         return true
     }
 

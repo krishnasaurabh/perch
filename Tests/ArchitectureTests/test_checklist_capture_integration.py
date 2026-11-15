@@ -12,7 +12,7 @@ class ChecklistCaptureIntegrationTests(unittest.TestCase):
         self.assertIn("capture.submitDictation(spoken, parentID: parentID)", callback)
         self.assertNotIn("capture.text =", callback)
         self.assertNotIn("add()", callback)
-        self.assertIn("addDictation(pending, parentID: capture.pendingDictationParentID)", source)
+        self.assertIn("capture.retryDictation { submit($0, parentID: $1) }", source)
         self.assertIn("text: $capture.text", source)
 
     def test_preview_and_voice_presentation_use_live_sources(self):

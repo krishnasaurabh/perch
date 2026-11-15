@@ -571,7 +571,64 @@ func verifyChecklistKeys(store: PlannerStore, model: NotchModel, services: Servi
     require(
         store.planner.tasks.count == 4 && store.planner.tasks.last?.title == "Write the summary",
         "Shift-Tab restores ordinary task entry")
-    recordAccessibility(root, "checklist-keys", into: output)
+    // Continue through the virtual fold row using the same single checklist Tab stop.
+    _ = store.addTasks(["Inspect the trellis", "Inspect the path"], on: .day(store.today))
+    homeState.selectedTaskID = store.planner.tasks.first?.id
+    let foldRoot = NSHostingView(
+        rootView: TasksCard().environment(homeState).environmentObject(store)
+            .environmentObject(model).environmentObject(services).environment(\.accessibilityEnabled, true))
+    window.contentView = foldRoot
+    await settle(); await wakeAX(); await settle()
+    require(
+        control("today-show-later", attribute: "accessibilityIdentifier", in: foldRoot) != nil,
+        "fresh checklist starts folded")
+    let foldEntry = await focusByTab("today-checklist", in: window, root: foldRoot, output: output)
+    require(foldEntry, "fold actions reuse the single checklist Tab stop")
+    let beforeFold = try! store.file.load().tasks
+    for _ in 0..<5 { key("\u{F701}", code: 125, in: window); await settle() }
+    require(homeState.selectedTaskID == beforeFold.last?.id, "Down reaches every task and expands later rows")
+    key("\u{F701}", code: 125, in: window); await settle()
+    key(" ", code: 49, in: window); await settle()
+    require(
+        control("today-show-later", attribute: "accessibilityIdentifier", in: foldRoot) != nil
+            && control("task-complete-\(beforeFold.last!.id)", attribute: "accessibilityIdentifier", in: foldRoot)
+                == nil,
+        "Space on the fold row collapses the checklist")
+    key("\r", code: 36, in: window); await settle()
+    require(
+        control("today-show-less", attribute: "accessibilityIdentifier", in: foldRoot) != nil
+            && control("task-complete-\(beforeFold.last!.id)", attribute: "accessibilityIdentifier", in: foldRoot)
+                != nil,
+        "Return on the fold row expands the checklist")
+    require(homeState.editingTaskID == nil, "Fold Return does not edit a task")
+    key("\u{F700}", code: 126, in: window); await settle()
+    require(homeState.selectedTaskID == beforeFold.last?.id, "Up returns from the fold row to the last visible task")
+    require(try! store.file.load().tasks == beforeFold, "Fold keyboard actions preserve persisted tasks")
+    recordAccessibility(foldRoot, "checklist-keys", into: output)
+    // Completion can reveal a selected row without an explicit expansion request.
+    homeState.selectedTaskID = beforeFold[3].id
+    let completionRoot = NSHostingView(
+        rootView: TasksCard().environment(homeState).environmentObject(store)
+            .environmentObject(model).environmentObject(services).environment(\.accessibilityEnabled, true))
+    window.contentView = completionRoot
+    await settle(); await wakeAX(); await settle()
+    let completionEntry = await focusByTab("today-checklist", in: window, root: completionRoot, output: output)
+    require(completionEntry, "completion fold fixture enters the checklist")
+    key(" ", code: 49, in: window); await settle()
+    require(
+        try! store.file.load().tasks.first(where: { $0.id == beforeFold[3].id })?.done == true,
+        "Space completes the fourth row before automatic expansion")
+    require(
+        control("today-show-less", attribute: "accessibilityIdentifier", in: completionRoot) != nil,
+        "completion-driven expansion exposes the same fold action")
+    let completedSnapshot = try! store.file.load().tasks
+    key("\u{F701}", code: 125, in: window); await settle()
+    key(" ", code: 49, in: window); await settle()
+    require(
+        control("today-show-later", attribute: "accessibilityIdentifier", in: completionRoot) != nil,
+        "keyboard collapses completion-driven expansion")
+    require(try! store.file.load().tasks == completedSnapshot, "collapsing does not reopen the completed row")
+    recordAccessibility(completionRoot, "checklist-completion-fold", into: output)
     window.orderOut(nil)
 }
 

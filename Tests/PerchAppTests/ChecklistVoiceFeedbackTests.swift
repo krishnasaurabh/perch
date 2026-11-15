@@ -18,7 +18,7 @@
             primer.isReleasedWhenClosed = false
             primer.contentView = NSTextField(labelWithString: "Voice fixture")
             primer.makeKeyAndOrderFront(nil)
-            await primeAccessibility()
+            await Self.primeAccessibility()
             primer.close()
 
             // State injection needs neither Services nor microphone/speech permission.
@@ -62,7 +62,7 @@
             XCTAssertFalse(nodes(window).contains { matches($0, error) })
         }
 
-        private nonisolated func primeAccessibility() async {
+        private nonisolated static func primeAccessibility() async {
             await Task.detached {
                 let app = AXUIElementCreateApplication(getpid())
                 var raw: CFTypeRef?

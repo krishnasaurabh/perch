@@ -26,8 +26,7 @@ final class TodayCaptureRegressionTests: XCTestCase {
         XCTAssertEqual(capture.text, "Keep my typed task")
         XCTAssertEqual(capture.pendingDictation, "Spoken task")
         capture.text += " and later typing"
-        let pending = capture.pendingDictation!
-        XCTAssertTrue(capture.submitDictation(pending) { $0 == "Spoken task" })
+        XCTAssertTrue(capture.retryDictation { text, parentID in text == "Spoken task" && parentID == nil })
         XCTAssertEqual(capture.text, "Keep my typed task and later typing")
         XCTAssertNil(capture.pendingDictation)
     }
@@ -54,8 +53,7 @@ final class TodayCaptureRegressionTests: XCTestCase {
             })
         XCTAssertEqual(capture.pendingDictation, "Unsubmitted step")
         XCTAssertEqual(capture.pendingDictationParentID, parent)
-        let destination = capture.pendingDictationParentID
-        XCTAssertTrue(capture.submitDictation(capture.pendingDictation!, parentID: destination) { _ in true })
+        XCTAssertTrue(capture.retryDictation { text, parentID in text == "Unsubmitted step" && parentID == parent })
         XCTAssertNil(capture.pendingDictation)
         XCTAssertNil(capture.pendingDictationParentID)
     }
