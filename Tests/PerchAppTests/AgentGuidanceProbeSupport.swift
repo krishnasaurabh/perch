@@ -1,7 +1,7 @@
 #if AGENT_GUIDANCE_SUPPORT
     import AppKit
     import EventKit
-    import PlannerCore
+    @testable import PlannerCore
     import SwiftUI
 
     /// Copied only into the disposable probe library. Production keeps its own constructor.
