@@ -38,6 +38,7 @@ settings-calendar-denied --scenario empty --open settings/calendar-denied
 settings-calendar-picker --scenario empty --open settings/calendar-picker
 settings-agents --scenario empty --open settings/agents
 settings-data --scenario empty --open settings/data
+settings-data-populated --scenario three --open settings/data
 workspace-band-today --scenario today-running --open workspace-today
 workspace-band-week --scenario week-full --open workspace-week
 workspace-width-960 --scenario today-before --open workspace-today
