@@ -137,6 +137,13 @@ struct WeekBoard: View {
     }
 
     private func pushSelected(from day: DayKey) {
+        #if DEBUG
+            let selectedDay = store.planner.tasks.first { $0.id == selectedTask }?.day?.raw ?? "nil"
+            FileHandle.standardError.write(
+                Data(
+                    "WEEK_KEY column day=\(day.raw) selected=\(String(describing: selectedTask)) selectedDay=\(selectedDay) focusedDay=\(String(describing: focusedDay)) responder=\(String(describing: NSApp.keyWindow?.firstResponder))\n"
+                        .utf8))
+        #endif
         let id =
             selectedTask
             ?? WeekTaskPolicy.summary(day: day, today: store.today, tasks: store.planner.tasks).tasks.first?.id
@@ -357,6 +364,12 @@ private struct WeekBoardTask: View {
         .help(WeekColumnLayout.chipHelp(title: task.title, past: past))
         .onKeyPress(.rightArrow, phases: .down) { key in
             guard key.modifiers == .option else { return .ignored }
+            #if DEBUG
+                FileHandle.standardError.write(
+                    Data(
+                        "WEEK_KEY row id=\(task.id) day=\(String(describing: task.day)) selected=\(String(describing: selectedTask)) menuFocused=\(menuFocused) responder=\(String(describing: NSApp.keyWindow?.firstResponder))\n"
+                            .utf8))
+            #endif
             // Handle the focused row before the column's selected-task fallback.
             // Checkbox focus alone must not reuse another row's last menu selection.
             if let day = task.day,
