@@ -33,8 +33,6 @@ private struct SettingsCalendarContent: View {
     @ObservedObject var sync: RemindersSync
     @StateObject private var model: CalendarSettingsModel
     @StateObject private var permissions: PermissionPanelModel
-    @State private var choosingCalendars = false
-    @State private var confirmingPhoneEdits = false
     private let suppliedChoices: [CalendarSettingsChoice]?
     private let hasSuppliedAccess: Bool
 
@@ -50,17 +48,15 @@ private struct SettingsCalendarContent: View {
         hasSuppliedAccess = choices != nil
         let permissions = PermissionPanelModel(access: permissionAccess ?? SettingsPermissionAccess(services: services))
         _permissions = StateObject(wrappedValue: permissions)
+        let effects = CalendarSettingsEffects(services: services)
         _model = StateObject(
             wrappedValue: CalendarSettingsModel(
                 store: store, permissions: permissions,
-                refreshCalendar: { services.calendar.refresh() },
-                enableMirroring: { await services.remindersSync.requestAccess() },
-                setTwoWay: { enabled in
-                    services.remindersSync.setTwoWayEnabled(enabled)
-                    return services.remindersSync.lastError == nil && services.remindersSync.twoWayEnabled == enabled
-                },
-                refreshReminders: { services.reminders.refreshAuthorization() },
-                refreshMirroring: { services.remindersSync.sync() }))
+                refreshCalendar: { effects.refreshCalendar() },
+                enableMirroring: { await effects.enableMirroring() },
+                setTwoWay: { (enabled: Bool) -> Bool in effects.setTwoWay(enabled) },
+                refreshReminders: { effects.refreshReminders() },
+                refreshMirroring: { effects.refreshMirroring() }))
     }
 
     private var choices: [CalendarSettingsChoice] {
@@ -69,115 +65,11 @@ private struct SettingsCalendarContent: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: SettingsMetrics.sectionGap) {
-            SettingsSection("Calendar") {
-                SettingsRow("Show meetings in Your day") {
-                    PerchSwitch(
-                        title: "Show meetings in Your day",
-                        isOn: Binding(
-                            get: { store.prefs.showCalendarMeetings },
-                            set: { value in Task { await model.setShowMeetings(value) } })
-                    )
-                    .disabled(model.busy)
-                    .accessibilityIdentifier("settings.calendar.meetings")
-                }
-                SettingsRow("Calendars shown") {
-                    HStack(spacing: SurfaceMetrics.compactGap) {
-                        PerchPill(model.calendarCount(hasSuppliedAccess || calendar.hasAccess ? choices : []))
-                        PerchButton("Change", kind: .quiet, size: .small) {
-                            Task { choosingCalendars = await model.openCalendarPicker() }
-                        }
-                        .disabled(model.busy)
-                        .accessibilityLabel("Change calendars shown")
-                        .accessibilityIdentifier("settings.calendar.choose")
-                        .popover(isPresented: $choosingCalendars) {
-                            calendarPicker
-                        }
-                    }
-                }
-                SettingsRow("Heads-up before a meeting") {
-                    PerchSegmented(
-                        title: "Heads-up before a meeting",
-                        items: [(.off, "Off"), (.fiveMinutes, "5 min"), (.tenMinutes, "10 min")],
-                        selection: Binding(get: { store.prefs.meetingHeadsUp }, set: model.setMeetingHeadsUp))
-                }
-                if model.showsPermission(.calendar) {
-                    PermissionPanel(model: permissions, features: [.calendar])
-                }
-            }
-            SettingsSection("Reminders") {
-                SettingsRow("Notify me when Perch is closed") {
-                    PerchSwitch(
-                        title: "Notify me when Perch is closed",
-                        isOn: Binding(
-                            get: { store.prefs.notifyWhenClosed },
-                            set: { value in Task { await model.setNotifyWhenClosed(value) } })
-                    )
-                    .disabled(model.busy)
-                    .accessibilityIdentifier("settings.calendar.notifications")
-                }
-                SettingsRow("Keep a reminder up until I answer") {
-                    PerchSwitch(
-                        title: "Keep a reminder up until I answer",
-                        isOn: Binding(get: { store.prefs.persistentReminders }, set: model.setPersistentReminders)
-                    )
-                    .accessibilityIdentifier("settings.calendar.persistent")
-                }
-                SettingsRow("\"In a bit\" means") {
-                    HStack(spacing: SurfaceMetrics.compactGap) {
-                        PerchSegmented(
-                            title: "\"In a bit\" means",
-                            items: [(.fiveMinutes, "5"), (.tenMinutes, "10"), (.fifteenMinutes, "15")],
-                            selection: Binding(get: { store.prefs.snoozeMinutes }, set: model.setSnoozeDuration))
-                        Text("min").perchFont(.detail).foregroundStyle(Theme.ink2)
-                    }
-                }
-                if model.showsPermission(.notifications) {
-                    PermissionPanel(model: permissions, features: [.notifications])
-                }
-            }
-            SettingsSection("Apple Reminders") {
-                SettingsRow("Mirror tasks to a Perch list") {
-                    PerchSwitch(
-                        title: "Mirror tasks to a Perch list",
-                        isOn: Binding(
-                            get: { store.prefs.remindersSync },
-                            set: { value in Task { await model.setMirroring(value) } })
-                    )
-                    .disabled(model.busy)
-                    .accessibilityIdentifier("settings.calendar.mirroring")
-                }
-                SettingsRow("Edits made on your phone") {
-                    PerchSegmented(
-                        title: "Edits made on your phone",
-                        items: [(.ignore, "Ignore"), (.bringBack, "Bring back")],
-                        selection: Binding(
-                            get: { store.prefs.phoneEdits },
-                            set: { value in
-                                if value == .bringBack && !sync.twoWayEnabled {
-                                    confirmingPhoneEdits = true
-                                } else {
-                                    model.setPhoneEdits(value)
-                                }
-                            })
-                    )
-                    .disabled(!store.prefs.remindersSync || model.busy)
-                }
-                Text(
-                    "Mirroring sends tasks to your phone and watch. It only reads changes back if you choose Bring back."
-                )
-                .perchFont(.detail).foregroundStyle(Theme.ink2)
-                .fixedSize(horizontal: false, vertical: true)
-                .padding(.top, SettingsMetrics.titleGap)
-                if model.showsPermission(.reminders) {
-                    PermissionPanel(model: permissions, features: [.reminders])
-                }
-                if let error = sync.lastError {
-                    Text(error.message)
-                        .perchFont(.detail).foregroundStyle(Theme.ink2)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .textSelection(.enabled)
-                }
-            }
+            CalendarMeetingSettings(
+                store: store, model: model, permissions: permissions,
+                choices: choices, hasAccess: hasSuppliedAccess || calendar.hasAccess)
+            CalendarReminderSettings(store: store, model: model, permissions: permissions)
+            CalendarMirroringSettings(store: store, sync: sync, model: model, permissions: permissions)
         }
         .task {
             await permissions.refresh()
@@ -189,6 +81,187 @@ private struct SettingsCalendarContent: View {
         .onReceive(NotificationCenter.default.publisher(for: .EKEventStoreChanged)) { _ in
             Task { await permissions.refresh() }
         }
+    }
+}
+
+@MainActor
+private struct CalendarSettingsEffects {
+    let services: Services
+
+    func refreshCalendar() -> Void { services.calendar.refresh() }
+
+    func enableMirroring() async -> Bool { await services.remindersSync.requestAccess() }
+
+    func setTwoWay(_ enabled: Bool) -> Bool {
+        services.remindersSync.setTwoWayEnabled(enabled)
+        return services.remindersSync.lastError == nil && services.remindersSync.twoWayEnabled == enabled
+    }
+
+    func refreshReminders() -> Void { services.reminders.refreshAuthorization() }
+
+    func refreshMirroring() -> Void { services.remindersSync.sync() }
+}
+
+private struct CalendarMeetingSettings: View {
+    @ObservedObject var store: PlannerStore
+    @ObservedObject var model: CalendarSettingsModel
+    @ObservedObject var permissions: PermissionPanelModel
+    let choices: [CalendarSettingsChoice]
+    let hasAccess: Bool
+    @State private var choosingCalendars = false
+
+    private var meetings: Binding<Bool> {
+        Binding<Bool>(
+            get: { store.prefs.showCalendarMeetings },
+            set: { value in Task { await model.setShowMeetings(value) } })
+    }
+
+    private var headsUp: Binding<HeadsUpInterval> {
+        Binding<HeadsUpInterval>(
+            get: { store.prefs.meetingHeadsUp },
+            set: { model.setMeetingHeadsUp($0) })
+    }
+
+    var body: some View {
+        SettingsSection("Calendar") {
+            SettingsRow("Show meetings in Your day") {
+                PerchSwitch(title: "Show meetings in Your day", isOn: meetings)
+                    .disabled(model.busy)
+                    .accessibilityIdentifier("settings.calendar.meetings")
+            }
+            SettingsRow("Calendars shown") {
+                HStack(spacing: SurfaceMetrics.compactGap) {
+                    PerchPill(model.calendarCount(hasAccess ? choices : []))
+                    PerchButton("Change", kind: .quiet, size: .small) {
+                        Task { choosingCalendars = await model.openCalendarPicker() }
+                    }
+                    .disabled(model.busy)
+                    .accessibilityLabel("Change calendars shown")
+                    .accessibilityIdentifier("settings.calendar.choose")
+                    .popover(isPresented: $choosingCalendars) {
+                        CalendarSettingsPicker(store: store, model: model, choices: choices) {
+                            choosingCalendars = false
+                        }
+                    }
+                }
+            }
+            SettingsRow("Heads-up before a meeting") {
+                PerchSegmented(
+                    title: "Heads-up before a meeting",
+                    items: [(.off, "Off"), (.fiveMinutes, "5 min"), (.tenMinutes, "10 min")],
+                    selection: headsUp)
+            }
+            if model.showsPermission(.calendar) {
+                PermissionPanel(model: permissions, features: [.calendar])
+            }
+        }
+    }
+}
+
+private struct CalendarReminderSettings: View {
+    @ObservedObject var store: PlannerStore
+    @ObservedObject var model: CalendarSettingsModel
+    @ObservedObject var permissions: PermissionPanelModel
+
+    private var notifications: Binding<Bool> {
+        Binding<Bool>(
+            get: { store.prefs.notifyWhenClosed },
+            set: { value in Task { await model.setNotifyWhenClosed(value) } })
+    }
+
+    private var persistent: Binding<Bool> {
+        Binding<Bool>(
+            get: { store.prefs.persistentReminders },
+            set: { model.setPersistentReminders($0) })
+    }
+
+    private var snooze: Binding<SnoozeDuration> {
+        Binding<SnoozeDuration>(
+            get: { store.prefs.snoozeMinutes },
+            set: { model.setSnoozeDuration($0) })
+    }
+
+    var body: some View {
+        SettingsSection("Reminders") {
+            SettingsRow("Notify me when Perch is closed") {
+                PerchSwitch(title: "Notify me when Perch is closed", isOn: notifications)
+                    .disabled(model.busy)
+                    .accessibilityIdentifier("settings.calendar.notifications")
+            }
+            SettingsRow("Keep a reminder up until I answer") {
+                PerchSwitch(title: "Keep a reminder up until I answer", isOn: persistent)
+                    .accessibilityIdentifier("settings.calendar.persistent")
+            }
+            SettingsRow("\"In a bit\" means") {
+                HStack(spacing: SurfaceMetrics.compactGap) {
+                    PerchSegmented(
+                        title: "\"In a bit\" means",
+                        items: [(.fiveMinutes, "5"), (.tenMinutes, "10"), (.fifteenMinutes, "15")],
+                        selection: snooze)
+                    Text("min").perchFont(.detail).foregroundStyle(Theme.ink2)
+                }
+            }
+            if model.showsPermission(.notifications) {
+                PermissionPanel(model: permissions, features: [.notifications])
+            }
+        }
+    }
+}
+
+private struct CalendarMirroringSettings: View {
+    @ObservedObject var store: PlannerStore
+    @ObservedObject var sync: RemindersSync
+    @ObservedObject var model: CalendarSettingsModel
+    @ObservedObject var permissions: PermissionPanelModel
+    @State private var confirmingPhoneEdits = false
+
+    private var mirroring: Binding<Bool> {
+        Binding<Bool>(
+            get: { store.prefs.remindersSync },
+            set: { value in Task { await model.setMirroring(value) } })
+    }
+
+    private var phoneEdits: Binding<PhoneEditPolicy> {
+        Binding<PhoneEditPolicy>(
+            get: { store.prefs.phoneEdits },
+            set: { value in
+                if value == .bringBack && !sync.twoWayEnabled {
+                    confirmingPhoneEdits = true
+                } else {
+                    model.setPhoneEdits(value)
+                }
+            })
+    }
+
+    var body: some View {
+        SettingsSection("Apple Reminders") {
+            SettingsRow("Mirror tasks to a Perch list") {
+                PerchSwitch(title: "Mirror tasks to a Perch list", isOn: mirroring)
+                    .disabled(model.busy)
+                    .accessibilityIdentifier("settings.calendar.mirroring")
+            }
+            SettingsRow("Edits made on your phone") {
+                PerchSegmented(
+                    title: "Edits made on your phone",
+                    items: [(.ignore, "Ignore"), (.bringBack, "Bring back")],
+                    selection: phoneEdits
+                )
+                .disabled(!store.prefs.remindersSync || model.busy)
+            }
+            Text("Mirroring sends tasks to your phone and watch. It only reads changes back if you choose Bring back.")
+                .perchFont(.detail).foregroundStyle(Theme.ink2)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.top, SettingsMetrics.titleGap)
+            if model.showsPermission(.reminders) {
+                PermissionPanel(model: permissions, features: [.reminders])
+            }
+            if let error = sync.lastError {
+                Text(error.message)
+                    .perchFont(.detail).foregroundStyle(Theme.ink2)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .textSelection(.enabled)
+            }
+        }
         .alert("Enable two-way sync for the Perch list?", isPresented: $confirmingPhoneEdits) {
             Button("Not now", role: .cancel) {}
             Button("Bring back", role: .destructive) { model.setPhoneEdits(.bringBack) }
@@ -197,10 +270,6 @@ private struct SettingsCalendarContent: View {
                 "Edits and deletions to linked tasks can change both Perch and its Reminders list. Conflicting edits stop sync."
             )
         }
-    }
-
-    private var calendarPicker: some View {
-        CalendarSettingsPicker(store: store, model: model, choices: choices) { choosingCalendars = false }
     }
 }
 
@@ -223,7 +292,7 @@ private struct CalendarSettingsPicker: View {
                             SettingsRow(choice.title) {
                                 PerchSwitch(
                                     title: choice.title,
-                                    isOn: Binding(
+                                    isOn: Binding<Bool>(
                                         get: { !store.prefs.hiddenCalendarIDs.contains(choice.id) },
                                         set: { model.setCalendarVisible(choice.id, visible: $0) }))
                             }
