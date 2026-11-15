@@ -152,10 +152,11 @@ struct SettingsDataActions {
         alert.informativeText = request.detail
         // Return and Escape both cancel; the destructive action requires an explicit choice.
         let cancel = alert.addButton(withTitle: AppL10n.text("Cancel"))
-        cancel.keyEquivalent = "\u{1b}"
-        alert.window.defaultButtonCell = cancel.cell as? NSButtonCell
         let proceed = alert.addButton(withTitle: request.actionTitle)
         proceed.keyEquivalent = ""
+        alert.window.defaultButtonCell = cancel.cell as? NSButtonCell
+        // AppKit assigns Return when setting the default cell; restore Escape afterward.
+        cancel.keyEquivalent = "\u{1b}"
         return alert
     }
 }
