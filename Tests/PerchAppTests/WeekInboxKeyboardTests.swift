@@ -188,6 +188,7 @@
         }
 
         @MainActor private static func tabTo(_ identifier: String, window: NSWindow) async throws {
+            var visited = Set<String>()
             for _ in 0..<100 {
                 if nodes(window).contains(where: {
                     string($0, "accessibilityIdentifier") == identifier && boolean($0, "isAccessibilityFocused") == true
@@ -195,8 +196,11 @@
                     return
                 }
                 try await key(window, code: 48, characters: "\t")
+                let focused = nodes(window).filter { boolean($0, "isAccessibilityFocused") == true }
+                visited.formUnion(focused.compactMap { string($0, "accessibilityIdentifier") })
             }
-            try fail("Tab never reached \(identifier)")
+            let responder = window.firstResponder.map { String(describing: type(of: $0)) } ?? "nil"
+            try fail("Tab never reached \(identifier); visited=\(visited.sorted()); firstResponder=\(responder)")
         }
 
         @MainActor private static func activateKeyWindow(_ window: NSWindow) async {

@@ -111,6 +111,31 @@ class WeekViewTests(unittest.TestCase):
         ]:
             self.assertIn(assertion, board)
 
+    def test_week_footer_buttons_register_native_tab_stops(self):
+        source = (ROOT / "Sources/PerchApp/Workspace/WeekPage.swift").read_text()
+        for identifier in ['week-overflow-', 'week-add-']:
+            with self.subTest(identifier=identifier):
+                before_identifier = source.split('.accessibilityIdentifier("' + identifier + r'\(day.raw)")', 1)[0]
+                button = before_identifier.rsplit('Button(', 1)[1]
+                self.assertIn('.focusable()', button)
+                self.assertLess(button.index('.focusable()'), button.index('.focused($footerFocused)'))
+                self.assertIn('.focusEffectDisabled()', button)
+                self.assertIn('.frame(minHeight: Theme.Size.minimumTarget.value)', button)
+                self.assertIn('FocusRing(shape: Capsule(), focused: footerFocused, surface: surface)', button)
+
+    def test_week_tab_failure_reports_focused_identifiers_and_responder(self):
+        source = (ROOT / "Tests/PerchAppTests/WeekInboxKeyboardTests.swift").read_text()
+        helper = source.split('private static func tabTo(', 1)[1].split(
+            'private static func activateKeyWindow(', 1)[0]
+        self.assertIn('var visited = Set<String>()', helper)
+        self.assertIn('for _ in 0..<100', helper)
+        self.assertIn('boolean($0, "isAccessibilityFocused") == true', helper)
+        self.assertIn('visited.formUnion(focused.compactMap { string($0, "accessibilityIdentifier") })', helper)
+        self.assertIn('visited.sorted()', helper)
+        self.assertIn('window.firstResponder', helper)
+        self.assertIn('type(of:', helper)
+        self.assertIn('try fail("Tab never reached', helper)
+
     def test_week_shortcuts_read_live_focus_and_preserve_fallback_guards(self):
         source = (ROOT / "Sources/PerchApp/Workspace/WeekPage.swift").read_text()
         board, rest = source.split('private struct WeekBoardDay:', 1)
