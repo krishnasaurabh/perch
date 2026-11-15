@@ -45,7 +45,7 @@ extension DesignTokens.Weight {
 }
 
 extension DynamicTypeSize {
-    fileprivate var tokenScale: DesignTokens.TextScale {
+    var tokenScale: DesignTokens.TextScale {
         switch self {
         case .xSmall: return .xSmall
         case .small: return .small

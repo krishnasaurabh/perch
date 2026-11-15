@@ -18,6 +18,7 @@ import SwiftUI
                 "checklist-dictating": .window("checklist-preview") { ChecklistPreview.show(.dictating, app: $0) },
                 "checklist-voice-error": .window("checklist-preview") { ChecklistPreview.show(.voiceError, app: $0) },
                 "checklist-multiline": .window("checklist-preview") { ChecklistPreview.show(.multiline, app: $0) },
+                "welcome": .window("welcome") { WelcomeView.show(store: $0.store, done: $0.completeWelcome) },
                 "workspace-today": .window("workspace-home") { WorkspaceShellPreview.show(page: .home, app: $0) },
                 "workspace-week": .window("workspace-week") { WorkspaceShellPreview.show(page: .week, app: $0) },
                 "workspace-narrow": .window("workspace-narrow") {
