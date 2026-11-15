@@ -52,6 +52,11 @@ class SettingsDataContractTests(unittest.TestCase):
         self.assertNotIn("kept 30 days", source)
         self.assertIn("store.file.url", source)
 
+    def test_last_backup_uses_fixed_width_digits(self):
+        source = PANE.read_text()
+        label = source.split("Text(backups.label)", 1)[1].split("SettingsSection", 1)[0]
+        self.assertIn(".monospacedDigit()", label)
+
     def test_actions_and_snapshot_registration_are_retained(self):
         source = PANE.read_text()
         self.assertIn("feedback.exportBackup(to: url, store: store)", source)

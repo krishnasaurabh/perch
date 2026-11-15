@@ -39,6 +39,7 @@ struct SettingsDataPane: View {
             SettingsRow("Last backup") {
                 Text(backups.label)
                     .perchFont(.detail)
+                    .monospacedDigit()
                     .foregroundStyle(Theme.ink2)
                     .fixedSize(horizontal: false, vertical: true)
                     .accessibilityIdentifier("settings.data.lastBackup")

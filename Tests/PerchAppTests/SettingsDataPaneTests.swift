@@ -96,6 +96,31 @@ final class SettingsDataPaneTests: XCTestCase {
         XCTAssertEqual(confirmations, [.retention(.thirtyDays), .retention(.ninetyDays)])
     }
 
+    func testConfirmedRetentionPrunesImmediatelyAndUndoRestoresTasksAndPreference() throws {
+        let fixture = try DataPaneFixture()
+        defer { fixture.close() }
+        let oldDate = try XCTUnwrap(Calendar.current.date(byAdding: .day, value: -100, to: Date()))
+        var document = fixture.store.planner
+        let finished = PlanTask(
+            title: "Old finished task", day: fixture.store.dayKey(oldDate), done: true,
+            completedAt: oldDate, createdAt: oldDate)
+        document.tasks.append(finished)
+        try fixture.store.file.save(document)
+        let store = PlannerStore(file: fixture.store.file, watching: false)
+        var actions = SettingsDataActions()
+        actions.confirm = { _ in false }
+        actions.setRetention(.thirtyDays, store: store)
+        XCTAssertEqual(try store.file.load().tasks.map(\.id), document.tasks.map(\.id))
+        XCTAssertEqual(try store.file.load().preferences.finishedTaskRetention, .never)
+        actions.confirm = { _ in true }
+        actions.setRetention(.thirtyDays, store: store)
+        XCTAssertEqual(try store.file.load().tasks.map(\.title), ["Keep this task"])
+        XCTAssertEqual(try store.file.load().preferences.finishedTaskRetention, .thirtyDays)
+        store.undo()
+        XCTAssertEqual(try store.file.load().tasks.map(\.id), document.tasks.map(\.id))
+        XCTAssertEqual(try store.file.load().preferences.finishedTaskRetention, .never)
+    }
+
     func testCancelledRetentionLeavesStoredPreferenceUnchanged() throws {
         let fixture = try DataPaneFixture()
         defer { fixture.close() }
@@ -170,6 +195,8 @@ final class SettingsDataPaneTests: XCTestCase {
         XCTAssertEqual(fixture.store.planner.tasks.map(\.title), ["Keep this task"])
         XCTAssertEqual(try fixture.store.file.load().tasks, fixture.store.planner.tasks)
         XCTAssertNil(fixture.store.lastError)
+        fixture.store.undo()
+        XCTAssertEqual(try fixture.store.file.load().tasks.map(\.title), ["Keep this task", "Later task"])
     }
 
     func testMissingBackupReportsFailureWithoutReplacingCurrentData() throws {
