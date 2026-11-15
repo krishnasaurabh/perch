@@ -74,6 +74,7 @@ final class PlannerStore: ObservableObject {
     private var tickInFlight = false
     private var runtimeEnabled = false
     var focusFinished: (() -> Void)?
+    var stripDidCommit: ((Planner, Planner, PlannerCommandOrigin) -> Void)?
 
     enum TextTarget: Hashable {
         case title(UUID), notes(UUID), notepad(DayKey)
@@ -181,6 +182,7 @@ final class PlannerStore: ObservableObject {
     func performMutation<T>(origin: PlannerCommandOrigin, _ body: (PlannerCommands) throws -> T) -> T? {
         do {
             let result = try pipeline.perform(origin: origin, body)
+            stripDidCommit?(result.before, result.state, origin)
             publish(result.state)
             return result.value
         } catch {

@@ -80,7 +80,9 @@ struct TasksCard: View {
             TaskComposer(day: .day(store.today), placeholder: "What would you like to do?", focus: $focus)
                 .fixedSize(horizontal: false, vertical: true)
                 .layoutPriority(1)
-            footer.fixedSize(horizontal: false, vertical: true).layoutPriority(1)
+            footer.modifier(NotchUndoFooter(reviewingOverdue: $reviewingOverdue)).fixedSize(
+                horizontal: false, vertical: true
+            ).layoutPriority(1)
         }
         .card(.tasks)
         .onChange(of: finished.count, initial: true) { _, count in

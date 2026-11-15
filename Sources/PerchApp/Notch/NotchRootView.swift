@@ -47,17 +47,9 @@ struct NotchRootView: View {
                 .designMotion(.pop, value: shell.width)
             }
 
-            if !expanded {
+            if !expanded || (activity != nil && activity?.stripKind != .undo) {
                 if let activity {
-                    ActivityStrip(activity: activity)
-                        .padding(10)
-                        .frame(width: g.activityRect.width, height: g.activityRect.height)
-                        .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Theme.notchBlack))
-                        .onDrop(of: [.fileURL, .url, .plainText, .image], isTargeted: nil) { providers in
-                            handleDrop(providers); return true
-                        }
-                        .offset(x: g.activityRect.minX - window.minX, y: window.maxY - g.activityRect.maxY)
-                        .transition(.opacity)
+                    NotchStripLayer(activity: activity)
                 } else {
                     LocalClock(running: closed.needsClock(hasHardwareNotch: g.hasHardwareNotch)) { now in
                         NotchClosedLayer(geometry: g, bounds: window, presentation: closed, now: now) {
@@ -71,7 +63,7 @@ struct NotchRootView: View {
         .frame(width: window.width, height: window.height, alignment: .topLeading)
         .ignoresSafeArea()
         .motion(expanded ? Motion.open : Motion.close, value: expanded)
-        .motion(activity == nil ? Motion.activityDismiss : Motion.activity, value: activity)
+        .designMotion(activity == nil ? .hover : .pop, value: activity)
         .preferredColorScheme(PreviewAppearance.scheme ?? .dark)
         // Ink tokens resolve against the scheme: the shell is always "dark". Cards override it for themselves.
         .environment(\.colorScheme, .dark)
@@ -166,112 +158,42 @@ struct TimerPillLayer: View {
     }
 }
 
-/// Upcoming-event nudges, reminder rings, finished timers: with actions right in the notch.
+/// A single actionable occurrence. Failures leave the same strip available.
 struct ActivityStrip: View {
     let activity: PresentedNotchActivity
-    @EnvironmentObject var store: PlannerStore
-    @EnvironmentObject var model: NotchModel
-    @EnvironmentObject var services: Services
-
+    @EnvironmentObject private var store: PlannerStore
+    @EnvironmentObject private var model: NotchModel
     @State private var actionFailed = false
+    @State private var confirmingRestore = false
+    @State private var scheme: ColorScheme = .light
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 8) {
-                Image(systemName: icon)
-                    .font(Theme.heading).foregroundStyle(Theme.accent)
-                    .accessibilityHidden(true)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(activity.title).font(Theme.label).foregroundStyle(Theme.text).lineLimit(1)
-                        .help(activity.title)
-                    LocalClock(running: needsCountdown) { now in
-                        // Read the notification owner's record while this short-lived card is visible.
-                        // Never label an overdue timestamp alone as a missed notification.
-                        Text(subtitle(at: now)).font(Theme.meta)
-                            .foregroundStyle(actionFailed ? Theme.danger : Theme.secondary)
-                            .lineLimit(1)
-                            .help(actionFailed ? (store.lastError?.message ?? subtitle(at: now)) : subtitle(at: now))
-                    }
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                GlassButton(symbol: "xmark", help: "Dismiss", size: Theme.minimumTarget) {
-                    model.dismissPresentedActivity(in: store.planner)
-                }
-                .accessibilityIdentifier("notch.dismiss")
+        VStack(spacing: .zero) {
+            TimelineView(.periodic(from: .now, by: NotchStripMetrics.clockInterval)) { context in
+                NotchStripContent(
+                    activity: activity,
+                    fraction: model.strips?.fraction(at: PreviewClock.date ?? context.date) ?? 1,
+                    action: { choice in
+                        actionFailed = !(model.strips?.answer(choice, activity: activity) ?? false)
+                    },
+                    showFiles: { model.strips?.showRecoveryFiles() },
+                    restore: { confirmingRestore = true })
             }
-            HStack(spacing: 6) {
-                actions
-                Spacer(minLength: 0)
+            if actionFailed {
+                Text(AppL10n.text("That change couldn't be saved. Please try again."))
+                    .perchFont(.detail).foregroundStyle(Theme.ink2)
+                    .padding(NotchStripMetrics.gap).frame(maxWidth: .infinity, alignment: .leading)
+                    .background(Theme.fill(activity.stripKind.surface))
             }
         }
+        .environment(\.colorScheme, PreviewAppearance.scheme ?? scheme)
+        .background(WorkspaceAppearanceBridge { scheme = $0 }.allowsHitTesting(false))
         .onChange(of: activity.id) { _, _ in actionFailed = false }
-    }
-
-    private func subtitle(at now: Date) -> String {
-        if actionFailed { return AppL10n.text("Action failed. Please try again.") }
-        if case .reminder(let id) = activity.kind,
-            NotchReminderPresentation.isMissed(
-                task: store.planner.tasks.first { $0.id == id }, records: services.reminders.records, now: now)
-        {
-            return AppL10n.text("Missed reminder · delivery unconfirmed")
+        .confirmationDialog(AppL10n.text("Restore the latest backup?"), isPresented: $confirmingRestore) {
+            Button(AppL10n.text("Restore backup")) { actionFailed = !(model.strips?.restoreBackup() ?? false) }
+            Button(AppL10n.text("Not now"), role: .cancel) {}
+        } message: {
+            Text(AppL10n.text("This replaces the current planner. The original recovery files are kept."))
         }
-        return services.timeline.subtitle(for: activity, now: now)
-    }
-
-    private var needsCountdown: Bool {
-        switch activity.kind {
-        case .eventSoon, .reminder: return true
-        default: return false
-        }
-    }
-
-    private var icon: String {
-        switch activity.kind {
-        case .reminder: return "bell.fill"
-        case .focusDone: return "checkmark.seal.fill"
-        case .eventSoon: return "calendar"
-        case .clip: return "paperclip"
-        case .message: return "sparkles"
-        }
-    }
-
-    @ViewBuilder private var actions: some View {
-        switch activity.kind {
-        case .reminder(let id):
-            pill("Start focus", identifier: "notch.start") {
-                perform { try $0.startTimer(task: id, minutes: nil) }
-            }
-            pill("Snooze 5 min", identifier: "notch.snooze") {
-                perform { try $0.snooze(id, minutes: 5) }
-            }
-            pill("Done", identifier: "notch.done") {
-                perform { try $0.complete(id) }
-            }
-        case .focusDone(let id):
-            if let id {
-                pill("Mark done", identifier: "notch.done") {
-                    perform { try $0.complete(id) }
-                }
-            }
-            pill("+5 min", identifier: "notch.extend") {
-                perform { try $0.extendTimer(minutes: 5) }
-            }
-        case .clip:
-            pill("Open line", identifier: "notch.openClips") {
-                model.dismissActivity(); model.open(page: .clips)
-            }
-        default: EmptyView()
-        }
-    }
-
-    /// Keep failed actions visible, including failures flushing an in-progress edit.
-    func perform<T>(_ action: (PlannerCommands) throws -> T) {
-        actionFailed = !model.performActivityAction(in: store, action)
-    }
-
-    private func pill(_ title: String, identifier: String, _ action: @escaping () -> Void) -> some View {
-        Button(AppL10n.text(title), action: action)
-            .buttonStyle(PillStyle())
-            .accessibilityIdentifier(identifier)
     }
 }

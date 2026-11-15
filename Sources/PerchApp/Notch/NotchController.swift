@@ -49,12 +49,13 @@ final class NotchModel: ObservableObject {
     }
     @Published var page: NotchPage = .home
     @Published var activity: PresentedNotchActivity?
+    var strips: NotchStrips?
     @Published var closedReminderIDs = Set<UUID>()
     @Published private(set) var missedReminder: PresentedNotchActivity?
     private var missedTask: PlanTask?
     private var dismissedReminders = Set<String>()
     /// Transient activities take priority; unresolved reminders remain available afterward.
-    var displayedActivity: PresentedNotchActivity? { activity ?? missedReminder }
+    var displayedActivity: PresentedNotchActivity? { strips.map { $0.currentActivity } ?? (activity ?? missedReminder) }
     /// The screen whose notch is open or showing activity.
     @Published var screenID: CGDirectDisplayID = 0
     /// Geometry of the active screen.
@@ -327,7 +328,9 @@ final class NotchController {
             }
         }
 
-        store.focusFinished = { [weak services] in services?.focusFinished() }
+        store.focusFinished = { [weak self] in
+            if let self { NotchStrips.blockFinished(store: self.store, model: self.model, services: self.services) }
+        }
 
         #if DEBUG || PERCH_TESTING
             // `--dump-layout <path>`: write every screen's live frames as JSON (CI artifact, real-Mac checks).
@@ -547,6 +550,7 @@ final class NotchController {
     /// Exactly the drawn outline: the open workspace (rounded corners and shoulders excluded), or the closed silhouette.
     private func isOnShape(_ p: NSPoint, _ slot: Slot) -> Bool {
         let active = model.screenID == slot.state.id
+        if let hit = model.strips?.contains(p, on: slot.state.id) { return hit }
         return slot.state.geometry.shapeContains(
             p, expanded: active && model.expanded, timer: timerShowing(),
             activity: active && model.displayedActivity != nil,
