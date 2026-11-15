@@ -12,7 +12,7 @@ struct SettingsGeneralPane: View {
     var body: some View {
         SettingsSection("Opening") {
             SettingsRow("Open the notch on") {
-                Picker("Open the notch on", selection: pref(\.notchOpenTrigger)) {
+                Picker("Open the notch on", selection: SettingsView.openingPreference(store: store)) {
                     Text("Hover").tag(NotchOpenTrigger.hover)
                     Text("Click").tag(NotchOpenTrigger.click)
                     Text("Double-click").tag(NotchOpenTrigger.doubleClick)
