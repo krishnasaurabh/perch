@@ -1028,10 +1028,53 @@ MainActor.assumeIsolated {
                     Set(store.planner.tasks.filter(\.done).map(\.id)) == completedBeforeSpace,
                     "\(name): Space reopens exactly the selected completed task")
                 // A single Tab must leave the list, rather than visiting its child controls.
-                key("\t", code: 48, in: window); await settle()
+                @MainActor func leftChecklist(
+                    focused: [NSObject], destination: NSObject?, checklist: NSObject?
+                ) -> Bool {
+                    guard let checklist,
+                        axText(checklist, "accessibilityIdentifier") == "today-checklist",
+                        let destination, focused.contains(where: { $0 === destination })
+                    else { return false }
+                    for element in focused {
+                        var ancestor: NSObject? = element
+                        var seen = Set<ObjectIdentifier>()
+                        while let node = ancestor {
+                            guard seen.insert(ObjectIdentifier(node)).inserted else { return false }
+                            if axText(node, "accessibilityIdentifier") == "today-checklist" { return false }
+                            ancestor = (attr(node, "accessibilityParent") as? NSObject) ?? (node as? NSView)?.superview
+                        }
+                    }
+                    return true
+                }
+                // Inject focus observations without moving the real window's first responder.
+                let fixtureChecklist = NSView()
+                fixtureChecklist.setAccessibilityIdentifier("today-checklist")
+                let fixtureRow = NSView()
+                let fixtureCheckbox = NSButton(checkboxWithTitle: "Task step", target: nil, action: nil)
+                fixtureChecklist.addSubview(fixtureRow); fixtureRow.addSubview(fixtureCheckbox)
+                let fixtureUndo = NSButton(title: "Undo", target: nil, action: nil)
                 require(
-                    control("today-checklist", attribute: "accessibilityIdentifier", in: root).map(isFocused) != true,
-                    "\(name): Tab leaves the checklist in one step")
+                    leftChecklist(focused: [fixtureUndo], destination: fixtureUndo, checklist: fixtureChecklist),
+                    "\(name): single-Tab predicate accepts outside Undo focus")
+                require(
+                    !leftChecklist(focused: [], destination: fixtureUndo, checklist: fixtureChecklist),
+                    "\(name): single-Tab predicate rejects no focused element")
+                require(
+                    !leftChecklist(focused: [fixtureCheckbox], destination: fixtureUndo, checklist: fixtureChecklist),
+                    "\(name): single-Tab predicate rejects task/step checkbox focus")
+                require(
+                    !leftChecklist(
+                        focused: [fixtureUndo, fixtureCheckbox], destination: fixtureUndo, checklist: fixtureChecklist),
+                    "\(name): single-Tab predicate rejects a focused checkbox descendant even with outside Undo focus")
+                key("\t", code: 48, in: window); await settle()
+                recordKeyboardState("after-single-tab")
+                let afterTab = nodes(root)
+                require(
+                    leftChecklist(
+                        focused: afterTab.filter(isFocused),
+                        destination: afterTab.first { axText($0, "accessibilityIdentifier") == "today-undo" },
+                        checklist: afterTab.first { axText($0, "accessibilityIdentifier") == "today-checklist" }),
+                    "\(name): Tab leaves the checklist in one step" + " to Undo, with no focused checklist descendants")
                 require(rowKeyboardReached, "\(name): grouped keyboard test ran")
                 // Dense rows scroll independently of the still-visible entry and capture.
                 store.apply { try $0.addTasks((1...24).map { "Inspect inventory group \($0)" }, on: .day(store.today)) }

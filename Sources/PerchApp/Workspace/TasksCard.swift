@@ -650,6 +650,7 @@ enum ChecklistPreviewState {
 #if DEBUG || PERCH_TESTING
     @MainActor enum ChecklistPreview {
         static func show(_ state: ChecklistPreviewState, app: AppDelegate) {
+            app.services.voice.state = VoiceCapture.State.idle
             WindowHost.windows["checklist-preview"]?.close()
             if state == .dictating { app.services.voice.state = .listening }
             if state == .voiceError {
