@@ -123,18 +123,45 @@ print("Dismissed recovery: persisted, footer visible, button visible, one copy, 
         helper = source.split("enum ChecklistStepScroll {", 1)[1].split("\n}\n", 1)[0]
         navigation = (ROOT / "Sources/PerchUI/TodayTaskNavigation.swift").read_text()
         navigation = navigation.replace("import PlannerCore", "")
-        native = (ROOT / "Tests/PerchAppTests/ChecklistStepScrollTests.swift").read_text()
-        native = re.sub(r"^(?:@testable )?import (?:PerchApp|PerchUI|SwiftUI)\n", "", native, flags=re.M)
-        # Only the SwiftUI point value is substituted. Execute the exact native XCTest body.
+        # Replay every native XCTest condition with require, without a standalone XCTest dependency.
         program = '''import Foundation
-import XCTest
 struct UnitPoint: Equatable { static let center = UnitPoint() }
-enum ChecklistStepScroll {\n''' + helper + "\n}\n" + navigation + "\n" + native + '''
-XCTMain([testCase([("testArrowSelectionRequestsCenteredScrollBeyondViewport",
-    ChecklistStepScrollTests.testArrowSelectionRequestsCenteredScrollBeyondViewport)])])
+enum ChecklistStepScroll {\n''' + helper + "\n}\n" + navigation + r'''
+func require(_ condition: @autoclosure () -> Bool, _ message: String) {
+    guard condition() else { fatalError(message) }
+}
+let ids = (0..<15).map { _ in UUID() }
+let rowHeight = DesignTokens.Size.stepRowHeight.value
+let viewportHeight = 300.0
+require(Double(ids.count) * rowHeight > viewportHeight, "The steps must exceed the viewport height")
+var selected = ids[0]
+var requests: [(UUID, UnitPoint)] = []
+let record: (UUID, UnitPoint) -> Void = { requests.append(($0, $1)) }
+ChecklistStepScroll.reveal(selected, using: record)
+for index in 1..<ids.count {
+    let candidate = TodayTaskNavigation.neighbor(in: ids, from: selected, offset: 1)
+    require(candidate != nil, "a neighbor exists")
+    selected = candidate!
+    ChecklistStepScroll.reveal(selected, using: record)
+    require(requests.last?.0 == ids[index], "The selected step must be the scroll target")
+    require(requests.last?.1 == UnitPoint.center, "The selected step must be centered")
+}
+// The last selected row starts below the capped, initially visible window.
+require(Double(ids.count - 1) * rowHeight > viewportHeight, "The last selected row must start below the viewport")
+require(requests.count == ids.count, "Every selection must request exactly one scroll")
+require(requests.map(\.0) == ids, "Scroll targets must follow every selected step in order")
+let candidate = TodayTaskNavigation.neighbor(in: ids, from: selected, offset: -1)
+require(candidate != nil, "a neighbor exists")
+selected = candidate!
+ChecklistStepScroll.reveal(selected, using: record)
+require(requests.last?.0 == ids[13], "Backward selection must scroll to the previous step")
+require(requests.last?.1 == UnitPoint.center, "The previous step must be centered")
+ChecklistStepScroll.reveal(nil, using: record)
+require(requests.count == ids.count + 1, "Leaving the step cursor must not scroll")
+print("ChecklistStepScroll: centered reveals verified for 15 rows")
 '''
         output = self.compile_and_run(program, [ROOT / "Sources/PerchUI/DesignTokens.swift"])
-        self.assertIn("Executed 1 test, with 0 failures", output)
+        self.assertIn("ChecklistStepScroll: centered reveals verified for 15 rows", output)
 
 
 if __name__ == "__main__":
