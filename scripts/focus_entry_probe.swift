@@ -674,6 +674,18 @@ func verifyRowCustomActions(store: PlannerStore, model: NotchModel, services: Se
     window.orderOut(nil)
 }
 
+/// A direct WorkspaceView host gets the production page-aware size. Mirrors WorkspaceView.bandHeight for
+/// `notchHeight: 0`: the presented menu-bar height, else the system status-bar thickness.
+@MainActor func workspaceHostMenuBarHeight(_ model: NotchModel) -> CGFloat {
+    let measured = model.geometry?.workspacePresentation?.menuBarHeight ?? 0
+    return measured > 0 ? measured : NSStatusBar.system.thickness
+}
+
+@MainActor func workspaceHostHeight(_ model: NotchModel) -> CGFloat {
+    WorkspaceLayout.preferredSize(page: model.page.workspacePage, menuBarHeight: workspaceHostMenuBarHeight(model))
+        .height
+}
+
 @MainActor
 func verifyScheduledTimeCard(store: PlannerStore, model: NotchModel, services: Services, output: URL) async {
     // Match LocalClock's live wall clock, with a captured store clock for exact engine accounting.
@@ -691,8 +703,8 @@ func verifyScheduledTimeCard(store: PlannerStore, model: NotchModel, services: S
     }
     let scheduled = scheduledStore.planner.tasks[0]
     let window = NSWindow(
-        contentRect: CGRect(x: 30, y: 100, width: 820, height: 351), styleMask: [.titled], backing: .buffered,
-        defer: false)
+        contentRect: CGRect(x: 30, y: 100, width: 820, height: workspaceHostHeight(model)), styleMask: [.titled],
+        backing: .buffered, defer: false)
     window.isReleasedWhenClosed = false
     let root = NSHostingView(
         rootView: WorkspaceView(notchHeight: 0)
@@ -717,8 +729,9 @@ func verifyScheduledTimeCard(store: PlannerStore, model: NotchModel, services: S
     else { require(false, "running scheduled time card exposes +5"); return }
     press(addFive, "time-card-add-five")
     await settle()
+    let extended = try! scheduledStore.file.load()
     require(
-        scheduledStore.planner.focus?.limit == 1_020 && try! scheduledStore.file.load().focus?.limit == 1_020,
+        scheduledStore.planner.focus?.limit == 1_020 && extended.focus?.limit == 1_020,
         "+5 persists five additional minutes on the same scheduled block")
     snapshot(root, "scheduled-time-card-running", into: output)
     require(
@@ -839,7 +852,7 @@ MainActor.assumeIsolated {
                     e.planner.preferences.hiddenWorkspaceCards = ["notepad"]
                 }
                 let window = NSWindow(
-                    contentRect: CGRect(x: 30, y: 100, width: width, height: 351),
+                    contentRect: CGRect(x: 30, y: 100, width: width, height: workspaceHostHeight(delegate.model)),
                     styleMask: [.titled], backing: .buffered, defer: false)
                 window.isReleasedWhenClosed = false
                 let root = NSHostingView(

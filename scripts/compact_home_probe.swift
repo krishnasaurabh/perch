@@ -53,6 +53,18 @@ func wakeAX() async {
         }
     }.value
 }
+
+/// A direct WorkspaceView host gets the production page-aware size. Mirrors WorkspaceView.bandHeight for
+/// `notchHeight: 0`: the presented menu-bar height, else the system status-bar thickness.
+@MainActor func workspaceHostMenuBarHeight(_ model: NotchModel) -> CGFloat {
+    let measured = model.geometry?.workspacePresentation?.menuBarHeight ?? 0
+    return measured > 0 ? measured : NSStatusBar.system.thickness
+}
+
+@MainActor func workspaceHostHeight(_ model: NotchModel) -> CGFloat {
+    WorkspaceLayout.preferredSize(page: model.page.workspacePage, menuBarHeight: workspaceHostMenuBarHeight(model))
+        .height
+}
 @MainActor
 func attribute(_ node: NSObject, _ name: String) -> Any? {
     let selector = NSSelectorFromString(name)
@@ -657,8 +669,9 @@ MainActor.assumeIsolated {
                             if running { _ = try e.startTimer(task: nil, minutes: 45) }
                         }
                         let name = "width-\(Int(width))-\(running ? "running" : "resting")"
+                        let height = workspaceHostHeight(delegate.model)
                         let window = NSWindow(
-                            contentRect: CGRect(x: 30, y: 100, width: width, height: 351),
+                            contentRect: CGRect(x: 30, y: 100, width: width, height: height),
                             styleMask: [.titled], backing: .buffered, defer: false)
                         window.isReleasedWhenClosed = false
                         let root = NSHostingView(
