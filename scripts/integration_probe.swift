@@ -530,7 +530,7 @@ func checkSettingsMatrix(_ fixture: MatrixFixture, output: URL) async throws {
     }
     matrixRequire(matrixSettingsFocused(host, pane: .general), "settings sidebar accepts keyboard focus")
     let markers: [(SettingsView.Pane, String)] = [
-        (.general, "open the notch on"), (.notch, "around the notch"), (.calendar, "mirror tasks"),
+        (.general, "a new day starts at"), (.notch, "around the notch"), (.calendar, "mirror tasks"),
         (.agents, "use terminal"), (.data, "where it lives"),
     ]
     var previous: String?
