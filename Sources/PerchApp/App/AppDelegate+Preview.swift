@@ -10,6 +10,11 @@ import SwiftUI
         static var previewTargets: [String: PreviewTarget] {
             [
                 "today": .workspace(.home),
+                "checklist-expanded": .window("checklist-preview") { ChecklistPreview.show(.expanded, app: $0) },
+                "checklist-steps": .window("checklist-preview") { ChecklistPreview.show(.steps, app: $0) },
+                "checklist-selected": .window("checklist-preview") { ChecklistPreview.show(.selected, app: $0) },
+                "checklist-step-entry": .window("checklist-preview") { ChecklistPreview.show(.stepEntry, app: $0) },
+                "checklist-completed": .window("checklist-preview") { ChecklistPreview.show(.completed, app: $0) },
                 "workspace-today": .window("workspace-home") { WorkspaceShellPreview.show(page: .home, app: $0) },
                 "workspace-week": .window("workspace-week") { WorkspaceShellPreview.show(page: .week, app: $0) },
                 "workspace-narrow": .window("workspace-narrow") {

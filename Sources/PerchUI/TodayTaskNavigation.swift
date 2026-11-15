@@ -1,7 +1,47 @@
 import Foundation
+import PlannerCore
 
 /// Keyboard movement follows displayed order and never wraps into an unrelated control.
 public enum TodayTaskNavigation {
+    public static let foldedRowCount = 4
+
+    public static func ordered(_ tasks: [PlanTask], currentID: UUID?) -> [PlanTask] {
+        let current = tasks.filter { $0.id == currentID && !$0.done }
+        return current + tasks.filter { !$0.done && $0.id != currentID } + tasks.filter(\.done)
+    }
+
+    public static func visible(_ tasks: [PlanTask], expanded: Bool, selectedID: UUID?) -> [PlanTask] {
+        if expanded || tasks.dropFirst(foldedRowCount).contains(where: { $0.id == selectedID }) { return tasks }
+        return Array(tasks.prefix(foldedRowCount))
+    }
+
+    public static func hiddenCount(_ tasks: [PlanTask], expanded: Bool, selectedID: UUID?) -> Int {
+        tasks.count - visible(tasks, expanded: expanded, selectedID: selectedID).count
+    }
+
+    public static func nextStep(in steps: [Subtask]) -> UUID? { steps.first { !$0.done }?.id }
+
+    public struct Reorder: Equatable, Sendable {
+        public let beforeID: UUID?
+    }
+
+    /// Only open, non-current tasks have a movable position. A nil beforeID means the end.
+    public static func reorder(_ tasks: [PlanTask], currentID: UUID?, selectedID: UUID, offset: Int) -> Reorder? {
+        let ids = tasks.filter { !$0.done && $0.id != currentID }.map(\.id)
+        guard let index = ids.firstIndex(of: selectedID), abs(offset) == 1,
+            ids.indices.contains(index + offset)
+        else { return nil }
+        let destination = offset < 0 ? ids[index - 1] : (index + 2 < ids.count ? ids[index + 2] : nil)
+        return Reorder(beforeID: destination)
+    }
+
+    /// Moving out of the checklist is a single undoable transaction, including its removal.
+    public static func park(_ id: UUID, commands: PlannerCommands) throws {
+        let task = try commands.task(id)
+        _ = try commands.parkThought(task.title)
+        _ = try commands.delete(id, on: task.day.map { .day($0) } ?? .inbox)
+    }
+
     public static func neighbor(in ids: [UUID], from current: UUID, offset: Int) -> UUID? {
         guard let index = ids.firstIndex(of: current), !ids.isEmpty else { return nil }
         return ids[min(max(0, index + offset), ids.count - 1)]
@@ -14,5 +54,36 @@ public enum TodayTaskNavigation {
         if remaining.contains(current) { return current }
         guard let index = previous.firstIndex(of: current) else { return remaining.first }
         return remaining[min(index, remaining.count - 1)]
+    }
+}
+
+/// The add field has one indentation level. A second Tab can leave it normally.
+public struct TodayTaskCapture: Equatable, Sendable {
+    public private(set) var parentID: UUID?
+    public init() {}
+    public mutating func indent(parentID: UUID?) -> Bool {
+        guard self.parentID == nil, let parentID else { return false }
+        self.parentID = parentID
+        return true
+    }
+    public mutating func outdent() -> Bool {
+        guard parentID != nil else { return false }
+        parentID = nil
+        return true
+    }
+
+    @discardableResult
+    public static func submit(
+        _ text: String, parentID: UUID?, on day: DayRef,
+        commands: PlannerCommands, language: TaskParserLanguage = .english
+    ) throws -> [PlanTask] {
+        let lines = TaskCapture.splitLines(text).filter { !$0.isEmpty }
+        guard !lines.isEmpty else { throw PlannerError("Add at least one task title with text.") }
+        guard let parentID else { return try commands.addTasks(lines, on: day, language: language) }
+        // Resolve first so a stale parent cannot silently turn a step into a task.
+        let parent = try commands.task(parentID)
+        guard parent.day == day.key, !parent.done else { throw PlannerError("Choose an open task for this step.") }
+        try commands.updateTask(parentID) { $0.steps.append(contentsOf: lines.map { Subtask(title: $0) }) }
+        return [try commands.task(parentID)]
     }
 }

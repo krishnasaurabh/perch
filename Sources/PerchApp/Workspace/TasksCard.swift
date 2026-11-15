@@ -2,170 +2,251 @@ import PlannerCore
 import PerchUI
 import SwiftUI
 
-/// Today reserves capture and Undo below its independently scrolling task viewport.
+/// The list scrolls independently; capture and Undo never leave the card.
 struct TasksCard: View {
+    var preview: ChecklistPreviewState = .none
     @EnvironmentObject var store: PlannerStore
     @EnvironmentObject var model: NotchModel
-    @State private var tab: TodayTab = .active
+    @Environment(TodayHomeState.self) private var sharedHomeState: TodayHomeState?
+    @State private var localHomeState = TodayHomeState()
+    @State private var expandedTasks: Set<UUID> = []
+    @State private var showsLater = false
+    @State private var selectedStepID: UUID?
     @State private var reviewingOverdue = false
     @FocusState private var focus: TodayFocus?
-    @State private var lastFocusedTask: UUID?
+
+    private var homeState: TodayHomeState { sharedHomeState ?? localHomeState }
+    private var currentID: UUID? {
+        guard let current = store.planner.focus, current.state == .running || current.state == .paused else {
+            return nil
+        }
+        return current.taskID
+    }
+    private var ordered: [PlanTask] {
+        TodayTaskNavigation.ordered(store.engine.tasks(on: .day(store.today)), currentID: currentID)
+    }
 
     var body: some View {
-        let all = store.engine.tasks(on: .day(store.today))
-        let open = all.filter { !$0.done }, finished = all.filter(\.done)
-        let selection = Binding(
-            get: { TodayTabs.resolved(tab, completedCount: finished.count) },
-            set: { tab = $0 })
-        let shown = selection.wrappedValue == .active ? open : finished
-        let ids = shown.map(\.id)
-        let pills = TodayTabs.visible(completedCount: finished.count).map {
-            (
-                $0,
-                $0 == .active
-                    ? AppL10n.format("To do %lld", open.count)
-                    : AppL10n.format("Completed %lld", finished.count)
-            )
-        }
-        VStack(alignment: .leading, spacing: 8) {
-            ViewThatFits(in: .horizontal) {
-                CardHeading(
-                    AppL10n.text("Today's tasks"),
-                    trailing: AnyView(
-                        HStack(spacing: 8) {
-                            startFocus
-                            SegmentPills(items: pills, selection: selection)
-                        }.fixedSize())
-                )
-                .fixedSize(horizontal: true, vertical: false)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                VStack(alignment: .leading, spacing: 4) {
-                    CardHeading(AppL10n.text("Today's tasks"), trailing: AnyView(startFocus))
-                    SegmentPills(items: pills, selection: selection)
-                }
+        let tasks = ordered
+        let ids = tasks.map(\.id)
+        let selectedSteps = tasks.first { $0.id == homeState.selectedTaskID }?.steps.map(\.id) ?? []
+        let shown = TodayTaskNavigation.visible(tasks, expanded: showsLater, selectedID: homeState.selectedTaskID)
+        let remaining = tasks.count - shown.count
+        VStack(alignment: .leading, spacing: Theme.Size.cardPadding.value / 2) {
+            HStack {
+                Text("Today").perchFont(.cardTitle)
+                Spacer(minLength: .zero)
+                PerchPill(
+                    countTitle(tasks), surface: tasks.contains(where: \.done) ? .mint : .field,
+                    ink: tasks.contains(where: \.done) ? .doneText : .ink2)
             }
             GeometryReader { viewport in
                 ScrollViewReader { scroll in
                     ScrollView {
-                        VStack(spacing: 0) {
+                        VStack(alignment: .leading, spacing: Theme.Size.focusGap.value) {
                             ForEach(shown) { task in
-                                TaskRow(task: task, focus: $focus)
-                                    .id(task.id)
-                                    .onDrag { NSItemProvider(object: task.id.uuidString as NSString) }
-                                    .onDrop(of: [.plainText], isTargeted: nil) { items in
-                                        reorder(items, before: task.id); return true
-                                    }
-                                    .transition(.opacity)
-                                if task.id != shown.last?.id { Divider().padding(.horizontal, 7) }
+                                TaskRow(
+                                    task: task, current: task.id == currentID,
+                                    selected: homeState.selectedTaskID == task.id,
+                                    keyboardFocused: focus == .checklist, inChecklist: true,
+                                    selectedStepID: selectedStepID,
+                                    expanded: Binding(
+                                        get: { expandedTasks.contains(task.id) },
+                                        set: { value in
+                                            if value {
+                                                expandedTasks.insert(task.id)
+                                            } else {
+                                                expandedTasks.remove(task.id)
+                                            }
+                                        }), onSelect: { select(task.id) }, onEdit: { edit(task.id) }
+                                )
+                                .id(task.id)
+                                .dropDestination(for: TaskDragItem.self) { items, _ in
+                                    guard let item = items.first, item.taskID != task.id,
+                                        ordered.contains(where: { $0.id == item.taskID && !$0.done }),
+                                        !task.done, item.taskID != currentID, task.id != currentID
+                                    else { return false }
+                                    return store.apply { try $0.reorder(item.taskID, before: task.id) } != nil
+                                }
                             }
-                            if shown.isEmpty {
-                                EmptyStateView(
-                                    all.isEmpty ? "Start with one task." : "All clear for today.",
-                                    symbol: all.isEmpty ? "square.and.pencil" : "checkmark.circle")
+                            if remaining > 0 {
+                                Button(AppL10n.format("%lld more for later today", remaining)) { showsLater = true }
+                                    .buttonStyle(.plain).perchFont(.detailStrong).foregroundStyle(Theme.brandText)
+                                    .frame(minHeight: Theme.Size.minimumTarget.value)
+                                    .focusable(false)
+                                    .accessibilityIdentifier("today-show-later")
+                            } else if showsLater && tasks.count > TodayTaskNavigation.foldedRowCount {
+                                Button("Show less") {
+                                    showsLater = false; homeState.selectedTaskID = tasks.first?.id
+                                }
+                                .buttonStyle(.plain).perchFont(.detailStrong).foregroundStyle(Theme.brandText)
+                                .frame(minHeight: Theme.Size.minimumTarget.value).focusable(false)
+                            }
+                            if tasks.isEmpty {
+                                Text("What has to happen today?").perchFont(.body).foregroundStyle(Theme.ink2)
+                                    .fixedSize(horizontal: false, vertical: true)
+                                    .frame(maxWidth: .infinity, minHeight: viewport.size.height, alignment: .topLeading)
                             }
                         }
-                        .frame(maxWidth: .infinity)
-                        .frame(minHeight: shown.isEmpty ? viewport.size.height : 0, alignment: .bottom)
-                        .motion(Motion.row, value: ids)
+                        .frame(maxWidth: .infinity, alignment: .topLeading)
                         .background(TasksContinuationObserver())
                     }
                     .scrollIndicators(.automatic)
-                    .onChange(of: focus) { _, value in
-                        if let id = value?.taskID { scroll.scrollTo(id) }
+                    .focusable(!tasks.isEmpty)
+                    .focused($focus, equals: .checklist)
+                    .focusEffectDisabled()
+                    .accessibilityIdentifier("today-checklist")
+                    .accessibilityLabel("The checklist")
+                    .onKeyPress(phases: [.down, .repeat, .up]) { handle($0, tasks: tasks) }
+                    .onChange(of: homeState.selectedTaskID) { _, id in
+                        selectedStepID = nil
+                        if let id { scroll.scrollTo(id) }
                     }
                 }
             }
             .frame(minHeight: 0, maxHeight: WorkspaceLayout.contentHeight).accessibilityIdentifier(
                 "today-task-viewport")
-            TaskComposer(day: .day(store.today), placeholder: "What would you like to do?", focus: $focus)
-                .fixedSize(horizontal: false, vertical: true)
-                .layoutPriority(1)
-            footer.fixedSize(horizontal: false, vertical: true).layoutPriority(1)
+            Spacer(minLength: .zero).layoutPriority(-1)
+            if store.canUndo || !store.engine.overdue().isEmpty {
+                footer.fixedSize(horizontal: false, vertical: true).layoutPriority(1)
+            }
+            TaskComposer(
+                day: .day(store.today), placeholder: "Add a task. Tab makes it a step.", focus: $focus,
+                homeState: homeState, initialStep: preview == .stepEntry,
+                onStep: {
+                    expandedTasks.insert($0); showsLater = true
+                }
+            )
+            .fixedSize(horizontal: false, vertical: true).layoutPriority(1)
         }
-        .card(.tasks)
-        .onChange(of: finished.count, initial: true) { _, count in
-            tab = TodayTabs.resolved(tab, completedCount: count)
+        .card(surface: .paper)
+        .onAppear {
+            #if DEBUG || PERCH_TESTING
+                if preview == .expanded { showsLater = true }
+                if preview == .steps { expandedTasks = Set(tasks.map(\.id)); showsLater = true }
+                if preview == .selected { homeState.selectedTaskID = tasks.first?.id; focus = .checklist }
+            #endif
         }
         .onChange(of: focus) { _, value in
-            if let id = value?.taskID { lastFocusedTask = id } else if value == .capture { lastFocusedTask = nil }
+            if value == .checklist && !ids.contains(homeState.selectedTaskID ?? UUID()) {
+                homeState.selectedTaskID = ids.first
+            }
+        }
+        .onChange(of: selectedSteps) { _, remaining in
+            if let selectedStepID, !remaining.contains(selectedStepID) { self.selectedStepID = nil }
         }
         .onChange(of: ids) { previous, remaining in
-            // Row recovery must not override an explicit capture or Undo destination.
-            guard focus != .capture && focus != .undo else { return }
-            // SwiftUI may clear native focus as the row leaves, before this callback.
-            guard let id = focus?.taskID ?? lastFocusedTask, previous.contains(id), !remaining.contains(id) else {
-                return
-            }
-            focus =
-                TodayTaskNavigation.afterRemoval(of: id, previous: previous, remaining: remaining)
-                .map { .task($0, .complete) } ?? (store.canUndo ? .undo : .capture)
+            guard let selected = homeState.selectedTaskID, !remaining.contains(selected) else { return }
+            homeState.selectedTaskID = TodayTaskNavigation.afterRemoval(
+                of: selected, previous: previous, remaining: remaining)
+            selectedStepID = nil
+            if focus == .checklist && remaining.isEmpty { focus = store.canUndo ? .undo : .capture }
         }
-        .onKeyPress(.upArrow) { navigate(ids, offset: -1) }
-        .onKeyPress(.downArrow) { navigate(ids, offset: 1) }
         .popover(isPresented: $reviewingOverdue) {
-            OverdueReview().environmentObject(store).frame(width: 340).padding(14)
+            OverdueReview().environmentObject(store).frame(width: Theme.Size.peekWidth.value).padding(
+                Theme.Size.cardPadding.value)
         }
     }
 
+    private func countTitle(_ tasks: [PlanTask]) -> String {
+        guard !tasks.isEmpty else { return AppL10n.text("A fresh page") }
+        let done = tasks.filter(\.done).count
+        return done == 0
+            ? AppL10n.format("%lld to do", tasks.count) : AppL10n.format("%lld of %lld done", done, tasks.count)
+    }
+
     private var footer: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: Theme.Size.cardPadding.value / 2) {
             Button {
                 store.undo()
             } label: {
                 Label("Undo", systemImage: "arrow.uturn.backward")
             }
-            .buttonStyle(PillStyle(disabledReason: "There is no task edit to undo."))
-            .disabled(!store.canUndo)
-            .focusable(store.canUndo)
-            .focused($focus, equals: .undo)
+            .buttonStyle(.plain).perchFont(.detailStrong).foregroundStyle(Theme.ink2)
+            .frame(minHeight: Theme.Size.minimumTarget.value)
+            .disabled(!store.canUndo).focusable(store.canUndo).focused($focus, equals: .undo)
             .onKeyPress(.space, phases: [.down, .repeat, .up]) { press in
                 guard focus == .undo, store.canUndo, press.modifiers.isEmpty else { return .ignored }
                 if press.phase == .down { store.undo() }
                 return .handled
             }
             .focusEffectDisabled()
-            .overlay(ControlFocusRing(shape: Capsule(), focused: focus == .undo))
+            .overlay(FocusRing(shape: Capsule(), focused: focus == .undo, surface: .paper))
             .accessibilityIdentifier("today-undo")
-            .help("Undo the last edit, including task deletion (Command-Z)")
-            Spacer(minLength: 0)
+            Spacer(minLength: .zero)
             if !store.engine.overdue().isEmpty {
-                Button(AppL10n.format("Review overdue (%lld)", store.engine.overdue().count)) {
-                    reviewingOverdue = true
-                }
-                .buttonStyle(PillStyle())
-                .accessibilityIdentifier("today-review-overdue")
+                Button("Bring over") { reviewingOverdue = true }
+                    .buttonStyle(.plain).perchFont(.detailStrong).foregroundStyle(Theme.brandText)
+                    .frame(minHeight: Theme.Size.minimumTarget.value)
+                    .accessibilityIdentifier("today-review-overdue")
             }
         }
     }
 
-    @ViewBuilder private var startFocus: some View {
-        if store.planner.focus.map({ $0.state == .running || $0.state == .paused }) != true {
-            Button {
-                guard store.planner.focus.map({ $0.state == .running || $0.state == .paused }) != true else { return }
-                store.apply { try $0.startTimer(task: nil, minutes: nil) }
-            } label: {
-                Label("Start focus", systemImage: "play.fill").font(Theme.label).fixedSize()
-            }
-            .buttonStyle(PillStyle())
-            .accessibilityLabel("Start focus")
-            .accessibilityHint("Starts a focus session using your default duration")
-            .accessibilityIdentifier("today-start-focus")
-        }
-    }
+    private func select(_ id: UUID) { homeState.selectedTaskID = id; selectedStepID = nil; focus = .checklist }
+    private func edit(_ id: UUID) { homeState.selectedTaskID = id; homeState.editingTaskID = id }
 
-    private func navigate(_ ids: [UUID], offset: Int) -> KeyPress.Result {
-        guard case .task(let id, let action) = focus, action != .rename,
-            let next = TodayTaskNavigation.neighbor(in: ids, from: id, offset: offset)
+    private func handle(_ press: KeyPress, tasks: [PlanTask]) -> KeyPress.Result {
+        guard focus == .checklist, let id = homeState.selectedTaskID,
+            let task = tasks.first(where: { $0.id == id })
         else { return .ignored }
-        focus = .task(next, .complete)
-        return .handled
-    }
-
-    private func reorder(_ items: [NSItemProvider], before target: UUID) {
-        items.first?.loadObject(ofClass: NSString.self) { value, _ in
-            guard let string = value as? String, let id = UUID(uuidString: string), id != target else { return }
-            Task { @MainActor in store.apply { try $0.reorder(id, before: target) } }
+        let modifiers = press.modifiers.intersection([.command, .control, .option, .shift])
+        let plain = modifiers.isEmpty
+        let arrow = press.key == .upArrow || press.key == .downArrow
+        let reorder = arrow && modifiers == .option
+        let park = press.characters.lowercased() == "k" && modifiers == .command
+        let start = press.key == .return && modifiers == .command
+        let recognized =
+            reorder || park || start
+            || (plain
+                && (arrow || press.key == .space || press.key == .return
+                    || press.key == .delete || press.key == .rightArrow || press.key == .leftArrow))
+        guard recognized else { return .ignored }
+        guard press.phase == .down else { return .handled }
+        if reorder {
+            if let move = TodayTaskNavigation.reorder(
+                tasks, currentID: currentID, selectedID: id,
+                offset: press.key == .upArrow ? -1 : 1)
+            {
+                store.apply { try $0.reorder(id, before: move.beforeID) }
+            }
+        } else if start {
+            if !task.done && store.planner.focus.map({ $0.state == .running || $0.state == .paused }) != true {
+                store.apply { try $0.startTimer(task: id, minutes: nil) }
+            }
+        } else if park {
+            store.apply { try TodayTaskNavigation.park(id, commands: $0) }
+        } else if arrow, let stepID = selectedStepID {
+            selectedStepID = TodayTaskNavigation.neighbor(
+                in: task.steps.map(\.id), from: stepID,
+                offset: press.key == .upArrow ? -1 : 1)
+        } else if arrow {
+            if let next = TodayTaskNavigation.neighbor(
+                in: tasks.map(\.id), from: id, offset: press.key == .upArrow ? -1 : 1)
+            {
+                if tasks.dropFirst(TodayTaskNavigation.foldedRowCount).contains(where: { $0.id == next }) {
+                    showsLater = true
+                }
+                homeState.selectedTaskID = next
+            }
+        } else if press.key == .space, let stepID = selectedStepID {
+            store.updateTask(id) { draft in
+                if let index = draft.steps.firstIndex(where: { $0.id == stepID }) { draft.steps[index].done.toggle() }
+            }
+        } else if press.key == .space {
+            if task.done { store.apply { try $0.reopen(id) } } else { store.send(.complete(id)) }
+        } else if press.key == .return {
+            edit(id)
+        } else if press.key == .delete {
+            store.apply { try $0.delete(id, on: .day(store.today)) }
+        } else if press.key == .rightArrow {
+            if id == currentID || expandedTasks.contains(id) { selectedStepID = task.steps.first?.id }
+            expandedTasks.insert(id)
+        } else if press.key == .leftArrow {
+            selectedStepID = nil
+            if id != currentID { expandedTasks.remove(id) }
         }
+        return .handled
     }
 }
 
@@ -176,23 +257,24 @@ private struct OverdueReview: View {
 
     var body: some View {
         let tasks = store.engine.overdue()
-        VStack(alignment: .leading, spacing: 12) {
-            Text("Unfinished from earlier days").font(Theme.heading)
+        VStack(alignment: .leading, spacing: Theme.Size.cardPadding.value) {
+            Text("Unfinished from earlier days").perchFont(.cardTitle)
             Text("Choose what to do with these tasks. Automatic handling can be changed in Settings.")
-                .font(Theme.body).fixedSize(horizontal: false, vertical: true)
+                .perchFont(.body).fixedSize(horizontal: false, vertical: true)
             ScrollView {
-                VStack(alignment: .leading, spacing: 8) {
+                VStack(alignment: .leading, spacing: Theme.Size.cardPadding.value / 2) {
                     ForEach(tasks) { task in
-                        Text(task.title).font(Theme.body).fixedSize(horizontal: false, vertical: true)
+                        Text(task.title).perchFont(.body).fixedSize(horizontal: false, vertical: true)
                     }
                 }.frame(maxWidth: .infinity, alignment: .leading)
-            }.frame(maxHeight: 160)
-            Button("Bring all to today") { resolve { try $0.carryForward(tasks.map(\.id), to: $0.today) } }
-                .buttonStyle(PillStyle())
-            Button("Mark all done") { resolve { try $0.completeOverdue(tasks.map(\.id)) } }.buttonStyle(PillStyle())
-            Button("Leave all in history") { resolve { try $0.dismissOverdue(tasks.map(\.id)) } }.buttonStyle(
-                PillStyle())
-            Button("Cancel") { dismiss() }.buttonStyle(PillStyle()).keyboardShortcut(.cancelAction)
+            }.frame(maxHeight: Theme.Size.taskRowHeight.value * 4)
+            PerchButton("Bring all to today", kind: .soft) {
+                resolve { try $0.carryForward(tasks.map(\.id), to: $0.today) }
+            }
+
+            PerchButton("Mark all done", kind: .soft) { resolve { try $0.completeOverdue(tasks.map(\.id)) } }
+            PerchButton("Leave all in history", kind: .soft) { resolve { try $0.dismissOverdue(tasks.map(\.id)) } }
+            PerchButton("Not now", kind: .quiet) { dismiss() }.keyboardShortcut(.cancelAction)
         }
     }
 
@@ -214,7 +296,7 @@ private struct TasksContinuationObserver: NSViewRepresentable {
         override init(frame: NSRect) {
             super.init(frame: frame)
             fade.identifier = NSUserInterfaceItemIdentifier("today-continuation-fade")
-            fade.color = NSColor(CardTone.tasks.fill)
+            fade.color = NSColor(Theme.paper)
             fade.isHidden = true
         }
         required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
@@ -255,7 +337,7 @@ private struct TasksContinuationObserver: NSViewRepresentable {
             guard let scroll, let document = scroll.documentView else { return }
             let clip = scroll.contentView
             let viewport = scroll.convert(clip.bounds, from: clip)
-            let height = min(CGFloat(20), viewport.height)
+            let height = min(Theme.Size.windowPadding.value, viewport.height)
             fade.frame = NSRect(
                 x: viewport.minX, y: scroll.isFlipped ? viewport.maxY - height : viewport.minY,
                 width: viewport.width, height: height)
@@ -268,122 +350,138 @@ private struct TasksContinuationObserver: NSViewRepresentable {
     }
 }
 
-/// Text field + mic. Enter adds; multi-line paste adds one task per line.
+/// Parsed task entry and one-level step entry share the same native editor.
 struct TaskComposer: View {
     let day: DayRef
     var placeholder = "Add a task"
     var focus: FocusState<TodayFocus?>.Binding? = nil
+    var homeState: TodayHomeState? = nil
+    var initialStep = false
+    var onStep: (UUID) -> Void = { _ in }
     @EnvironmentObject var store: PlannerStore
     @EnvironmentObject var services: Services
     @EnvironmentObject var model: NotchModel
-    @Environment(\.locale) private var locale
     @State private var text = ""
+    @State private var capture = TodayTaskCapture()
+    @State private var lastAddedID: UUID?
+    @State private var parsed: CapturedTask?
     @FocusState private var localFocus: TodayFocus?
+    @FocusState private var fieldFocused: Bool
     private var focusBinding: FocusState<TodayFocus?>.Binding { focus ?? $localFocus }
     private var focused: Bool { focusBinding.wrappedValue == .capture }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            captureField
-            if !text.isEmpty, let preview {
-                Text(preview).font(Theme.meta).foregroundStyle(Theme.text)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .accessibilityLabel(AppL10n.format("Task options: %@", preview))
+        VStack(alignment: .leading, spacing: Theme.Size.focusGap.value * 3) {
+            if let parent = capture.parentID.flatMap({ id in store.planner.tasks.first { $0.id == id } }) {
+                Text(AppL10n.format("Step of %@", parent.title)).perchFont(.detail).foregroundStyle(Theme.ink2)
             }
-        }
-    }
-
-    private var captureField: some View {
-        HStack(spacing: 8) {
-            Image(systemName: "plus").font(.system(size: 11, weight: .bold)).foregroundStyle(Theme.secondary)
-            // Prompt drawn by Perch. AppKit draws a TextField's own placeholder in the system placeholder
-            // colour (≈ 2.4:1 resting, 1.6:1 focused on the input fill) and ignores `prompt:` foreground styles on
-            // macOS. `Theme.text` is the only ink token that clears 4.5:1 on both the 8 % and 12 % fill.
-            TextField("", text: $text, axis: .vertical)
-                .textFieldStyle(.plain).font(Theme.body)
-                .lineLimit(1...4)
-                .truncationMode(.tail)
-                .background(alignment: .leading) {
-                    if text.isEmpty {
-                        Text(AppL10n.text(placeholder)).font(Theme.body).foregroundStyle(Theme.text).lineLimit(1)
-                            .allowsHitTesting(false).accessibilityHidden(true)
-                    }
+            AddField("Add a task", text: $text, prompt: placeholder, focus: $fieldFocused, onSubmit: add) {
+                services.voice.toggle { spoken in
+                    text = spoken; updateDraft(); add()
                 }
-                .focused(focusBinding, equals: .capture)
-                .accessibilityLabel("Add a task")
-                .accessibilityHint(AppL10n.text(placeholder))
-                .accessibilityIdentifier("task-capture")
-                .onSubmit(add)
-                .background(CaptureTextUndo())
-            VoiceButton { spoken in
-                store.addTasks([spoken], on: day)
+            }
+            .background(CaptureTextUndo(onTab: changeIndent))
+            if !text.isEmpty {
+                HStack(spacing: Theme.Size.focusGap.value * 3) {
+                    if capture.parentID == nil, let parsed {
+                        if let start = parsed.startAt {
+                            PerchPill(start.formatted(date: .omitted, time: .shortened), surface: .paper)
+                        }
+                        if let minutes = parsed.minutes {
+                            PerchPill(AppL10n.format("%lld min set aside", minutes), surface: .paper)
+                        }
+                    }
+                    Spacer(minLength: .zero)
+                    Text("Return adds it").perchFont(.detail).foregroundStyle(Theme.ink2)
+                }
             }
         }
-        .padding(.horizontal, 10).padding(.vertical, 8)
-        .background(
-            RoundedRectangle(cornerRadius: 10, style: .continuous).fill(
-                focused ? Theme.inputFillFocused : Theme.inputFill)
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .strokeBorder(Theme.inputStroke, lineWidth: focused ? 2 : 1)
-        )
+        .onAppear {
+            #if DEBUG || PERCH_TESTING
+                if initialStep { _ = changeIndent(false); text = "Check the final detail" }
+            #endif
+        }
+        .onChange(of: text) { _, _ in updateDraft() }
+        .onChange(of: capture) { _, _ in updateDraft() }
+        .onChange(of: fieldFocused) { _, value in
+            if value { focusBinding.wrappedValue = .capture } else if focused { focusBinding.wrappedValue = nil }
+        }
+        .onChange(of: focused) { _, value in fieldFocused = value }
+        .onDisappear { homeState?.captureDraft = nil }
         .task(id: model.captureFocusRequest) {
-            // Only explicit openings request focus; hover and drag previews do not steal typing.
             guard model.captureFocusRequest != nil && model.expanded && model.page == .home else {
-                if focused { focusBinding.wrappedValue = nil }
+                if focused { focusBinding.wrappedValue = nil; fieldFocused = false }
                 return
             }
-            // Closing a panel can end native editing without clearing SwiftUI's focus value.
-            // A new explicit request must reacquire the editor even if capture was last focused.
             focusBinding.wrappedValue = nil
+            fieldFocused = false
             await Task.yield()
             guard !Task.isCancelled else { return }
             focusBinding.wrappedValue = .capture
+            fieldFocused = true
         }
-        .overlay(ControlFocusRing(shape: RoundedRectangle(cornerRadius: 10), focused: focused))
-        .help(preview ?? AppL10n.text("Return adds a task. Paste multiple lines to add multiple tasks."))
     }
 
-    /// Live hint of what the parser read: "Tomorrow 5:00 PM · High".
-    var preview: String? {
-        guard let language = TaskParserLanguage.current else { return nil }
-        let c = store.capture.parse(text, language: language)
-        var bits: [String] = []
-        if c.inbox { bits.append(AppL10n.text("Inbox")) }
-        if let d = c.day, d != store.today {
-            bits.append(d.date().formatted(.dateTime.weekday(.abbreviated).month(.abbreviated).day()))
+    private func updateDraft() {
+        guard capture.parentID == nil, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+            let language = TaskParserLanguage.current
+        else {
+            parsed = nil; homeState?.captureDraft = nil; return
         }
-        if let r = c.remindAt { bits.append(r.formatted(date: .omitted, time: .shortened)) }
-        if c.priority != .none { bits.append(AppL10n.priority(c.priority)) }
-        if let p = c.projectName { bits.append("#" + p) }
-        if let r = c.repeatRule {
-            bits.append(RepeatPickerDraft(original: r, anchor: c.day).summary(locale: locale))
+        let draft = store.capture.parse(text, language: language)
+        parsed = draft
+        if let start = draft.startAt, !draft.inbox, draft.day == nil || draft.day == store.today {
+            homeState?.captureDraft = TodayHomeState.CaptureDraft(
+                startTime: start,
+                minutes: draft.minutes ?? store.prefs.defaultFocusMinutes)
+        } else {
+            homeState?.captureDraft = nil
         }
-        if let m = c.minutes { bits.append(AppL10n.format("%lldm", m)) }
-        return bits.isEmpty ? nil : bits.joined(separator: " · ")
+    }
+
+    private func changeIndent(_ backwards: Bool) -> Bool {
+        if backwards { return capture.outdent() }
+        let tasks = store.engine.tasks(on: day).filter { !$0.done }
+        let parent = tasks.first { $0.id == lastAddedID } ?? tasks.last
+        return capture.indent(parentID: parent?.id)
     }
 
     func add() {
-        let t = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !t.isEmpty else { return }
-        // Insert is opacity only into reserved space; other rows stay put.
-        if let added = Motion.animate(Motion.row, { store.addTasks([t], on: day) }) {
-            text = ""
-            AISorter.sort(added.map(\.id), store: store)
+        let value = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !value.isEmpty else { return }
+        let result: [PlanTask]?
+        if capture.parentID == nil {
+            result = store.addTasks([value], on: day)
+        } else {
+            result = store.apply { commands in
+                try TodayTaskCapture.submit(
+                    value, parentID: capture.parentID, on: day, commands: commands, language: .english)
+            }
         }
+        guard let added = result else { return }
+        if let parentID = capture.parentID {
+            onStep(parentID)
+        } else {
+            lastAddedID = added.last?.id; AISorter.sort(added.map(\.id), store: store)
+        }
+        text = ""
+        parsed = nil
+        homeState?.captureDraft = nil
         focusBinding.wrappedValue = .capture
+        fieldFocused = true
     }
 }
 
 /// Capture keeps working when the accessory panel has no application Edit menu.
 /// Its native text history remains separate from the planner's command history.
 struct CaptureTextUndo: NSViewRepresentable {
+    var onTab: ((Bool) -> Bool)? = nil
     func makeNSView(context: Context) -> Marker { Marker() }
-    func updateNSView(_ view: Marker, context: Context) { view.enableUndo() }
+    func updateNSView(_ view: Marker, context: Context) { view.onTab = onTab; view.enableUndo() }
     static func dismantleNSView(_ view: Marker, coordinator: ()) { view.stop() }
 
     final class Marker: NSView {
+        var onTab: ((Bool) -> Bool)?
         private var monitor: Any?
 
         override func hitTest(_ point: NSPoint) -> NSView? { nil }
@@ -432,6 +530,10 @@ struct CaptureTextUndo: NSViewRepresentable {
             guard event.window === window, window?.isKeyWindow == true, let editor else { return event }
             editor.allowsUndo = true
             let flags = event.modifierFlags.intersection([.command, .shift, .option, .control])
+            if event.keyCode == 48, flags.isEmpty || flags == .shift, !editor.hasMarkedText() {
+                if event.isARepeat { return nil }
+                if onTab?(flags == .shift) == true { return nil }
+            }
             guard event.charactersIgnoringModifiers?.lowercased() == "z",
                 flags == .command || flags == [.command, .shift]
             else { return event }
@@ -448,41 +550,25 @@ struct CaptureTextUndo: NSViewRepresentable {
     }
 }
 
-struct VoiceButton: View {
-    let onText: (String) -> Void
-    @EnvironmentObject var services: Services
-    var body: some View { VoiceButtonBody(voice: services.voice, onText: onText) }
-}
+enum ChecklistPreviewState { case none, expanded, steps, selected, stepEntry, completed }
 
-private struct VoiceButtonBody: View {
-    @ObservedObject var voice: VoiceCapture
-    let onText: (String) -> Void
-
-    var body: some View {
-        let listening = voice.state == .listening
-        Button {
-            voice.toggle(onFinish: onText)
-        } label: {
-            ZStack {
-                // A static listening state: no perpetual pulse.
-                if listening { Circle().fill(Theme.fillStrong).frame(width: 24, height: 24) }
-                Image(systemName: listening ? "waveform" : "mic.fill")
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(listening ? Theme.accent : Theme.secondary)
+#if DEBUG || PERCH_TESTING
+    @MainActor enum ChecklistPreview {
+        static func show(_ state: ChecklistPreviewState, app: AppDelegate) {
+            WindowHost.windows["checklist-preview"]?.close()
+            if state == .completed {
+                for task in app.store.engine.tasks(on: .day(app.store.today)) where !task.done {
+                    app.store.send(.complete(task.id))
+                }
             }
-            .frame(width: Theme.minimumTarget, height: Theme.minimumTarget)
-        }
-        .buttonStyle(PillStyle())
-        .accessibilityLabel(AppL10n.text(listening ? "Stop dictation" : "Dictate a task"))
-        .help("Say a task. Speech is recognized on this Mac.")
-        .popover(
-            isPresented: Binding(
-                get: {
-                    if case .error = voice.state { return true }; return false
-                },
-                set: { if !$0 { voice.state = .idle } })
-        ) {
-            if case .error(let m) = voice.state { Text(m).font(.system(size: 12)).padding(12).frame(width: 260) }
+            let width = HomeLayout.columns(sheetWidth: Theme.Size.todayWidth.value).checklist
+            WindowHost.show(
+                "checklist-preview", title: "Today",
+                size: CGSize(width: width, height: WorkspaceLayout.sheetHeight - Theme.Size.sheetPadding.value * 2)
+            ) {
+                TasksCard(preview: state)
+                    .environmentObject(app.store).environmentObject(app.model).environmentObject(app.services)
+            }
         }
     }
-}
+#endif

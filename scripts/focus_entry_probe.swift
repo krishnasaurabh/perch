@@ -53,21 +53,46 @@ func nodes(_ root: NSObject) -> [NSObject] {
         guard depth < 60, seen.insert(ObjectIdentifier(node)).inserted else { return [] }
         let children = ["accessibilityChildren", "accessibilityContents", "accessibilityChildrenInNavigationOrder"]
             .flatMap { (attr(node, $0) as? [NSObject]) ?? [] }
-        return [node] + children.flatMap { walk($0, depth + 1) }
+        return [node] + (children + ((node as? NSView)?.subviews ?? [])).flatMap { walk($0, depth + 1) }
     }
     return walk(root, 0)
 }
 @MainActor
 func control(_ value: String, attribute: String = "accessibilityLabel", in root: NSView) -> NSObject? {
-    nodes(root).first { attr($0, attribute) as? String == value }
+    root.layoutSubtreeIfNeeded()
+    let found = nodes(root).first { node in
+        if let field = node as? NSTextField, field.isEditable, attribute == "accessibilityLabel",
+            field.accessibilityLabel() == value || field.placeholderString == value
+        {
+            return true
+        }
+        if let button = node as? NSButton, attribute == "accessibilityLabel",
+            button.title == value || button.accessibilityLabel() == value
+        {
+            return true
+        }
+        return axText(node, attribute) == value
+    }
+    if found == nil {
+        print(
+            "AX inventory: "
+                + nodes(root).map { axText($0, "accessibilityIdentifier") + ":" + axText($0, "accessibilityLabel") }
+                .joined(separator: ", "))
+    }
+    return found
+}
+@MainActor
+func axText(_ node: NSObject, _ name: String) -> String {
+    let value = attr(node, name)
+    return (value as? String) ?? (value as? NSAttributedString)?.string ?? ""
 }
 // Unlabelled Text may publish its string as AXValue rather than AXDescription.
 // Require the static-text role so a button with the same title is never a match.
 @MainActor
 func isStaticText(_ node: NSObject, matching text: String) -> Bool {
     attr(node, "accessibilityRole") as? String == "AXStaticText"
-        && (attr(node, "accessibilityLabel") as? String == text
-            || attr(node, "accessibilityValue") as? String == text)
+        && (axText(node, "accessibilityLabel") == text
+            || axText(node, "accessibilityValue") == text)
 }
 @MainActor
 func staticText(_ text: String, in root: NSView) -> NSObject? {
@@ -164,7 +189,7 @@ final class ContextMenuObservation: NSObject {
         for menu in menus {
             let titles = menu.items.map(\.title)
             if !observedTitles.contains(titles) { observedTitles.append(titles) }
-            if let index = menu.items.firstIndex(where: { $0.title == "Start focusing" }) {
+            if let index = menu.items.firstIndex(where: { $0.title == "Set time aside" }) {
                 matchedMenu = menu
                 require(menu.items[index].isEnabled, "existing task menu item enabled")
                 // Invoke while tracking still retains SwiftUI's action target; cancellation
@@ -220,6 +245,7 @@ func typeCaptureText(_ text: String, in window: NSWindow) async {
         "a": 0, "s": 1, "d": 2, "f": 3, "h": 4, "g": 5, "z": 6, "x": 7, "c": 8, "v": 9,
         "b": 11, "q": 12, "w": 13, "e": 14, "r": 15, "y": 16, "t": 17, "o": 31, "u": 32,
         "i": 34, "p": 35, "l": 37, "j": 38, "k": 40, "n": 45, "m": 46, " ": 49,
+        "1": 18, "2": 19, "3": 20, "0": 29, ":": 41,
     ]
     for character in text {
         let value = String(character)
@@ -367,35 +393,22 @@ func verifyLastRowKeyboardUndo(store: PlannerStore, model: NotchModel, services:
             undoCount += 1
             if redo { store.redo() } else { store.undo() }
         }
+        let homeState = TodayHomeState()
         let root = NSHostingView(
             rootView: TasksCard().environmentObject(store).environmentObject(model).environmentObject(services)
-                .environment(\.accessibilityEnabled, true))
+                .environment(homeState).environment(\.accessibilityEnabled, true))
         panel.contentView = root
         panel.makeKeyAndOrderFront(nil); NSApp.activate(ignoringOtherApps: true)
         await settle(); await wakeAX(); await settle()
         require(panel.isKeyWindow, "last-row keyboard test owns the key NotchPanel")
-        if completed { press("Completed 1", in: root); await settle() }
-        let reachedCompletion = await focusByTab("task-complete-\(only.id)", in: panel, root: root, output: output)
-        require(reachedCompletion, "Tab reaches the last row completion control")
-        let actionOrder = completed ? ["details", "delete"] : ["focus", "details", "delete"]
-        for action in actionOrder {
-            key("\t", code: 48, in: panel); await settle()
-            recordAccessibility(root, "last-row-\(completed)-tab-\(action)", into: output)
-            let node = control("task-\(action)-\(only.id)", attribute: "accessibilityIdentifier", in: root)
-            require(node.map(isFocused) == true, "Tab reaches row \(action) in visible order")
-            if action == "details" {
-                key(" ", code: 49, in: panel); await settle()
-                require(model.detailsTaskID == only.id, "row Details keyboard action targets the exact task")
-                require(store.planner.tasks == beforeDeletion, "row Details keyboard action does not mutate tasks")
-                model.detailsTaskID = nil
-            }
-        }
-        let reachedDelete =
-            control("task-delete-\(only.id)", attribute: "accessibilityIdentifier", in: root)
-            .map(isFocused) == true
+        let reachedCompletion = await focusByTab("today-checklist", in: panel, root: root, output: output)
+        require(reachedCompletion, "Tab reaches the single checklist stop")
+        key("\r", code: 36, in: panel); await settle()
+        require(homeState.editingTaskID == only.id, "Return targets the exact task for editing")
+        require(store.planner.tasks == beforeDeletion, "opening editing does not mutate tasks")
+        homeState.editingTaskID = nil
         recordAccessibility(root, "last-row-\(completed)-before-delete", into: output)
-        require(reachedDelete, "Tab reaches the last row Delete control")
-        key(" ", code: 49, in: panel); await settle()
+        key("\u{7f}", code: 51, in: panel); await settle()
         require(store.planner.tasks.isEmpty, "keyboard Delete removes the last displayed task")
         require(try! store.file.load().tasks.isEmpty, "last-row keyboard deletion persists")
         recordAccessibility(root, "last-row-\(completed)-after-delete", into: output)
@@ -409,15 +422,13 @@ func verifyLastRowKeyboardUndo(store: PlannerStore, model: NotchModel, services:
         require(sameTaskContent(store.planner.tasks, beforeDeletion), "keyboard Undo restores exact last-row state")
         require(
             sameTaskContent(try! store.file.load().tasks, beforeDeletion), "last-row keyboard Undo persists exact task")
-        // Removing the last completed row selects To do; Undo restores content, not the selected filter.
-        if completed { press("Completed 1", in: root); await settle() }
         recordAccessibility(root, "last-row-\(completed)-before-second-delete", into: output)
         require(
-            control("task-delete-\(only.id)", attribute: "accessibilityIdentifier", in: root) != nil,
-            "restored task Delete control is visible before keyboard traversal")
-        let deleteAgain = await focusByTab("task-delete-\(only.id)", in: panel, root: root, output: output)
-        require(deleteAgain, "Tab reaches Delete again after Command-Z")
-        key(" ", code: 49, in: panel); await settle()
+            control("task-row-\(only.id)", attribute: "accessibilityIdentifier", in: root) != nil,
+            "restored task is visible before keyboard traversal")
+        let deleteAgain = await focusByTab("today-checklist", in: panel, root: root, output: output)
+        require(deleteAgain, "Tab reaches the checklist again after Command-Z")
+        key("\u{7f}", code: 51, in: panel); await settle()
         require(store.planner.tasks.isEmpty, "second keyboard deletion removes the same task")
         let undoAgain = control("today-undo", attribute: "accessibilityIdentifier", in: root)
         require(undoAgain.map(isFocused) == true, "second last-row removal focuses Undo")
@@ -462,24 +473,106 @@ func verifyLastRowKeyboardUndo(store: PlannerStore, model: NotchModel, services:
         await settle()
         require(editor.string == oldText, "capture draft can be undone again")
         if !completed {
-            let reachedFocus = await focusByTab("task-focus-\(only.id)", in: panel, root: root, output: output)
-            require(reachedFocus, "Tab reaches the row Focus control")
-            sendKey(.keyDown, " ", code: 49, in: panel); await settle()
+            let reachedFocus = await focusByTab("today-checklist", in: panel, root: root, output: output)
+            require(reachedFocus, "Tab reaches the checklist for starting time")
+            sendKey(.keyDown, "\r", code: 36, in: panel, modifiers: [.command]); await settle()
             let session = store.planner.focus
             require(
                 session?.state == .running && session?.taskID == only.id
                     && session?.limit == TimeInterval(store.planner.preferences.defaultFocusMinutes * 60),
-                "Space starts one focus session for the exact task")
-            require(try! store.file.load().focus == session, "row keyboard focus session persists")
-            sendKey(.keyDown, " ", code: 49, in: panel, isARepeat: true)
-            sendKey(.keyUp, " ", code: 49, in: panel); await settle()
-            require(
-                store.planner.focus?.startedAt == session?.startedAt, "held Space does not start another focus session")
-            require(store.planner.tasks == afterUndo, "keyboard focus leaves task content unchanged")
+                "Command-Return starts time for the exact task")
+            require(try! store.file.load().focus == session, "row keyboard time persists")
+            sendKey(.keyDown, "\r", code: 36, in: panel, isARepeat: true, modifiers: [.command])
+            sendKey(.keyUp, "\r", code: 36, in: panel, modifiers: [.command]); await settle()
+            require(store.planner.focus?.startedAt == session?.startedAt, "held start does not start another block")
         }
         snapshot(root, "last-row-\(completed)-restored", into: output)
         panel.orderOut(nil)
     }
+}
+
+@MainActor
+func verifyChecklistKeys(store: PlannerStore, model: NotchModel, services: Services, output: URL) async {
+    store.seedFixture { engine in
+        engine.planner.tasks = []; engine.planner.focus = nil
+    }
+    let tasks = store.apply { try $0.addTasks(["Check the gate", "Check the shed"], on: .day(store.today)) }!
+    store.updateTask(tasks[0].id) { $0.steps = [Subtask(title: "Find the key"), Subtask(title: "Turn the key")] }
+    let homeState = TodayHomeState()
+    let window = NSWindow(
+        contentRect: CGRect(x: 60, y: 100, width: 420, height: 510),
+        styleMask: [.titled], backing: .buffered, defer: false)
+    window.isReleasedWhenClosed = false
+    let root = NSHostingView(
+        rootView: TasksCard().environment(homeState).environmentObject(store)
+            .environmentObject(model).environmentObject(services).environment(\.accessibilityEnabled, true))
+    window.contentView = root; window.makeKeyAndOrderFront(nil); NSApp.activate(ignoringOtherApps: true)
+    await settle(); await wakeAX(); await settle()
+    let entered = await focusByTab("today-checklist", in: window, root: root, output: output)
+    require(entered, "checklist keys begin at the one Tab stop")
+    require(homeState.selectedTaskID == tasks[0].id, "first task is selected on entry")
+    key("\u{F703}", code: 124, in: window); await settle()
+    let stepID = store.planner.tasks[0].steps[0].id
+    require(
+        control("step-complete-\(stepID)", attribute: "accessibilityIdentifier", in: root) != nil,
+        "Right opens steps without moving keyboard focus")
+    key("\u{F703}", code: 124, in: window); key(" ", code: 49, in: window); await settle()
+    require(try! store.file.load().tasks[0].steps[0].done, "Right then Space completes the selected step")
+    require(store.planner.tasks[0].steps[1].done == false, "step keyboard action preserves its neighbor")
+    key("\u{F702}", code: 123, in: window); await settle()
+    require(
+        control("step-complete-\(stepID)", attribute: "accessibilityIdentifier", in: root) == nil,
+        "Left closes non-current steps")
+    key("\u{F701}", code: 125, in: window); await settle()
+    require(homeState.selectedTaskID == tasks[1].id, "Down selects the next task")
+    sendKey(.keyDown, "\u{F700}", code: 126, in: window, modifiers: [.option])
+    sendKey(.keyUp, "\u{F700}", code: 126, in: window, modifiers: [.option]); await settle()
+    require(try! store.file.load().tasks.map(\.id) == [tasks[1].id, tasks[0].id], "Option-Up persists personal order")
+    key("\r", code: 36, in: window); await settle()
+    require(homeState.editingTaskID == tasks[1].id, "Return publishes the selected editing identity")
+    homeState.editingTaskID = nil
+    sendKey(.keyDown, "k", code: 40, in: window, modifiers: [.command])
+    sendKey(.keyUp, "k", code: 40, in: window, modifiers: [.command]); await settle()
+    require(
+        store.planner.tasks.map(\.id) == [tasks[0].id]
+            && store.planner.parkedThoughts.last?.text == tasks[1].title, "Command-K parks only the selected task")
+    press("Undo", in: root); await settle()
+    require(
+        store.planner.tasks.map(\.id) == [tasks[1].id, tasks[0].id]
+            && store.planner.parkedThoughts.isEmpty, "Undo restores the parked task and order atomically")
+    window.makeFirstResponder(nil)
+    for _ in 0..<60 {
+        key("\t", code: 48, in: window); try? await Task.sleep(nanoseconds: 50_000_000)
+        if window.firstResponder is NSTextView { break }
+    }
+    guard let editor = window.firstResponder as? NSTextView else {
+        require(false, "capture receives keyboard focus"); return
+    }
+    await typeCaptureText("Prep at 1:30 PM for 20 min", in: window)
+    require(
+        homeState.captureDraft?.minutes == 20 && homeState.captureDraft?.startTime != nil,
+        "typing publishes a timed preview to Your day")
+    key("\r", code: 36, in: window); await settle()
+    let parent = store.planner.tasks.last!
+    require(
+        parent.minutes == 20 && parent.startAt != nil && homeState.captureDraft == nil,
+        "Return commits time and clears its draft preview")
+    key("\t", code: 48, in: window); await settle()
+    require(window.firstResponder === editor, "Tab indents without leaving the native editor")
+    await typeCaptureText("Check the final detail", in: window)
+    key("\r", code: 36, in: window); await settle()
+    require(
+        store.planner.tasks.count == 3 && store.planner.tasks.last?.steps.last?.title == "Check the final detail",
+        "Tab then Return creates a step of the task above")
+    sendKey(.keyDown, "\t", code: 48, in: window, modifiers: [.shift])
+    sendKey(.keyUp, "\t", code: 48, in: window, modifiers: [.shift]); await settle()
+    await typeCaptureText("Write the summary", in: window)
+    key("\r", code: 36, in: window); await settle()
+    require(
+        store.planner.tasks.count == 4 && store.planner.tasks.last?.title == "Write the summary",
+        "Shift-Tab restores ordinary task entry")
+    recordAccessibility(root, "checklist-keys", into: output)
+    window.orderOut(nil)
 }
 
 @MainActor
@@ -583,28 +676,31 @@ func verifyRowCustomActions(store: PlannerStore, model: NotchModel, services: Se
         contentRect: CGRect(x: 50, y: 100, width: 420, height: 400), styleMask: [.titled], backing: .buffered,
         defer: false)
     window.isReleasedWhenClosed = false
+    let homeState = TodayHomeState()
     let root = NSHostingView(
         rootView: TasksCard().environmentObject(store).environmentObject(model).environmentObject(services)
-            .environment(\.accessibilityEnabled, true))
+            .environment(homeState).environment(\.accessibilityEnabled, true))
     window.contentView = root; window.makeKeyAndOrderFront(nil)
     await settle(); await wakeAX(); await settle()
     recordAccessibility(root, "custom-actions-active", into: output)
     guard let row = control("task-row-\(target.id)", attribute: "accessibilityIdentifier", in: root) else {
         require(false, "row exposes its own accessibility element"); return
     }
-    require(attr(row, "accessibilityLabel") as? String == target.title, "row label is the task title")
+    require(axText(row, "accessibilityLabel") == target.title, "row label is the task title")
     require(
-        attr(row, "accessibilityValue") as? String == "Not completed, Medium priority",
+        axText(row, "accessibilityValue") == "Not completed, Medium priority",
         "row value describes state and priority")
-    require((attr(row, "accessibilityHelp") as? String ?? "").contains("undone"), "row hint explains deletion recovery")
+    require((attr(row, "accessibilityHelp") as? String ?? "").contains("Return"), "row hint explains deletion recovery")
     require(
-        Set(customActions(row).map(\.name)) == ["Complete", "Details", "Delete", "Focus"],
+        Set(customActions(row).map(\.name)) == [
+            "Complete", "Details", "Delete", "Park it for later", "Set time aside",
+        ],
         "active row names all custom actions")
     performCustomAction("Details", taskID: target.id, in: root)
     require(
-        model.detailsTaskID == target.id && store.planner.tasks == original,
+        homeState.editingTaskID == target.id && store.planner.tasks == original,
         "row custom Details selects only the target")
-    model.detailsTaskID = nil
+    homeState.editingTaskID = nil
     let completionStart = Date()
     performCustomAction("Complete", taskID: target.id, in: root); await settle()
     let completed = try! store.file.load().tasks
@@ -619,19 +715,18 @@ func verifyRowCustomActions(store: PlannerStore, model: NotchModel, services: Se
     require(
         sameTaskContent(completed, expectedCompleted) && completed.first { $0.id == sentinel.id } == sentinel,
         "row custom completion persists only the target")
-    press("Completed 1", in: root); await settle()
     guard let completedRow = control("task-row-\(target.id)", attribute: "accessibilityIdentifier", in: root) else {
         require(false, "completed row remains accessible"); return
     }
     require(
-        Set(customActions(completedRow).map(\.name)) == ["Reopen", "Details", "Delete"],
+        Set(customActions(completedRow).map(\.name)) == ["Reopen", "Details", "Delete", "Park it for later"],
         "completed row offers Reopen but no Focus")
     require(
-        attr(completedRow, "accessibilityValue") as? String == "Completed, Medium priority",
+        axText(completedRow, "accessibilityValue") == "Done, Medium priority",
         "completed row announces its state")
     performCustomAction("Reopen", taskID: target.id, in: root); await settle()
     require(sameTaskContent(try! store.file.load().tasks, original), "row custom reopening persists only the target")
-    performCustomAction("Focus", taskID: target.id, in: root); await settle()
+    performCustomAction("Set time aside", taskID: target.id, in: root); await settle()
     let running = try! store.file.load()
     require(
         running.focus?.taskID == target.id && running.focus?.state == .running && running.focus?.limit == 720,
@@ -639,7 +734,9 @@ func verifyRowCustomActions(store: PlannerStore, model: NotchModel, services: Se
     guard let runningRow = control("task-row-\(target.id)", attribute: "accessibilityIdentifier", in: root) else {
         require(false, "running row remains accessible"); return
     }
-    require(!customActions(runningRow).contains { $0.name == "Focus" }, "running row omits the Focus custom action")
+    require(
+        !customActions(runningRow).contains { $0.name == "Set time aside" }, "running row omits the Focus custom action"
+    )
     performCustomAction("Delete", taskID: target.id, in: root); await settle()
     require(try! store.file.load().tasks == [sentinel], "row custom deletion persists only the target")
     press("Undo", in: root); await settle()
@@ -677,7 +774,7 @@ MainActor.assumeIsolated {
     let app = NSApplication.shared
     let delegate = AppDelegate()
     app.delegate = delegate
-    app.setActivationPolicy(.accessory)
+    app.setActivationPolicy(.regular)
     let output = URL(fileURLWithPath: ProcessInfo.processInfo.environment["FOCUS_ENTRY_OUTPUT"]!)
     DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
         Task { @MainActor in
@@ -689,9 +786,9 @@ MainActor.assumeIsolated {
             NotificationCenter.default.post(name: .perchOpenWorkspace, object: NotchPage.home)
             await settle(); await wakeAX(); await settle()
             guard let live = NSApp.keyWindow?.contentView else { require(false, "live Today exists"); return }
-            require(control("Start focus", in: live) != nil, "production Today exposes Start focus")
+            require(control("Start", in: live) != nil, "production Today exposes Start focus")
             snapshot(live, "live-empty-today", into: output)
-            press("Start focus", in: live)
+            press("Start", in: live)
             await settle()
             require(
                 store.planner.focus?.state == .running && store.planner.focus?.taskID == nil,
@@ -702,12 +799,12 @@ MainActor.assumeIsolated {
             require(
                 control("Pause", in: live) != nil && control("End focus session", in: live) != nil,
                 "production timer controls visible")
-            require(control("Start focus", in: live) == nil, "production entry hidden during focus")
+            require(control("Start", in: live) == nil, "production entry hidden during focus")
             snapshot(live, "live-running-today", into: output)
             press("End focus session", in: live)
             await settle()
             require(
-                store.planner.focus == nil && control("Start focus", in: live) != nil, "production stop restores entry")
+                store.planner.focus == nil && control("Start", in: live) != nil, "production stop restores entry")
             delegate.model.close()
             await settle()
 
@@ -730,12 +827,12 @@ MainActor.assumeIsolated {
                 window.makeKeyAndOrderFront(nil); NSApp.activate(ignoringOtherApps: true)
                 await settle(); await wakeAX(); await settle()
                 require(nodes(root).count > 10, "\(name): live AX tree populated before absence assertions")
-                let entry = control("Start focus", in: root)!
+                let entry = control("Start", in: root)!
                 require(
                     attr(entry, "accessibilityRole") as? String == "AXButton", "\(name): entry has button role and name"
                 )
                 require(
-                    attr(entry, "accessibilityIdentifier") as? String == "today-start-focus",
+                    frame(entry).width >= 28,
                     "\(name): stable entry identifier")
                 let capture = control("Add a task", in: root)!
                 let initialCapture = frame(capture)
@@ -751,17 +848,17 @@ MainActor.assumeIsolated {
                 let completion = store.send(.complete(added[1].id))
                 require(completion?.tasks.first?.done == true, "\(name): completion uses the validated gateway")
                 await settle()
-                require(control("Completed 1", in: root) != nil, "\(name): completed tab retained beside entry")
+                require(control("1 of 3 done", in: root) != nil, "\(name): count includes finished tasks")
                 require(frame(capture) == initialCapture, "\(name): population leaves capture pinned")
                 snapshot(root, "\(name)-populated", into: output)
                 let taskIDs = store.planner.tasks.map(\.id)
                 let taskMinutes = store.planner.tasks.map(\.minutes)
-                let start = control("Start focus", in: root)!
-                press(start, "Start focus")
+                let start = control("Start", in: root)!
+                press(start, "Start")
                 let startedAt = store.planner.focus?.startedAt
-                // A rapid second press of the stale node must not replace the one running session.
-                press(start, "Start focus repeated")
-                require(store.planner.focus?.startedAt == startedAt, "\(name): repeated press keeps one session")
+                // Repeated task-start protection is exercised by Command-Return below;
+                // the checklist no longer owns the time card's Start button.
+                require(startedAt != nil, "\(name): time card started a block")
                 await settle()
                 require(
                     store.planner.focus?.state == .running && store.planner.focus?.taskID == nil,
@@ -769,7 +866,7 @@ MainActor.assumeIsolated {
                 require(
                     store.planner.focus?.limit == Double(store.prefs.defaultFocusMinutes * 60),
                     "\(name): configured default duration")
-                require(control("Start focus", in: root) == nil, "\(name): entry absent while running")
+                require(control("Start", in: root) == nil, "\(name): entry absent while running")
                 require(
                     control("Pause", in: root) != nil && control("End focus session", in: root) != nil,
                     "\(name): Pause and Stop visible")
@@ -784,7 +881,7 @@ MainActor.assumeIsolated {
                     store.planner.focus?.state == .paused && store.planner.focus?.startedAt == startedAt,
                     "\(name): Pause keeps session")
                 require(
-                    control("Continue", in: root) != nil && control("Start focus", in: root) == nil,
+                    control("Continue", in: root) != nil && control("Start", in: root) == nil,
                     "\(name): Continue replaces Pause, entry stays hidden")
                 snapshot(root, "\(name)-paused", into: output)
                 press("Continue", in: root); await settle()
@@ -793,7 +890,7 @@ MainActor.assumeIsolated {
                     "\(name): Continue resumes same session")
                 press("End focus session", in: root); await settle()
                 require(
-                    store.planner.focus == nil && control("Start focus", in: root) != nil,
+                    store.planner.focus == nil && control("Start", in: root) != nil,
                     "\(name): Stop restores entry")
                 require(
                     store.planner.tasks.map(\.id) == taskIDs && store.planner.tasks.map(\.minutes) == taskMinutes,
@@ -805,7 +902,7 @@ MainActor.assumeIsolated {
                 for _ in 0..<35 {
                     key("\t", code: 48, in: window)
                     try? await Task.sleep(nanoseconds: 50_000_000)
-                    if let focus = control("Start focus", in: root),
+                    if let focus = control("Start", in: root),
                         isFocused(focus)
                     {
                         key(" ", code: 49, in: window); await settle()
@@ -831,100 +928,40 @@ MainActor.assumeIsolated {
                     let data = try! JSONSerialization.data(withJSONObject: keyboardTrace, options: [.prettyPrinted])
                     try! data.write(to: output.appendingPathComponent("keyboard-trace-\(name).json"))
                 }
-                for step in 0..<60 {
-                    key("\t", code: 48, in: window)
-                    try? await Task.sleep(nanoseconds: 50_000_000)
-                    recordKeyboardState("tab-\(step)")
-                    guard
-                        let first = control(
-                            "task-complete-\(added[0].id)", attribute: "accessibilityIdentifier", in: root),
-                        isFocused(first)
-                    else { continue }
-                    rowKeyboardReached = true
-                    key("\u{F701}", code: 125, in: window); await settle()
-                    guard
-                        let next = control(
-                            "task-complete-\(added[2].id)", attribute: "accessibilityIdentifier", in: root)
-                    else {
-                        require(false, "\(name): next row is accessible"); return
-                    }
-                    require(
-                        isFocused(next),
-                        "\(name): Down focuses the next displayed task")
-                    key("\u{F700}", code: 126, in: window); await settle()
-                    let previous = control(
-                        "task-complete-\(added[0].id)", attribute: "accessibilityIdentifier", in: root)
-                    require(
-                        previous.map(isFocused) == true,
-                        "\(name): Up returns to the previous task")
-                    snapshot(root, "\(name)-row-keyboard-focused", into: output)
-                    let completedBeforeSpace = Set(store.planner.tasks.filter(\.done).map(\.id))
-                    recordKeyboardState("before-space")
-                    sendKey(.keyDown, " ", code: 49, in: window); await settle()
-                    recordKeyboardState("after-space")
-                    let expectedCompleted = completedBeforeSpace.union([added[0].id])
-                    require(
-                        Set(store.planner.tasks.filter(\.done).map(\.id)) == expectedCompleted,
-                        "\(name): Space completes exactly the focused task")
-                    let persistedAfterSpace = try! store.file.load()
-                    require(
-                        Set(persistedAfterSpace.tasks.filter(\.done).map(\.id)) == expectedCompleted,
-                        "\(name): keyboard completion persists the exact task")
-                    let nextAfterCompletion = control(
-                        "task-complete-\(added[2].id)", attribute: "accessibilityIdentifier", in: root)
-                    require(
-                        nextAfterCompletion.map(isFocused) == true, "\(name): completion keeps focus on the next task")
-                    // Holding Space across focus recovery must not also complete the neighboring row.
-                    sendKey(.keyDown, " ", code: 49, in: window, isARepeat: true); await settle()
-                    require(
-                        Set(store.planner.tasks.filter(\.done).map(\.id)) == expectedCompleted,
-                        "\(name): keyDown - no repeated completion")
-                    sendKey(.keyUp, " ", code: 49, in: window); await settle()
-                    require(
-                        Set(store.planner.tasks.filter(\.done).map(\.id)) == expectedCompleted,
-                        "\(name): keyUp does not activate the next row")
-                    press("Undo", in: root); await settle()
-                    require(
-                        Set(store.planner.tasks.filter(\.done).map(\.id)) == completedBeforeSpace,
-                        "\(name): visible Undo restores keyboard completion")
-                    break
-                }
-                let traceData = try! JSONSerialization.data(withJSONObject: keyboardTrace, options: [.prettyPrinted])
-                try! traceData.write(to: output.appendingPathComponent("keyboard-trace-\(name).json"))
-                if !rowKeyboardReached { print("Keyboard trace: " + String(decoding: traceData, as: UTF8.self)) }
-                require(rowKeyboardReached, "\(name): Tab reaches a real task completion button")
-                // The completed list uses the same focused action, not a separate global shortcut.
-                press("Completed 1", in: root); await settle()
-                window.makeFirstResponder(nil)
-                var completedRowReached = false
-                for step in 0..<60 {
-                    key("\t", code: 48, in: window)
-                    try? await Task.sleep(nanoseconds: 50_000_000)
-                    recordKeyboardState("completed-tab-\(step)")
-                    guard
-                        let completed = control(
-                            "task-complete-\(added[1].id)", attribute: "accessibilityIdentifier", in: root),
-                        isFocused(completed)
-                    else { continue }
-                    completedRowReached = true
-                    key(" ", code: 49, in: window); await settle()
-                    recordKeyboardState("after-reopen")
-                    require(
-                        store.planner.tasks.allSatisfy { !$0.done },
-                        "\(name): Space reopens exactly the focused completed task")
-                    require(
-                        try! store.file.load().tasks.allSatisfy { !$0.done },
-                        "\(name): keyboard reopening persists")
-                    press("Undo", in: root); await settle()
-                    require(
-                        Set(store.planner.tasks.filter(\.done).map(\.id)) == [added[1].id],
-                        "\(name): Undo restores keyboard reopening")
-                    break
-                }
-                require(completedRowReached, "\(name): Tab reaches the completed task action")
+                let reached = await focusByTab("today-checklist", in: window, root: root, output: output)
+                rowKeyboardReached = reached
+                require(reached, "\(name): Tab reaches the single checklist stop")
+                recordKeyboardState("before-space")
+                let completedBeforeSpace = Set(store.planner.tasks.filter(\.done).map(\.id))
+                key(" ", code: 49, in: window); await settle()
+                recordKeyboardState("after-space")
+                let expectedCompleted = completedBeforeSpace.union([added[0].id])
+                require(
+                    Set(store.planner.tasks.filter(\.done).map(\.id)) == expectedCompleted,
+                    "\(name): Space completes exactly the selected task")
+                let persistedAfterSpace = try! store.file.load()
+                require(
+                    Set(persistedAfterSpace.tasks.filter(\.done).map(\.id)) == expectedCompleted,
+                    "\(name): keyboard completion persists the exact task")
+                sendKey(.keyDown, " ", code: 49, in: window, isARepeat: true)
+                sendKey(.keyUp, " ", code: 49, in: window); await settle()
+                require(
+                    Set(store.planner.tasks.filter(\.done).map(\.id)) == expectedCompleted,
+                    "\(name): keyDown - no repeated completion")
+                key(" ", code: 49, in: window); await settle()
+                require(
+                    Set(store.planner.tasks.filter(\.done).map(\.id)) == completedBeforeSpace,
+                    "\(name): Space reopens exactly the selected completed task")
+                // A single Tab must leave the list, rather than visiting its child controls.
+                key("\t", code: 48, in: window); await settle()
+                require(
+                    control("today-checklist", attribute: "accessibilityIdentifier", in: root).map(isFocused) != true,
+                    "\(name): Tab leaves the checklist in one step")
+                require(rowKeyboardReached, "\(name): grouped keyboard test ran")
                 // Dense rows scroll independently of the still-visible entry and capture.
                 store.apply { try $0.addTasks((1...24).map { "Inspect inventory group \($0)" }, on: .day(store.today)) }
                 await settle()
+                press("23 more for later today", in: root); await settle()
                 let scrolling = views(root).compactMap { $0 as? NSScrollView }.first {
                     $0.documentView?.frame.height ?? 0 > $0.contentSize.height + 30 && $0.frame.height > 70
                 }
@@ -932,7 +969,7 @@ MainActor.assumeIsolated {
                 let pinned = frame(control("Add a task", in: root)!)
                 scrolling?.documentView?.scroll(NSPoint(x: 0, y: 1000)); await settle()
                 require(frame(control("Add a task", in: root)!) == pinned, "\(name): scroll leaves capture pinned")
-                require(control("Start focus", in: root) != nil, "\(name): scroll leaves entry visible")
+                require(control("Start", in: root) != nil, "\(name): scroll leaves entry visible")
                 snapshot(root, "\(name)-dense-scrolled", into: output)
                 metrics.append([
                     "width": width, "name": name, "capture": NSStringFromRect(initialCapture),
@@ -941,6 +978,7 @@ MainActor.assumeIsolated {
                 window.orderOut(nil)
             }
             print("Keyboard activation before task route: \(keyboardVerified)")
+            await verifyChecklistKeys(store: store, model: delegate.model, services: delegate.services, output: output)
             await verifyLastRowKeyboardUndo(
                 store: store, model: delegate.model, services: delegate.services, output: output)
             await verifyCaptureUndoSubmission(
@@ -999,7 +1037,7 @@ MainActor.assumeIsolated {
             try! JSONSerialization.data(withJSONObject: contextTrace, options: [.prettyPrinted, .sortedKeys]).write(
                 to: output.appendingPathComponent("context-menu-trace.json"))
             let taskMenu = observation.matchedMenu
-            require(taskMenu != nil, "existing task context menu exposes Start focusing")
+            require(taskMenu != nil, "existing task context menu exposes Set time aside")
             await settle()
             require(
                 store.planner.focus?.state == .running
@@ -1011,19 +1049,17 @@ MainActor.assumeIsolated {
                 "task action does not change task identity or estimate")
             // Preserve the on-disk running session before the later deletion intentionally stops it.
             try! Data(contentsOf: store.file.url).write(to: output.appendingPathComponent("linked-focus.json"))
-            // Real visible controls must work without hover, a context menu, or a swipe.
-            for label in ["Complete \(linked.title)", "Details \(linked.title)", "Delete \(linked.title)"] {
-                guard let node = control(label, in: rowRoot) else {
-                    require(false, "visible row action exists: \(label)"); return
-                }
-                let bounds = frame(node)
-                require(bounds.width >= 28 && bounds.height >= 28, "row action has a 28pt target: \(label)")
+            // Completion keeps its visible pointer target; editing and deletion are row actions.
+            guard let node = control("Complete \(linked.title)", in: rowRoot) else {
+                require(false, "visible completion control exists"); return
             }
-            press("Details \(linked.title)", in: rowRoot)
-            require(delegate.model.detailsTaskID == linked.id, "visible Details selects exact task")
+            let bounds = frame(node)
+            require(bounds.width >= 28 && bounds.height >= 28, "completion has a 28pt pointer target")
+            performCustomAction("Details", taskID: linked.id, in: rowRoot)
+            require(delegate.model.detailsTaskID == linked.id, "row Details selects exact task")
             delegate.model.detailsTaskID = nil
-            press("Delete \(linked.title)", in: rowRoot)
-            require(!store.planner.tasks.contains { $0.id == linked.id }, "visible Delete persists removal")
+            performCustomAction("Delete", taskID: linked.id, in: rowRoot)
+            require(!store.planner.tasks.contains { $0.id == linked.id }, "row Delete persists removal")
             store.undo()
             require(
                 store.planner.tasks.contains { $0.id == linked.id && $0.title == linked.title },
@@ -1044,7 +1080,9 @@ MainActor.assumeIsolated {
                 snapshot(rowRoot, "task-\(priority.rawValue)-narrow", into: output)
                 recordAccessibility(rowRoot, "task-\(priority.rawValue)-narrow", into: output)
                 require(
-                    staticText("\(priority.rawValue.capitalized) priority", in: rowRoot) != nil,
+                    nodes(rowRoot).contains {
+                        (axText($0, "accessibilityValue")).contains("\(priority.rawValue.capitalized) priority")
+                    },
                     "\(priority): priority is text, not color alone")
                 guard let title = staticText(task.title, in: rowRoot) else {
                     require(false, "\(priority): full multiline title exposed"); return

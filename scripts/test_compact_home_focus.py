@@ -234,5 +234,23 @@ class CompactHomeFocusTests(unittest.TestCase):
                 self.assertNotEqual(self.run_samples(samples, mutant), self.run_samples(samples))
 
 
+    def test_dense_fold_is_opened_by_a_real_accessibility_action_before_scrolling(self):
+        source = SOURCE.read_text()
+        dense = source.split('if scenario == "dense", let document = list.documentView {', 1)[1]
+        self.assertIn('matchesLabel($0, "20 more for later today")', dense)
+        self.assertIn('NSSelectorFromString("accessibilityPerformPress")', dense)
+        self.assertLess(dense.index('"dense: later disclosure opens"'), dense.index('document.frame.height >'))
+        self.assertIn('"dense: capture does not move when tasks scroll"', dense)
+
+    def test_completed_rows_keep_the_capture_and_geometry_assertions_without_a_filter(self):
+        source = SOURCE.read_text()
+        completed = source.split('if scenario == "completed" && !baseline {', 1)[1].split(
+            'delegate.notch.snapshot', 1)[0]
+        self.assertIn('controlFrame("3 of 3 done", in: root)', completed)
+        self.assertIn('controlFrame("Reopen \(title)", in: root)', completed)
+        self.assertIn('controlFrame("Add a task", in: root) == captureBounds', completed)
+        self.assertNotIn('matchesLabel($0, "Completed 3")', completed)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -533,22 +533,10 @@ MainActor.assumeIsolated {
                         guard let captureBounds = controlFrame("Add a task", in: root) else {
                             require(false, "completed: capture bounds exist"); continue
                         }
-                        guard
-                            let button = axNodes(root).first(where: {
-                                matchesLabel($0, "Completed 3")
-                            })
-                        else { require(false, "completed: filter remains reachable"); continue }
-                        let selector = NSSelectorFromString("accessibilityPerformPress")
-                        guard button.responds(to: selector), let implementation = button.method(for: selector) else {
-                            require(false, "completed: filter exposes native action"); continue
-                        }
-                        typealias Press = @convention(c) (AnyObject, Selector) -> Bool
+                        // Finished tasks remain in the checklist; there is no separate filter.
                         require(
-                            unsafeBitCast(implementation, to: Press.self)(button, selector),
-                            "completed: filter action succeeds")
-                        await settle(); await wakeAX(); await settle()
-                        recordGeometry(
-                            scenario: "completed-filter-open", delegate: delegate, root: root, output: output)
+                            controlFrame("3 of 3 done", in: root) != nil,
+                            "completed: count includes all finished tasks")
                         let title = delegate.store.planner.tasks[0].title
                         require(
                             controlFrame("Reopen \(title)", in: root) != nil,
@@ -559,6 +547,19 @@ MainActor.assumeIsolated {
                     }
                     delegate.notch.snapshot(into: output.appendingPathComponent(scenario))
                     if scenario == "dense", let document = list.documentView {
+                        guard let later = axNodes(root).first(where: { matchesLabel($0, "20 more for later today") })
+                        else {
+                            require(false, "dense: folded tasks remain reachable"); continue
+                        }
+                        let selector = NSSelectorFromString("accessibilityPerformPress")
+                        guard later.responds(to: selector), let implementation = later.method(for: selector) else {
+                            require(false, "dense: later disclosure exposes a native action"); continue
+                        }
+                        typealias Press = @convention(c) (AnyObject, Selector) -> Bool
+                        require(
+                            unsafeBitCast(implementation, to: Press.self)(later, selector),
+                            "dense: later disclosure opens")
+                        await settle()
                         require(
                             document.frame.height > list.contentSize.height,
                             "dense: content scrolls instead of growing shell")
@@ -668,7 +669,7 @@ MainActor.assumeIsolated {
                         guard let capture = controlFrame("Add a task", in: root) else {
                             require(false, "\(name): capture bounds exist"); window.orderOut(nil); continue
                         }
-                        let entry = controlFrame("Start focus", in: root)
+                        let entry = controlFrame("Start", in: root)
                         require(running ? entry == nil : entry != nil, "\(name): expected Start focus visibility")
                         @MainActor func fade() -> NSView? {
                             taskViewport(in: root).flatMap { list in
@@ -695,6 +696,18 @@ MainActor.assumeIsolated {
                             "\(name): fixture retains 24 actual multiline titles")
                         await settle(); await wakeAX(); await settle()
                         recordGeometry(scenario: name + "-dense", delegate: delegate, root: root, output: output)
+                        guard let later = axNodes(root).first(where: { matchesLabel($0, "20 more for later today") })
+                        else {
+                            require(false, "\(name): folded rows remain reachable"); window.orderOut(nil); continue
+                        }
+                        let selector = NSSelectorFromString("accessibilityPerformPress")
+                        guard later.responds(to: selector), let implementation = later.method(for: selector) else {
+                            require(false, "\(name): later disclosure is actionable"); window.orderOut(nil); continue
+                        }
+                        typealias Press = @convention(c) (AnyObject, Selector) -> Bool
+                        require(
+                            unsafeBitCast(implementation, to: Press.self)(later, selector), "\(name): later rows open")
+                        await settle()
                         guard let list = taskViewport(in: root), let document = list.documentView else {
                             require(false, "\(name): identified task viewport and document exist")
                             window.orderOut(nil); continue
@@ -702,7 +715,7 @@ MainActor.assumeIsolated {
                         require(
                             document.frame.height > list.contentSize.height, "\(name): multiline dense rows overflow")
                         require(controlFrame("Add a task", in: root) == capture, "\(name): dense capture unchanged")
-                        let denseEntry = controlFrame("Start focus", in: root)
+                        let denseEntry = controlFrame("Start", in: root)
                         require(
                             running ? denseEntry == nil : denseEntry != nil,
                             "\(name): dense Start focus visibility unchanged")
@@ -730,7 +743,7 @@ MainActor.assumeIsolated {
                         if !geometryOnly { require(fade()?.isHidden == true, "\(name): fade absent at scroll end") }
                         require(controlFrame("Add a task", in: root) == capture, "\(name): scroll capture unchanged")
                         require(
-                            controlFrame("Start focus", in: root) == denseEntry, "\(name): scroll Start focus unchanged"
+                            controlFrame("Start", in: root) == denseEntry, "\(name): scroll Start focus unchanged"
                         )
                         snapshot(root, name + "-end", into: output)
                         metrics.append([

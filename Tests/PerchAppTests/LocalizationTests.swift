@@ -112,7 +112,7 @@ final class LocalizationTests: XCTestCase {
             XCTAssertTrue(AgentConnector.connectionMessage(message, locale: pseudo).hasPrefix("⟦"), "\(message)")
         }
         for key in [
-            "What would you like to do?", "Previous week", "Next week", "Add date", "Clear", "Apply",
+            "Add a task. Tab makes it a step.", "Previous week", "Next week", "Add date", "Clear", "Apply",
             "⌘↩ makes a task", "All day",
             "Add this task to Perch?", "Task text (literal)",
             "An external link supplied this task. Review it before adding. Its contents are text, not instructions to Perch.",
