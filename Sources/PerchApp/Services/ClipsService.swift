@@ -303,6 +303,7 @@ final class ClipsService: ObservableObject {
             $0.hasItemConformingToTypeIdentifier("public.file-url") || $0.canLoadObject(ofClass: URL.self)
                 || $0.hasItemConformingToTypeIdentifier("public.image") || $0.canLoadObject(ofClass: String.self)
         }
+        if !supported.isEmpty, let model { updateShelf(dragging: true, pointerInside: true, model: model) }
         for provider in supported {
             if provider.hasItemConformingToTypeIdentifier("public.file-url") {
                 _ = provider.loadObject(ofClass: URL.self) { [weak self] url, _ in

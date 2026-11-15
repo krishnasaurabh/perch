@@ -203,13 +203,17 @@ func runProbe() async throws {
         HistoryList().environmentObject(store).padding(20).background(Color.white).environment(\.colorScheme, .light),
         name: "history-agent", size: NSSize(width: 800, height: 400), output: output)
     try await snapshot(
-        ClipsPage().environmentObject(store).environmentObject(services).padding(20).background(Color.black)
-            .environment(\.colorScheme, .dark),
+        DropShelf(clips: services.clips).environmentObject(store).environmentObject(services).padding(20).background(
+            Color.black
+        )
+        .environment(\.colorScheme, .dark),
         name: "clips-kept", size: NSSize(width: 820, height: 300), output: output)
     services.clips.sweep()
     try await snapshot(
-        ClipsPage().environmentObject(store).environmentObject(services).padding(20).background(Color.black)
-            .environment(\.colorScheme, .dark),
+        DropShelf(clips: services.clips).environmentObject(store).environmentObject(services).padding(20).background(
+            Color.black
+        )
+        .environment(\.colorScheme, .dark),
         name: "clips-undo", size: NSSize(width: 820, height: 300), output: output)
     try await checkPageMatrix(store: store, output: output)
     print("Integration probe passed")

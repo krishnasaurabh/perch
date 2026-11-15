@@ -79,7 +79,10 @@ struct NotchRootView: View {
     }
 
     /// Explicit drops are the only way content enters the shelf.
-    private func handleDrop(_ providers: [NSItemProvider]) { services.clips.acceptDrop(providers) }
+    private func handleDrop(_ providers: [NSItemProvider]) {
+        if model.screenID != screen.id { model.close(); model.screenID = screen.id; model.geometry = screen.geometry }
+        services.clips.acceptDrop(providers)
+    }
 }
 
 /// Closed with a running timer: the notch stays hidden behind the hardware, and a black capsule beside it shows the

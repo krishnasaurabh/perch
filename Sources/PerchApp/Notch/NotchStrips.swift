@@ -22,6 +22,7 @@ final class NotchStrips {
     private var cards: [String: PresentedNotchActivity] = [:]
     private var oneOffs: [String: (NotchStripQueue.Item, PresentedNotchActivity)] = [:]
     private var recovery: PlannerRecoveryError?
+    private var recoveryBackupDate: Date?
     private var inspectedError: PerchAppError?
     private var waitingReminders = Set<String>()
     private var updating = false
@@ -52,6 +53,7 @@ final class NotchStrips {
         self.now = now ?? { [weak store] in store?.engine.now() ?? Date() }
         self.agentFloor = (now?() ?? store.engine.now()).addingTimeInterval(-NotchStripQueue.Kind.agentChange.timeout!)
         store.stripDidCommit = { [weak self] before, after, origin in self?.committed(before, after, origin: origin) }
+        store.stripHistoryChanged = { [weak self] in self?.invalidateDeletionUndo() }
         store.$planner.removeDuplicates().receive(on: RunLoop.main).sink { [weak self] _ in self?.refresh() }
             .store(in: &subscriptions)
         store.$lastError.removeDuplicates().receive(on: RunLoop.main).sink { [weak self] _ in self?.refresh() }
@@ -62,11 +64,21 @@ final class NotchStrips {
             .store(in: &subscriptions)
         for centerAndName in [
             (NotificationCenter.default, Notification.Name.NSSystemClockDidChange),
+            (NotificationCenter.default, Notification.Name.NSCalendarDayChanged),
             (NSWorkspace.shared.notificationCenter, NSWorkspace.didWakeNotification),
         ] {
             centerAndName.0.publisher(for: centerAndName.1).receive(on: RunLoop.main)
-                .sink { [weak self] _ in self?.refresh() }.store(in: &subscriptions)
+                .sink { [weak self] _ in
+                    guard let self else { return }
+                    self.calendar?.refresh(day: self.now())
+                    self.refresh()
+                }.store(in: &subscriptions)
         }
+        refresh()
+    }
+
+    private func invalidateDeletionUndo() {
+        oneOffs = oneOffs.filter { $0.value.0.kind != .undo }
         refresh()
     }
 
@@ -151,7 +163,12 @@ final class NotchStrips {
                 subtitle: AppL10n.format(
                     "The original is safe at %@. The readable tasks are here.", recovery.quarantineURL.path))
             card.recoveryCount = count
-            card.restoreLabel = AppL10n.text("Restore latest backup")
+            let morning =
+                recoveryBackupDate.map {
+                    store.engine.calendar.isDate($0, inSameDayAs: date)
+                        && store.engine.calendar.component(.hour, from: $0) < 12
+                } == true
+            card.restoreLabel = AppL10n.text(morning ? "Restore this morning's backup" : "Restore latest backup")
             add(.init(id: id, kind: .dataProblem, createdAt: .distantPast), card)
         }
         let reminderTasks = NotchStripPolicy.reminders(
@@ -284,7 +301,7 @@ final class NotchStrips {
         oneOffs = oneOffs.filter { pendingIDs.contains($0.key) }
         let current = queue.current.flatMap { content[$0.id] }
         currentActivity = current
-        if current?.id != visibleID { bounds = .zero }
+        if current == nil { bounds = .zero }
         visibleID = current?.id
         if model.activity != current { model.showStrip(current) }
         let next = (boundaries + [queue.nextChange].compactMap { $0 }).filter { $0 > date }.min()
@@ -298,10 +315,14 @@ final class NotchStrips {
 
     private func inspectRecovery(in store: PlannerStore) {
         guard store.lastError != inspectedError else { return }
-        inspectedError = store.lastError; recovery = nil
+        inspectedError = store.lastError; recovery = nil; recoveryBackupDate = nil
         guard store.lastError != nil else { return }
         do { _ = try store.file.avoidingLockWaits().load() } catch let failure as PlannerRecoveryError {
             recovery = failure
+            if let backup = try? store.file.avoidingLockWaits().backupURLs().first {
+                recoveryBackupDate = try? backup.resourceValues(forKeys: [.contentModificationDateKey])
+                    .contentModificationDate
+            }
         } catch { /* Non-recovery errors stay in the existing error presentation. */  }
     }
 
@@ -360,6 +381,9 @@ final class NotchStrips {
         } else if id.hasPrefix("agent:"), let change = UUID(uuidString: String(id.dropFirst("agent:".count))) {
             success = store.apply { try $0.undoAgentChange(change, at: date) } != nil
         } else if action == .undo {
+            guard store.flushPendingText() else { return false }
+            refresh()
+            guard currentActivity?.stripID == id else { return false }
             store.undo(); success = store.lastError == nil
         } else {
             success = Self.perform(action, taskID: activity.taskID, thoughtIDs: activity.thoughtIDs, in: store)
@@ -511,6 +535,9 @@ struct NotchStripLayer: View {
             GeometryReader { proxy in
                 Color.clear.onAppear { model.strips?.setBounds(proxy.size, geometry: screen.geometry) }
                     .onChange(of: proxy.size) { _, size in model.strips?.setBounds(size, geometry: screen.geometry) }
+                    .onChange(of: screen.geometry) { _, geometry in
+                        model.strips?.setBounds(proxy.size, geometry: geometry)
+                    }
             }
         )
         .frame(width: screen.geometry.window.width, alignment: .top)
@@ -763,7 +790,7 @@ struct NotchStripButton: View {
     @MainActor
     enum NotchStripPreview {
         static let windowID = "notch-strip-preview"
-        static func show(_ kind: NotchStripQueue.Kind, app: AppDelegate) {
+        static func show(_ kind: NotchStripQueue.Kind, app: AppDelegate, deleting: Bool = false) {
             let task = app.store.planner.tasks.first
             let title: String
             let subtitle: String
@@ -786,7 +813,14 @@ struct NotchStripButton: View {
             }
             var card = PresentedNotchActivity(
                 kind: .strip(kind, "preview"), title: title, subtitle: subtitle, taskID: task?.id)
-            if kind == .agentChange { card.titles = ["Outline the Q4 planning note", "Book a room for the review"] }
+            if kind == .agentChange {
+                card.titles = ["Outline the Q4 planning note", "Book a room for the review"]
+                if deleting {
+                    card.title = "Claude wants to delete ‘Call the bank’"
+                    card.subtitle = "Keep applies this request. Undo leaves the task unchanged."
+                    card.titles = ["Call the bank"]
+                }
+            }
             if kind == .blockEnded { card.titles = ["Order printer ink", "Reply to the landlord"] }
             let band = app.model.geometry?.screen.menuBarHeight ?? NSStatusBar.system.thickness
             let content = VStack(spacing: .zero) {

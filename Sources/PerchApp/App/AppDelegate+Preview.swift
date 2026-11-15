@@ -34,6 +34,9 @@ import SwiftUI
                 "strip-ended": .window(NotchStripPreview.windowID) { NotchStripPreview.show(.blockEnded, app: $0) },
                 "strip-heads-up": .window(NotchStripPreview.windowID) { NotchStripPreview.show(.headsUp, app: $0) },
                 "strip-agent": .window(NotchStripPreview.windowID) { NotchStripPreview.show(.agentChange, app: $0) },
+                "strip-agent-delete": .window(NotchStripPreview.windowID) {
+                    NotchStripPreview.show(.agentChange, app: $0, deleting: true)
+                },
                 "strip-undo": .window(NotchStripPreview.windowID) { NotchStripPreview.show(.undo, app: $0) },
                 "settings": .window("settings") { $0.openSettings() },
                 "settings/general": .window("settings") { SettingsWindow.preview(.general, app: $0) },

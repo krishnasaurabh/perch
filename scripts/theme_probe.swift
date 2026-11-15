@@ -936,7 +936,7 @@ private extension Int {
         (
             "clips", CGSize(width: 820, height: 320), nil,
             AnyView(
-                ClipsPage().environmentObject(store).environmentObject(services).padding(20)
+                DropShelf(clips: services.clips).environmentObject(store).environmentObject(services).padding(20)
                     .background(Color.black))
         ))
 

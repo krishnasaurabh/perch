@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import PerchUI
 import PlannerCore
@@ -86,6 +87,69 @@ final class NotchStripsTests: XCTestCase {
             XCTAssertEqual(try store.file.load().tasks.contains { $0.id == task.id }, choice == .undo)
         }
         XCTAssertTrue(store.canUndo, "The approved agent deletion remains in ordinary Command-Z history")
+    }
+
+    @MainActor
+    func testEqualSizedReminderHandoffKeepsItsMouseRegion() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        let file = PlannerFile(
+            url: root.appendingPathComponent("planner.json"), preferences: MemoryPlannerPreferences())
+        let day = PlannerEngine(planner: Planner(), now: { now }).today
+        try file.mutate { planner in
+            planner.tasks = [
+                PlanTask(title: "Reminder one", day: day, remindAt: now.addingTimeInterval(-1)),
+                PlanTask(title: "Reminder two", day: day, remindAt: now.addingTimeInterval(-1)),
+            ]
+        }
+        let store = PlannerStore(file: file, now: { now }, watching: false)
+        let model = NotchModel()
+        model.screenID = 1
+        let strips = NotchStrips(store: store, model: model, now: { now })
+        model.strips = strips
+        let geometry = NotchGeometry(
+            screen: .init(
+                frame: CGRect(x: 0, y: 0, width: 1440, height: 900),
+                visibleFrame: CGRect(x: 0, y: 0, width: 1440, height: 866), safeAreaTop: 34, auxiliaryLeftWidth: 620,
+                auxiliaryRightWidth: 620, isBuiltIn: true))
+        strips.setBounds(CGSize(width: 540, height: 120), geometry: geometry)
+        let point = CGPoint(x: strips.bounds.midX, y: strips.bounds.midY)
+        let first = try XCTUnwrap(strips.currentActivity)
+        XCTAssertEqual(strips.contains(point, on: 1), true)
+        XCTAssertTrue(strips.answer(.notToday, activity: first))
+        XCTAssertNotEqual(strips.currentActivity?.id, first.id)
+        XCTAssertNotNil(strips.currentActivity)
+        XCTAssertEqual(strips.contains(point, on: 1), true, "Equal-size replacements have no size-change callback")
+    }
+
+    @MainActor
+    func testDeletionOfferCannotUndoANewerPendingOrAutosavedTextEdit() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let file = PlannerFile(
+            url: root.appendingPathComponent("planner.json"), preferences: MemoryPlannerPreferences())
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        let store = PlannerStore(file: file, now: { now }, watching: false)
+        let model = NotchModel()
+        let strips = NotchStrips(store: store, model: model, now: { now })
+        model.strips = strips
+        let tasks = try XCTUnwrap(store.addTasks(["Deleted task", "Kept task"], on: .day(store.today), literal: true))
+        for autosaved in [false, true] {
+            store.apply { try $0.delete(tasks[0].id, on: .day($0.today)) }
+            strips.refresh()
+            let deletion = try XCTUnwrap(strips.currentActivity)
+            store.setText("A newer title", for: .title(tasks[1].id))
+            if autosaved { XCTAssertTrue(store.flushPendingText()) }
+            XCTAssertFalse(strips.answer(.undo, activity: deletion))
+            XCTAssertFalse(try file.load().tasks.contains { $0.id == tasks[0].id })
+            XCTAssertEqual(try file.load().tasks.first?.title, "A newer title")
+            XCTAssertNil(strips.currentActivity)
+            store.undo()
+            XCTAssertEqual(try file.load().tasks.first?.title, "Kept task")
+            store.undo()
+            XCTAssertTrue(try file.load().tasks.contains { $0.id == tasks[0].id })
+        }
     }
 
 }

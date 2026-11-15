@@ -56,6 +56,7 @@ strip-reminder --scenario notch-reminder --open strip-reminder
 strip-ended --scenario strip-ended --open strip-ended
 strip-heads-up --scenario strip-heads-up --open strip-heads-up
 strip-agent --scenario strip-agent --open strip-agent
+strip-agent-delete --scenario strip-agent --open strip-agent-delete
 strip-undo --scenario strip-undo --open strip-undo
 drop-shelf --scenario strip-drop --open drop-shelf
 drop-shelf-empty --scenario strip-drop --open drop-shelf-empty
