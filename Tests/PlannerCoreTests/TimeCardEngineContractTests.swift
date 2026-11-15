@@ -35,10 +35,10 @@ final class TimeCardEngineContractTests: XCTestCase {
 
     func testTimeCardScenariosHaveIndependentStartsAndPauseIsFrozen() throws {
         let before = try PlannerPreviewScenarios.make("today-before")
-        XCTAssertEqual(before.planner.tasks.filter { $0.startAt != nil }.count, 3)
+        XCTAssertEqual(before.planner.tasks.filter { $0.startAt != nil }.count, 4)
         let next = try XCTUnwrap(before.planner.tasks.filter { $0.startAt != nil }.min { $0.startAt! < $1.startAt! })
-        XCTAssertEqual(next.title, "Draft the test checklist")
-        XCTAssertEqual(next.minutes, 45)
+        XCTAssertEqual(next.title, "Call the bank")
+        XCTAssertEqual(next.minutes, 15)
         let paused = try PlannerPreviewScenarios.make("today-paused")
         XCTAssertEqual(paused.planner.focus?.state, .paused)
         XCTAssertEqual(paused.planner.focus?.remaining(at: paused.now.addingTimeInterval(600)), 1450)
