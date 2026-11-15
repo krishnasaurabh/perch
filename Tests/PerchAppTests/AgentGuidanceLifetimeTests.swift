@@ -91,6 +91,7 @@ final class AgentGuidanceLifetimeTests: XCTestCase {
         let controls = nodes(in: window).filter {
             identifier($0) == id && attribute($0, "accessibilityRole") as? String == "AXButton"
         }
+        if controls.count != 1 { print(diagnostics(in: window)) }
         XCTAssertEqual(controls.count, 1, "Expected one accessible action for \(id)")
         let control = try XCTUnwrap(controls.first)
         let selector = NSSelectorFromString("accessibilityPerformPress")
@@ -116,6 +117,9 @@ final class AgentGuidanceLifetimeTests: XCTestCase {
 
     @MainActor
     private func nodes(in window: NSWindow) -> [NSObject] {
+        // SwiftUI's scroll content publishes its semantic nodes during layout.
+        // Every read must settle that layout, including reads after pane replacement.
+        window.contentView?.layoutSubtreeIfNeeded()
         var result: [NSObject] = []
         var seen = Set<ObjectIdentifier>()
         @MainActor func visit(_ node: NSObject) {
@@ -128,6 +132,23 @@ final class AgentGuidanceLifetimeTests: XCTestCase {
         }
         if let content = window.contentView { visit(content) }
         return result
+    }
+
+    @MainActor
+    private func diagnostics(in window: NSWindow) -> String {
+        let inventory = nodes(in: window).map { node in
+            let values = [
+                "accessibilityRole", "accessibilityIdentifier", "accessibilityLabel",
+                "accessibilityTitle", "accessibilityValue",
+            ].map { key in
+                "\(key)=\(attribute(node, key) ?? "nil")"
+            }.joined(separator: " ")
+            let bounds = (node as? NSView).map { String(describing: $0.bounds) } ?? "not a view"
+            return "\(type(of: node)) bounds=\(bounds) \(values)"
+        }.joined(separator: "\n")
+        return "Settings host: visible=\(window.isVisible) key=\(window.isKeyWindow) "
+            + "active=\(NSApp.isActive) policy=\(NSApp.activationPolicy().rawValue) "
+            + "responder=\(String(describing: window.firstResponder))\n\(inventory)"
     }
 
     @MainActor
@@ -168,13 +189,15 @@ private final class AgentGuidanceFixture: ObservableObject {
             contentRect: NSRect(x: 20, y: 20, width: 760, height: 600),
             styleMask: [.titled], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
+        NSApp.setActivationPolicy(.accessory)
         let host = NSHostingView(
             rootView: AgentGuidanceFixtureView(fixture: self)
                 .environmentObject(store).environment(\.accessibilityEnabled, true))
         host.sizingOptions = []
         window.contentView = host
-        NSApp.setActivationPolicy(.accessory)
+        window.setContentSize(SettingsMetrics.windowSize)
         window.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
     }
 
     func readStatus(_ candidate: AgentConnector.App) -> AgentConnector.Status {
