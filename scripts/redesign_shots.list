@@ -41,3 +41,11 @@ workspace-band-week --scenario week-full --open workspace-week
 workspace-width-960 --scenario today-before --open workspace-today
 workspace-width-1280 --scenario week-full --open workspace-week
 workspace-week-narrow --scenario week-full --open workspace-narrow
+your-day-running --scenario today-running --open your-day
+your-day-before --scenario today-editing --open your-day
+your-day-editing --scenario today-editing --open your-day-editing
+your-day-capture --scenario today-editing --open your-day-capture
+your-day-open --scenario today-empty --open your-day
+your-day-overlap --scenario today-running --open your-day-overlap
+your-day-multiline --scenario today-editing --open your-day-multiline
+your-day-late-empty --scenario today-late --open your-day-empty
