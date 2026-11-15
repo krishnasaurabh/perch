@@ -67,6 +67,9 @@ struct NotchPeekView: View {
             store.apply { try $0.extendTimer(minutes: 5) }
             return .handled
         }
+        // Give the peek its own semantic group: an inherited container identifier must
+        // not replace the time and action identifiers inside the scroll view.
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("notch.peek")
     }
 

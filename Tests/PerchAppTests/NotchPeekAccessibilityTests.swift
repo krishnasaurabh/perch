@@ -44,25 +44,35 @@ final class NotchPeekAccessibilityTests: XCTestCase {
                     let tasks = try file.load().tasks
                     let model = NotchModel(motionPolicy: MotionPolicy(reduceMotion: true))
                     model.openPeek()
+                    let size = NSSize(width: NotchPeekLayout.width, height: NotchPeekLayout.contentHeight)
                     let host = NSHostingView(
                         rootView: NotchPeekView()
+                            .frame(width: size.width, height: size.height)
                             .environmentObject(store).environmentObject(model)
                             .environment(\.accessibilityEnabled, true)
                             .environment(\.motionPolicyOverride, MotionPolicy(reduceMotion: true)))
+                    // Match the production shell's proposed size rather than the scroll view's ideal size.
+                    host.sizingOptions = []
                     let window = NSWindow(
                         contentRect: NSRect(
                             x: 0, y: 0, width: NotchPeekLayout.width, height: NotchPeekLayout.contentHeight),
                         styleMask: [.titled], backing: .buffered, defer: false)
                     window.isReleasedWhenClosed = false
                     window.contentView = host
+                    window.setContentSize(size)
                     defer { window.close() }
+                    window.center()
                     window.makeKeyAndOrderFront(nil)
                     NSApp.activate(ignoringOtherApps: true)
                     await Self.primeAccessibility()
-                    try await Task.sleep(for: .milliseconds(250))
-                    host.layoutSubtreeIfNeeded()
-                    let all = nodes(window)
+                    let all = try await publishedNodes(in: window, host: host)
+                    let scenario = "stopwatch-\(stopwatch)-paused-\(paused)-other-task-\(hasOtherTask)"
+                    try captureDiagnostics(all, in: window, host: host, scenario: scenario)
                     let labels = all.compactMap { string($0, "accessibilityLabel") }
+                    XCTAssertEqual(host.bounds.size.width, size.width, accuracy: 1)
+                    XCTAssertEqual(host.bounds.size.height, size.height, accuracy: 1)
+                    XCTAssertEqual(all.filter { string($0, "accessibilityIdentifier") == "notch.peek.time" }.count, 1)
+                    XCTAssertEqual(all.filter { string($0, "accessibilityIdentifier") == "notch.peek.block" }.count, 1)
                     XCTAssertFalse(labels.contains("Nothing planned yet"), "Found: \(labels)")
                     XCTAssertFalse(labels.contains { $0.contains("Unrelated") }, "Found: \(labels)")
                     let time = try XCTUnwrap(
@@ -88,12 +98,50 @@ final class NotchPeekAccessibilityTests: XCTestCase {
         }
     }
 
+    @MainActor private func publishedNodes(in window: NSWindow, host: NSView) async throws -> [NSObject] {
+        let deadline = ContinuousClock.now + .seconds(3)
+        var result: [NSObject] = []
+        repeat {
+            try await Task.sleep(for: .milliseconds(50))
+            host.layoutSubtreeIfNeeded()
+            result = nodes(window)
+            let identifiers = Set(result.compactMap { string($0, "accessibilityIdentifier") })
+            if identifiers.contains("notch.peek.time"), identifiers.contains("notch.peek.block") { return result }
+        } while ContinuousClock.now < deadline
+        // Return the failed inventory too: the same exact identity/label/action assertions must fail.
+        return result
+    }
+
+    @MainActor private func captureDiagnostics(
+        _ all: [NSObject], in window: NSWindow, host: NSView, scenario: String
+    ) throws {
+        let tree = all.map { node in
+            "\(type(of: node)) role=\(string(node, "accessibilityRole") ?? "nil") "
+                + "id=\(string(node, "accessibilityIdentifier") ?? "nil") "
+                + "label=\(string(node, "accessibilityLabel") ?? "nil") "
+                + "value=\(string(node, "accessibilityValue") ?? "nil")"
+        }.joined(separator: "\n")
+        let output =
+            "Peek \(scenario): host=\(host.bounds) visible=\(window.isVisible) key=\(window.isKeyWindow) "
+            + "responder=\(String(describing: window.firstResponder))\n\(tree)\n"
+        FileHandle.standardError.write(Data(output.utf8))
+        guard let runner = ProcessInfo.processInfo.environment["RUNNER_TEMP"] else { return }
+        let directory = URL(fileURLWithPath: runner).appendingPathComponent("native-diagnostics/notch-peek")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        try Data(output.utf8).write(to: directory.appendingPathComponent("\(scenario).txt"))
+        let bitmap = try XCTUnwrap(host.bitmapImageRepForCachingDisplay(in: host.bounds))
+        host.cacheDisplay(in: host.bounds, to: bitmap)
+        let png = try XCTUnwrap(bitmap.representation(using: .png, properties: [:]))
+        try png.write(to: directory.appendingPathComponent("\(scenario).png"))
+    }
+
     private nonisolated static func primeAccessibility() async {
         await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
             DispatchQueue.global().async {
                 let app = AXUIElementCreateApplication(getpid())
                 var raw: CFTypeRef?
-                _ = AXUIElementCopyAttributeValue(app, kAXWindowsAttribute as CFString, &raw)
+                let status = AXUIElementCopyAttributeValue(app, kAXWindowsAttribute as CFString, &raw)
+                FileHandle.standardError.write(Data("Peek AX root priming: \(status.rawValue)\n".utf8))
                 if let windows = raw as? [AXUIElement] {
                     for window in windows {
                         var children: CFTypeRef?
