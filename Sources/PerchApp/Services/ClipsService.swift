@@ -4,6 +4,7 @@ import PlannerCore
 import PerchUI
 import QuickLookThumbnailing
 import SwiftUI
+import UniformTypeIdentifiers
 
 protocol ScreenshotQuerying: AnyObject {
     var predicate: NSPredicate? { get set }
@@ -41,9 +42,7 @@ final class ClipsService: ObservableObject {
             case .file(let u): return u.lastPathComponent
             case .link(let url): return String(url.absoluteString.prefix(60))
             case .text(let s): return String(s.prefix(60))
-            case .image:
-                return source == "copied"
-                    ? AppL10n.text("Copied image", locale: locale) : AppL10n.text("Picture", locale: locale)
+            case .image: return AppL10n.text("Copied image", locale: locale)
             }
         }
 
@@ -306,31 +305,68 @@ final class ClipsService: ObservableObject {
         model.strips?.setShelfVisible(shelfVisible)
     }
 
+    /// Choose a representation the source actually registered, in its fidelity
+    /// order. Negotiated object conversions are not evidence that text is a URL.
+    enum DropRepresentation: Equatable {
+        case file(String), link(String), image(String), text(String)
+
+        init?(identifiers: [String]) {
+            for identifier in identifiers {
+                guard let type = UTType(identifier) else { continue }
+                if type.conforms(to: .fileURL) { self = .file(identifier); return }
+                if type.conforms(to: .url) { self = .link(identifier); return }
+                if type.conforms(to: .image) { self = .image(identifier); return }
+                if type.conforms(to: .plainText) { self = .text(identifier); return }
+            }
+            return nil
+        }
+    }
+
     /// A successful provider load is the only input path. No background capture.
     @discardableResult
     func acceptDrop(_ providers: [NSItemProvider]) -> Bool {
-        let supported = providers.filter {
-            $0.hasItemConformingToTypeIdentifier("public.file-url")
-                || $0.hasItemConformingToTypeIdentifier("public.url")
-                || $0.hasItemConformingToTypeIdentifier("public.image") || $0.canLoadObject(ofClass: String.self)
+        let supported = providers.compactMap { provider -> (NSItemProvider, DropRepresentation)? in
+            guard let representation = DropRepresentation(identifiers: provider.registeredTypeIdentifiers) else {
+                return nil
+            }
+            return (provider, representation)
         }
         if !supported.isEmpty, let model { updateShelf(dragging: true, pointerInside: true, model: model) }
-        for provider in supported {
-            if provider.hasItemConformingToTypeIdentifier("public.file-url") {
+        for (provider, representation) in supported {
+            switch representation {
+            case .file:
                 _ = provider.loadObject(ofClass: URL.self) { [weak self] url, _ in
                     if let url { Task { @MainActor in self?.add(.file(url), source: "dropped") } }
                 }
-            } else if provider.hasItemConformingToTypeIdentifier("public.url") {
+            case .link:
                 _ = provider.loadObject(ofClass: URL.self) { [weak self] url, _ in
                     if let url { Task { @MainActor in self?.add(.link(url), source: "dropped") } }
                 }
-            } else if provider.hasItemConformingToTypeIdentifier("public.image") {
-                provider.loadDataRepresentation(forTypeIdentifier: "public.image") { [weak self] data, _ in
+            case .image(let identifier):
+                provider.loadDataRepresentation(forTypeIdentifier: identifier) { [weak self] data, _ in
                     if let data { Task { @MainActor in self?.add(.image(data), source: "dropped") } }
                 }
-            } else {
-                _ = provider.loadObject(ofClass: String.self) { [weak self] text, _ in
-                    if let text { Task { @MainActor in self?.add(.text(text), source: "dropped") } }
+            case .text(let identifier):
+                // Prefer the exact UTF-8 bytes over a bridged object conversion.
+                if provider.registeredTypeIdentifiers.contains(UTType.utf8PlainText.identifier) {
+                    provider.loadDataRepresentation(forTypeIdentifier: UTType.utf8PlainText.identifier) {
+                        [weak self] data, _ in
+                        if let data, let text = String(data: data, encoding: .utf8) {
+                            Task { @MainActor in self?.add(.text(text), source: "dropped") }
+                        }
+                    }
+                } else if identifier == UTType.utf16ExternalPlainText.identifier {
+                    provider.loadDataRepresentation(forTypeIdentifier: identifier) { [weak self] data, _ in
+                        if let data, let text = String(data: data, encoding: .utf16) {
+                            Task { @MainActor in self?.add(.text(text), source: "dropped") }
+                        }
+                    }
+                } else {
+                    _ = provider.loadObject(ofClass: NSString.self) { [weak self] text, _ in
+                        if let text = text as? String {
+                            Task { @MainActor in self?.add(.text(text), source: "dropped") }
+                        }
+                    }
                 }
             }
         }
@@ -345,7 +381,13 @@ final class ClipsService: ObservableObject {
             let url = clip.origin.flatMap { FileManager.default.fileExists(atPath: $0.path) ? $0 : nil } ?? kept
             return NSItemProvider(object: url as NSURL)
         case .link(let url): return NSItemProvider(object: url as NSURL)
-        case .text(let text): return NSItemProvider(object: text as NSString)
+        case .text(let text):
+            let provider = NSItemProvider()
+            provider.registerDataRepresentation(forTypeIdentifier: UTType.utf8PlainText.identifier, visibility: .all) {
+                completion in
+                completion(Data(text.utf8), nil); return nil
+            }
+            return provider
         case .image(let data):
             if let image = NSImage(data: data) { return NSItemProvider(object: image) }
             return NSItemProvider()

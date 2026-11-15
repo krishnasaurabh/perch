@@ -310,6 +310,15 @@ final class PlannerStore: ObservableObject {
     var canUndo: Bool { pipeline.canUndo || !pendingText.isEmpty }
     var canRedo: Bool { pipeline.canRedo }
 
+    /// Caller flushes pending text before revalidating the visible deletion offer.
+    func undoLocalDeletion(_ token: PlannerDeletionUndoToken) -> Bool {
+        do {
+            guard let saved = try pipeline.undoLocalDeletion(token) else { return false }
+            publish(saved); stripHistoryChanged?()
+            return true
+        } catch { report(error); return false }
+    }
+
     func undo() { traverseHistory(redo: false) }
     func redo() { traverseHistory(redo: true) }
 

@@ -63,7 +63,10 @@ final class DropShelfRegressionTests: XCTestCase {
                 url: root.appendingPathComponent("planner.json"), preferences: MemoryPlannerPreferences()),
             watching: false)
         let shelf = ClipsService(store: store, monitoring: false)
-        let texts = ["Note: buy milk", "TODO: fix login", "https://example.com/still-plain-text", "Ordinary text"]
+        let texts = [
+            "Note: buy milk", "TODO: fix login", "https://example.com/still-plain-text", "Ordinary text",
+            "  Keep café 🪶\nsecond line\t ",
+        ]
         let links = [URL(string: "https://example.com/design-board")!, URL(string: "mailto:hello@example.com")!]
         let providers =
             texts.map { NSItemProvider(object: $0 as NSString) }
@@ -74,9 +77,16 @@ final class DropShelfRegressionTests: XCTestCase {
             XCTAssertTrue(shelf.acceptDrop([provider]))
             await fulfillment(of: [arrived], timeout: 2)
             withExtendedLifetime(subscription) {}
+            let expected: ClipsService.Clip.Content =
+                index < texts.count ? .text(texts[index]) : .link(links[index - texts.count])
+            XCTAssertEqual(
+                shelf.clips.first?.content, expected,
+                "Input \(index), types \(provider.registeredTypeIdentifiers), route \(String(describing: ClipsService.DropRepresentation(identifiers: provider.registeredTypeIdentifiers)))"
+            )
         }
         let restarted = ClipsService(store: store, monitoring: false)
         XCTAssertEqual(restarted.clips.map(\.id), shelf.clips.map(\.id))
+        XCTAssertEqual(restarted.clips.map(\.content), shelf.clips.map(\.content))
         for text in texts {
             let clip = try XCTUnwrap(restarted.clips.first { $0.content == .text(text) })
             let provider = restarted.dragProvider(for: clip)
@@ -87,7 +97,7 @@ final class DropShelfRegressionTests: XCTestCase {
             XCTAssertEqual(exported, text, "Punctuation, spacing and URL-shaped text remain unchanged")
         }
         for link in links {
-            let clip = try XCTUnwrap(restarted.clips.first { $0.title == link.absoluteString })
+            let clip = try XCTUnwrap(restarted.clips.first { $0.content == .link(link) })
             let provider = restarted.dragProvider(for: clip)
             XCTAssertTrue(provider.hasItemConformingToTypeIdentifier("public.url"))
             let exported: URL? = await withCheckedContinuation { continuation in

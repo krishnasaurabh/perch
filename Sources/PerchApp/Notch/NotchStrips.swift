@@ -385,19 +385,14 @@ final class NotchStrips {
             guard store.flushPendingText() else { return false }
             refresh()
             guard currentActivity?.stripID == id, let offer = deletionUndos[id] else { return false }
-            do {
-                // A watcher may not have published the other process's newer agent edit yet.
-                guard offer.isValid(in: try store.file.avoidingLockWaits().load()) else {
-                    invalidateDeletionUndo()
-                    store.reloadFromDisk(external: true)
-                    refresh()
-                    return false
-                }
-            } catch {
-                store.lastError = .planner(error.perchPresentationDetail)
-                return false
+            // The pipeline validates the offer and applies only its local inverse
+            // under one lock; no separate preflight can race a writer into generic Undo.
+            success = store.undoLocalDeletion(offer)
+            if !success, store.lastError == nil {
+                invalidateDeletionUndo()
+                store.reloadFromDisk(external: true)
+                refresh()
             }
-            store.undo(); success = store.lastError == nil
         } else {
             success = Self.perform(action, taskID: activity.taskID, thoughtIDs: activity.thoughtIDs, in: store)
         }
