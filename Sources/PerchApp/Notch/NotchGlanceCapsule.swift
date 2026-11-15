@@ -150,8 +150,8 @@ extension NotchModel {
         let event = NSApp.currentEvent
         let pointer = event?.type == .leftMouseUp || event?.type == .leftMouseDown
         guard
-            NotchClosedPresentation.allowsActivation(
-                trigger: store.prefs.notchOpenTrigger, clickCount: pointer ? event?.clickCount : nil)
+            !pointer || store.prefs.notchClickToOpen
+                || (store.prefs.notchOpenTrigger == .doubleClick && (event?.clickCount ?? 0) >= 2)
         else { return }
         screenID = screen.id
         geometry = screen.geometry
