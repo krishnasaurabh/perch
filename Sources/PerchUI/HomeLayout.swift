@@ -34,3 +34,26 @@ public enum HomeLayout {
             hasEvents: hasEvents)
     }
 }
+
+extension HomeLayout {
+    public static let padding = CGFloat(DesignTokens.Size.sheetPadding.value)
+    public static let gap = CGFloat(DesignTokens.Size.cardGap.value)
+    public static let checklistWeight: CGFloat = 1.55
+    public static let timeWeight: CGFloat = 0.9
+    public static let dayWeight: CGFloat = 1.1
+    public static let parkingHeight = CGFloat(
+        DesignTokens.Size.addFieldHeight.value + 2 * DesignTokens.Size.cardPadding.value
+            + 3 * DesignTokens.Size.sheetPadding.value)
+
+    public struct Columns: Equatable, Sendable {
+        public let checklist: CGFloat
+        public let time: CGFloat
+        public let day: CGFloat
+    }
+
+    /// Depends only on the sheet width, never timer/selection/draft state.
+    public static func columns(sheetWidth: CGFloat) -> Columns {
+        let unit = max(0, sheetWidth - 2 * padding - 2 * gap) / (checklistWeight + timeWeight + dayWeight)
+        return Columns(checklist: unit * checklistWeight, time: unit * timeWeight, day: unit * dayWeight)
+    }
+}

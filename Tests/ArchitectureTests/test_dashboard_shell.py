@@ -34,7 +34,8 @@ class DashboardShellTests(unittest.TestCase):
     def test_menu_and_keyboard_bridge_use_the_shared_window(self):
         source = (APP / "Settings/DashboardView.swift").read_text()
         workspace = (APP / "Workspace/WorkspaceView.swift").read_text()
-        self.assertIn("DashboardWindow.installMenuItems(in: menu, open: dashboard)", workspace)
+        for callback, tab in (("yourWeek", "yourWeek"), ("history", "history"), ("projects", "projects")):
+            self.assertIn(f"{callback}: {{ DashboardWindow.show(store: store, tab: .{tab}) }}", workspace)
         self.assertIn("open()", source)
         self.assertIn("selection?.tab = tab", source)
         self.assertIn("tabs.nextKeyView = search", source)

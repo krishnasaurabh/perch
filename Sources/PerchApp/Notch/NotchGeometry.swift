@@ -25,6 +25,7 @@ struct NotchGeometry: Equatable {
     static let activityDepth: CGFloat = 96, activityWidth: CGFloat = 400, activityWing: CGFloat = 100
     static let activityGap: CGFloat = 4
 
+    var workspacePresentation: WorkspacePresentation? = nil
     let screen: NotchLayout.Screen
     let backingScaleFactor: CGFloat
 
@@ -69,7 +70,7 @@ struct NotchGeometry: Equatable {
         }
         return false
     }
-    var workspace: NSRect { WorkspaceLayout.frame(screen: screen) }
+    var workspace: NSRect { resolvedWorkspace }
     /// Beside a housing or with an auto-hidden menu bar the workspace reaches the top; otherwise it clears the bar.
     var workspaceAttached: Bool { NotchLayout.workspaceAttached(screen: screen) }
 
@@ -153,7 +154,7 @@ struct NotchGeometry: Equatable {
             screen: screen,
             containing: [
                 idle(timer: nil, activity: true), idle(timer: .left, activity: false),
-                idle(timer: .right, activity: false), glanceRect, workspace, closedTab,
+                idle(timer: .right, activity: false), glanceRect, workspace, maximumWorkspace, closedTab,
                 reminderDot(progressVisible: true),
             ])
     }

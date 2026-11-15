@@ -10,6 +10,11 @@ import SwiftUI
         static var previewTargets: [String: PreviewTarget] {
             [
                 "today": .workspace(.home),
+                "workspace-today": .window("workspace-home") { WorkspaceShellPreview.show(page: .home, app: $0) },
+                "workspace-week": .window("workspace-week") { WorkspaceShellPreview.show(page: .week, app: $0) },
+                "workspace-narrow": .window("workspace-narrow") {
+                    WorkspaceShellPreview.show(page: .week, narrow: true, app: $0)
+                },
                 "notch-closed": .closedNotch(hardware: true),
                 "notch-flat": .closedNotch(hardware: false),
                 "notch-progress-off": .closedNotch(hardware: true, progress: false),
@@ -213,7 +218,8 @@ import SwiftUI
                         throw PlannerError("Snapshot appearance did not apply.")
                     }
                     if let text = Self.activePreviewFixture?.captureText, !text.isEmpty {
-                        guard target == "today", let editor = window.firstResponder as? NSTextView, editor.isEditable
+                        guard ["today", "workspace-today"].contains(target),
+                            let editor = window.firstResponder as? NSTextView, editor.isEditable
                         else {
                             if attempt < 7 {
                                 self.capturePreviewShot(shot, target: target, index: index, attempt: attempt + 1);
