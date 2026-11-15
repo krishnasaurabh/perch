@@ -6113,6 +6113,23 @@
         }
       }
     },
+    "Mirroring sends tasks to your phone and watch. Completions for today's tasks come back even with Ignore. Bring back also syncs edits and deletions.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mirroring sends tasks to your phone and watch. Completions for today's tasks come back even with Ignore. Bring back also syncs edits and deletions."
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Mïrrörïng sënds tàsks tö yöür phönë ànd wàtch. Cömplëtïöns för tödày's tàsks cömë bàck ëvën wïth Îgnörë. Brïng bàck àlsö syncs ëdïts ànd dëlëtïöns. ·~⟧"
+          }
+        }
+      }
+    },
     "Mirroring sends tasks to your phone and watch. It only reads changes back if you choose Bring back.": {
       "extractionState": "manual",
       "localizations": {

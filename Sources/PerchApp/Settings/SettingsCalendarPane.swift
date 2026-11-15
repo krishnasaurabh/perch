@@ -248,10 +248,12 @@ private struct CalendarMirroringSettings: View {
                 )
                 .disabled(!store.prefs.remindersSync || model.busy)
             }
-            Text("Mirroring sends tasks to your phone and watch. It only reads changes back if you choose Bring back.")
-                .perchFont(.detail).foregroundStyle(Theme.ink2)
-                .fixedSize(horizontal: false, vertical: true)
-                .padding(.top, SettingsMetrics.titleGap)
+            Text(
+                "Mirroring sends tasks to your phone and watch. Completions for today's tasks come back even with Ignore. Bring back also syncs edits and deletions."
+            )
+            .perchFont(.detail).foregroundStyle(Theme.ink2)
+            .fixedSize(horizontal: false, vertical: true)
+            .padding(.top, SettingsMetrics.titleGap)
             if model.showsPermission(.reminders) {
                 PermissionPanel(model: permissions, features: [.reminders])
             }
