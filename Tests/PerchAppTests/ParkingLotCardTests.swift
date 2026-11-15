@@ -1,7 +1,7 @@
 import Foundation
-import PlannerCore
 import XCTest
 @testable import PerchApp
+@testable import PlannerCore
 
 final class ParkingLotCardTests: XCTestCase {
     @MainActor func testEmptyAndPopulatedStatusCopy() async {
