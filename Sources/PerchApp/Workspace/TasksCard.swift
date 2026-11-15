@@ -110,6 +110,9 @@ struct TasksCard: View {
                         selectedStepID = nil
                         if let id, !foldSelected { scroll.scrollTo(id) }
                     }
+                    .onChange(of: selectedStepID) { _, id in
+                        ChecklistStepScroll.reveal(id) { scroll.scrollTo($0, anchor: $1) }
+                    }
                     .onChange(of: foldSelected) { _, selected in
                         if selected { scroll.scrollTo("today-fold") }
                     }
@@ -120,7 +123,7 @@ struct TasksCard: View {
             }
             .frame(minHeight: 0, maxHeight: WorkspaceLayout.contentHeight)
             Spacer(minLength: .zero).layoutPriority(-1)
-            if store.canUndo || !store.engine.overdue().isEmpty {
+            if store.canUndo || !store.engine.bringOverCandidates().isEmpty {
                 footer.fixedSize(horizontal: false, vertical: true).layoutPriority(1)
             }
             TaskComposer(
@@ -189,7 +192,7 @@ struct TasksCard: View {
             .overlay(FocusRing(shape: Capsule(), focused: focus == .undo, surface: .paper))
             .accessibilityIdentifier("today-undo")
             Spacer(minLength: .zero)
-            if !store.engine.overdue().isEmpty {
+            if !store.engine.bringOverCandidates().isEmpty {
                 Button("Bring over") { reviewingOverdue = true }
                     .buttonStyle(.plain).perchFont(.detailStrong).foregroundStyle(Theme.secondary)
                     .frame(minHeight: Theme.Size.minimumTarget.value)
@@ -291,13 +294,21 @@ struct TasksCard: View {
     }
 }
 
+/// The scroll proxy stays owned by the checklist, not its individual step rows.
+enum ChecklistStepScroll {
+    static func reveal(_ id: UUID?, using scrollTo: (UUID, UnitPoint) -> Void) {
+        guard let id else { return }
+        scrollTo(id, .center)
+    }
+}
+
 /// Review is opt-in; automatic carry behavior remains a Settings preference.
 private struct OverdueReview: View {
     @EnvironmentObject var store: PlannerStore
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
-        let tasks = store.engine.overdue()
+        let tasks = store.engine.bringOverCandidates()
         VStack(alignment: .leading, spacing: Theme.Size.cardPadding.value) {
             Text("Unfinished from earlier days").perchFont(.cardTitle)
             Text("Choose what to do with these tasks. Automatic handling can be changed in Settings.")
@@ -310,7 +321,7 @@ private struct OverdueReview: View {
                 }.frame(maxWidth: .infinity, alignment: .leading)
             }.frame(maxHeight: Theme.Size.taskRowHeight.value * 4)
             PerchButton("Bring all to today", kind: .soft) {
-                resolve { try $0.carryForward(tasks.map(\.id), to: $0.today) }
+                resolve { _ = try $0.bringOver() }
             }
 
             PerchButton("Mark all done", kind: .soft) { resolve { try $0.completeOverdue(tasks.map(\.id)) } }

@@ -164,7 +164,9 @@ struct TaskRow: View {
                     taskID: task.id, step: step,
                     next: current && step.id == TodayTaskNavigation.nextStep(in: task.steps),
                     selected: keyboardFocused && selected && selectedStepID == step.id,
-                    keyboardFocusable: false, surface: surface)
+                    keyboardFocusable: false, surface: surface
+                )
+                .id(step.id)
             }
         }
         .padding(.leading, Theme.Size.minimumTarget.value + Theme.Size.focusGap.value)
