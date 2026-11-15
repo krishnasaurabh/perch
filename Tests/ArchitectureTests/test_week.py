@@ -73,6 +73,18 @@ class WeekViewTests(unittest.TestCase):
         self.assertIn('assert len(multiline) == 1', source)
         self.assertIn('"multiline fixture missing or split"', source)
 
+    def test_board_splits_native_typechecking_and_routes_shortcuts_by_row(self):
+        source = (ROOT / "Sources/PerchApp/Workspace/WeekPage.swift").read_text()
+        board = source.split('private struct WeekBoardDay:', 1)[0]
+        self.assertIn('private func dayColumn(', board)
+        self.assertIn('private func scrollingBoard(', board)
+        row = source.split('private struct WeekBoardTask:', 1)[1].split('struct WeekParkingColumn:', 1)[0]
+        self.assertIn('.onKeyPress(.rightArrow)', row)
+        self.assertIn('id: task.id', row.split('.onKeyPress(.rightArrow)', 1)[1])
+        self.assertIn('WeekTaskPolicy.moveDestinations(', row)
+        self.assertIn('displayedDays: days', row)
+        self.assertNotIn('WeekColumnLayout.days(', row)
+
     def test_chips_have_real_completion_and_menu_controls(self):
         source = (ROOT / "Sources/PerchApp/Workspace/WeekPage.swift").read_text()
         self.assertIn("WeekTaskPolicy.completionAction", source)

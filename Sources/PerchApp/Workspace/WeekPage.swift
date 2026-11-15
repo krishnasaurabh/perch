@@ -29,72 +29,7 @@ struct WeekBoard: View {
 
     var body: some View {
         GeometryReader { geometry in
-            let layout = WeekColumnLayout.columns(days: days, today: store.today, available: geometry.size.width)
-            ScrollViewReader { proxy in
-                ScrollView(.horizontal) {
-                    HStack(alignment: .top, spacing: WeekColumnLayout.gap) {
-                        ForEach(layout.backingDays, id: \.self) { day in
-                            WeekBoardDay(
-                                day: day, selectedTask: $selectedTask,
-                                expanded: initiallyExpanded && day == store.today, adding: initiallyAdding == day
-                            )
-                            .frame(width: layout.width(for: day))
-                            .focusable()
-                            .focused($focusedDay, equals: day)
-                            .accessibilityIdentifier("week-day-focus-\(day.raw)")
-                            .focusEffectDisabled()
-                            .overlay(
-                                FocusRing(
-                                    shape: RoundedRectangle(cornerRadius: WeekColumnLayout.columnRadius),
-                                    focused: focusedDay == day, surface: day == store.today ? .butter : .paper)
-                            )
-                            .onKeyPress(.leftArrow) { key in
-                                guard key.modifiers.isEmpty else { return .ignored }
-                                navigate(from: day, by: -1); return .handled
-                            }
-                            .onKeyPress(.rightArrow) { key in
-                                if key.modifiers == .option {
-                                    pushSelected(from: day); return .handled
-                                }
-                                guard key.modifiers.isEmpty else { return .ignored }
-                                navigate(from: day, by: 1); return .handled
-                            }
-                            .id(day)
-                        }
-                        WeekParkingColumn(days: days)
-                            .frame(width: layout.parkingWidth)
-                    }
-                    .frame(minHeight: WeekColumnLayout.minimumColumnHeight, alignment: .top)
-                }
-                .scrollIndicators(layout.needsHorizontalScroll ? .visible : .hidden)
-                .onChange(of: days, initial: true) { _, _ in
-                    proxy.scrollTo(scrollDay ?? layout.days.first, anchor: .leading)
-                }
-                .onChange(of: geometry.size.width) { _, _ in
-                    proxy.scrollTo(scrollDay ?? layout.days.first, anchor: .leading)
-                }
-                .onChange(of: scrollDay) { _, day in
-                    if let day { proxy.scrollTo(day, anchor: .leading) }
-                }
-                .overlay(alignment: .bottomLeading) {
-                    if layout.omittedPastDays > 0 {
-                        Button {
-                            scrollDay = days.first
-                            focusedDay = days.first
-                        } label: {
-                            Label(AppL10n.text("Earlier days"), systemImage: "chevron.left")
-                        }
-                        .buttonStyle(.plain)
-                        .perchFont(.detailStrong)
-                        .foregroundStyle(Theme.ink)
-                        .perchControlFeedback(pressed: false)
-                        .frame(minHeight: Theme.Size.minimumTarget.value)
-                        .focused($earlierFocused)
-                        .overlay(FocusRing(shape: Capsule(), focused: earlierFocused, surface: .sheet))
-                        .accessibilityIdentifier("week-earlier-days")
-                    }
-                }
-            }
+            scrollingBoard(available: geometry.size.width)
         }
         .foregroundStyle(Theme.ink)
         .onReceive(NotificationCenter.default.publisher(for: .perchWorkspaceWeekChanged)) { note in
@@ -110,6 +45,85 @@ struct WeekBoard: View {
                     WeekTaskPolicy.summary(day: day, today: store.today, tasks: store.planner.tasks).tasks.first?.id
             }
         }
+    }
+
+    private func scrollingBoard(available: CGFloat) -> some View {
+        let layout = WeekColumnLayout.columns(days: days, today: store.today, available: available)
+        return ScrollViewReader { proxy in
+            boardColumns(layout: layout)
+                .onChange(of: days, initial: true) { _, _ in
+                    if let day = scrollDay ?? layout.days.first { proxy.scrollTo(day, anchor: .leading) }
+                }
+                .onChange(of: available) { _, _ in
+                    if let day = scrollDay ?? layout.days.first { proxy.scrollTo(day, anchor: .leading) }
+                }
+                .onChange(of: scrollDay) { _, day in
+                    if let day { proxy.scrollTo(day, anchor: .leading) }
+                }
+                .overlay(alignment: .bottomLeading) {
+                    if layout.omittedPastDays > 0 { earlierDaysButton }
+                }
+        }
+    }
+
+    private func boardColumns(layout: WeekColumnLayout.Columns) -> some View {
+        ScrollView(.horizontal) {
+            HStack(alignment: .top, spacing: WeekColumnLayout.gap) {
+                ForEach(layout.backingDays, id: \.self) { day in
+                    dayColumn(day, layout: layout)
+                }
+                WeekParkingColumn(days: days)
+                    .frame(width: layout.parkingWidth)
+            }
+            .frame(minHeight: WeekColumnLayout.minimumColumnHeight, alignment: .top)
+        }
+        .scrollIndicators(layout.needsHorizontalScroll ? .visible : .hidden)
+    }
+
+    private func dayColumn(_ day: DayKey, layout: WeekColumnLayout.Columns) -> some View {
+        WeekBoardDay(
+            day: day, days: days, selectedTask: $selectedTask,
+            expanded: initiallyExpanded && day == store.today, adding: initiallyAdding == day
+        )
+        .frame(width: layout.width(for: day))
+        .focusable()
+        .focused($focusedDay, equals: day)
+        .accessibilityIdentifier("week-day-focus-\(day.raw)")
+        .focusEffectDisabled()
+        .overlay(
+            FocusRing(
+                shape: RoundedRectangle(cornerRadius: WeekColumnLayout.columnRadius),
+                focused: focusedDay == day, surface: day == store.today ? .butter : .paper)
+        )
+        .onKeyPress(.leftArrow) { key in
+            guard key.modifiers.isEmpty else { return .ignored }
+            navigate(from: day, by: -1); return .handled
+        }
+        .onKeyPress(.rightArrow) { key in
+            if key.modifiers == .option {
+                pushSelected(from: day); return .handled
+            }
+            guard key.modifiers.isEmpty else { return .ignored }
+            navigate(from: day, by: 1); return .handled
+        }
+        .id(day)
+    }
+
+    private var earlierDaysButton: some View {
+        Button {
+            scrollDay = days.first
+            focusedDay = days.first
+        } label: {
+            Label(AppL10n.text("Earlier days"), systemImage: "chevron.left")
+        }
+        .buttonStyle(.plain)
+        .perchFont(.detailStrong)
+        .foregroundStyle(Theme.ink)
+        .perchControlFeedback(pressed: false)
+        .frame(minHeight: Theme.Size.minimumTarget.value)
+        .focused($earlierFocused)
+        .overlay(FocusRing(shape: Capsule(), focused: earlierFocused, surface: .sheet))
+        .accessibilityIdentifier("week-earlier-days")
     }
 
     private func navigate(from day: DayKey, by step: Int) {
@@ -137,6 +151,7 @@ struct WeekBoard: View {
 
 private struct WeekBoardDay: View {
     let day: DayKey
+    let days: [DayKey]
     @Binding var selectedTask: UUID?
     @EnvironmentObject private var store: PlannerStore
     @State private var expanded = false
@@ -146,8 +161,9 @@ private struct WeekBoardDay: View {
     @FocusState private var addingFocused: Bool
     @FocusState private var footerFocused: Bool
 
-    init(day: DayKey, selectedTask: Binding<UUID?>, expanded: Bool = false, adding: Bool = false) {
+    init(day: DayKey, days: [DayKey], selectedTask: Binding<UUID?>, expanded: Bool = false, adding: Bool = false) {
         self.day = day
+        self.days = days
         _selectedTask = selectedTask
         _expanded = State(initialValue: expanded)
         _adding = State(initialValue: adding)
@@ -168,7 +184,7 @@ private struct WeekBoardDay: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: WeekColumnLayout.columnGap) {
                     ForEach(summary.tasks) { task in
-                        WeekBoardTask(task: task, past: past, surface: surface, selectedTask: $selectedTask)
+                        WeekBoardTask(task: task, days: days, past: past, surface: surface, selectedTask: $selectedTask)
                     }
                     ForEach(summary.carried) { task in
                         VStack(alignment: .leading, spacing: Theme.Size.focusGap.value) {
@@ -281,6 +297,7 @@ private struct WeekBoardDay: View {
 
 private struct WeekBoardTask: View {
     let task: PlanTask
+    let days: [DayKey]
     let past: Bool
     let surface: DesignTokens.Surface
     @Binding var selectedTask: UUID?
@@ -338,6 +355,20 @@ private struct WeekBoardTask: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .help(WeekColumnLayout.chipHelp(title: task.title, past: past))
+        .onKeyPress(.rightArrow) { key in
+            guard key.modifiers == .option else { return .ignored }
+            // Handle the focused row before the column's selected-task fallback.
+            // Checkbox focus alone must not reuse another row's last menu selection.
+            if let day = task.day,
+                let action = WeekTaskPolicy.moveAction(
+                    id: task.id, to: .day(day.adding(days: 1, calendar: store.engine.calendar)),
+                    tasks: store.planner.tasks, today: store.today)
+            {
+                selectedTask = task.id
+                store.send(action)
+            }
+            return .handled
+        }
     }
 
     private var title: some View {
@@ -379,15 +410,14 @@ private struct WeekBoardTask: View {
                 store.send(action)
             }
             Menu("Move to day") {
-                ForEach(WeekColumnLayout.days(today: store.today, calendar: store.engine.calendar), id: \.self) { day in
-                    if day >= store.today && day != task.day {
-                        Button(WeekColumnLayout.dateLabel(day, template: "EEEd", calendar: store.engine.calendar)) {
-                            if let action = WeekTaskPolicy.moveAction(
-                                id: task.id, to: .day(day),
-                                tasks: store.planner.tasks, today: store.today)
-                            {
-                                store.send(action)
-                            }
+                ForEach(WeekTaskPolicy.moveDestinations(for: task, displayedDays: days, today: store.today), id: \.self)
+                { day in
+                    Button(WeekColumnLayout.dateLabel(day, template: "EEEd", calendar: store.engine.calendar)) {
+                        if let action = WeekTaskPolicy.moveAction(
+                            id: task.id, to: .day(day),
+                            tasks: store.planner.tasks, today: store.today)
+                        {
+                            store.send(action)
                         }
                     }
                 }

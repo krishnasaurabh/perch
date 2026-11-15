@@ -26,10 +26,16 @@ public enum WeekTaskPolicy {
         } else {
             count = PerchL10n.format("%lld to do", onDay.count - done.count)
         }
-        let carried = past ? tasks.filter { $0.carriedFrom == day && $0.day == today } : []
+        // Carry records remain on their source day after rollover, rescheduling,
+        // completion, or another carry. The destination is not the current clock.
+        let carried = past ? tasks.filter { $0.carriedFrom == day } : []
         return Summary(
             tasks: Array(rows.prefix(limit)), carried: carried, count: count,
             more: hidden == 0 ? nil : PerchL10n.format(past ? "and %lld more" : "%lld more", hidden))
+    }
+
+    public static func moveDestinations(for task: PlanTask, displayedDays: [DayKey], today: DayKey) -> [DayKey] {
+        displayedDays.filter { moveAction(id: task.id, to: .day($0), tasks: [task], today: today) != nil }
     }
 
     public static func moveAction(

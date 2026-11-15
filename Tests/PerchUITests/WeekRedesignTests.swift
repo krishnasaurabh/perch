@@ -107,6 +107,51 @@ final class WeekRedesignTests: XCTestCase {
         XCTAssertEqual(summary.carried.map(\.id), [copy.id])
     }
 
+    func testCarryNotesRemainAfterRolloverAndASecondCarry() throws {
+        let sourceDay = today.adding(days: -1, calendar: calendar)
+        let nextDay = today.adding(days: 1, calendar: calendar)
+        let source = PlanTask(title: "Read", day: sourceDay)
+        var planner = Planner()
+        planner.tasks = [source]
+        var engine = PlannerEngine(
+            planner: planner, now: { self.today.date(calendar: self.calendar) }, calendar: calendar)
+        let first = try XCTUnwrap(engine.carryForward([source.id], to: today).first)
+        let second = try XCTUnwrap(engine.carryForward([first.id], to: nextDay).first)
+        let encoded = try JSONEncoder().encode(engine.planner)
+        let saved = try JSONDecoder().decode(Planner.self, from: encoded)
+        let sourceSummary = WeekTaskPolicy.summary(day: sourceDay, today: nextDay, tasks: saved.tasks)
+        XCTAssertTrue(sourceSummary.tasks.isEmpty)
+        XCTAssertEqual(sourceSummary.carried.map(\.id), [first.id])
+        let intermediate = WeekTaskPolicy.summary(day: today, today: nextDay, tasks: saved.tasks)
+        XCTAssertTrue(intermediate.tasks.isEmpty)
+        XCTAssertEqual(intermediate.carried.map(\.id), [second.id])
+        XCTAssertTrue(WeekTaskPolicy.summary(day: nextDay, today: nextDay, tasks: saved.tasks).carried.isEmpty)
+    }
+
+    func testCarryNoteRemainsAfterCompletionAndRescheduling() {
+        let source = today.adding(days: -1, calendar: calendar)
+        let later = today.adding(days: 2, calendar: calendar)
+        let copy = PlanTask(title: "Read", day: later, done: true, carriedFrom: source)
+        XCTAssertEqual(
+            WeekTaskPolicy.summary(day: source, today: later.adding(days: 1, calendar: calendar), tasks: [copy]).carried
+                .map(\.id), [copy.id])
+    }
+
+    func testMoveDestinationsFollowDisplayedWeekAndRejectPastAndSameDay() {
+        let nextWeek = WeekColumnLayout.days(today: today, weekOffset: 1, calendar: calendar)
+        let task = PlanTask(title: "Read", day: nextWeek[1])
+        XCTAssertEqual(
+            WeekTaskPolicy.moveDestinations(for: task, displayedDays: nextWeek, today: today),
+            nextWeek.filter { $0 != task.day })
+        let currentWeek = WeekColumnLayout.days(today: today, calendar: calendar)
+        XCTAssertEqual(
+            WeekTaskPolicy.moveDestinations(for: task, displayedDays: currentWeek, today: today),
+            currentWeek.filter { $0 >= today })
+        var finished = task
+        finished.done = true
+        XCTAssertTrue(WeekTaskPolicy.moveDestinations(for: finished, displayedDays: nextWeek, today: today).isEmpty)
+    }
+
     func testTypedIdentityPoliciesRejectStaleAndInvalidMoves() {
         let task = PlanTask(title: "Same title", day: today)
         let future = today.adding(days: 1, calendar: calendar)

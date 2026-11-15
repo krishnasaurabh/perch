@@ -151,6 +151,20 @@
             try equal(
                 try store.file.load().tasks.first { $0.id == task.id }?.day, pushed,
                 "Option-Right pushes exactly the selected task one day")
+            // Focusing a different checkbox must target that row, without first toggling it.
+            try notNil(store.send(.move(task.id, .day(future))))
+            let neighbor = try unwrap(store.addTasks(["Second future keyboard task"], on: .day(future))?.first)
+            await settle()
+            try await tabTo("week-menu-\(task.id)", window: window)
+            try await tabTo("week-check-\(neighbor.id)", window: window)
+            try await key(window, code: 124, characters: "\u{f703}", modifiers: .option)
+            let afterCheckboxPush = try store.file.load().tasks
+            try equal(
+                afterCheckboxPush.first { $0.id == neighbor.id }?.day, pushed,
+                "Option-Right from a checkbox pushes that exact row")
+            try equal(
+                afterCheckboxPush.first { $0.id == task.id }?.day, future,
+                "Option-Right from a checkbox does not push the previously focused menu row")
             // Return the task through the command so its visible future checkbox can be tested.
             try notNil(store.send(.move(task.id, .day(future))))
             await settle()
