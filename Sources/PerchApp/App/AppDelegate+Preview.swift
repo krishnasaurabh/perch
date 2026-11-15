@@ -10,6 +10,7 @@ import SwiftUI
         static var previewTargets: [String: PreviewTarget] {
             [
                 "today": .workspace(.home),
+                "parking-thoughts": .window("parking-thoughts") { ParkingLotPreview.show(app: $0) },
                 "workspace-today": .window("workspace-home") { WorkspaceShellPreview.show(page: .home, app: $0) },
                 "workspace-week": .window("workspace-week") { WorkspaceShellPreview.show(page: .week, app: $0) },
                 "workspace-narrow": .window("workspace-narrow") {

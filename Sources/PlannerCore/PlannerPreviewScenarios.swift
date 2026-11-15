@@ -81,6 +81,9 @@
                 fixture.planner.notes = [
                     QuickNote(day: day, text: "Order printer ink\nReply to the landlord")
                 ]
+                fixture.planner.parkedThoughts = ["Order printer ink", "Reply to the landlord"].enumerated().map {
+                    ParkedThought(id: id(700 + $0.offset), text: $0.element, createdAt: now)
+                }
             }
             if ["strip-heads-up", "strip-ended"].contains(name),
                 let index = fixture.planner.tasks.firstIndex(where: { $0.id == id(1) })

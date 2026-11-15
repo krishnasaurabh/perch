@@ -420,6 +420,40 @@
         }
       }
     },
+    "%lld parked": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld parked"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦%lld pàrkëd ·~⟧"
+          }
+        }
+      }
+    },
+    "%lld parked for after this block": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld parked for after this block"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦%lld pàrkëd för àftër thïs blöck ·~⟧"
+          }
+        }
+      }
+    },
     "%lld percent": {
       "extractionState": "manual",
       "localizations": {
@@ -1638,23 +1672,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "⟦Åddëd thröügh MCP by %@ ·~⟧"
-          }
-        }
-      }
-    },
-    "Added “%@”": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Added “%@”"
-          }
-        },
-        "zz": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "⟦Åddëd “%@” ·~⟧"
           }
         }
       }
@@ -4583,6 +4600,23 @@
         }
       }
     },
+    "For anything that isn't a task yet": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "For anything that isn't a task yet"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦För ànythïng thàt ïsn't à tàsk yët ·~⟧"
+          }
+        }
+      }
+    },
     "For deadline, enter yyyy-MM-dd or none to clear it.": {
       "extractionState": "manual",
       "localizations": {
@@ -5297,23 +5331,6 @@
         }
       }
     },
-    "Jot a note": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Jot a note"
-          }
-        },
-        "zz": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "⟦Jöt à nötë ·~⟧"
-          }
-        }
-      }
-    },
     "Jot a stray thought": {
       "extractionState": "manual",
       "localizations": {
@@ -5514,6 +5531,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "⟦Löw ·~⟧"
+          }
+        }
+      }
+    },
+    "Make it a task": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Make it a task"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Màkë ït à tàsk ·~⟧"
+          }
+        }
+      }
+    },
+    "Make “%@” a task for today": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Make “%@” a task for today"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Màkë “%@” à tàsk för tödày ·~⟧"
           }
         }
       }
@@ -6347,6 +6398,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "⟦Nöthïng lööps ör mövës by ïtsëlf. Wïth Rëdücë Mötïön ön, ëvëry chàngë bëcömës à qüïck fàdë. ·~⟧"
+          }
+        }
+      }
+    },
+    "Nothing parked yet": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nothing parked yet"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Nöthïng pàrkëd yët ·~⟧"
           }
         }
       }
@@ -9210,6 +9278,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "⟦Shöw my cömplëtëd tàsks ànd föcüs tïmë för thïs wëëk ïn Përch ·~⟧"
+          }
+        }
+      }
+    },
+    "Show parked thoughts": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show parked thoughts"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Shöw pàrkëd thöüghts ·~⟧"
           }
         }
       }
@@ -12444,19 +12529,19 @@
         }
       }
     },
-    "⌘↩ makes a task": {
+    "⌘↩ makes a task for today": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "⌘↩ makes a task"
+            "value": "⌘↩ makes a task for today"
           }
         },
         "zz": {
           "stringUnit": {
             "state": "translated",
-            "value": "⟦⌘↩ màkës à tàsk ·~⟧"
+            "value": "⟦⌘↩ màkës à tàsk för tödày ·~⟧"
           }
         }
       }

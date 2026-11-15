@@ -165,7 +165,7 @@ struct SettingsView: View {
 
     @ViewBuilder var workspace: some View {
         Section("Beside today's tasks") {
-            ForEach(HomeLayout.ordered(store.prefs.workspaceCardOrder), id: \.self) { id in
+            ForEach(HomeLayout.ordered(store.prefs.workspaceCardOrder).filter { $0 != "notepad" }, id: \.self) { id in
                 HStack {
                     Toggle(
                         cardName(id),
