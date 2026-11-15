@@ -176,10 +176,12 @@
                 try store.file.load().tasks.first { $0.id == task.id }?.done, false,
                 "Space reopens the same future task")
             try await tabTo("week-add-\(future.raw)", window: window)
+            let tasksBeforeAdding = try store.file.load().tasks
             traceAdd(window, day: future, tag: "before-space")
             try await key(window, code: 49, characters: " ")
             traceAdd(window, day: future, tag: "after-space")
             let editor = try unwrap(window.firstResponder as? NSTextView)
+            try equal(try store.file.load().tasks, tasksBeforeAdding, "Add Space must not toggle the previous task")
             editor.insertText("Added from Week", replacementRange: editor.selectedRange())
             try await key(window, code: 36, characters: "\r")
             try require(

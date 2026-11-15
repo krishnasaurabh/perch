@@ -273,19 +273,21 @@ private struct WeekBoardDay: View {
                             }
                             .accessibilityIdentifier("week-add-field-\(day.raw)")
                     } else {
-                        Button("Add a task") {
-                            #if WEEK_INBOX_KEYBOARD_PROBE
-                                FileHandle.standardError.write(Data("WEEK_ADD button-action day=\(day.raw)\n".utf8))
-                            #endif
-                            adding = true; addingFocused = true
-                        }
-                        .buttonStyle(.plain).perchFont(.detailStrong).foregroundStyle(Theme.brandText)
-                        .frame(minHeight: Theme.Size.minimumTarget.value)
-                        .perchControlFeedback(pressed: false)
-                        .focusable()
-                        .focused($footerFocused).focusEffectDisabled()
-                        .overlay(FocusRing(shape: Capsule(), focused: footerFocused, surface: surface))
-                        .accessibilityIdentifier("week-add-\(day.raw)")
+                        Button("Add a task") { beginAdding() }
+                            .buttonStyle(.plain).perchFont(.detailStrong).foregroundStyle(Theme.brandText)
+                            .frame(minHeight: Theme.Size.minimumTarget.value)
+                            .perchControlFeedback(pressed: false)
+                            .focusable()
+                            .focused($footerFocused).focusEffectDisabled()
+                            .overlay(FocusRing(shape: Capsule(), focused: footerFocused, surface: surface))
+                            .onKeyPress(.space, phases: [.down, .repeat, .up]) { key in
+                                guard footerFocused, key.modifiers.isEmpty else { return .ignored }
+                                // The explicit focus stop uses a SwiftUI KeyViewProxy, which
+                                // does not forward Space to the native Button action.
+                                if key.phase == .down { beginAdding() }
+                                return .handled
+                            }
+                            .accessibilityIdentifier("week-add-\(day.raw)")
                     }
                 }
             }
@@ -322,6 +324,14 @@ private struct WeekBoardDay: View {
                 }
             }
         #endif
+    }
+
+    private func beginAdding() {
+        #if WEEK_INBOX_KEYBOARD_PROBE
+            FileHandle.standardError.write(Data("WEEK_ADD button-action day=\(day.raw)\n".utf8))
+        #endif
+        adding = true
+        addingFocused = true
     }
 
     private var heading: some View {
