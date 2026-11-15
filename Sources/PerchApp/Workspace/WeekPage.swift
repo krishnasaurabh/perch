@@ -4,6 +4,17 @@ import PlannerCore
 import SwiftUI
 import UniformTypeIdentifiers
 
+private struct WeekKeyboardFocusKey: FocusedValueKey {
+    typealias Value = WeekTaskPolicy.KeyboardFocus
+}
+
+private extension FocusedValues {
+    var weekKeyboardFocus: WeekTaskPolicy.KeyboardFocus? {
+        get { self[WeekKeyboardFocusKey.self] }
+        set { self[WeekKeyboardFocusKey.self] = newValue }
+    }
+}
+
 /// The workspace uses eight columns; legacy direct hosts keep their toolbar.
 struct WeekPage: View {
     var workspaceShell = false
@@ -19,7 +30,7 @@ struct WeekBoard: View {
     @EnvironmentObject private var store: PlannerStore
     @State private var anchor = 0
     @State private var scrollDay: DayKey?
-    @State private var selectedTask: UUID?
+    @FocusedValue(\.weekKeyboardFocus) private var keyboardFocus: WeekTaskPolicy.KeyboardFocus?
     @FocusState private var earlierFocused: Bool
     @FocusState private var focusedDay: DayKey?
 
@@ -33,17 +44,13 @@ struct WeekBoard: View {
         }
         .foregroundStyle(Theme.ink)
         .onReceive(NotificationCenter.default.publisher(for: .perchWorkspaceWeekChanged)) { note in
-            if let value = note.object as? Int { anchor = value; scrollDay = nil; selectedTask = nil }
+            if let value = note.object as? Int { anchor = value; scrollDay = nil }
         }
         .onChange(of: days, initial: true) { _, value in
             store.materializeRepeats(on: value)
         }
         .onChange(of: focusedDay) { _, day in
-            if let day {
-                scrollDay = day
-                selectedTask =
-                    WeekTaskPolicy.summary(day: day, today: store.today, tasks: store.planner.tasks).tasks.first?.id
-            }
+            if let day { scrollDay = day }
         }
     }
 
@@ -82,12 +89,13 @@ struct WeekBoard: View {
 
     private func dayColumn(_ day: DayKey, layout: WeekColumnLayout.Columns) -> some View {
         WeekBoardDay(
-            day: day, days: days, selectedTask: $selectedTask,
+            day: day, days: days,
             expanded: initiallyExpanded && day == store.today, adding: initiallyAdding == day
         )
         .frame(width: layout.width(for: day))
         .focusable()
         .focused($focusedDay, equals: day)
+        .focusedValue(\.weekKeyboardFocus, .day(day))
         .accessibilityIdentifier("week-day-focus-\(day.raw)")
         .focusEffectDisabled()
         .overlay(
@@ -101,7 +109,7 @@ struct WeekBoard: View {
         }
         .onKeyPress(.rightArrow, phases: .down) { key in
             if key.modifiers == .option {
-                pushSelected(from: day); return .handled
+                return pushSelected(from: day) ? .handled : .ignored
             }
             guard key.modifiers.isEmpty else { return .ignored }
             navigate(from: day, by: 1); return .handled
@@ -136,30 +144,26 @@ struct WeekBoard: View {
         focusedDay = next
     }
 
-    private func pushSelected(from day: DayKey) {
+    private func pushSelected(from day: DayKey) -> Bool {
         #if DEBUG
-            let selectedDay = store.planner.tasks.first { $0.id == selectedTask }?.day?.raw ?? "nil"
             FileHandle.standardError.write(
-                Data(
-                    "WEEK_KEY column day=\(day.raw) selected=\(String(describing: selectedTask)) selectedDay=\(selectedDay) focusedDay=\(String(describing: focusedDay)) responder=\(String(describing: NSApp.keyWindow?.firstResponder))\n"
-                        .utf8))
+                Data("WEEK_KEY column day=\(day.raw) focus=\(String(describing: keyboardFocus))\n".utf8))
         #endif
-        let id =
-            selectedTask
-            ?? WeekTaskPolicy.summary(day: day, today: store.today, tasks: store.planner.tasks).tasks.first?.id
-        guard let id, store.planner.tasks.first(where: { $0.id == id })?.day == day,
-            let action = WeekTaskPolicy.moveAction(
-                id: id, to: .day(day.adding(days: 1, calendar: store.engine.calendar)),
-                tasks: store.planner.tasks, today: store.today)
-        else { return }
+        guard day >= store.today,
+            let action = WeekTaskPolicy.pushAction(
+                focus: keyboardFocus, from: day, tasks: store.planner.tasks,
+                today: store.today, calendar: store.engine.calendar),
+            case .move(let id, _) = action,
+            store.planner.tasks.first(where: { $0.id == id })?.day == day
+        else { return false }
         store.send(action)
+        return true
     }
 }
 
 private struct WeekBoardDay: View {
     let day: DayKey
     let days: [DayKey]
-    @Binding var selectedTask: UUID?
     @EnvironmentObject private var store: PlannerStore
     @State private var expanded = false
     @State private var adding = false
@@ -168,10 +172,9 @@ private struct WeekBoardDay: View {
     @FocusState private var addingFocused: Bool
     @FocusState private var footerFocused: Bool
 
-    init(day: DayKey, days: [DayKey], selectedTask: Binding<UUID?>, expanded: Bool = false, adding: Bool = false) {
+    init(day: DayKey, days: [DayKey], expanded: Bool = false, adding: Bool = false) {
         self.day = day
         self.days = days
-        _selectedTask = selectedTask
         _expanded = State(initialValue: expanded)
         _adding = State(initialValue: adding)
     }
@@ -191,7 +194,7 @@ private struct WeekBoardDay: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: WeekColumnLayout.columnGap) {
                     ForEach(summary.tasks) { task in
-                        WeekBoardTask(task: task, days: days, past: past, surface: surface, selectedTask: $selectedTask)
+                        WeekBoardTask(task: task, days: days, past: past, surface: surface)
                     }
                     ForEach(summary.carried) { task in
                         VStack(alignment: .leading, spacing: Theme.Size.focusGap.value) {
@@ -275,6 +278,8 @@ private struct WeekBoardDay: View {
         }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("week-day-\(day.raw)")
+        // Fields and footer controls must not inherit the column's first-task shortcut.
+        .focusedValue(\.weekKeyboardFocus, .other)
     }
 
     private var heading: some View {
@@ -307,9 +312,9 @@ private struct WeekBoardTask: View {
     let days: [DayKey]
     let past: Bool
     let surface: DesignTokens.Surface
-    @Binding var selectedTask: UUID?
     @EnvironmentObject private var store: PlannerStore
     @EnvironmentObject private var model: NotchModel
+    @FocusedValue(\.weekKeyboardFocus) private var keyboardFocus: WeekTaskPolicy.KeyboardFocus?
     @FocusState private var menuFocused: Bool
     @State private var menuKeyboard = WeekMenuKeyboardTarget()
 
@@ -325,7 +330,6 @@ private struct WeekBoardTask: View {
                     isOn: Binding(
                         get: { task.done },
                         set: { _ in
-                            selectedTask = task.id
                             if let action = WeekTaskPolicy.scheduledCompletionAction(for: task, today: store.today) {
                                 store.send(action)
                             }
@@ -347,7 +351,6 @@ private struct WeekBoardTask: View {
                 .menuStyle(.borderlessButton).menuIndicator(.hidden)
                 .background(WeekMenuKeyboardAnchor(target: menuKeyboard))
                 .focusable().focused($menuFocused).focusEffectDisabled()
-                .onChange(of: menuFocused) { _, focused in if focused { selectedTask = task.id } }
                 .onKeyPress(.space) { menuKeyboard.open() ? .handled : .ignored }
                 .overlay(
                     FocusRing(
@@ -366,22 +369,18 @@ private struct WeekBoardTask: View {
             guard key.modifiers == .option else { return .ignored }
             #if DEBUG
                 FileHandle.standardError.write(
-                    Data(
-                        "WEEK_KEY row id=\(task.id) day=\(String(describing: task.day)) selected=\(String(describing: selectedTask)) menuFocused=\(menuFocused) responder=\(String(describing: NSApp.keyWindow?.firstResponder))\n"
-                            .utf8))
+                    Data("WEEK_KEY row id=\(task.id) focus=\(String(describing: keyboardFocus))\n".utf8))
             #endif
-            // Handle the focused row before the column's selected-task fallback.
-            // Checkbox focus alone must not reuse another row's last menu selection.
-            if let day = task.day,
+            guard keyboardFocus == .task(task.id), let day = task.day,
                 let action = WeekTaskPolicy.moveAction(
                     id: task.id, to: .day(day.adding(days: 1, calendar: store.engine.calendar)),
                     tasks: store.planner.tasks, today: store.today)
-            {
-                selectedTask = task.id
-                store.send(action)
-            }
+            else { return .ignored }
+            store.send(action)
             return .handled
         }
+        // Both native checkbox focus and menu focus export this exact row.
+        .focusedValue(\.weekKeyboardFocus, .task(task.id))
     }
 
     private var title: some View {

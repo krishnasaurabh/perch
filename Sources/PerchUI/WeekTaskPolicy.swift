@@ -4,6 +4,28 @@ import PlannerCore
 /// Presentation eligibility only. Commands revalidate against the locked latest
 /// document, so stale chips cannot bypass the planner's identity or date rules.
 public enum WeekTaskPolicy {
+    /// The currently focused control, not the last row that was activated.
+    public enum KeyboardFocus: Hashable {
+        case day(DayKey)
+        case task(UUID)
+        case other
+    }
+
+    public static func pushAction(
+        focus: KeyboardFocus?, from day: DayKey, tasks: [PlanTask], today: DayKey, calendar: Calendar
+    ) -> PlannerAction? {
+        guard day >= today else { return nil }
+        let id: UUID?
+        switch focus {
+        case .task(let taskID): id = taskID
+        case .day(let focusedDay) where focusedDay == day:
+            id = summary(day: day, today: today, tasks: tasks).tasks.first?.id
+        default: return nil
+        }
+        guard let id, tasks.first(where: { $0.id == id })?.day == day else { return nil }
+        return moveAction(id: id, to: .day(day.adding(days: 1, calendar: calendar)), tasks: tasks, today: today)
+    }
+
     public struct Summary: Equatable {
         public let tasks: [PlanTask]
         public let carried: [PlanTask]

@@ -111,6 +111,23 @@ class WeekViewTests(unittest.TestCase):
         ]:
             self.assertIn(assertion, board)
 
+    def test_week_shortcuts_read_live_focus_and_preserve_fallback_guards(self):
+        source = (ROOT / "Sources/PerchApp/Workspace/WeekPage.swift").read_text()
+        board, rest = source.split('private struct WeekBoardDay:', 1)
+        day, rest = rest.split('private struct WeekBoardTask:', 1)
+        row = rest.split('struct WeekParkingColumn:', 1)[0]
+        self.assertNotIn('@State private var selectedTask', board)
+        self.assertIn('@FocusedValue(\\.weekKeyboardFocus)', board)
+        self.assertIn('.focusedValue(\\.weekKeyboardFocus, .day(day))', board)
+        self.assertIn('.focusedValue(\\.weekKeyboardFocus, .other)', day)
+        self.assertIn('.focusedValue(\\.weekKeyboardFocus, .task(task.id))', row)
+        self.assertIn('guard keyboardFocus == .task(task.id)', row)
+        fallback = board.split('private func pushSelected(', 1)[1]
+        self.assertIn('guard day >= store.today', fallback)
+        self.assertIn('focus: keyboardFocus', fallback)
+        self.assertIn('store.planner.tasks.first(where: { $0.id == id })?.day == day', fallback)
+        self.assertIn('return pushSelected(from: day) ? .handled : .ignored', board)
+
     def test_chips_have_real_completion_and_menu_controls(self):
         source = (ROOT / "Sources/PerchApp/Workspace/WeekPage.swift").read_text()
         self.assertIn("WeekTaskPolicy.completionAction", source)
