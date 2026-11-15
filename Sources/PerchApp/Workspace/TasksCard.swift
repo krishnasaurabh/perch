@@ -100,6 +100,7 @@ struct TasksCard: View {
                         .background(TasksContinuationObserver())
                     }
                     .scrollIndicators(.automatic)
+                    .accessibilityElement(children: .contain)
                     .focusable(!tasks.isEmpty)
                     .focused($focus, equals: .checklist)
                     .focusEffectDisabled()
