@@ -88,11 +88,14 @@ struct NotchPeekView: View {
                 if let focus = peek.focus {
                     LocalClock(running: focus.state == .running) { now in
                         let time = NotchBlockTimePresentation(focus: focus, now: now)
-                        Text(time.face.fullText)
-                            .perchFont(.cardTitle).foregroundStyle(Theme.ink)
-                            .accessibilityLabel(time.valueDescription)
-                            .accessibilityIdentifier("notch.peek.time")
-                            .help(time.valueDescription)
+                        VStack(spacing: .zero) {
+                            Text(time.face.fullText)
+                                .perchFont(.cardTitle).foregroundStyle(Theme.ink)
+                        }
+                        .accessibilityElement(children: .ignore)
+                        .accessibilityLabel(time.valueDescription)
+                        .accessibilityIdentifier("notch.peek.time")
+                        .help(time.valueDescription)
                     }
                 }
                 blockButton
