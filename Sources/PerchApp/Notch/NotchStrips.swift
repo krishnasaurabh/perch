@@ -703,7 +703,7 @@ struct NotchUndoFooter: ViewModifier {
                 .padding(NotchStripMetrics.gap).background(Theme.paper)
                 .transition(.opacity)
             } else if !store.engine.overdue().isEmpty {
-                Button(AppL10n.format("Review overdue (%lld)", store.engine.overdue().count)) {
+                Button(AppL10n.format("Still waiting (%lld)", store.engine.overdue().count)) {
                     reviewingOverdue = true
                 }
                 .buttonStyle(PillStyle()).accessibilityIdentifier("today-review-overdue")
@@ -740,6 +740,7 @@ private struct NotchUndoAction: View {
     }
 }
 
+// TODO(Main, soft and quiet buttons): expose an external focus binding in PerchButton.
 private struct NotchUndoStyle: ButtonStyle {
     let focused: Bool
     func makeBody(configuration: Configuration) -> some View {

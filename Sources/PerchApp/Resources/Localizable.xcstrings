@@ -12070,6 +12070,23 @@
         }
       }
     },
+    "Still waiting (%lld)": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Still waiting (%lld)"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Stïll wàïtïng (%lld) ·~⟧"
+          }
+        }
+      }
+    },
     "Stop Repeating": {
       "extractionState": "manual",
       "localizations": {
