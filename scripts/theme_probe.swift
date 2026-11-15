@@ -391,10 +391,12 @@ MainActor.assumeIsolated {
         else { fatalError("Priority fixture missing") }
         // Keep the real segmented filter visible after empty-Completed suppression.
         _ = store.apply { try $0.complete(seeded.last!.id) }
-        let geometry = NotchGeometry(
+        // Production hook: NotchController presents every page through forWorkspace(_:).
+        let baseGeometry = NotchGeometry(
             screen: .init(
                 frame: CGRect(x: 0, y: 0, width: 1024, height: 768),
                 visibleFrame: CGRect(x: 0, y: 0, width: 1024, height: 744)))
+        let geometry = baseGeometry.forWorkspace(.home)
         var manifest: [[String: Any]] = []
         var controls: [[String: Any]] = []
         var nativeContrastAppearance: [[String: Any]] = []
@@ -432,6 +434,13 @@ MainActor.assumeIsolated {
                 .environment(\.motionPolicyOverride, MotionPolicy(reduceMotion: true))
             let (window, host) = render(root, size: geometry.window.size)
             for page in [NotchPage.home, .week] {
+                // Keep shell, model and screen on the same page-aware geometry, as updateScreens() does.
+                let presented = baseGeometry.forWorkspace(page)
+                require(
+                    presented.window == geometry.window,
+                    "\(mode)-\(page.rawValue): page-aware workspace keeps the rendered window")
+                model.geometry = presented
+                screen.geometry = presented
                 model.open(page: page, pinned: true)
                 try? await Task.sleep(nanoseconds: 700_000_000)
                 save(host, output.appendingPathComponent("\(mode)-\(page.rawValue).png"))
