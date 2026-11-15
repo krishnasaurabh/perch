@@ -10,6 +10,10 @@ import SwiftUI
         static var previewTargets: [String: PreviewTarget] {
             [
                 "today": .workspace(.home),
+                "your-day": .window("your-day-preview") { YourDayPreview.show(app: $0) },
+                "your-day-editing": .window("your-day-preview") { YourDayPreview.show(app: $0, editing: true) },
+                "your-day-capture": .window("your-day-preview") { YourDayPreview.show(app: $0, capture: true) },
+                "your-day-overlap": .window("your-day-preview") { YourDayPreview.show(app: $0, overlap: true) },
                 "workspace-today": .window("workspace-home") { WorkspaceShellPreview.show(page: .home, app: $0) },
                 "workspace-week": .window("workspace-week") { WorkspaceShellPreview.show(page: .week, app: $0) },
                 "workspace-narrow": .window("workspace-narrow") {
