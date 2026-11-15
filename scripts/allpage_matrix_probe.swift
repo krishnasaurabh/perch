@@ -1170,7 +1170,7 @@ final class AllPageMatrix {
         await report.group("dashboard task and project actions") { [self] in try await dashboardActions() }
         await report.group("welcome states") { [self] in try await welcomeStates() }
         await report.group("details historical and error states") { [self] in try await detailsStates() }
-        await report.group("week keyboard") { [self] in try await weekKeyboard() }
+        await report.group("week keyboard") { [self] in try await workspaceWeekKeyboard() }
         await report.group("clips keyboard") { [self] in try await clipsKeyboard() }
         await report.group("effective enlarged type") { [self] in try await enlargedType() }
         await report.group("effective contrast states") { [self] in try await contrastStates() }
@@ -1743,7 +1743,7 @@ final class AllPageMatrix {
         fixture.model.page = .week
         let destinations = MatrixFocusDestinations()
         let view = MatrixHarness(destinations: destinations) {
-            WorkspaceView(notchHeight: 32)
+            WorkspaceLegacyWeekProbe(fixture: fixture)
                 .environmentObject(fixture.store)
                 .environmentObject(fixture.services)
                 .environmentObject(fixture.model)

@@ -5484,6 +5484,23 @@
         }
       }
     },
+    "Keys": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keys"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Këys ·~⟧"
+          }
+        }
+      }
+    },
     "Language": {
       "extractionState": "manual",
       "localizations": {
@@ -12746,6 +12763,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "⟦trày ·~⟧"
+          }
+        }
+      }
+    },
+    "workspace-next-week": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "workspace-next-week"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦wörkspàcë-nëxt-wëëk ·~⟧"
+          }
+        }
+      }
+    },
+    "workspace-previous-week": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "workspace-previous-week"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦wörkspàcë-prëvïöüs-wëëk ·~⟧"
           }
         }
       }

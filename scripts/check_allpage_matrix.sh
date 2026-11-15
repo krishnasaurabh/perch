@@ -14,7 +14,7 @@ PROBE=$(mktemp -d "$OUT/build.XXXXXX")
 trap 'rm -rf "$PROBE"' EXIT
 cp "$ROOT/Package.swift" "$PROBE/"
 cp -R "$ROOT/Sources" "$ROOT/Tests" "$PROBE/"
-cp "$ROOT/scripts/allpage_matrix_probe.swift" "$PROBE/Sources/Perch/main.swift"
+python3 -c 'import pathlib,sys; pathlib.Path(sys.argv[3]).write_text(pathlib.Path(sys.argv[1]).read_text()+"\n"+pathlib.Path(sys.argv[2]).read_text())' "$ROOT/scripts/allpage_matrix_probe.swift" "$ROOT/Tests/WorkspaceProbes/WeekBandMatrix.swift" "$PROBE/Sources/Perch/main.swift"
 swift build -Xswiftc -DPERCH_TESTING -Xswiftc -enable-testing --package-path "$PROBE" -c release --product Perch
 python3 - "$PROBE/.build/release/Perch" "$OUT" <<'PY'
 import json, os, pathlib, subprocess, sys
