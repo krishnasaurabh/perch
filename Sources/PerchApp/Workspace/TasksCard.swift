@@ -65,7 +65,7 @@ struct TasksCard: View {
                             }
                         }
                         .frame(maxWidth: .infinity)
-                        .frame(minHeight: shown.isEmpty ? viewport.size.height : 0, alignment: .bottom)
+                        .frame(minHeight: WorkspaceLayout.contentHeight, alignment: .bottom)
                         .motion(Motion.row, value: ids)
                         .background(TasksContinuationObserver())
                     }
@@ -75,7 +75,8 @@ struct TasksCard: View {
                     }
                 }
             }
-            .frame(minHeight: 0, maxHeight: WorkspaceLayout.contentHeight).accessibilityIdentifier(
+            .frame(minHeight: WorkspaceLayout.contentHeight, maxHeight: WorkspaceLayout.contentHeight)
+            .accessibilityIdentifier(
                 "today-task-viewport")
             TaskComposer(day: .day(store.today), placeholder: "What would you like to do?", focus: $focus)
                 .fixedSize(horizontal: false, vertical: true)
