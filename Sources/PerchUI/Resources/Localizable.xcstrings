@@ -134,6 +134,23 @@
         }
       }
     },
+    "%lld done": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld done"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦%lld dönë ·~⟧"
+          }
+        }
+      }
+    },
     "%lld month repeat": {
       "extractionState": "manual",
       "localizations": {
@@ -212,6 +229,23 @@
                 }
               }
             }
+          }
+        }
+      }
+    },
+    "%lld of %lld done": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld of %lld done"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦%lld öf %lld dönë ·~⟧"
           }
         }
       }
@@ -376,6 +410,23 @@
                 }
               }
             }
+          }
+        }
+      }
+    },
+    "%lld to do": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld to do"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦%lld tö dö ·~⟧"
           }
         }
       }

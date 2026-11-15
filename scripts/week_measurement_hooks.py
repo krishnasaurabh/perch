@@ -14,15 +14,29 @@ EDITS = {
 }
 
 
+BOARD_EDITS = {
+    '.frame(width: layout.width(for: day))': '.frame(width: layout.width(for: day))\n                                .background(WeekMeasure(key: "board-column:\\(day.raw)"))',
+    '.frame(width: layout.parkingWidth)': '.frame(width: layout.parkingWidth)\n                            .background(WeekMeasure(key: "board-parking"))',
+    '.lineLimit(2).fixedSize(horizontal: false, vertical: true)': '.lineLimit(2).fixedSize(horizontal: false, vertical: true)\n                .background(WeekMeasure(key: "board-title:\\(task.id)"))',
+}
+
+
 def instrument(week):
     """Return instrumented source, requiring every production hook exactly once."""
+    # The legacy direct host keeps its long-title/scroll regression probe. The
+    # workspace board has the separate two-line title contract.
+    prefix, marker, legacy = week.partition('struct LegacyWeekPage: View {')
+    assert marker, 'Missing compatibility Week host'
     for old, new in EDITS.items():
-        assert week.count(old) == 1, f'Week measurement hook changed: {old}'
-        week = week.replace(old, new)
-    assert '.font(Theme.body)' in week
-    assert '.lineLimit(2)' not in week
+        assert legacy.count(old) == 1, f'Week measurement hook changed: {old}'
+        legacy = legacy.replace(old, new)
+    assert '.font(Theme.body)' in legacy
+    assert '.lineLimit(2)' not in legacy
     assert 'minimumScaleFactor' not in week and 'titleFit(' not in week
-    return week
+    for old, new in BOARD_EDITS.items():
+        assert prefix.count(old) == 1, f'Week board measurement hook changed: {old}'
+        prefix = prefix.replace(old, new)
+    return prefix + marker + legacy
 
 
 def main():

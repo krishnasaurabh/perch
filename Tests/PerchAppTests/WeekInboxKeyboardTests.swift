@@ -110,6 +110,81 @@
             try equal(Self.string(try Self.control("week-inbox", in: window), "accessibilityLabel"), "Back to week")
             try equal(try file.load().tasks, tasksBefore, "Inbox navigation preserves every persisted task")
             Self.log("PASS: Week Inbox native Tab, Space, back-tab and Command-Option-I")
+            try await redesignedBoard(window: window, store: store, model: model)
+        }
+
+        @MainActor private static func redesignedBoard(
+            window: NSWindow, store: PlannerStore, model: NotchModel
+        ) async throws {
+            let today = store.today
+            let future = today.adding(days: 1, calendar: store.engine.calendar)
+            let task = try unwrap(store.addTasks(["Future keyboard task"], on: .day(future))?.first)
+            let before = NSTextField(string: "Before board")
+            let host = NSHostingView(
+                rootView: VStack {
+                    WeekKeyboardField(field: before)
+                    WeekBoard().frame(width: 932, height: 380)
+                }
+                .environmentObject(store).environmentObject(model)
+                .environment(\.accessibilityEnabled, true)
+                .environment(\.motionPolicyOverride, MotionPolicy(reduceMotion: true)))
+            host.sizingOptions = []
+            window.contentView = host
+            window.setContentSize(NSSize(width: 960, height: 440))
+            await activateKeyWindow(window)
+            try require(window.makeFirstResponder(before))
+            try await tabTo("week-day-focus-\(today.raw)", window: window)
+            try await key(window, code: 123, characters: "\u{f702}")
+            try require(
+                boolean(
+                    try control(
+                        "week-day-focus-\(today.adding(days: -1, calendar: store.engine.calendar).raw)", in: window),
+                    "isAccessibilityFocused") == true,
+                "Left arrow moves to the previous day")
+            try await key(window, code: 124, characters: "\u{f703}")
+            try require(
+                boolean(try control("week-day-focus-\(today.raw)", in: window), "isAccessibilityFocused") == true,
+                "Right arrow returns to today")
+            try await tabTo("week-menu-\(task.id)", window: window)
+            try await key(window, code: 124, characters: "\u{f703}", modifiers: .option)
+            let pushed = future.adding(days: 1, calendar: store.engine.calendar)
+            try equal(
+                try store.file.load().tasks.first { $0.id == task.id }?.day, pushed,
+                "Option-Right pushes exactly the selected task one day")
+            // Return the task through the command so its visible future checkbox can be tested.
+            try notNil(store.send(.move(task.id, .day(future))))
+            await settle()
+            try await tabTo("week-check-\(task.id)", window: window)
+            try await key(window, code: 49, characters: " ")
+            try equal(
+                try store.file.load().tasks.first { $0.id == task.id }?.done, true,
+                "Space checks a future task and persists the change")
+            try await key(window, code: 49, characters: " ")
+            try equal(
+                try store.file.load().tasks.first { $0.id == task.id }?.done, false,
+                "Space reopens the same future task")
+            try await tabTo("week-add-\(future.raw)", window: window)
+            try await key(window, code: 49, characters: " ")
+            let editor = try unwrap(window.firstResponder as? NSTextView)
+            editor.insertText("Added from Week", replacementRange: editor.selectedRange())
+            try await key(window, code: 36, characters: "\r")
+            try require(
+                try store.file.load().tasks.contains { $0.title == "Added from Week" && $0.day == future },
+                "Return in the coming-day field adds a task on that day")
+            try capture(host, name: "week-board-keyboard")
+            log("PASS: Week board arrows, Option-Right, future Space and Add Return")
+        }
+
+        @MainActor private static func tabTo(_ identifier: String, window: NSWindow) async throws {
+            for _ in 0..<100 {
+                if nodes(window).contains(where: {
+                    string($0, "accessibilityIdentifier") == identifier && boolean($0, "isAccessibilityFocused") == true
+                }) {
+                    return
+                }
+                try await key(window, code: 48, characters: "\t")
+            }
+            try fail("Tab never reached \(identifier)")
         }
 
         @MainActor private static func activateKeyWindow(_ window: NSWindow) async {
@@ -374,6 +449,7 @@
             XCTAssertEqual(process.terminationReason, .exit)
             XCTAssertEqual(process.terminationStatus, 0, "Native Week keyboard check failed:\n\(result)")
             XCTAssertTrue(result.contains("PASS: Week Inbox native Tab, Space, back-tab and Command-Option-I"))
+            XCTAssertTrue(result.contains("PASS: Week board arrows, Option-Right, future Space and Add Return"))
         }
     }
 #endif

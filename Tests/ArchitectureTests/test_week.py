@@ -11,7 +11,8 @@ class WeekViewTests(unittest.TestCase):
         self.assertIn("WeekColumnLayout.days", source)
         self.assertIn('AppL10n.text("Back to week")', source)
         self.assertIn('AppL10n.format("Inbox (%lld)"', source)
-        calendar = source.split('ScrollView(.horizontal)', 1)[1].split('private func label', 1)[0]
+        legacy = source.split('struct LegacyWeekPage: View {', 1)[1]
+        calendar = legacy.split('ScrollView(.horizontal)', 1)[1].split('private func label', 1)[0]
         self.assertNotIn('column(title: "Inbox"', calendar)
 
     def test_selected_calendar_range_refreshes_on_date_changes(self):
@@ -77,8 +78,18 @@ class WeekViewTests(unittest.TestCase):
         self.assertIn("WeekTaskPolicy.completionAction", source)
         self.assertIn(".contextMenu", source)
         self.assertIn(".accessibilityIdentifier(\"week-check-", source)
-        self.assertNotIn(".lineLimit(2)", source)
+        board, legacy = source.split('struct LegacyWeekPage: View {', 1)
+        self.assertIn(".lineLimit(2)", board)
+        self.assertNotIn(".lineLimit(2)", legacy)
         self.assertIn(".fixedSize(horizontal: false, vertical: true)", source)
+        self.assertIn('WeekColumnLayout.columns', board)
+        self.assertIn('TaskDragItem.self', board)
+        self.assertIn('.onDrop(of: [.perchTask, .perchParkedThought]', board)
+        self.assertEqual(board.count('.onDrop('), 1)
+        self.assertIn('WeekTaskPolicy.scheduledCompletionAction', board)
+        self.assertIn('ParkedThoughtDragItem.self', board)
+        self.assertIn('WeekParkingColumn(days: days)', board)
+        self.assertIn('key.modifiers == .option', board)
 
 
 if __name__ == "__main__":

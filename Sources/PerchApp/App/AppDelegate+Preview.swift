@@ -20,6 +20,8 @@ import SwiftUI
                 "notch-progress-off": .closedNotch(hardware: true, progress: false),
                 "notch-reminder-off": .closedNotch(hardware: true, reminder: false),
                 "week": .workspace(.week),
+                "week-expanded": .window("week-expanded") { WeekBoardPreview.expanded($0) },
+                "week-adding": .window("week-adding") { WeekBoardPreview.adding($0) },
                 "settings": .window("settings") { $0.openSettings() },
                 "keys": .window("keys") { KeysWindow.show(store: $0.store) },
                 "your-week": .window("dashboard") { DashboardWindow.show(store: $0.store, tab: .insights) },

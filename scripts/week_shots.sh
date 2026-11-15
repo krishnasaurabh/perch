@@ -97,6 +97,7 @@ import PerchUI
 import PerchMCP
 #endif
 import Vision
+import UniformTypeIdentifiers
 
 func report(_ message: String) {
     FileHandle.standardError.write(Data("\(message)\n".utf8))
@@ -581,6 +582,7 @@ MainActor.assumeIsolated {
             }
             try JSONSerialization.data(withJSONObject: rollovers, options: [.prettyPrinted, .sortedKeys])
                 .write(to: out.appendingPathComponent("rollover-assertions.json"))
+            try await verifyWeekBoard(window: window, out: out)
             exit(0)
         } catch { report("Week assertion error: \(error.localizedDescription) [\(error)]"); exit(1) }
     }
@@ -589,12 +591,12 @@ MainActor.assumeIsolated {
 SWIFT
 # The instrumented Week view is in the app library, so its measurement helper must
 # live there too. Keep one shared registry; the executable reads it with @testable.
-python3 - "$PROBE" <<'PY'
+python3 - "$PROBE" "$ROOT" <<'PY'
 from pathlib import Path
 import sys
 root = Path(sys.argv[1])
 entry = root / 'Sources/Perch/main.swift'
-source = entry.read_text()
+source = entry.read_text() + "\n" + (Path(sys.argv[2]) / "Tests/WorkspaceProbes/WeekBoardProbe.swift").read_text()
 start = source.index('@MainActor var measurements:')
 end = source.index('@MainActor func settle()', start)
 helper = source[start:end]

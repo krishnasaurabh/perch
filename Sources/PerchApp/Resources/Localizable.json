@@ -386,6 +386,23 @@
         }
       }
     },
+    "%lld of %lld steps": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld of %lld steps"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦%lld öf %lld stëps ·~⟧"
+          }
+        }
+      }
+    },
     "%lld of %lld tasks complete": {
       "extractionState": "manual",
       "localizations": {
@@ -2016,6 +2033,23 @@
         }
       }
     },
+    "Any time": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Any time"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Åny tïmë ·~⟧"
+          }
+        }
+      }
+    },
     "Apple Intelligence": {
       "extractionState": "manual",
       "localizations": {
@@ -2471,6 +2505,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "⟦Càrrïëd övër ·~⟧"
+          }
+        }
+      }
+    },
+    "Carried to today": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Carried to today"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Càrrïëd tö tödày ·~⟧"
           }
         }
       }
@@ -3903,6 +3954,23 @@
         }
       }
     },
+    "Drag one onto a day": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Drag one onto a day"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Dràg önë öntö à dày ·~⟧"
+          }
+        }
+      }
+    },
     "Draw a fake notch on external displays": {
       "extractionState": "manual",
       "localizations": {
@@ -3950,6 +4018,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "⟦Düë %@ ·~⟧"
+          }
+        }
+      }
+    },
+    "EEEd": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "EEEd"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦ËËËd ·~⟧"
+          }
+        }
+      }
+    },
+    "Earlier days": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Earlier days"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Ëàrlïër dàys ·~⟧"
           }
         }
       }
@@ -5518,6 +5620,23 @@
         }
       }
     },
+    "Make a task: %@": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Make a task: %@"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Màkë à tàsk: %@ ·~⟧"
+          }
+        }
+      }
+    },
     "Mark all done": {
       "extractionState": "manual",
       "localizations": {
@@ -6028,6 +6147,23 @@
         }
       }
     },
+    "No day yet": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No day yet"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Nö dày yët ·~⟧"
+          }
+        }
+      }
+    },
     "No focus sessions yet. Run a timer to see your best hours.": {
       "extractionState": "manual",
       "localizations": {
@@ -6364,6 +6500,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "⟦Nöthïng plànnëd àhëàd. Ådd “tömörröw” ör à dày tö à tàsk. ·~⟧"
+          }
+        }
+      }
+    },
+    "Nothing planned. A good day to keep clear.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nothing planned. A good day to keep clear."
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Nöthïng plànnëd. Å gööd dày tö këëp clëàr. ·~⟧"
           }
         }
       }
@@ -7724,6 +7877,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "⟦Püll làst wëëk's büg lïst ·~⟧"
+          }
+        }
+      }
+    },
+    "Push a task a day": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Push a task a day"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Püsh à tàsk à dày ·~⟧"
           }
         }
       }
@@ -10604,6 +10774,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "⟦Thïs tàsk wàs rëmövëd. ·~⟧"
+          }
+        }
+      }
+    },
+    "This task's day changed. Open its current day and try again.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This task's day changed. Open its current day and try again."
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Thïs tàsk's dày chàngëd. Öpën ïts cürrënt dày ànd try àgàïn. ·~⟧"
           }
         }
       }
