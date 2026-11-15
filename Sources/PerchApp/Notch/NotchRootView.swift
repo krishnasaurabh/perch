@@ -34,7 +34,7 @@ struct NotchRootView: View {
                             // Keep outgoing content above the shell during removal.
                             .zIndex(1)
                             .transition(motionPolicy.workspaceTransition)
-                            .padding(.horizontal, 10)
+                            .padding(.horizontal, .zero)
                     }
                 }
                 .frame(width: shell.width, height: shell.height)
@@ -44,6 +44,7 @@ struct NotchRootView: View {
                     handleDrop(providers); return true
                 }
                 .offset(x: shell.minX - window.minX, y: window.maxY - shell.maxY)
+                .designMotion(.pop, value: shell.width)
             }
 
             if !expanded {

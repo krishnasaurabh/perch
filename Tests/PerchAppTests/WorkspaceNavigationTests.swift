@@ -34,5 +34,6 @@ final class WorkspaceNavigationTests: XCTestCase {
         XCTAssertEqual(process.terminationStatus, 0, "Native workspace probe failed:\n\(result)")
         XCTAssertTrue(result.contains("PASS: workspace keyboard, selection, targets, layout and focus rings"))
         XCTAssertTrue(result.contains("PASS: workspace passive presentation and page activation"))
+        XCTAssertTrue(result.contains("960pt and 1280pt"))
     }
 }

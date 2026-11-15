@@ -20,3 +20,8 @@ public enum TodayTabs {
         visible(completedCount: completedCount).contains(selected) ? selected : .active
     }
 }
+
+/// The two surfaces available from the workspace band. Legacy deep links are not tabs.
+public enum WorkspacePage: String, CaseIterable, Sendable {
+    case today, week
+}
