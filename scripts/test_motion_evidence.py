@@ -4,10 +4,11 @@ from motion_evidence_rules import qualify, window_bounds, candidate_stats, prove
 
 class EvidenceRulesTests(unittest.TestCase):
     def marker(self):
-        return {'name': 'timer', 'via': 'ax-press:Start focus', 'interaction_ok': True,
+        return {'name': 'timer', 'via': 'ax-press:time-card-primary', 'interaction_ok': True,
                 'policy': dict(nsworkspace_reduce_motion=False, swiftui_reduce_motion=False,
                                resolved_reduce_motion=False, explicit_reduce_motion=False, mode='production'),
-                'session': {'screen_locked': False, 'session_available': True, 'on_console': True}, 'settled_state': {'timer_present': True}}
+                'session': {'screen_locked': False, 'session_available': True, 'on_console': True},
+                'settled_state': {'timer_present': True, 'timer_state': 'running'}}
 
     def test_wrong_diagnostic_and_production_policy_fail(self):
         m = self.marker(); m['policy']['mode'] = 'diagnostic-reduced'
@@ -28,9 +29,35 @@ class EvidenceRulesTests(unittest.TestCase):
         self.assertFalse(qualify(m, 'a'*40)['qualified'])
 
     def test_missing_control_and_old_fallback_fail(self):
-        for via in ('direct:startTimer', 'FAILED:missing-control:Start focus', 'none'):
+        for via in ('direct:startTimer', 'FAILED:missing-control:time-card-primary', 'none'):
             m = self.marker(); m['via'] = via
             self.assertFalse(qualify(m, 'a'*40)['qualified'])
+
+    def test_legacy_focus_card_start_is_real_ax_but_removed_header_is_not_accepted(self):
+        m = self.marker(); m['via'] = 'ax-press:Start'
+        self.assertTrue(qualify(m, 'a'*40)['qualified'])
+        m['via'] = 'ax-press:Start focus'
+        result = qualify(m, 'a'*40)
+        self.assertFalse(result['qualified'])
+        self.assertIn('missing-real-control', result['reasons'])
+
+    def test_controlled_clock_completion_requires_engine_tick_and_a_new_segment(self):
+        m = self.marker()
+        m.update(name='timer-stop', via='controlled-clock:engine-tick')
+        m['session']['focus_segments'] = 2
+        m['settled_state'] = {'timer_present': True, 'timer_state': 'finished', 'focus_segments': 3}
+        self.assertTrue(qualify(m, 'a'*40)['qualified'])
+        for via in ('direct:stopTimer', 'ax-press:End focus session', 'none'):
+            result = qualify(dict(m, via=via), 'a'*40)
+            self.assertFalse(result['qualified'])
+            self.assertIn('missing-real-control', result['reasons'])
+        for state, reason in (
+                ({'timer_present': True, 'timer_state': 'running', 'focus_segments': 3}, 'timer-stop-not-observed'),
+                ({'timer_present': True, 'timer_state': 'finished', 'focus_segments': 2}, 'timer-segment-not-observed'),
+                ({'timer_present': True, 'timer_state': 'finished'}, 'timer-segment-not-observed')):
+            result = qualify(dict(m, settled_state=state), 'a'*40)
+            self.assertFalse(result['qualified'])
+            self.assertIn(reason, result['reasons'])
 
     def test_shared_override_and_session_required(self):
         m = self.marker(); self.assertTrue(qualify(m, 'a'*40)['qualified'])

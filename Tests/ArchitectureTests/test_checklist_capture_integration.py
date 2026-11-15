@@ -28,6 +28,12 @@ class ChecklistCaptureIntegrationTests(unittest.TestCase):
         for target in ("checklist-dictating", "checklist-voice-error", "checklist-multiline"):
             self.assertIn("--open " + target, (ROOT / "scripts/redesign_shots.list").read_text())
 
+    def test_dictation_arguments_follow_shared_initializer_order(self):
+        source = (ROOT / "Sources/PerchApp/Workspace/TasksCard.swift").read_text()
+        call = source.split("            AddField(", 1)[1].split("            switch voice.state", 1)[0]
+        self.assertLess(call.index("isDictating:"), call.index("onSubmit:"))
+        self.assertLess(call.index("onSubmit:"), call.index("onDictate:"))
+
     def test_drag_has_typed_identity_and_legacy_text_representation(self):
         source = (ROOT / "Sources/PerchApp/Workspace/TaskRow.swift").read_text()
         self.assertIn(".onDrag { ChecklistTaskDrag.provider(for: task.id) }", source)

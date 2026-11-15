@@ -506,8 +506,8 @@ struct ChecklistCaptureField: View {
     var body: some View {
         VStack(alignment: .leading, spacing: Theme.Size.focusGap.value) {
             AddField(
-                "Add a task", text: $text, prompt: prompt, focus: focus, onSubmit: onSubmit,
-                isDictating: voice.state == .listening, onDictate: onDictate)
+                "Add a task", text: $text, prompt: prompt, focus: focus,
+                isDictating: voice.state == .listening, onSubmit: onSubmit, onDictate: onDictate)
             switch voice.state {
             case .idle: EmptyView()
             case .listening:

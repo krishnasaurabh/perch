@@ -146,8 +146,8 @@
                         self.tickTaskID = task.id
                         return self.requiredPress("task-complete-\(task.id)", byIdentifier: true)
                     },
-                    Step(name: "timer", wait: 2.4, capture: true) { self.requiredPress("Start focus") },
-                    Step(name: "timer-stop", wait: 2.4, capture: false) { self.requiredPress("End focus session") },
+                    Step(name: "timer", wait: 2.4, capture: true) { self.requiredTimerStartPress() },
+                    Step(name: "timer-stop", wait: 2.4, capture: false) { self.completeActiveBlockAtControlledEnd() },
                     Step(name: "end", wait: 2.4, capture: false) { [model] in
                         model.close(); return "NotchModel.close"
                     },
@@ -179,6 +179,8 @@
                         "app_active": NSApp.isActive,
                         "key_window": NSApp.keyWindow != nil, "expanded": model.expanded,
                         "page": model.page.rawValue, "timer_present": store.planner.focus != nil,
+                        "timer_state": store.planner.focus?.state.rawValue ?? "none",
+                        "focus_segments": store.planner.focusSegments.count,
                         "completed_tasks": store.planner.tasks.filter(\.done).count,
                     ]
                     let t = Date().timeIntervalSince1970
@@ -212,6 +214,8 @@
                         markers[markerIndex]["settled_state"] = [
                             "observed_epoch": Date().timeIntervalSince1970, "expanded": model.expanded,
                             "page": model.page.rawValue, "timer_present": store.planner.focus != nil,
+                            "timer_state": store.planner.focus?.state.rawValue ?? "none",
+                            "focus_segments": store.planner.focusSegments.count,
                             "completed_tasks": store.planner.tasks.filter(\.done).count,
                         ]
                         if step.name == "tick", let id = tickTaskID,
@@ -244,6 +248,43 @@
                 ]
                 if let d = try? JSONSerialization.data(withJSONObject: doc, options: [.prettyPrinted, .sortedKeys]) {
                     try? d.write(to: markersURL)
+                }
+            }
+
+            /// Both the legacy FocusCard and redesigned TimeCard are exercised only through real AX.
+            /// The negative-control switch bypasses the compatibility route and still fails closed.
+            private func requiredTimerStartPress() -> String {
+                if ProcessInfo.processInfo.environment["PERCH_MOTION_MISSING_CONTROL"] == "time-card-primary" {
+                    return requiredPress("time-card-primary", byIdentifier: true)
+                }
+                if let via = press("time-card-primary", byIdentifier: true) { return via }
+                if let via = press("Start", byIdentifier: false) { return via }
+                return "FAILED:missing-control:time-card-primary"
+            }
+
+            /// There is intentionally no Stop button on the redesigned time card. Advance only the
+            /// probe clock, then use the production pipeline and engine tick to finish the block.
+            private func completeActiveBlockAtControlledEnd() -> String {
+                guard let focus = store.planner.focus, focus.state == .running, let limit = focus.limit,
+                    let resumedAt = focus.resumedAt
+                else { return "FAILED:missing-active-block" }
+                let previousSegments = store.planner.focusSegments.count
+                let end = resumedAt.addingTimeInterval(max(0, limit - focus.banked) + 1)
+                let pipeline = PlannerCommandPipeline(
+                    file: store.file.avoidingLockWaits(), clock: ClosurePlannerClock { end })
+                do {
+                    let result = try pipeline.execute(.tick, origin: .background)
+                    guard result.value.flag, result.state.focus?.state == .finished,
+                        result.state.focusSegments.count == previousSegments + 1
+                    else { return "FAILED:block-not-completed" }
+                    store.reloadFromDisk(external: false)
+                    let persisted = try store.file.load()
+                    guard store.planner.focus?.state == .finished, persisted.focus?.state == .finished,
+                        persisted.focusSegments.count == previousSegments + 1
+                    else { return "FAILED:block-completion-not-persisted" }
+                    return "controlled-clock:engine-tick"
+                } catch {
+                    return "FAILED:engine-completion"
                 }
             }
 
