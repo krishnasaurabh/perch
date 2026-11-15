@@ -115,6 +115,12 @@ struct WeekBoard: View {
             navigate(from: day, by: 1); return .handled
         }
         .onKeyPress(.space, phases: [.down, .repeat, .up]) { key in
+            #if WEEK_INBOX_KEYBOARD_PROBE
+                FileHandle.standardError.write(
+                    Data(
+                        "WEEK_ADD column-space day=\(day.raw) phase=\(key.phase) keyboardFocus=\(String(describing: keyboardFocus))\n"
+                            .utf8))
+            #endif
             guard key.modifiers.isEmpty,
                 let action = WeekTaskPolicy.completionAction(
                     focus: keyboardFocus, from: day, tasks: store.planner.tasks, today: store.today)
@@ -124,6 +130,16 @@ struct WeekBoard: View {
             if key.phase == .down { store.send(action) }
             return .handled
         }
+        #if WEEK_INBOX_KEYBOARD_PROBE
+            .onReceive(NotificationCenter.default.publisher(for: Notification.Name("PerchWeekKeyboardProbe"))) { note in
+                if note.object as? String == day.raw {
+                    FileHandle.standardError.write(
+                        Data(
+                            "WEEK_ADD column-state day=\(day.raw) tag=\(note.userInfo?["tag"] ?? "nil") keyboardFocus=\(String(describing: keyboardFocus))\n"
+                                .utf8))
+                }
+            }
+        #endif
         .id(day)
     }
 
@@ -258,6 +274,9 @@ private struct WeekBoardDay: View {
                             .accessibilityIdentifier("week-add-field-\(day.raw)")
                     } else {
                         Button("Add a task") {
+                            #if WEEK_INBOX_KEYBOARD_PROBE
+                                FileHandle.standardError.write(Data("WEEK_ADD button-action day=\(day.raw)\n".utf8))
+                            #endif
                             adding = true; addingFocused = true
                         }
                         .buttonStyle(.plain).perchFont(.detailStrong).foregroundStyle(Theme.brandText)
@@ -292,6 +311,17 @@ private struct WeekBoardDay: View {
         .accessibilityIdentifier("week-day-\(day.raw)")
         // Fields and footer controls must not inherit the column's first-task shortcut.
         .focusedValue(\.weekKeyboardFocus, .other)
+        #if WEEK_INBOX_KEYBOARD_PROBE
+            .onReceive(NotificationCenter.default.publisher(for: Notification.Name("PerchWeekKeyboardProbe"))) { note in
+                if note.object as? String == day.raw {
+                    FileHandle.standardError.write(
+                        Data(
+                            ("WEEK_ADD day-state day=\(day.raw) tag=\(note.userInfo?["tag"] ?? "nil") "
+                                + "footerFocused=\(footerFocused) adding=\(adding) addingFocused=\(addingFocused)\n")
+                                .utf8))
+                }
+            }
+        #endif
     }
 
     private var heading: some View {

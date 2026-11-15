@@ -176,7 +176,9 @@
                 try store.file.load().tasks.first { $0.id == task.id }?.done, false,
                 "Space reopens the same future task")
             try await tabTo("week-add-\(future.raw)", window: window)
+            traceAdd(window, day: future, tag: "before-space")
             try await key(window, code: 49, characters: " ")
+            traceAdd(window, day: future, tag: "after-space")
             let editor = try unwrap(window.firstResponder as? NSTextView)
             editor.insertText("Added from Week", replacementRange: editor.selectedRange())
             try await key(window, code: 36, characters: "\r")
@@ -331,6 +333,21 @@
                 }
             }
             return retained
+        }
+
+        @MainActor private static func traceAdd(_ window: NSWindow, day: DayKey, tag: String) {
+            NotificationCenter.default.post(
+                name: Notification.Name("PerchWeekKeyboardProbe"), object: day.raw, userInfo: ["tag": tag])
+            let responder = window.firstResponder
+            let responderClass = responder.map { String(describing: type(of: $0)) } ?? "nil"
+            let responderID = responder.flatMap { string($0, "accessibilityIdentifier") } ?? "nil"
+            let fieldCount = nodes(window).filter {
+                string($0, "accessibilityIdentifier") == "week-add-field-\(day.raw)"
+            }.count
+            log(
+                "WEEK_ADD native tag=\(tag) firstResponder=\(responderClass) identifier=\(responderID) fieldAXCount=\(fieldCount)"
+            )
+            trace(window, tag: tag)
         }
 
         @MainActor private static func trace(_ window: NSWindow, tag: String) {
