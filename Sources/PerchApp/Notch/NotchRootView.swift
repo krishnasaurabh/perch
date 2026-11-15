@@ -21,7 +21,11 @@ struct NotchRootView: View {
         let g = screen.geometry
         let window = g.window
         let closed = model.closed(in: store, screenID: screen.id)
-        let shell = expanded ? g.workspace : g.tuckedNotch
+        let shell =
+            expanded
+            ? (model.peeking
+                ? NotchPeekLayout.frame(workspace: g.workspace, bandHeight: g.notchSize.height) : g.workspace)
+            : g.tuckedNotch
         let outline = g.outline(expanded: expanded)
 
         ZStack(alignment: .topLeading) {
@@ -30,11 +34,17 @@ struct NotchRootView: View {
                 ZStack(alignment: .top) {
                     outline.fill(Theme.notchBlack)
                     if expanded {
-                        WorkspaceView(notchHeight: g.notchSize.height)
-                            // Keep outgoing content above the shell during removal.
-                            .zIndex(1)
-                            .transition(motionPolicy.workspaceTransition)
-                            .padding(.horizontal, .zero)
+                        Group {
+                            if model.peeking {
+                                NotchPeekView(bandHeight: g.notchSize.height)
+                            } else {
+                                WorkspaceView(notchHeight: g.notchSize.height)
+                            }
+                        }
+                        // Keep outgoing content above the shell during removal.
+                        .zIndex(1)
+                        .transition(motionPolicy.workspaceTransition)
+                        .padding(.horizontal, .zero)
                     }
                 }
                 .frame(width: shell.width, height: shell.height)

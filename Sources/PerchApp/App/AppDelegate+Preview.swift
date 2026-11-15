@@ -22,6 +22,7 @@ import SwiftUI
                 "workspace-narrow": .window("workspace-narrow") {
                     WorkspaceShellPreview.show(page: .week, narrow: true, app: $0)
                 },
+                "notch-peek": .peek,
                 "notch-closed": .closedNotch(hardware: true),
                 "notch-flat": .closedNotch(hardware: false),
                 "notch-progress-off": .closedNotch(hardware: true, progress: false),

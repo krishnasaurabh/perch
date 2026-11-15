@@ -7,6 +7,46 @@ import XCTest
 
 final class NotchBehaviorTests: XCTestCase {
     @MainActor
+    func testPeekPromotesToWorkspaceAndCloseClearsItsLevel() async {
+        let model = NotchModel()
+        model.openPeek()
+        XCTAssertTrue(model.expanded)
+        XCTAssertTrue(model.peeking)
+        XCTAssertFalse(model.pinned)
+        model.open(pinned: true)
+        XCTAssertFalse(model.peeking)
+        XCTAssertTrue(model.pinned)
+        model.openPeek()
+        XCTAssertFalse(model.peeking, "Hover must not downgrade an explicit workspace")
+        model.close()
+        XCTAssertFalse(model.expanded)
+        XCTAssertFalse(model.peeking)
+    }
+
+    @MainActor
+    func testPeekCaptureAndBlockActionsPersistAndUndo() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = PlannerStore(file: PlannerFile(url: root.appendingPathComponent("planner.json")), watching: false)
+        let model = NotchModel()
+        XCTAssertTrue(model.submitPeek("A task", in: store))
+        let task = try XCTUnwrap(store.planner.tasks.first)
+        XCTAssertEqual(task.day, store.today)
+        XCTAssertTrue(model.submitPeek("/ A thought", in: store))
+        XCTAssertTrue(model.submitPeek("Another thought", park: true, in: store))
+        XCTAssertFalse(model.submitPeek(" / ", in: store))
+        XCTAssertEqual(try store.file.load().parkedThoughts.map(\.text), ["A thought", "Another thought"])
+        store.undo()
+        XCTAssertEqual(try store.file.load().parkedThoughts.map(\.text), ["A thought"])
+        model.togglePeekBlock(in: store)
+        XCTAssertEqual(try store.file.load().focus?.taskID, task.id)
+        model.togglePeekBlock(in: store)
+        XCTAssertEqual(try store.file.load().focus?.state, .paused)
+        model.togglePeekBlock(in: store)
+        XCTAssertEqual(try store.file.load().focus?.state, .running)
+    }
+
+    @MainActor
     func testFailedReminderActionStaysVisibleAndSuccessfulRetryDismisses() async throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: root) }
