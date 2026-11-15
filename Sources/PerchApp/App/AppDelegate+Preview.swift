@@ -23,6 +23,7 @@ import SwiftUI
                 "settings": .window("settings") { $0.openSettings() },
                 "settings/general": .window("settings") { SettingsWindow.preview(.general, app: $0) },
                 "settings/notch": .window("settings") { SettingsWindow.preview(.notch, app: $0) },
+                "settings/notch-configured": .window("settings", open: SettingsNotchPreview.showConfigured),
                 "settings/calendar": .window("settings") { SettingsWindow.preview(.calendar, app: $0) },
                 "settings/agents": .window("settings") { SettingsWindow.preview(.agents, app: $0) },
                 "settings/agents-connected": .window("settings") { SettingsAgentsPane.previewConnected(app: $0) },
