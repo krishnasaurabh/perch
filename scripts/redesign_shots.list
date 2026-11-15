@@ -39,6 +39,7 @@ settings-notch-configured --scenario empty --open settings/notch-configured
 settings-calendar --scenario empty --open settings/calendar
 settings-agents --scenario empty --open settings/agents
 settings-data --scenario empty --open settings/data
+settings-data-populated --scenario three --open settings/data
 workspace-band-today --scenario today-running --open workspace-today
 workspace-band-week --scenario week-full --open workspace-week
 workspace-width-960 --scenario today-before --open workspace-today

@@ -5,6 +5,7 @@ private final class UndoRoutingWindow: NSWindow {
     var onUndo: ((Bool) -> Void)?
 
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        if firstResponder is KeysShortcutInputOwner { return super.performKeyEquivalent(with: event) }
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
         if event.charactersIgnoringModifiers == "z", flags.contains(.command), !(firstResponder is NSTextView),
             let onUndo
