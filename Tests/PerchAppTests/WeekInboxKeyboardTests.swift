@@ -189,6 +189,33 @@
                 "Return in the coming-day field adds a task on that day")
             try capture(host, name: "week-board-keyboard")
             log("PASS: Week board arrows, Option-Right, future Space and Add Return")
+            try await todayOverflowExpandsWithSpace(window: window, host: host, store: store)
+        }
+
+        @MainActor private static func todayOverflowExpandsWithSpace(
+            window: NSWindow, host: NSView, store: PlannerStore
+        ) async throws {
+            let added = try unwrap(
+                store.addTasks((1...5).map { "Overflow keyboard task \($0)" }, on: .day(store.today)))
+            let hidden = try unwrap(added.last)
+            await settle()
+            try equal(store.planner.tasks.filter { $0.day == store.today }.count, 6)
+            let identifier = "week-check-\(hidden.id)"
+            try reject(
+                nodes(window).contains { string($0, "accessibilityIdentifier") == identifier },
+                "The sixth Today task must start hidden behind the overflow footer")
+            let tasksBefore = try store.file.load().tasks
+            try await tabTo("week-overflow-\(store.today.raw)", window: window)
+            trace(window, tag: "overflow-before-space")
+            try capture(host, name: "week-overflow-focused")
+            try await key(window, code: 49, characters: " ")
+            trace(window, tag: "overflow-after-space")
+            try equal(string(try control(identifier, in: window), "accessibilityRole"), "AXButton")
+            try await tabTo(identifier, window: window)
+            try equal(boolean(try control(identifier, in: window), "isAccessibilityFocused"), true)
+            try equal(try store.file.load().tasks, tasksBefore, "Expanding Today must not toggle or edit any task")
+            try capture(host, name: "week-overflow-expanded")
+            log("PASS: Week Today overflow native Tab and Space reveals the sixth task")
         }
 
         @MainActor private static func tabTo(_ identifier: String, window: NSWindow) async throws {
@@ -485,6 +512,7 @@
             XCTAssertEqual(process.terminationStatus, 0, "Native Week keyboard check failed:\n\(result)")
             XCTAssertTrue(result.contains("PASS: Week Inbox native Tab, Space, back-tab and Command-Option-I"))
             XCTAssertTrue(result.contains("PASS: Week board arrows, Option-Right, future Space and Add Return"))
+            XCTAssertTrue(result.contains("PASS: Week Today overflow native Tab and Space reveals the sixth task"))
         }
     }
 #endif

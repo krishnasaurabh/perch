@@ -87,35 +87,60 @@ final class WeekScheduledCompletionTests: XCTestCase {
     }
 
     func testFutureRepeatCompletionAndUndoAreOneTransaction() throws {
-        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-        defer { try? FileManager.default.removeItem(at: directory) }
-        let file = PlannerFile(
-            url: directory.appendingPathComponent("planner.json"), preferences: MemoryPlannerPreferences())
-        let future = today.adding(days: 1, calendar: calendar)
-        let start = future.date(calendar: calendar).addingTimeInterval(9 * 3600)
-        let task = PlanTask(
-            title: "Future repeat", day: future, repeatRule: .daily, steps: [Subtask(title: "Step")], startAt: start)
-        var planner = Planner(); planner.tasks = [task]
-        try file.save(planner)
-        let pipeline = PlannerCommandPipeline(
-            file: file, clock: ClosurePlannerClock { self.today.start(resetHour: 4, calendar: self.calendar) },
-            calendar: calendar)
-        let before = try file.load()
-        try pipeline.execute(.setScheduledCompletion(task.id, expectedDay: future, completed: true), origin: .user)
-        let after = try file.load()
-        XCTAssertTrue(after.tasks.first { $0.id == task.id }!.done)
-        let next = try XCTUnwrap(after.tasks.first { $0.id != task.id })
-        XCTAssertEqual(next.day, future.adding(days: 1, calendar: calendar))
-        XCTAssertEqual(next.startAt, start.addingTimeInterval(86400))
-        XCTAssertTrue(pipeline.canUndo)
-        _ = try pipeline.undo()
-        let undone = try file.load()
-        XCTAssertEqual(undone.tasks.map(\.id), before.tasks.map(\.id))
-        XCTAssertEqual(undone.tasks[0].done, before.tasks[0].done)
-        XCTAssertEqual(undone.tasks[0].steps, before.tasks[0].steps)
-        XCTAssertEqual(undone.repeatOccurrences, before.repeatOccurrences)
-        _ = try pipeline.redo()
-        XCTAssertEqual(try file.load().tasks.map(\.id), after.tasks.map(\.id))
+        for rule in [TaskRepeat.daily, TaskRepeat(unit: .day, fromCompletion: true)] {
+            let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+            defer { try? FileManager.default.removeItem(at: directory) }
+            let file = PlannerFile(
+                url: directory.appendingPathComponent("planner.json"), preferences: MemoryPlannerPreferences())
+            let future = today.adding(days: 1, calendar: calendar)
+            let start = future.date(calendar: calendar).addingTimeInterval(9 * 3600)
+            let task = PlanTask(
+                title: "Future repeat", day: future, repeatRule: rule, steps: [Subtask(title: "Step")], startAt: start)
+            var planner = Planner(); planner.tasks = [task]
+            try file.save(planner)
+            let pipeline = PlannerCommandPipeline(
+                file: file, clock: ClosurePlannerClock { self.today.start(resetHour: 4, calendar: self.calendar) },
+                calendar: calendar)
+            let before = try file.load()
+            try pipeline.execute(.setScheduledCompletion(task.id, expectedDay: future, completed: true), origin: .user)
+            let after = try file.load()
+            XCTAssertTrue(after.tasks.first { $0.id == task.id }!.done)
+            let next = try XCTUnwrap(after.tasks.first { $0.id != task.id })
+            XCTAssertEqual(next.day, future.adding(days: 1, calendar: calendar))
+            XCTAssertEqual(next.startAt, start.addingTimeInterval(86400))
+            XCTAssertFalse(next.done)
+            XCTAssertEqual(next.repeatSeriesID, task.repeatSeriesID)
+            XCTAssertEqual(after.tasks.filter { !$0.done }.map(\.id), [next.id])
+            XCTAssertEqual(after.tasks.filter { !$0.done && $0.id == task.id }.count, 0)
+            if rule.fromCompletion {
+                // Reload and visit the following four days: scheduled materialization must
+                // neither lose the completion-created successor nor manufacture more copies.
+                var reloaded = PlannerEngine(
+                    planner: try file.load(),
+                    now: { self.today.start(resetHour: 4, calendar: self.calendar) }, calendar: calendar)
+                for offset in 1...4 {
+                    XCTAssertTrue(reloaded.applyRepeats(on: today.adding(days: offset, calendar: calendar)).isEmpty)
+                    XCTAssertEqual(reloaded.planner.tasks.filter { !$0.done }.map(\.id), [next.id])
+                }
+                try file.save(reloaded.planner)
+                XCTAssertEqual(try file.load().tasks.filter { !$0.done }.map(\.id), [next.id])
+            }
+            XCTAssertTrue(pipeline.canUndo)
+            _ = try pipeline.undo()
+            let undone = try file.load()
+            XCTAssertEqual(undone.tasks.map(\.id), before.tasks.map(\.id))
+            XCTAssertEqual(undone.tasks[0].done, before.tasks[0].done)
+            XCTAssertEqual(undone.tasks[0].steps, before.tasks[0].steps)
+            XCTAssertEqual(undone.repeatOccurrences, before.repeatOccurrences)
+            XCTAssertEqual(undone.tasks.filter { !$0.done }.map(\.id), [task.id])
+            XCTAssertEqual(undone.tasks.filter { !$0.done && $0.id == task.id }.count, 1)
+            _ = try pipeline.redo()
+            XCTAssertEqual(try file.load().tasks.map(\.id), after.tasks.map(\.id))
+            let redone = try file.load()
+            XCTAssertEqual(redone.tasks.filter { !$0.done }.map(\.id), [next.id])
+            XCTAssertEqual(redone.tasks.filter { !$0.done && $0.id == task.id }.count, 0)
+            XCTAssertEqual(redone.repeatOccurrences, after.repeatOccurrences)
+        }
     }
 
     func testLockedLatestStateAndLogicalDayAreRevalidated() throws {

@@ -253,6 +253,11 @@ private struct WeekBoardDay: View {
                         .focusable()
                         .focused($footerFocused).focusEffectDisabled()
                         .overlay(FocusRing(shape: Capsule(), focused: footerFocused, surface: surface))
+                        .onKeyPress(.space, phases: [.down, .repeat, .up]) { key in
+                            guard footerFocused, key.modifiers.isEmpty else { return .ignored }
+                            if key.phase == .down { expanded = true }
+                            return .handled
+                        }
                         .accessibilityIdentifier("week-overflow-\(day.raw)")
                 } else if !isToday {
                     if adding {
