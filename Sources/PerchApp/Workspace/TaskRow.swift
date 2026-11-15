@@ -234,7 +234,7 @@ struct TaskRow: View {
                 systemImage: "list.bullet")
         }
         if let c = task.carriedFrom { Label(AppL10n.format("From %@", shortDay(c)), systemImage: "arrow.uturn.right") }
-        if let agent = task.agentID, let name = AgentName.short(agent) {
+        if store.prefs.showAgentAttribution, let agent = task.agentID, let name = AgentName.short(agent) {
             Label(AppL10n.format("Via %@", name), systemImage: "sparkles").help(
                 AppL10n.format("Added through MCP by %@", agent))
         }
