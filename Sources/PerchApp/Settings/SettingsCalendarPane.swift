@@ -11,6 +11,13 @@ struct SettingsCalendarPane: View {
         @Environment(\.calendarSettingsPreview) private var preview
     #endif
 
+    #if DEBUG || PERCH_TESTING
+        @MainActor
+        static func probe(store: PlannerStore, services: Services, model: CalendarSettingsModel) -> some View {
+            SettingsCalendarContent(store: store, services: services, model: model)
+        }
+    #endif
+
     var body: some View {
         #if DEBUG || PERCH_TESTING
             if let preview {
@@ -58,6 +65,19 @@ private struct SettingsCalendarContent: View {
                 refreshReminders: { effects.refreshReminders() },
                 refreshMirroring: { effects.refreshMirroring() }))
     }
+
+    #if DEBUG || PERCH_TESTING
+        /// Exercise the same content with isolated storage and permission/service fakes.
+        init(store: PlannerStore, services: Services, model: CalendarSettingsModel) {
+            self.store = store
+            calendar = services.calendar
+            sync = services.remindersSync
+            suppliedChoices = []
+            hasSuppliedAccess = true
+            _permissions = StateObject(wrappedValue: model.permissions)
+            _model = StateObject(wrappedValue: model)
+        }
+    #endif
 
     private var choices: [CalendarSettingsChoice] {
         suppliedChoices ?? calendar.calendars.map { CalendarSettingsChoice(id: $0.calendarIdentifier, title: $0.title) }

@@ -1372,8 +1372,35 @@ final class AllPageMatrix {
             "enabled=\(autoSortEnabled) supported=\(AISorter.isSupported)")
         try report.require(SMAppService.mainApp.status == loginStatus, "general pane never mutates the login item")
 
-        // Calendar: the calendar row must report the state the system actually holds, and
-        // reading it must not request access.
+        // Calendar: allowed and unrequested permissions stay quiet; failures have a scoped row.
+        @MainActor
+        func calendarPermissionMatches(_ root: MatrixElement, feature: String, state: PermissionState) -> Bool {
+            let rows = mxTree(root).filter { mxIdentifier($0) == "permission-row.\(feature)" }
+            switch state {
+            case .checking, .allowed, .notDetermined: return rows.isEmpty
+            default: return rows.count == 1 && mxHas(rows[0], state.title)
+            }
+        }
+        @MainActor
+        func calendarSegment(_ root: MatrixElement, name: String, expectedEnabled: Bool) throws -> MatrixElement {
+            let groups = mxTree(root).filter {
+                mxRole($0) == "AXGroup" && mxNames($0).contains(AppL10n.text("Edits made on your phone"))
+            }
+            guard groups.count == 1, let group = groups.first else {
+                throw MatrixFailure(label: "expected one phone edits group, saw \(groups.count)")
+            }
+            let matches = mxTree(group).filter {
+                mxRole($0) == "AXButton" && mxNames($0).contains(AppL10n.text(name))
+            }
+            guard matches.count == 1, let segment = matches.first else {
+                throw MatrixFailure(label: "expected one phone edits segment \(name), saw \(matches.count)")
+            }
+            guard let enabled = mxEnabled(segment), enabled == expectedEnabled else {
+                throw MatrixFailure(label: "unexpected enabled state for phone edits segment \(name)")
+            }
+            return segment
+        }
+        // Reading the real permission state must not request access.
         let calendarBefore = EKEventStore.authorizationStatus(for: .event)
         let calendarState = SettingsPermissionAccess.eventState(calendarBefore).state
         try selectPane(.calendar, window: window, host: host, root: root)
@@ -1381,7 +1408,8 @@ final class AllPageMatrix {
         mxDumpAX(root, "calendar-permissions")
         try mxSave(host, output.appendingPathComponent("calendar-permissions.png"))
         try report.require(
-            mxHas(root, calendarState.title), "calendar pane reports the real calendar permission state",
+            calendarPermissionMatches(root, feature: "calendar", state: calendarState),
+            "calendar pane reports the real calendar permission state",
             "expected \(calendarState.title)")
         try report.require(
             EKEventStore.authorizationStatus(for: .event) == calendarBefore,
@@ -1414,26 +1442,139 @@ final class AllPageMatrix {
             AgentConnector.App.allCases.map { AgentConnector.status($0) } == agentStatuses,
             "agents pane never mutates a connector")
 
-        // Calendar: the reminders row must report the real state, the dependent phone alert must be
-        // disabled while mirroring is off, and no sync may run.
+        // Calendar: phone edits depend on mirroring, and reading the real state never starts sync.
         let reminderBefore = EKEventStore.authorizationStatus(for: .reminder)
         let reminderState = SettingsPermissionAccess.eventState(reminderBefore).state
         let tasksBefore = fixture.store.planner.tasks.count
         try selectPane(.calendar, window: window, host: host, root: root)
         await mxReady(1.0)
         try report.require(
-            mxHas(root, reminderState.title), "calendar pane reports the real reminders permission state",
+            calendarPermissionMatches(root, feature: "reminders", state: reminderState),
+            "calendar pane reports the real reminders permission state",
             "expected \(reminderState.title)")
-        let phoneAlertEnabled = try mxSettingsCheckboxEnabled(
-            root, name: AppL10n.text("Alert on iPhone and Apple Watch too"))
-        try report.require(
-            phoneAlertEnabled == fixture.store.prefs.remindersSync,
-            "phone alert stays disabled while mirroring is off")
+        _ = try calendarSegment(root, name: "Ignore", expectedEnabled: false)
+        _ = try calendarSegment(root, name: "Bring back", expectedEnabled: false)
+        try report.require(!fixture.store.prefs.remindersSync, "phone edits stay disabled while mirroring is off")
         try report.require(
             EKEventStore.authorizationStatus(for: .reminder) == reminderBefore,
             "calendar pane never requests reminders access")
         try report.require(fixture.store.planner.tasks.count == tasksBefore, "calendar pane never mutates the planner")
         try mxSave(host, output.appendingPathComponent("settings-calendar-permissions.png"))
+
+        // The interactive fixture has its own store, not observed by the real services above.
+        // All permission requests and sync effects below are recording fakes.
+        @MainActor
+        final class CalendarProbeAccess: PermissionAccess {
+            var states: [PermissionFeature: PermissionReading] = [:]
+            var requests: [PermissionFeature] = []
+            func read(_ feature: PermissionFeature) async -> PermissionReading {
+                states[feature] ?? PermissionReading(.denied)
+            }
+            func request(_ feature: PermissionFeature) async throws { requests.append(feature) }
+        }
+        let calendarFile = PlannerFile(
+            url: fixture.directory.appendingPathComponent("calendar-controls.json"),
+            preferences: MemoryPlannerPreferences())
+        let calendarStore = PlannerStore(file: calendarFile, watching: false)
+        let calendarAccess = CalendarProbeAccess()
+        let calendarPermissions = PermissionPanelModel(access: calendarAccess)
+        var phoneModes: [Bool] = []
+        let calendarModel = CalendarSettingsModel(
+            store: calendarStore, permissions: calendarPermissions,
+            enableMirroring: { true },
+            setTwoWay: { enabled in
+                phoneModes.append(enabled)
+                return true
+            })
+        let calendarView = SettingsCalendarPane.probe(
+            store: calendarStore, services: fixture.services, model: calendarModel)
+        let (calendarWindow, calendarHost) = try matrixWindow(
+            "Matrix Calendar Controls", calendarView, size: SettingsMetrics.windowSize)
+        defer { calendarWindow.close() }
+        await mxReady()
+        let calendarRoot = try mxRoot("Matrix Calendar Controls")
+        for feature in ["calendar", "reminders"] {
+            let row = try mxPermissionRow(calendarRoot, feature: feature)
+            try report.require(
+                mxHas(row, PermissionState.denied.title), "calendar fixture shows denied \(feature) access")
+            let recovery = mxTree(row).filter {
+                mxRole($0) == "AXButton"
+                    && mxNames($0).contains(
+                        AppL10n.format(
+                            "Open %@ settings",
+                            feature == "calendar" ? PermissionFeature.calendar.title : PermissionFeature.reminders.title
+                        ))
+            }
+            try report.require(
+                recovery.count == 1 && mxEnabled(recovery[0]) == true,
+                "calendar fixture offers \(feature) System Settings recovery")
+        }
+        _ = try calendarSegment(calendarRoot, name: "Ignore", expectedEnabled: false)
+        _ = try calendarSegment(calendarRoot, name: "Bring back", expectedEnabled: false)
+        await calendarModel.setMirroring(true)
+        try report.require(
+            !(try calendarFile.load()).preferences.remindersSync,
+            "denied reminders access cannot enable mirroring")
+
+        calendarAccess.states[.calendar] = PermissionReading(.allowed)
+        calendarAccess.states[.reminders] = PermissionReading(.allowed)
+        await calendarPermissions.refresh()
+        await mxSettle()
+        try report.require(
+            calendarPermissionMatches(calendarRoot, feature: "calendar", state: .allowed)
+                && calendarPermissionMatches(calendarRoot, feature: "reminders", state: .allowed),
+            "calendar recovery hides allowed permission rows")
+        await calendarModel.setMirroring(true)
+        await mxSettle()
+        try report.require(
+            (try calendarFile.load()).preferences.remindersSync,
+            "recovered reminders access allows mirroring")
+        _ = try calendarSegment(calendarRoot, name: "Ignore", expectedEnabled: true)
+        _ = try calendarSegment(calendarRoot, name: "Bring back", expectedEnabled: true)
+
+        // Seed the other mode, then drive the real segment to verify its binding and disk write.
+        calendarModel.setPhoneEdits(.bringBack)
+        await mxSettle()
+        try report.require(
+            (try calendarFile.load()).preferences.phoneEdits == .bringBack,
+            "calendar phone edits fixture starts in Bring back")
+        let ignore = try calendarSegment(calendarRoot, name: "Ignore", expectedEnabled: true)
+        try mxClick(host: calendarHost, window: calendarWindow, screenRect: mxFrame(ignore))
+        await mxSettle()
+        try report.require(
+            (try calendarFile.load()).preferences.phoneEdits == .ignore && phoneModes == [true, false],
+            "phone edits segment persists Ignore and updates two-way consent")
+        let selectedIgnore = try calendarSegment(calendarRoot, name: "Ignore", expectedEnabled: true)
+        try report.require(
+            mxNames(selectedIgnore).contains(AppL10n.text("Selected")),
+            "phone edits segment displays its stored selection")
+        let bringBack = try calendarSegment(calendarRoot, name: "Bring back", expectedEnabled: true)
+        try mxClick(host: calendarHost, window: calendarWindow, screenRect: mxFrame(bringBack))
+        await mxSettle()
+        try report.require(
+            mxHasInApp(calendarRoot, AppL10n.text("Enable two-way sync for the Perch list?")),
+            "Bring back requires explicit confirmation")
+        guard let confirmation = calendarWindow.attachedSheet else {
+            throw MatrixFailure(label: "Bring back confirmation did not attach to its window")
+        }
+        try await mxKey(confirmation, 53, "\u{1b}")
+        await mxSettle()
+        try report.require(
+            !mxHasInApp(calendarRoot, AppL10n.text("Enable two-way sync for the Perch list?"))
+                && (try calendarFile.load()).preferences.phoneEdits == .ignore && phoneModes == [true, false],
+            "cancelling Bring back preserves the stored selection")
+        await calendarModel.setMirroring(false)
+        await mxSettle()
+        _ = try calendarSegment(calendarRoot, name: "Ignore", expectedEnabled: false)
+        _ = try calendarSegment(calendarRoot, name: "Bring back", expectedEnabled: false)
+        try report.require(
+            calendarAccess.requests.isEmpty
+                && EKEventStore.authorizationStatus(for: .event) == calendarBefore
+                && EKEventStore.authorizationStatus(for: .reminder) == reminderBefore,
+            "calendar control fixture never requests real permission")
+        try report.require(
+            !fixture.store.prefs.remindersSync && fixture.store.planner.tasks.count == tasksBefore,
+            "calendar control fixture never enables the live sync service")
     }
 
     // MARK: Dashboard: four tabs
