@@ -32,6 +32,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         services.attach(model: model)
         notch = NotchController(store: store, model: model, services: services)
         notch.start()
+        SettingsGeneralPane.connect(store: store).store(in: &cancellables)
         KeysWindow.install(store: store, model: model)
         setupMenuBar()
         setupURLScheme()

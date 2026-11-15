@@ -1284,7 +1284,7 @@ final class AllPageMatrix {
 
         // Detail markers are distinct from the five sidebar titles.
         let markers: [(SettingsView.Pane, String, String)] = [
-            (.general, "Opening", "Open the notch on"),
+            (.general, "Opening", "Hovering over the notch shows"),
             (.notch, "Around the notch", "Pill details"),
             (.calendar, "Calendar", "Apple Reminders"),
             (.agents, "Connect AI agents", "Or use Terminal"),

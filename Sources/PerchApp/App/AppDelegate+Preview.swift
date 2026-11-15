@@ -22,6 +22,7 @@ import SwiftUI
                 "week": .workspace(.week),
                 "settings": .window("settings") { $0.openSettings() },
                 "settings/general": .window("settings") { SettingsWindow.preview(.general, app: $0) },
+                "settings/general-alternatives": .window("settings", open: SettingsGeneralPane.previewAlternatives),
                 "settings/notch": .window("settings") { SettingsWindow.preview(.notch, app: $0) },
                 "settings/calendar": .window("settings") { SettingsWindow.preview(.calendar, app: $0) },
                 "settings/agents": .window("settings") { SettingsWindow.preview(.agents, app: $0) },

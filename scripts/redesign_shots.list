@@ -30,6 +30,7 @@ notch-flat-running --scenario notch-running --open notch-flat
 notch-flat-paused --scenario notch-paused --open notch-flat
 notch-flat-reminder --scenario notch-reminder --open notch-flat
 settings-general --scenario empty --open settings/general
+settings-general-alternatives --scenario empty --open settings/general-alternatives
 settings-notch --scenario empty --open settings/notch
 settings-calendar --scenario empty --open settings/calendar
 settings-agents --scenario empty --open settings/agents
