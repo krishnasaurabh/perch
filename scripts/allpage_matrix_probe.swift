@@ -1356,6 +1356,7 @@ final class AllPageMatrix {
         // General: the Apple Intelligence control must present the real availability reason and
         // follow the real availability; nothing may touch the login item.
         try selectPane(.general, window: window, host: host, root: root)
+        try mxClick(host: host, window: window, screenRect: mxFrame(try mxIdentified(root, "settings.general.more")))
         await mxReady(0.8)
         let loginStatus = SMAppService.mainApp.status
         let expectedExplanation = SettingsView.appleIntelligenceExplanation(

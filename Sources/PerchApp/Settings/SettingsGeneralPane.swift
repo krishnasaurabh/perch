@@ -131,6 +131,7 @@ struct SettingsGeneralPane: View {
         DisclosureGroup("More options") {
             additionalOptions
         }
+        .accessibilityIdentifier("settings.general.more")
         .perchFont(.detail)
         .foregroundStyle(Theme.ink2)
     }

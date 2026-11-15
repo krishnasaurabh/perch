@@ -116,20 +116,7 @@ final class ShortcutPreferenceSync {
     init(store: PlannerStore, defaults: UserDefaults = .standard) {
         self.store = store
         self.defaults = defaults
-        // Import a customized old shortcut once. A typed nondefault choice wins over old defaults.
-        if !defaults.bool(forKey: Self.migrationKey) {
-            let legacy = ShortcutStore.load(defaults: defaults)
-            if store.prefs.openShortcut == OpenShortcut(), legacy != .default {
-                guard
-                    store.performMutation(
-                        origin: .background,
-                        {
-                            try $0.updatePreference(.openShortcut(Self.preference(legacy)))
-                        }) != nil
-                else { return }
-            }
-            defaults.set(true, forKey: Self.migrationKey)
-        }
+        // Always connect before importing: a storage failure must not disable later updates.
         // Retain failed storage restorations until the next publication, even if the chord is unchanged.
         store.$planner.dropFirst().receive(on: RunLoop.main)
             .sink { [weak self] _ in self?.synchronize() }.store(in: &observations)
@@ -145,11 +132,25 @@ final class ShortcutPreferenceSync {
                 self.synchronize()
             }.store(in: &observations)
         // Subscribe before the first registration attempt so a launch-time rejection is persisted too.
-        ShortcutStore.save(Self.key(store.prefs.openShortcut), defaults: defaults)
+        synchronize(registerCurrent: true)
     }
 
-    private func synchronize() {
+    private func synchronize(registerCurrent: Bool = false) {
         guard let store else { return }
+        // Keep the legacy chord live until its import succeeds. A newer typed choice wins.
+        if !defaults.bool(forKey: Self.migrationKey) {
+            let legacy = ShortcutStore.load(defaults: defaults)
+            if store.prefs.openShortcut == OpenShortcut(), legacy != .default {
+                guard
+                    store.performMutation(
+                        origin: .background,
+                        {
+                            try $0.updatePreference(.openShortcut(Self.preference(legacy)))
+                        }) != nil
+                else { return }
+            }
+            defaults.set(true, forKey: Self.migrationKey)
+        }
         let desired = Self.key(store.prefs.openShortcut)
         if let pending = pendingRestore {
             if desired == pending.rejected {
@@ -165,7 +166,9 @@ final class ShortcutPreferenceSync {
             }
             pendingRestore = nil
         }
-        if ShortcutStore.load(defaults: defaults) != desired { ShortcutStore.save(desired, defaults: defaults) }
+        if registerCurrent || ShortcutStore.load(defaults: defaults) != desired {
+            ShortcutStore.save(desired, defaults: defaults)
+        }
     }
 }
 
