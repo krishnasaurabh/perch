@@ -27,7 +27,10 @@ class SettingsNotchPaneTests(unittest.TestCase):
         self.assertEqual(source.count("PerchSegmented("), 2)
         for title in ("Around the notch", "Pill details", "Menu bar"):
             self.assertIn(f'SettingsSection("{title}")', source)
-        self.assertNotIn("Picker(", source)
+        # The independent opening control retains its shared legacy binding.
+        self.assertNotIn("Picker(", source.replace(
+            'Picker("Open the notch on", selection: SettingsView.openingPreference(store: store)) {',
+            "", 1))
         self.assertNotIn("ViewThatFits", source)
 
     def test_bindings_use_typed_actions_not_local_drafts(self):
