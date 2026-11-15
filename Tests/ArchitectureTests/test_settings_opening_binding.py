@@ -17,11 +17,10 @@ ROOT = Path(__file__).resolve().parents[2]
 
 class SettingsOpeningBindingTests(unittest.TestCase):
     def test_settings_choice_survives_migration_reload_and_routes_activation(self):
-        source = (ROOT / "Sources/PerchApp/Settings/SettingsView.swift").read_text()
+        source = (ROOT / "Sources/PerchApp/Settings/SettingsNotchPane.swift").read_text()
         selection = re.search(r'Picker\("Open the notch on", selection: (.+)\) \{', source)
         if selection is None:
             self.fail("Exercise the live Settings picker, not a separate policy")
-        pref = declaration(source, "func pref<V>(")
         helper = (declaration(source, "static func openingPreference(")
                   if "static func openingPreference(" in source else "")
         activation = declaration(
@@ -54,7 +53,7 @@ enum NotchPage: Sendable { case home }
 extension Notification.Name { static let perchOpenWorkspace = Self("perchOpenWorkspace") }
 @MainActor struct SettingsView {
     let store: PlannerStore
-''' + pref + "\n" + helper + r'''
+''' + helper + r'''
     func selection() -> Binding<NotchOpenTrigger> { SELECTION }
 }
 @MainActor final class NotchModel {

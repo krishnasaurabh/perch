@@ -61,7 +61,7 @@ class WelcomeProbeTests(unittest.TestCase):
     def test_theme_keeps_settings_status_growth_and_measures_welcome_reasons(self):
         source = (ROOT / "scripts/theme_probe.swift").read_text()
         self.assertIn('"welcome", WelcomeView.windowSize, nil,', source)
-        self.assertIn('for name in ["settings-System"]', source)
+        self.assertIn('for name in ["settings-calendar"]', source)
         self.assertIn('let (base, big) = statusGrowth[name] ?? (0, 0)', source)
         self.assertIn('base > 0 && big >= base * 1.4', source)
         self.assertIn('"welcome_reason_heights": reasonHeights', source)

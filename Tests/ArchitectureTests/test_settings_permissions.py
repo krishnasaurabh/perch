@@ -13,14 +13,14 @@ class SettingsPermissionWiringTests(unittest.TestCase):
         self.assertNotIn("requestAccess", source)
         self.assertNotIn("requestAuthorization", source)
         self.assertNotIn("requestFullAccess", source)
-        settings = (ROOT / "Sources/PerchApp/Settings/SettingsView.swift").read_text()
+        settings = (ROOT / "Sources/PerchApp/Settings/SettingsCalendarPane.swift").read_text()
         self.assertIn("PermissionPanel(services: services", settings)
         panel = (ROOT / "Sources/PerchApp/Settings/PermissionPanel.swift").read_text()
         self.assertIn("services.calendar.requestAccess()", panel)
         self.assertIn("services.reminders.requestAuthorization()", panel)
 
-    def test_settings_exposes_overdue_policy(self):
-        source = (ROOT / "Sources/PerchApp/Settings/SettingsView.swift").read_text()
+    def test_settings_exposes_carry_policy(self):
+        source = (ROOT / "Sources/PerchApp/Settings/SettingsGeneralPane.swift").read_text()
         self.assertIn("pref(\\.carryMode)", source)
         self.assertIn("CarryMode.ask", source)
         self.assertIn("CarryMode.auto", source)
