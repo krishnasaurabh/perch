@@ -192,6 +192,10 @@ jobs:
 
   probes-layout-macos:
     name: Perch layout probes (macOS)
+    # Evidence gates run on main (and manual dispatch), not on every PR: per-PR macOS time
+    # was dominated by these ~20-minute probe jobs (measured 2026-11-15), which serialised
+    # the merge queue behind a single runner pool. app-macos remains the per-PR gate.
+    if: github.event_name != 'pull_request'
     runs-on: macos-15
     needs: app-macos
     steps:
@@ -389,6 +393,7 @@ jobs:
 
   probes-behavior-macos:
     name: Perch behavior probes (macOS)
+    if: github.event_name != 'pull_request'
     runs-on: macos-15
     needs: app-macos
     steps:
@@ -450,6 +455,7 @@ jobs:
 
   motion-macos:
     name: Perch motion evidence (macOS)
+    if: github.event_name != 'pull_request'
     runs-on: macos-15
     needs: app-macos
     steps:
