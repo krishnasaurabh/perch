@@ -2,6 +2,14 @@
 # Each state runs in light/dark and normal/Reduce Motion, in four app sessions.
 # Screen lanes append targets and fixtures here as their presentations land.
 welcome --scenario empty --open welcome
+menubar-icon --scenario notch-running --open menubar-icon
+menubar-time --scenario notch-running --open menubar-time
+menubar-idle --scenario notch-idle --open menubar-time
+menubar-tasks --scenario today-editing --open menubar-tasks
+menubar-hidden --scenario notch-running --open menubar-hidden
+menubar-paused --scenario notch-paused --open menubar-time
+menubar-private --scenario notch-running --open menubar-private
+menubar-block --scenario notch-running --open menubar-block
 today-empty --scenario empty --open today
 today-three --scenario three --open today
 today-timer --scenario timer --open today

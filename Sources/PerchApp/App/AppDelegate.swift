@@ -9,10 +9,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     var model: NotchModel!
     var services: Services!
     var notch: NotchController!
-    var statusItem: NSStatusItem?
-    /// "Open Perch (<chord>)": kept so a rebind in Settings can retitle it without a relaunch.
-    private var openItem: NSMenuItem?
-    private var cancellables = Set<AnyCancellable>()
+    private(set) var menuBarItem: MenuBarItem?
+    var statusItem: NSStatusItem? { menuBarItem?.statusItem }
 
     func applicationDidFinishLaunching(_ n: Notification) {
         #if DEBUG || PERCH_TESTING
@@ -46,38 +44,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         #endif
     }
 
-    // Menu bar icon: a fallback way in, plus quit.
     private func setupMenuBar() {
-        let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
-        item.button?.image = NSImage(systemSymbolName: "bird", accessibilityDescription: "Perch")
-        let menu = NSMenu()
-        let open = menu.addItem(withTitle: Self.openTitle(), action: #selector(openWorkspace), keyEquivalent: "")
-        open.target = self
-        openItem = open
-        menu.addItem(withTitle: AppL10n.text("Dashboard"), action: #selector(openDashboard), keyEquivalent: "").target =
-            self
-        menu.addItem(withTitle: AppL10n.text("Settings…"), action: #selector(openSettings), keyEquivalent: ",").target =
-            self
-        menu.addItem(withTitle: AppL10n.text("Hide task count"), action: #selector(hideTaskCount), keyEquivalent: "")
-            .target = self
-        menu.addItem(.separator())
-        menu.addItem(
-            withTitle: AppL10n.text("Quit Perch"), action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
-        item.menu = menu
-        statusItem = item
-
-        // didFail too: a chord macOS refuses is rolled back after didChange, so re-read the store each time.
-        Publishers.Merge(
-            NotificationCenter.default.publisher(for: ShortcutStore.didChange),
-            NotificationCenter.default.publisher(for: ShortcutStore.didFail)
-        )
-        .receive(on: RunLoop.main)
-        .sink { [weak self] _ in self?.openItem?.title = Self.openTitle() }
-        .store(in: &cancellables)
-    }
-
-    private static func openTitle() -> String {
-        AppL10n.format("Open Perch (%@)", ShortcutStore.load().display)
+        menuBarItem = MenuBarItem(store: store) { [weak self] action in
+            guard let self else { return }
+            switch action {
+            case .addTask, .openToday: self.openWorkspace()
+            case .openWeek: NotificationCenter.default.post(name: .perchOpenWorkspace, object: NotchPage.week)
+            case .settings: self.openSettings()
+            case .quit: NSApp.terminate(nil)
+            case .privacy, .pauseOrContinue, .addFiveMinutes: break
+            }
+        }
     }
 
     @objc func openWorkspace() { NotificationCenter.default.post(name: .perchOpenWorkspace, object: NotchPage.home) }
