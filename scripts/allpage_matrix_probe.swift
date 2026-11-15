@@ -601,6 +601,20 @@ func mxFind(_ root: MatrixElement, name: String) -> MatrixElement? {
     mxTree(root).first { mxNames($0).contains(name) }
 }
 
+/// Settings rows publish a separate label with the control's name. Require the actual
+/// checkbox and an observed enabled value; missing or ambiguous controls must fail closed.
+@MainActor
+func mxSettingsCheckboxEnabled(_ root: MatrixElement, name: String) throws -> Bool {
+    let matches = mxTree(root).filter { mxRole($0) == "AXCheckBox" && mxNames($0).contains(name) }
+    guard matches.count == 1, let checkbox = matches.first else {
+        throw MatrixFailure(label: "expected one settings checkbox for \(name), saw \(matches.count)")
+    }
+    guard let enabled = mxEnabled(checkbox) else {
+        throw MatrixFailure(label: "missing enabled state for settings checkbox \(name)")
+    }
+    return enabled
+}
+
 @MainActor
 func mxIdentified(_ root: MatrixElement, _ identifier: String) throws -> MatrixElement {
     let matches = mxTree(root).filter { mxIdentifier($0) == identifier }
@@ -1268,14 +1282,13 @@ final class AllPageMatrix {
         await mxReady(1.4)
         let root = try mxRoot("Matrix Settings")
 
-        // Two markers per pane that exist nowhere else in Settings, and never collide with the
-        // sidebar row titles ("General", "Workspace", "Focus timer", "AI agents", "System").
+        // Detail markers are distinct from the five sidebar titles.
         let markers: [(SettingsView.Pane, String, String)] = [
-            (.general, "Opening", "Apple Intelligence"),
-            (.workspace, "Beside today's tasks", "Calendar"),
-            (.focus, "Default length", "Workspace timer face"),
+            (.general, "Opening", "Open the notch on"),
+            (.notch, "Around the notch", "Pill details"),
+            (.calendar, "Calendar", "Apple Reminders"),
             (.agents, "Connect AI agents", "Or use Terminal"),
-            (.system, "Your data", "Apple Reminders"),
+            (.data, "Where it lives", "Take it with you"),
         ]
         var observed: [String: Int] = [:]
         var signatures: [String: String] = [:]
@@ -1299,7 +1312,7 @@ final class AllPageMatrix {
             try mxSave(host, output.appendingPathComponent("settings-\(pane.rawValue.lowercased()).png"))
             try writeAX(root, output.appendingPathComponent("settings-\(pane.rawValue.lowercased()).ax.json"))
         }
-        // Selecting System must retire the General detail: the sidebar really drives the pane.
+        // Selecting Your data must retire the General detail: the sidebar really drives the pane.
         try report.require(
             !mxHas(root, AppL10n.text("Apple Intelligence")),
             "settings detail is replaced when the pane changes")
@@ -1314,23 +1327,18 @@ final class AllPageMatrix {
     func selectPane(_ pane: SettingsView.Pane, window: NSWindow, host: NSView, root: MatrixElement) throws {
         let title = pane.title
         let nodes = mxTree(root)
-        let rows = nodes.filter { (mxRole($0) ?? "").contains("Row") }
-        for row in rows
-        where mxNames(row).contains(title) || mxTree(row).contains(where: { mxNames($0).contains(title) }) {
-            mxLog("matrix click target: role=\(mxRole(row) ?? "") names=\(mxNames(row)) pane=\(title)")
-            try mxClick(host: host, window: window, screenRect: mxFrame(row))
-            return
+        let buttons = nodes.filter {
+            mxRole($0) == "AXButton" && mxIdentifier($0) == "settings.sidebar.\(pane.rawValue)"
+                && mxNames($0).contains(title)
         }
-        // A sidebar row may expose its label only on a child static text: click that frame.
-        for label in nodes where mxRole(label) == "AXStaticText" && mxNames(label).contains(title) {
-            try mxClick(host: host, window: window, screenRect: mxFrame(label))
-            return
+        guard buttons.count == 1, let button = buttons.first else {
+            mxDumpAX(root, "settings-\(pane.rawValue)")
+            throw MatrixFailure(label: "expected one settings sidebar button for \(title), found \(buttons.count)")
         }
-        mxDumpAX(root, "settings-\(pane.rawValue)")
-        throw MatrixFailure(label: "no settings sidebar control for \(title) (\(nodes.count) nodes)")
+        try mxClick(host: host, window: window, screenRect: mxFrame(button))
     }
 
-    // MARK: Settings: a synthetic failure path per pane
+    // MARK: Settings: failure and permission paths in their owning panes
 
     func settingsFailurePaths() async throws {
         MatrixAX.useViewTree = true
@@ -1358,44 +1366,40 @@ final class AllPageMatrix {
         try report.require(
             mxHas(root, expectedExplanation), "general pane explains the AI failure state",
             "isSupported=\(AISorter.isSupported)")
-        if let checkbox = mxFind(root, name: AppL10n.text("Auto-sort new tasks")) {
-            let enabled = mxEnabled(checkbox) ?? false
-            try report.require(
-                enabled == AISorter.isSupported, "auto-sort enablement follows real AI availability",
-                "enabled=\(enabled) supported=\(AISorter.isSupported)")
-        } else {
-            try report.require(false, "general pane exposes the auto-sort checkbox")
-        }
+        let autoSortEnabled = try mxSettingsCheckboxEnabled(root, name: AppL10n.text("Auto-sort new tasks"))
+        try report.require(
+            autoSortEnabled == AISorter.isSupported, "auto-sort enablement follows real AI availability",
+            "enabled=\(autoSortEnabled) supported=\(AISorter.isSupported)")
         try report.require(SMAppService.mainApp.status == loginStatus, "general pane never mutates the login item")
 
-        // Workspace: the calendar row must report the state the system actually holds, and
+        // Calendar: the calendar row must report the state the system actually holds, and
         // reading it must not request access.
         let calendarBefore = EKEventStore.authorizationStatus(for: .event)
         let calendarState = SettingsPermissionAccess.eventState(calendarBefore).state
-        try selectPane(.workspace, window: window, host: host, root: root)
+        try selectPane(.calendar, window: window, host: host, root: root)
         await mxReady(1.0)
-        mxDumpAX(root, "workspace-permissions")
-        try mxSave(host, output.appendingPathComponent("workspace-permissions.png"))
+        mxDumpAX(root, "calendar-permissions")
+        try mxSave(host, output.appendingPathComponent("calendar-permissions.png"))
         try report.require(
-            mxHas(root, calendarState.title), "workspace pane reports the real calendar permission state",
+            mxHas(root, calendarState.title), "calendar pane reports the real calendar permission state",
             "expected \(calendarState.title)")
         try report.require(
             EKEventStore.authorizationStatus(for: .event) == calendarBefore,
-            "workspace pane never requests calendar access")
+            "calendar pane never requests calendar access")
         try report.require(
             calendarState == .allowed || !fixture.services.calendar.hasAccess,
-            "workspace pane calendar access matches the reported state")
+            "calendar pane calendar access matches the reported state")
 
-        // Focus: a corrupted persisted length must be surfaced, not silently rewritten.
+        // General: a corrupted persisted length must be surfaced, not silently rewritten.
         try fixture.write { $0.preferences.defaultFocusMinutes = 0 }
-        try selectPane(.focus, window: window, host: host, root: root)
+        try selectPane(.general, window: window, host: host, root: root)
         await mxReady(0.8)
         try report.require(
-            mxHas(root, AppL10n.format("%lld min", 0)), "focus pane surfaces the out-of-range length",
+            mxHas(root, AppL10n.format("%lld min", 0)), "general pane surfaces the out-of-range length",
             "texts \(mxText(root).prefix(18))")
         try report.require(
             (try fixture.file.load()).preferences.defaultFocusMinutes == 0,
-            "focus pane does not silently repair the persisted length")
+            "general pane does not silently repair the persisted length")
 
         // Agents: an unbundled probe cannot install agents, so the warning must be shown and no
         // connector may change state.
@@ -1410,28 +1414,26 @@ final class AllPageMatrix {
             AgentConnector.App.allCases.map { AgentConnector.status($0) } == agentStatuses,
             "agents pane never mutates a connector")
 
-        // System: the reminders row must report the real state, the dependent phone alert must be
+        // Calendar: the reminders row must report the real state, the dependent phone alert must be
         // disabled while mirroring is off, and no sync may run.
         let reminderBefore = EKEventStore.authorizationStatus(for: .reminder)
         let reminderState = SettingsPermissionAccess.eventState(reminderBefore).state
         let tasksBefore = fixture.store.planner.tasks.count
-        try selectPane(.system, window: window, host: host, root: root)
+        try selectPane(.calendar, window: window, host: host, root: root)
         await mxReady(1.0)
         try report.require(
-            mxHas(root, reminderState.title), "system pane reports the real reminders permission state",
+            mxHas(root, reminderState.title), "calendar pane reports the real reminders permission state",
             "expected \(reminderState.title)")
-        if let phoneToggle = mxFind(root, name: AppL10n.text("Alert on iPhone and Apple Watch too")) {
-            try report.require(
-                (mxEnabled(phoneToggle) ?? true) == fixture.store.prefs.remindersSync,
-                "phone alert stays disabled while mirroring is off")
-        } else {
-            try report.require(false, "system pane exposes the phone alert control")
-        }
+        let phoneAlertEnabled = try mxSettingsCheckboxEnabled(
+            root, name: AppL10n.text("Alert on iPhone and Apple Watch too"))
+        try report.require(
+            phoneAlertEnabled == fixture.store.prefs.remindersSync,
+            "phone alert stays disabled while mirroring is off")
         try report.require(
             EKEventStore.authorizationStatus(for: .reminder) == reminderBefore,
-            "system pane never requests reminders access")
-        try report.require(fixture.store.planner.tasks.count == tasksBefore, "system pane never mutates the planner")
-        try mxSave(host, output.appendingPathComponent("settings-system.png"))
+            "calendar pane never requests reminders access")
+        try report.require(fixture.store.planner.tasks.count == tasksBefore, "calendar pane never mutates the planner")
+        try mxSave(host, output.appendingPathComponent("settings-calendar-permissions.png"))
     }
 
     // MARK: Dashboard: four tabs

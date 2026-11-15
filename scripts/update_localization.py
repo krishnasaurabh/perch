@@ -215,7 +215,7 @@ def main():
     args = parser.parse_args()
     ui_keys = collect(L10N, UI.rglob('*.swift'))
     ui_keys |= collect(LOCAL_HELPER, [UI / 'PerchLocalization.swift'])
-    app_keys = human_app_strings()
+    app_keys = human_app_strings() | set(json.loads(APP_CATALOG.read_text())["strings"])
     ui_document = catalog(ui_keys)
     write_or_check(UI_CATALOG, ui_document, args.check)
     write_or_check(UI_CATALOG.with_suffix('.json'), ui_document, args.check)
