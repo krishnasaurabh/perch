@@ -8,6 +8,7 @@ Usage:
   measure_capture_contrast.py ... --week DARK_DIR   gate Week prompts at >= 4.5:1 (--week-dark is an alias)
                               --week-light LIGHT_DIR
                                                     same rule and minimum in both appearances
+                              --week-board          sample live footer frames from week-footers.json
   measure_capture_contrast.py --report STATE_DIR... same measurements, never fails
   measure_capture_contrast.py --diff A.png B.png [--outside-field]
                                                     count changed pixels (optionally outside the field)
@@ -210,6 +211,68 @@ def mini_fills(scheme="dark"):
             "tile": over(tile, 0.05), "today": over(over((0, 0, 0), 0.08), 0.05)}
 
 
+def board_tokens(scheme):
+    """Read opaque surface roles used by the accepted Week board, not legacy control fills."""
+    import re
+    assert scheme in ("light", "dark"), f"Unknown Week appearance: {scheme}"
+    source = (Path(__file__).resolve().parents[1] / 'Sources/PerchUI/DesignTokens.swift').read_text()
+    tokens = {}
+    for name in ('sheet', 'paper', 'butter', 'ink', 'ink2', 'brandText'):
+        match = re.search(rf'case \.{name}: return AdaptiveColor\(light: 0x([A-Fa-f0-9]+), dark: 0x([A-Fa-f0-9]+)\)', source)
+        assert match, f'Missing Week board token: {name}'
+        value = int(match[1 if scheme == 'light' else 2], 16)
+        tokens[name] = tuple((value >> shift) & 255 for shift in (16, 8, 0))
+    return tokens
+
+
+def measure_week_board(path, scheme):
+    """Measure each visible collapsed Add footer using its live native frame.
+
+    The isolated renderer writes geometry, never expected colors or ratios. The
+    modal paper background and frequent glyph core are sampled from the PNG.
+    No fallback to a different surface or legacy composer is allowed.
+    """
+    import math
+    path = Path(path)
+    img = read_png(path)
+    manifest = path.parent / 'week-footers.json'
+    assert manifest.is_file(), f"{path}: no Week composer band found (missing native footer frames)"
+    rows = json.loads(manifest.read_text())
+    assert isinstance(rows, list) and rows, f"{path}: no Week composer band found"
+    bands = [r for r in rows if r['image'] == path.name]
+    assert bands, f"{path}: no Week composer band found"
+    tokens = board_tokens(scheme)
+    fields, seen, k = [], set(), 1.0
+    for row in bands:
+        day = row['day']
+        assert day not in seen, f"{path}: duplicate Week footer: {day}"
+        seen.add(day)
+        x, y, w, h = row['xywh']
+        cw, ch = row['canvas']
+        assert all(isinstance(v, (int, float)) and math.isfinite(v) for v in (x, y, w, h, cw, ch))
+        assert cw > 0 and ch > 0 and w > 0 and h > 0, f"{path}: invalid Week footer frame"
+        k = len(img[0]) / cw
+        assert k in (1, 2) and abs(len(img) / ch - k) < .01, f"{path}: invalid Week backing scale"
+        x0, y0, x1, y1 = [round(v * k) for v in (x, y, x + w, y + h)]
+        assert 0 <= x0 < x1 <= len(img[0]) and 0 <= y0 < y1 <= len(img), f"{path}: clipped Week footer"
+        px = [p for line in img[y0:y1] for p in line[x0:x1]]
+        counts = Counter(px)
+        bg, count = counts.most_common(1)[0]
+        assert near(bg, tokens['paper'], 2) and count >= len(px) / 2, f"{path}: Week footer paper surface missing"
+        ink = Counter({p: n for p, n in counts.items() if max(abs(a-b) for a, b in zip(p, bg)) > 8})
+        frequent = [p for p, n in ink.items() if n >= 5]
+        assert frequent, f"{path}: Week field at x {x0}-{x1} has no prompt glyphs"
+        # The furthest opaque glyph core is dark on light paper, light on dark
+        # paper. Antialiased edge pixels cannot improve its measured contrast.
+        core = (min if scheme == 'light' else max)(frequent, key=luminance)
+        fields.append({"day": day, "over": "paper", "target": "collapsed Add a task",
+                       "field_xyxy": [x0, y0, x1, y1], "background_rgb": "#%02X%02X%02X" % bg,
+                       "ink_rgb": "#%02X%02X%02X" % core, "ink_pixels": sum(ink.values()),
+                       "ratio": round(ratio(core, bg), 3)})
+    assert fields, f"{path}: no Week composer fields found"
+    return {"image": str(path), "scheme": scheme, "scale": k, "fields": sorted(fields, key=lambda r: r['day'])}
+
+
 def measure_week(path, scheme="dark"):
     """Measure every Week MiniComposer prompt in the supplied appearance: the lightest colour occurring >= 5
     times in the field ROI versus the field's modal colour (the same rule in both schemes)."""
@@ -305,6 +368,7 @@ def main(argv):
         return 0
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--report", action="store_true")
+    parser.add_argument("--week-board", action="store_true", help="sample native collapsed footer frames, not legacy fields")
     parser.add_argument("--week", "--week-dark", dest="week_dark", action="append", default=[])
     parser.add_argument("--week-light", action="append", default=[])
     parser.add_argument("dirs", nargs="*")
@@ -314,7 +378,7 @@ def main(argv):
     for d, scheme in week_dirs:
         pngs = sorted(Path(d).glob("notch-*-open.png"))
         assert pngs, f"{d}: no notch-*-open.png"
-        r = measure_week(pngs[0], scheme)
+        r = (measure_week_board if args.week_board else measure_week)(pngs[0], scheme)
         results[Path(d).name] = r
         for f in r["fields"]:
             if f["ratio"] < PLACEHOLDER_MIN:

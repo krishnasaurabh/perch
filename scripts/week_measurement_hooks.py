@@ -17,7 +17,9 @@ EDITS = {
 BOARD_EDITS = {
     '.frame(width: layout.width(for: day))': '.frame(width: layout.width(for: day))\n                                .background(WeekMeasure(key: "board-column:\\(day.raw)"))',
     '.frame(width: layout.parkingWidth)': '.frame(width: layout.parkingWidth)\n                            .background(WeekMeasure(key: "board-parking"))',
-    '.lineLimit(2).fixedSize(horizontal: false, vertical: true)': '.lineLimit(2).fixedSize(horizontal: false, vertical: true)\n                .background(WeekMeasure(key: "board-title:\\(task.id)"))',
+    # AppKit snapshots a Menu label; an NSView inside it is not attached to the
+    # window. Measure the real menu control around that unchanged label instead.
+    '.accessibilityIdentifier("week-menu-\\(task.id)")': '.accessibilityIdentifier("week-menu-\\(task.id)")\n                .background(WeekMeasure(key: "board-title:\\(task.id)"))',
 }
 
 

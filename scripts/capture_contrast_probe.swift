@@ -8,6 +8,55 @@ import PlannerCore
     import PerchUI
     import PerchMCP
 #endif
+import SwiftUI
+
+// BEGIN WEEK FOOTER MEASUREMENT (copied into the isolated app library)
+@MainActor enum WeekFooterMeasurements {
+    static var views: [ObjectIdentifier: (String, NSView)] = [:]
+
+    static func save(into directory: URL) throws {
+        var rows: [[String: Any]] = []
+        for (day, view) in views.values {
+            guard let window = view.window, let root = window.contentView,
+                let screen = window.screen,
+                let number = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber
+            else { continue }
+            let rect = root.convert(view.bounds, from: view)
+            // The horizontal scroll backing also contains offscreen days. Sample
+            // every fully visible footer, never a clipped or detached label.
+            guard rect.width > 0, rect.height > 0, root.bounds.contains(rect) else { continue }
+            let image = "notch-\(number.uint32Value)-open.png"
+            guard FileManager.default.fileExists(atPath: directory.appendingPathComponent(image).path) else { continue }
+            let top = root.isFlipped ? rect.minY : root.bounds.height - rect.maxY
+            rows.append([
+                "image": image, "day": day,
+                "xywh": [rect.minX, top, rect.width, rect.height],
+                "canvas": [root.bounds.width, root.bounds.height],
+            ])
+        }
+        guard !rows.isEmpty else {
+            throw NSError(
+                domain: "CaptureContrast", code: 1,
+                userInfo: [NSLocalizedDescriptionKey: "could not sample Week Add a task footers"])
+        }
+        try JSONSerialization.data(withJSONObject: rows, options: [.prettyPrinted, .sortedKeys])
+            .write(to: directory.appendingPathComponent("week-footers.json"))
+    }
+}
+
+struct WeekFooterMeasure: NSViewRepresentable {
+    let day: String
+    func makeNSView(context: Context) -> NSView {
+        let view = NSView()
+        view.setAccessibilityElement(false)
+        WeekFooterMeasurements.views[ObjectIdentifier(view)] = (day, view)
+        return view
+    }
+    func updateNSView(_ view: NSView, context: Context) {
+        WeekFooterMeasurements.views[ObjectIdentifier(view)] = (day, view)
+    }
+}
+// END WEEK FOOTER MEASUREMENT
 
 @MainActor
 func require(_ condition: @autoclosure () -> Bool, _ message: String) {
@@ -120,12 +169,18 @@ MainActor.assumeIsolated {
                 NSApp.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua,
                 "week: dark appearance is active")
             delegate.notch.snapshot(into: output.appendingPathComponent("week"))
+            do { try WeekFooterMeasurements.save(into: output.appendingPathComponent("week")) } catch {
+                require(false, "could not sample dark Week footers: \(error)")
+            }
             NSApp.appearance = NSAppearance(named: .aqua)
             await settle()
             require(
                 NSApp.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .aqua,
                 "week-light: light appearance is active")
             delegate.notch.snapshot(into: output.appendingPathComponent("week-light"))
+            do { try WeekFooterMeasurements.save(into: output.appendingPathComponent("week-light")) } catch {
+                require(false, "could not sample light Week footers: \(error)")
+            }
             NSApp.appearance = previousAppearance
             require(delegate.store.lastError == nil, "no store error")
             for name in [
