@@ -381,6 +381,7 @@ private struct SettingsRowLayout: Layout {
 /// Retains only the failed Settings operation, never a guessed retry for an unrelated store error.
 @MainActor
 final class SettingsFailureFeedback: ObservableObject {
+    @Published var agentConnectionMessage: String?
     @Published private(set) var retryError: PerchAppError?
     var failedAgentDisconnects: Set<AgentConnector.App> = []
     private var retryAction: (() -> Void)?

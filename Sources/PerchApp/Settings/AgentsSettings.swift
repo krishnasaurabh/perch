@@ -7,10 +7,28 @@ struct AgentsSettings: View {
     @Environment(\.agentPreviewConnected) private var previewConnected
     @Binding var statuses: [AgentConnector.App: AgentConnector.Status]
     @ObservedObject var feedback: SettingsFailureFeedback
-    var readStatus: @MainActor (AgentConnector.App) -> AgentConnector.Status = AgentsSettings.connectionStatus
-    var disconnect: @MainActor (AgentConnector.App) throws -> Void = AgentConnector.disconnect
-    var connect: @MainActor (AgentConnector.App) throws -> String = AgentConnector.connect
-    @State private var message: String?
+    var readStatus: @MainActor (AgentConnector.App) -> AgentConnector.Status
+    var disconnect: @MainActor (AgentConnector.App) throws -> Void
+    var connect: @MainActor (AgentConnector.App) throws -> String
+    @Binding private var message: String?
+
+    init(
+        statuses: Binding<[AgentConnector.App: AgentConnector.Status]>, feedback: SettingsFailureFeedback,
+        readStatus: @escaping @MainActor (AgentConnector.App) -> AgentConnector.Status = AgentsSettings
+            .connectionStatus,
+        disconnect: @escaping @MainActor (AgentConnector.App) throws -> Void = AgentConnector.disconnect,
+        connect: @escaping @MainActor (AgentConnector.App) throws -> String = AgentConnector.connect
+    ) {
+        _statuses = statuses
+        self.feedback = feedback
+        self.readStatus = readStatus
+        self.disconnect = disconnect
+        self.connect = connect
+        // Both the visible pane and a retained Retry write to the same window-owned message.
+        _message = Binding(
+            get: { [weak feedback] in feedback?.agentConnectionMessage },
+            set: { [weak feedback] in feedback?.agentConnectionMessage = $0 })
+    }
 
     var body: some View {
         SettingsSection("Connected apps") {
