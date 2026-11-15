@@ -161,6 +161,8 @@ struct PermissionPanel: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
         }
+        // Match the enclosing settings paper, including when the panel is hosted on its own.
+        .background(Theme.paper)
         .task { await model.refresh() }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             Task { await model.refresh() }

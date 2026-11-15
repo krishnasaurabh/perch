@@ -20,6 +20,15 @@ class SettingsPermissionWiringTests(unittest.TestCase):
         self.assertIn("services.calendar.requestAccess()", panel)
         self.assertIn("services.reminders.requestAuthorization()", panel)
 
+    def test_permission_panel_owns_opaque_paper_surface(self):
+        panel = (ROOT / "Sources/PerchApp/Settings/PermissionPanel.swift").read_text()
+        body = panel.split("var body: some View {", 1)[1].split("private func row(", 1)[0]
+        # A standalone panel must paint the same opaque surface as its SettingsSection.
+        self.assertIn(".background(Theme.paper)", body)
+        self.assertLess(body.index(".background(Theme.paper)"), body.index(".task"))
+        self.assertNotIn(".opacity(", body)
+        self.assertNotIn("Material", body)
+
     def test_settings_exposes_carry_policy(self):
         source = (ROOT / "Sources/PerchApp/Settings/SettingsGeneralPane.swift").read_text()
         self.assertIn("pref(\\.carryMode)", source)
