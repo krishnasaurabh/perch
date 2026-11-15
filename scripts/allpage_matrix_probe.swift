@@ -2050,7 +2050,7 @@ final class AllPageMatrix {
         var measurements: [String: Any] = [:]
         // The status label paints Theme.warning in the dark palette; measure that opaque ink
         // rather than a dynamic colour resolved against the process appearance.
-        let warningInk = mxTokenColor(ThemeTokens.dark.warning)
+        let warningInk = mxTokenColor(DesignTokens.ColorToken.ink2.hex(in: .dark))
         for (name, size) in [("large", DynamicTypeSize.large), ("accessibility3", DynamicTypeSize.accessibility3)] {
             let view = VStack(alignment: .leading, spacing: 10) {
                 PermissionPanel(services: fixture.services, features: [.notifications])
@@ -2133,11 +2133,11 @@ final class AllPageMatrix {
         for (mode, appearanceName, scheme, bodyInk, lowInk) in [
             (
                 "dark-increased", NSAppearance.Name.accessibilityHighContrastDarkAqua, ColorScheme.dark,
-                mxTokenColor(ThemeTokens.dark.secondary), NSColor(white: 0.32, alpha: 1)
+                mxTokenColor(DesignTokens.ColorToken.ink2.hex(in: .dark)), NSColor(white: 0.32, alpha: 1)
             ),
             (
                 "light-increased", NSAppearance.Name.accessibilityHighContrastAqua, ColorScheme.light,
-                mxTokenColor(ThemeTokens.light.secondary), NSColor(white: 0.72, alpha: 1)
+                mxTokenColor(DesignTokens.ColorToken.ink2.hex(in: .light)), NSColor(white: 0.72, alpha: 1)
             ),
         ] {
             guard let appearance = NSAppearance(named: appearanceName) else {
