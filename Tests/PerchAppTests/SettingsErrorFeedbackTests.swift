@@ -25,19 +25,19 @@ final class SettingsErrorFeedbackTests: XCTestCase {
         try assertRetry(in: fixture.window)
 
         // Switching the form does not remove its parent's failure or retained draft.
-        fixture.pane = .focus
+        fixture.pane = .notch
         await settle()
         assertVisible(error, in: fixture.window)
         XCTAssertEqual(fixture.draft, "Keep this form text")
         fixture.shouldFail = false
-        try press("Repeat", in: fixture.window)
+        try press("Retry", in: fixture.window)
         await settle()
         XCTAssertEqual(fixture.loginRequests, [true, true])
         XCTAssertTrue(fixture.loginEnabled)
         XCTAssertNil(fixture.store.lastError)
-        XCTAssertEqual(fixture.pane, .focus)
+        XCTAssertEqual(fixture.pane, .notch)
         XCTAssertEqual(try Data(contentsOf: fixture.store.file.url), original)
-        XCTAssertTrue(named("Repeat", in: fixture.window).isEmpty)
+        XCTAssertTrue(named("Retry", in: fixture.window).isEmpty)
     }
 
     @MainActor
@@ -59,14 +59,14 @@ final class SettingsErrorFeedbackTests: XCTestCase {
         try assertRetry(in: fixture.window)
         XCTAssertFalse(named("Connected", in: fixture.window).isEmpty)
 
-        fixture.pane = .focus
+        fixture.pane = .notch
         await settle()
         assertVisible(error, in: fixture.window)
         fixture.pane = .agents
         await settle()
         XCTAssertEqual(fixture.statuses, statuses)
         fixture.shouldFail = false
-        try press("Repeat", in: fixture.window)
+        try press("Retry", in: fixture.window)
         await settle()
         XCTAssertEqual(fixture.disconnectRequests, [.claudeApp, .claudeApp])
         XCTAssertEqual(fixture.statuses[.claudeApp], .notConnected)
@@ -85,7 +85,7 @@ final class SettingsErrorFeedbackTests: XCTestCase {
         XCTAssertEqual(fixture.statuses[.claudeCode], .notInstalled)
         XCTAssertEqual(fixture.statuses[.cursor], .notInstalled)
 
-        fixture.pane = .focus
+        fixture.pane = .notch
         await settle()
         fixture.externalStatuses[.claudeCode] = .notConnected
         fixture.externalStatuses[.cursor] = .connected
@@ -95,7 +95,7 @@ final class SettingsErrorFeedbackTests: XCTestCase {
         XCTAssertEqual(fixture.statuses[.cursor], .connected)
         XCTAssertFalse(named("Connect", in: fixture.window).isEmpty)
 
-        fixture.pane = .focus
+        fixture.pane = .notch
         await settle()
         fixture.externalStatuses[.claudeCode] = .connected
         fixture.externalStatuses[.cursor] = .notConnected
@@ -114,7 +114,7 @@ final class SettingsErrorFeedbackTests: XCTestCase {
         await settle()
         let error = try XCTUnwrap(fixture.store.lastError)
 
-        fixture.pane = .focus
+        fixture.pane = .notch
         await settle()
         fixture.externalStatuses[.claudeCode] = .notConnected
         fixture.externalStatuses[.cursor] = .connected
@@ -130,7 +130,7 @@ final class SettingsErrorFeedbackTests: XCTestCase {
 
     @MainActor
     func testClearedExportRetryDoesNotOwnSameValuePreferenceFailure() async throws {
-        let fixture = try SettingsFailureFixture(pane: .system)
+        let fixture = try SettingsFailureFixture(pane: .data)
         defer { fixture.close() }
         var exportAttempts = 0
         fixture.feedback.exportBackup(to: fixture.exportURL, store: fixture.store) { _ in
@@ -155,7 +155,7 @@ final class SettingsErrorFeedbackTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: fixture.exportURL.path))
         await settle()
         assertVisible(preferenceError, in: fixture.window)
-        XCTAssertTrue(named("Repeat", in: fixture.window).isEmpty)
+        XCTAssertTrue(named("Retry", in: fixture.window).isEmpty)
     }
 
     @MainActor
@@ -176,12 +176,12 @@ final class SettingsErrorFeedbackTests: XCTestCase {
         XCTAssertEqual(exportAttempts, 1)
         XCTAssertEqual(fixture.store.lastError, exportError)
         await settle()
-        XCTAssertTrue(named("Repeat", in: fixture.window).isEmpty)
+        XCTAssertTrue(named("Retry", in: fixture.window).isEmpty)
     }
 
     @MainActor
     func testExportFailureIsVisibleAndRetriesTheSameDestination() async throws {
-        let fixture = try SettingsFailureFixture(pane: .system)
+        let fixture = try SettingsFailureFixture(pane: .data)
         defer { fixture.close() }
         let original = try Data(contentsOf: fixture.store.file.url)
         // A real filesystem failure, not a simulated successful export.
@@ -193,24 +193,24 @@ final class SettingsErrorFeedbackTests: XCTestCase {
         assertVisible(error, in: fixture.window)
         XCTAssertEqual(SettingsErrorRow(error: error).status.tone, .danger)
         try assertRetry(in: fixture.window)
-        XCTAssertEqual(fixture.pane, .system)
+        XCTAssertEqual(fixture.pane, .data)
         XCTAssertEqual(fixture.draft, "Keep this form text")
         XCTAssertEqual(try Data(contentsOf: fixture.store.file.url), original)
         XCTAssertFalse(FileManager.default.fileExists(atPath: fixture.exportURL.path))
 
-        fixture.pane = .focus
+        fixture.pane = .notch
         await settle()
         assertVisible(error, in: fixture.window)
         try FileManager.default.removeItem(at: fixture.exportParent)
         try FileManager.default.createDirectory(at: fixture.exportParent, withIntermediateDirectories: true)
-        try press("Repeat", in: fixture.window)
+        try press("Retry", in: fixture.window)
         await settle()
         XCTAssertNil(fixture.store.lastError)
         let exported = try PlannerFile(url: fixture.exportURL, preferences: MemoryPlannerPreferences()).load()
         XCTAssertEqual(exported.tasks, fixture.store.planner.tasks)
         XCTAssertEqual(exported.notes, fixture.store.planner.notes)
         XCTAssertEqual(try Data(contentsOf: fixture.store.file.url), original)
-        XCTAssertEqual(fixture.pane, .focus)
+        XCTAssertEqual(fixture.pane, .notch)
         XCTAssertEqual(fixture.draft, "Keep this form text")
     }
 
@@ -223,14 +223,14 @@ final class SettingsErrorFeedbackTests: XCTestCase {
         await settle()
         assertVisible(.remindersPermission, in: fixture.window)
         XCTAssertEqual(SettingsErrorRow(error: .remindersPermission).status.tone, .danger)
-        XCTAssertTrue(named("Repeat", in: fixture.window).isEmpty)
+        XCTAssertTrue(named("Retry", in: fixture.window).isEmpty)
         try press("Change login item", in: fixture.window)
         await settle()
         try assertRetry(in: fixture.window)
         fixture.store.lastError = .planner("A different operation failed")
         await settle()
         assertVisible(.planner("A different operation failed"), in: fixture.window)
-        XCTAssertTrue(named("Repeat", in: fixture.window).isEmpty)
+        XCTAssertTrue(named("Retry", in: fixture.window).isEmpty)
         XCTAssertEqual(fixture.loginRequests, [true])
     }
 
@@ -256,7 +256,7 @@ final class SettingsErrorFeedbackTests: XCTestCase {
 
     @MainActor
     private func assertRetry(in window: NSWindow) throws {
-        let retry = try XCTUnwrap(named("Repeat", in: window).first)
+        let retry = try XCTUnwrap(named("Retry", in: window).first)
         XCTAssertEqual(attribute(retry, "accessibilityRole") as? String, "AXButton")
         XCTAssertEqual(attribute(retry, "accessibilityIdentifier") as? String, "settings.error.retry")
     }
