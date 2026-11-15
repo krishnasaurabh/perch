@@ -17,7 +17,9 @@ class ParkingLotContractTests(unittest.TestCase):
         self.assertNotIn('struct NotepadCard', cards)
         self.assertNotIn('struct ScratchpadEditor', cards)
         settings = (ROOT / 'Sources/PerchApp/Settings/SettingsView.swift').read_text()
-        self.assertIn('filter { $0 != "notepad" }', settings)
+        self.assertNotIn('var workspace:', settings)
+        general = (ROOT / 'Sources/PerchApp/Settings/SettingsGeneralPane.swift').read_text()
+        self.assertIn('for id in HomeLayout.ordered(store.prefs.workspaceCardOrder).filter({ $0 != "notepad" })', general)
 
     def test_capture_and_promotion_use_the_mutation_gateway(self):
         card = (ROOT / 'Sources/PerchApp/Workspace/ParkingLotCard.swift').read_text()
