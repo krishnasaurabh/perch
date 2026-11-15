@@ -509,6 +509,83 @@ func matrixSettingsFocused(_ host: NSView, pane: SettingsView.Pane) -> Bool {
     return visit(host)
 }
 
+/// Read-only diagnostics: retain native geometry and public AX values even when
+/// the assertion's current sampler cannot reach a hosted SwiftUI subtree.
+@MainActor
+func matrixObservationTrace(_ host: NSView, phase: String, output: URL, text: Set<String>? = nil) throws {
+    func value(_ node: NSObject, _ name: String) -> Any? {
+        let selector = NSSelectorFromString(name)
+        return node.responds(to: selector) ? node.perform(selector)?.takeUnretainedValue() : nil
+    }
+    func focused(_ node: NSObject) -> String {
+        let selector = NSSelectorFromString("isAccessibilityFocused")
+        guard node.responds(to: selector), let implementation = node.method(for: selector) else { return "unavailable" }
+        typealias Getter = @convention(c) (AnyObject, Selector) -> Bool
+        return String(unsafeBitCast(implementation, to: Getter.self)(node, selector))
+    }
+    func describe(_ node: NSObject?) -> String {
+        guard let node else { return "nil" }
+        return "\(type(of: node))@\(ObjectIdentifier(node)) id=\(value(node, "accessibilityIdentifier") ?? "nil")"
+    }
+    var pending: [NSObject] = [host]
+    var owners: [String] = []
+    for owner in [NSApp as NSObject, host.window as NSObject?, host, host.window?.firstResponder].compactMap({ $0 }) {
+        let element = value(owner, "accessibilityFocusedUIElement") as? NSObject
+        owners.append("\(describe(owner)) focused=\(describe(element))")
+        if let element { pending.append(element) }
+    }
+    if let first = host.window?.firstResponder { pending.append(first) }
+    var seen = Set<ObjectIdentifier>()
+    var rows: [[String: String]] = []
+    while let node = pending.popLast() {
+        guard seen.insert(ObjectIdentifier(node)).inserted else { continue }
+        guard seen.count <= 4096 else { throw NSError(domain: "MatrixObservationTraversalLimit", code: 1) }
+        var row = ["object": describe(node), "isAccessibilityFocused": focused(node)]
+        for name in [
+            "accessibilityRole", "accessibilityIdentifier", "accessibilityLabel", "accessibilityValue",
+            "accessibilityTitle",
+        ] {
+            row[name] = value(node, name).map { String(describing: $0) } ?? "unavailable"
+        }
+        // CGRect is a struct return, not an object-returning perform selector.
+        let frameSelector = NSSelectorFromString("accessibilityFrame")
+        if node.responds(to: frameSelector), let frame = node.value(forKey: "accessibilityFrame") as? NSValue {
+            row["accessibilityFrame"] = NSStringFromRect(frame.rectValue)
+        }
+        if let view = node as? NSView {
+            row["frame"] = NSStringFromRect(view.frame)
+            row["bounds"] = NSStringFromRect(view.bounds)
+            row["canBecomeKeyView"] = String(view.canBecomeKeyView)
+            row["hidden"] = String(view.isHiddenOrHasHiddenAncestor)
+            pending.append(contentsOf: view.subviews)
+        }
+        for name in [
+            "accessibilityChildren", "accessibilityContents", "accessibilityChildrenInNavigationOrder",
+            "accessibilityVisibleChildren", "accessibilityRows",
+        ] {
+            let children = value(node, name) as? [NSObject] ?? []
+            row[name + "Count"] = String(children.count)
+            pending.append(contentsOf: children)
+        }
+        rows.append(row)
+    }
+    let snapshot: [String: Any] = [
+        "phase": phase, "pageHeight": host.bounds.height,
+        "firstResponder": describe(host.window?.firstResponder), "focusOwners": owners,
+        "text": text?.sorted() ?? [], "nodes": rows,
+    ]
+    try JSONSerialization.data(withJSONObject: snapshot, options: [.prettyPrinted, .sortedKeys])
+        .write(to: output.appendingPathComponent("observation-\(phase).json"), options: .atomic)
+    // Unbuffered: failing probes must retain the measured state before exit(1).
+    let lines =
+        [
+            "observation \(phase): pageHeight=\(host.bounds.height) firstResponder=\(describe(host.window?.firstResponder)) text=\(text?.sorted() ?? [])"
+        ]
+        + owners.map { "observation \(phase): owner \($0)" }
+        + rows.map { "observation \(phase): \($0)" }
+    FileHandle.standardError.write(Data((lines.joined(separator: "\n") + "\n").utf8))
+}
+
 @MainActor
 func checkSettingsMatrix(_ fixture: MatrixFixture, output: URL) async throws {
     let navigation = SettingsNavigation()
@@ -537,6 +614,9 @@ func checkSettingsMatrix(_ fixture: MatrixFixture, output: URL) async throws {
     for (index, (pane, marker)) in markers.enumerated() {
         if index > 0 { await matrixKey(window, 125, "\u{f701}") }
         let text = try matrixText(host, name: "settings-\(pane.rawValue)", output: output)
+        if !matrixSettingsFocused(host, pane: pane) {
+            try matrixObservationTrace(host, phase: "settings-\(pane.rawValue)", output: output)
+        }
         matrixRequire(
             navigation.pane == pane && matrixSettingsFocused(host, pane: pane),
             "settings Down arrow selects the \(pane.rawValue) pane",
@@ -857,6 +937,7 @@ func checkDashboardMatrix(_ fixture: MatrixFixture, output: URL) async throws {
                 field?.placeholderString == "Search history", "Tab moves from the tabs to the history search",
                 "firstResponder=\(String(describing: window.firstResponder))")
             let unfiltered = try dashboardAXStaticText(host)
+            try matrixObservationTrace(host, phase: "history-unfiltered", output: output, text: unfiltered)
             matrixRequire(
                 unfiltered.contains("Matrix history alpha") && unfiltered.contains("Matrix history beta"),
                 "history accessibility exposes both task titles before filtering", "\(unfiltered.sorted())")
@@ -868,6 +949,7 @@ func checkDashboardMatrix(_ fixture: MatrixFixture, output: URL) async throws {
                 "typed history search updates the field accessibility value",
                 "value=\(String(describing: field?.accessibilityValue()))")
             let filtered = try dashboardAXStaticText(host)
+            try matrixObservationTrace(host, phase: "history-filtered", output: output, text: filtered)
             try JSONSerialization.data(withJSONObject: filtered.sorted(), options: [.prettyPrinted, .sortedKeys])
                 .write(to: output.appendingPathComponent("dashboard-history-search.ax.json"), options: .atomic)
             matrixRequire(
