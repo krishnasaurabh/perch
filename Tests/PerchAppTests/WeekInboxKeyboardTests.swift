@@ -189,12 +189,13 @@
                 "Return in the coming-day field adds a task on that day")
             try capture(host, name: "week-board-keyboard")
             log("PASS: Week board arrows, Option-Right, future Space and Add Return")
-            try await todayOverflowExpandsWithSpace(window: window, host: host, store: store)
+            try await todayOverflowExpandsWithSpace(window: window, host: host, store: store, before: before)
         }
 
         @MainActor private static func todayOverflowExpandsWithSpace(
-            window: NSWindow, host: NSView, store: PlannerStore
+            window: NSWindow, host: NSView, store: PlannerStore, before: NSTextField
         ) async throws {
+            trace(window, tag: "overflow-entry")
             let added = try unwrap(
                 store.addTasks((1...5).map { "Overflow keyboard task \($0)" }, on: .day(store.today)))
             let hidden = try unwrap(added.last)
@@ -205,6 +206,10 @@
                 nodes(window).contains { string($0, "accessibilityIdentifier") == identifier },
                 "The sixth Today task must start hidden behind the overflow footer")
             let tasksBefore = try store.file.load().tasks
+            // Return tears down the preceding add-field editor; seed the native Tab chain again.
+            try require(window.makeFirstResponder(before))
+            await settle()
+            trace(window, tag: "overflow-after-reseat")
             try await tabTo("week-overflow-\(store.today.raw)", window: window)
             trace(window, tag: "overflow-before-space")
             try capture(host, name: "week-overflow-focused")

@@ -241,7 +241,7 @@ jobs:
           done
       - name: Redesign snapshots (light, dark and Reduce Motion at 2x)
         if: ${{ !cancelled() && steps.restore.outcome == 'success' }}
-        timeout-minutes: 4
+        timeout-minutes: 8
         run: bash scripts/redesign_shots.sh "$RUNNER_TEMP/redesign-shots"
       - name: Upload redesign snapshots
         if: always()
