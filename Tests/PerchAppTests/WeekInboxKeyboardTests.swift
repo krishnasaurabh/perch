@@ -215,7 +215,7 @@
             try capture(host, name: "week-overflow-focused")
             try await key(window, code: 49, characters: " ")
             trace(window, tag: "overflow-after-space")
-            try equal(string(try control(identifier, in: window), "accessibilityRole"), "AXButton")
+            try equal(string(try control(identifier, in: window), "accessibilityRole"), "AXCheckBox")
             try await tabTo(identifier, window: window)
             try equal(boolean(try control(identifier, in: window), "isAccessibilityFocused"), true)
             try equal(try store.file.load().tasks, tasksBefore, "Expanding Today must not toggle or edit any task")
