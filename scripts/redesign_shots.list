@@ -19,6 +19,7 @@ system --scenario empty --open gallery
 motion --scenario timer --open gallery
 surfaces --scenario empty --open surfaces
 surfaces-focused --scenario empty --open surfaces-focused
+keys --scenario empty --open keys
 notch-closed-idle --scenario notch-idle --open notch-closed
 notch-closed-running --scenario notch-running --open notch-closed
 notch-closed-paused --scenario notch-paused --open notch-closed
