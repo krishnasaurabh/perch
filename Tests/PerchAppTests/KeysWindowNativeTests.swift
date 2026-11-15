@@ -140,13 +140,18 @@
                 (UInt16(19), "2", NSEvent.ModifierFlags.command),
                 (UInt16(35), "p", NSEvent.ModifierFlags.command),
                 (UInt16(6), "z", NSEvent.ModifierFlags.command),
+                (UInt16(6), "z", NSEvent.ModifierFlags([.command, .shift])),
             ] {
                 ShortcutStore.save(.default, notify: false)
-                let window = makeWindow()
-                defer { window.close() }
-                window.contentView = NSHostingView(
-                    rootView: ShortcutPreferenceRow().padding()
-                        .environment(\.accessibilityEnabled, true))
+                let id = "settings-recorder-\(UUID().uuidString)"
+                WindowHost.show(
+                    id, title: "Shortcut recording", size: CGSize(width: 640, height: 480),
+                    onUndo: { redo in redo ? fixture.store.redo() : fixture.store.undo() }
+                ) {
+                    ShortcutPreferenceRow().padding().environment(\.accessibilityEnabled, true)
+                }
+                let window = try unwrap(WindowHost.windows[id])
+                defer { window.close(); WindowHost.windows[id] = nil }
                 try await activate(window)
                 let button = try await control(in: window) {
                     self.attribute($0, "accessibilityRole") as? String == "AXButton"
@@ -164,7 +169,9 @@
                 }
                 try require(window.isVisible)
                 let expected =
-                    code == 53 ? ShortcutKey.default : ShortcutKey(keyCode: UInt32(code), modifiers: .command)
+                    code == 53
+                    ? ShortcutKey.default
+                    : ShortcutKey(keyCode: UInt32(code), modifiers: ShortcutModifiers(flagBits: modifiers.rawValue))
                 try equal(ShortcutStore.load(), expected)
                 try equal(fixture.store.planner, before)
                 try require(fixture.store.canUndo)

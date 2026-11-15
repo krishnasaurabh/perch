@@ -2560,6 +2560,57 @@
         }
       }
     },
+    "Backup information unavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Backup information unavailable"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Bàcküp ïnförmàtïön ünàvàïlàblë ·~⟧"
+          }
+        }
+      }
+    },
+    "Before changes, %lld copies": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Before changes, %lld copies"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Bëförë chàngës, %lld cöpïës ·~⟧"
+          }
+        }
+      }
+    },
+    "Before planner changes, latest %lld copies": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Before planner changes, latest %lld copies"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Bëförë plànnër chàngës, làtëst %lld cöpïës ·~⟧"
+          }
+        }
+      }
+    },
     "Behaves like the built-in notch and hides while an app is full screen.": {
       "extractionState": "manual",
       "localizations": {
@@ -3151,6 +3202,57 @@
           "stringUnit": {
             "state": "translated",
             "value": "⟦Clëàr ·~⟧"
+          }
+        }
+      }
+    },
+    "Clear finished tasks": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Clear finished tasks"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Clëàr fïnïshëd tàsks ·~⟧"
+          }
+        }
+      }
+    },
+    "Clear finished tasks older than": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Clear finished tasks older than"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Clëàr fïnïshëd tàsks öldër thàn ·~⟧"
+          }
+        }
+      }
+    },
+    "Clear older finished tasks?": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Clear older finished tasks?"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Clëàr öldër fïnïshëd tàsks? ·~⟧"
           }
         }
       }
@@ -4464,6 +4566,23 @@
         }
       }
     },
+    "Empty": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Empty"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Ëmpty ·~⟧"
+          }
+        }
+      }
+    },
     "Empty text clip": {
       "extractionState": "manual",
       "localizations": {
@@ -4477,6 +4596,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "⟦Ëmpty tëxt clïp ·~⟧"
+          }
+        }
+      }
+    },
+    "Empty the parking lot?": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Empty the parking lot?"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Ëmpty thë pàrkïng löt? ·~⟧"
           }
         }
       }
@@ -4668,6 +4804,40 @@
         }
       }
     },
+    "Erase": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Erase"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Ëràsë ·~⟧"
+          }
+        }
+      }
+    },
+    "Erase everything on this Mac?": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Erase everything on this Mac?"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Ëràsë ëvërythïng ön thïs Màc? ·~⟧"
+          }
+        }
+      }
+    },
     "Every": {
       "extractionState": "manual",
       "localizations": {
@@ -4753,6 +4923,23 @@
         }
       }
     },
+    "Exports are plain files you can open anywhere.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Exports are plain files you can open anywhere."
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Ëxpörts àrë plàïn fïlës yöü càn öpën ànywhërë. ·~⟧"
+          }
+        }
+      }
+    },
     "Extend by 1 to 720 minutes.": {
       "extractionState": "manual",
       "localizations": {
@@ -4817,6 +5004,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "⟦Fïnïshëd dàys shöw üp hërë. ·~⟧"
+          }
+        }
+      }
+    },
+    "Finished tasks older than %lld days will be cleared now and on each new day. Open tasks stay. You can undo this change while Perch is open.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Finished tasks older than %lld days will be cleared now and on each new day. Open tasks stay. You can undo this change while Perch is open."
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Fïnïshëd tàsks öldër thàn %lld dàys wïll bë clëàrëd nöw ànd ön ëàch nëw dày. Öpën tàsks stày. Yöü càn ündö thïs chàngë whïlë Përch ïs öpën. ·~⟧"
           }
         }
       }
@@ -5497,6 +5701,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "⟦Îmàgë prëvïëw ünàvàïlàblë ·~⟧"
+          }
+        }
+      }
+    },
+    "Import": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Import"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Împört ·~⟧"
           }
         }
       }
@@ -6742,6 +6963,23 @@
         }
       }
     },
+    "No backups yet": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No backups yet"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Nö bàcküps yët ·~⟧"
+          }
+        }
+      }
+    },
     "No date": {
       "extractionState": "manual",
       "localizations": {
@@ -7813,6 +8051,23 @@
         }
       }
     },
+    "Parked thoughts will be cleared. Tasks stay. You can undo this change while Perch is open.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Parked thoughts will be cleared. Tasks stay. You can undo this change while Perch is open."
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Pàrkëd thöüghts wïll bë clëàrëd. Tàsks stày. Yöü càn ündö thïs chàngë whïlë Përch ïs öpën. ·~⟧"
+          }
+        }
+      }
+    },
     "Parking lot": {
       "extractionState": "manual",
       "localizations": {
@@ -8472,6 +8727,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "⟦Plànnër dàtà nëëds rëcövëry. Këpt %lld vàlïd rëcörd(s) ïn à rëàd-önly dràft. Qüàràntïnëd %lld ïnvàlïd rëcörd(s) ànd %lld ïnvàlïd fïëld(s). Vàlïd rëcörds àrë àvàïlàblë rëàd-önly; chàngës cànnöt bë sàvëd. Thë örïgïnàl plànnër ïs ünchàngëd. Ån ëxàct cöpy, ïnclüdïng màlförmëd rëcörds, ïs àt %@. Å sëpàràtë vàlïd-rëcörd dràft ïs àt %@; rëjëctëd löcàtïöns àrë lïstëd àt %@. Qüït Përch ànd rëpàïr thë örïgïnàl üsïng thösë fïlës, ör ëxplïcïtly rëstörë à knöwn-gööd bàcküp. Dö nöt rëplàcë thë örïgïnàl wïth thë dràft ünlëss yöü àccëpt ömïttïng thë rëjëctëd rëcörds. ·~⟧"
+          }
+        }
+      }
+    },
+    "Planner data will be cleared and settings reset. Recovery backups and connected apps are kept. You can undo this change while Perch is open.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Planner data will be cleared and settings reset. Recovery backups and connected apps are kept. You can undo this change while Perch is open."
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Plànnër dàtà wïll bë clëàrëd ànd sëttïngs rësët. Rëcövëry bàcküps ànd cönnëctëd àpps àrë këpt. Yöü càn ündö thïs chàngë whïlë Përch ïs öpën. ·~⟧"
           }
         }
       }
@@ -9669,6 +9941,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "⟦Rësët tö dëfàült ·~⟧"
+          }
+        }
+      }
+    },
+    "Restore": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Restore"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Rëstörë ·~⟧"
+          }
+        }
+      }
+    },
+    "Restore the latest readable backup?": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Restore the latest readable backup?"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Rëstörë thë làtëst rëàdàblë bàcküp? ·~⟧"
           }
         }
       }
@@ -11475,6 +11781,23 @@
         }
       }
     },
+    "The latest readable backup will replace your planner. Your current planner is backed up first. Settings stay.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The latest readable backup will replace your planner. Your current planner is backed up first. Settings stay."
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Thë làtëst rëàdàblë bàcküp wïll rëplàcë yöür plànnër. Yöür cürrënt plànnër ïs bàckëd üp fïrst. Sëttïngs stày. ·~⟧"
+          }
+        }
+      }
+    },
     "The next copy is counted from the day this one is completed.": {
       "extractionState": "manual",
       "localizations": {
@@ -11998,6 +12321,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "⟦Thöüght nöt föünd ïn thë pàrkïng löt. ·~⟧"
+          }
+        }
+      }
+    },
+    "Tidy up": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tidy up"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Tïdy üp ·~⟧"
           }
         }
       }
