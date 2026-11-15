@@ -19,6 +19,7 @@ history-empty --scenario empty --open history
 projects-empty --scenario empty --open projects
 surfaces --scenario empty --open surfaces
 surfaces-focused --scenario empty --open surfaces-focused
+keys --scenario empty --open keys
 notch-closed-idle --scenario notch-idle --open notch-closed
 notch-closed-running --scenario notch-running --open notch-closed
 notch-closed-paused --scenario notch-paused --open notch-closed
