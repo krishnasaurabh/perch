@@ -129,6 +129,23 @@ public struct NotchStripQueue: Equatable, Sendable {
     }
 }
 
+/// A transient deletion offer is tied to the durable agent ordering at its creation.
+/// Keep and timeout only dismiss agent presentation; neither makes older local Undo current again.
+public struct NotchDeletionUndo: Equatable, Sendable {
+    private let agentSequence: Int
+    private let taskIDs: Set<UUID>
+
+    public init(after planner: Planner, taskIDs: [UUID]) {
+        agentSequence = planner.agentActions.sequence
+        self.taskIDs = Set(taskIDs)
+    }
+
+    public func isValid(in planner: Planner) -> Bool {
+        planner.agentActions.sequence == agentSequence
+            && !planner.tasks.contains { taskIDs.contains($0.id) }
+    }
+}
+
 /// Live preference policy, independent of the notification-delivery ledger.
 public enum NotchStripPolicy {
     public static func reminders(

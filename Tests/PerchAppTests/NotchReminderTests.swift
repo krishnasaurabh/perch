@@ -1,7 +1,7 @@
 import Combine
 import Foundation
 import PerchUI
-import PlannerCore
+@testable import PlannerCore
 import UserNotifications
 import XCTest
 @testable import PerchApp

@@ -21,6 +21,7 @@ final class NotchStrips {
     private var queue = NotchStripQueue()
     private var cards: [String: PresentedNotchActivity] = [:]
     private var oneOffs: [String: (NotchStripQueue.Item, PresentedNotchActivity)] = [:]
+    private var deletionUndos: [String: NotchDeletionUndo] = [:]
     private var recovery: PlannerRecoveryError?
     private var recoveryBackupDate: Date?
     private var inspectedError: PerchAppError?
@@ -99,6 +100,7 @@ final class NotchStrips {
         card.titles = removed.map(\.title)
         card.affectedTaskIDs = removed.map(\.id)
         oneOffs[id] = (.init(id: id, kind: .undo, createdAt: date), card)
+        deletionUndos[id] = NotchDeletionUndo(after: after, taskIDs: card.affectedTaskIDs)
     }
 
     /// Preserve producer-specific confirmation durations while routing every
@@ -284,9 +286,7 @@ final class NotchStrips {
             // Keep the source alive while the queue spends its visible-time budget.
         }
         for (id, pair) in oneOffs {
-            if pair.0.kind == .undo
-                && pair.1.affectedTaskIDs.contains(where: { id in planner.tasks.contains { $0.id == id } })
-            {
+            if pair.0.kind == .undo && deletionUndos[id]?.isValid(in: planner) != true {
                 oneOffs[id] = nil
             } else {
                 add(pair.0, pair.1)
@@ -299,6 +299,7 @@ final class NotchStrips {
         cards = content
         let pendingIDs = Set(queue.pending.map(\.id))
         oneOffs = oneOffs.filter { pendingIDs.contains($0.key) }
+        deletionUndos = deletionUndos.filter { oneOffs[$0.key] != nil }
         let current = queue.current.flatMap { content[$0.id] }
         currentActivity = current
         if current == nil { bounds = .zero }
@@ -383,7 +384,19 @@ final class NotchStrips {
         } else if action == .undo {
             guard store.flushPendingText() else { return false }
             refresh()
-            guard currentActivity?.stripID == id else { return false }
+            guard currentActivity?.stripID == id, let offer = deletionUndos[id] else { return false }
+            do {
+                // A watcher may not have published the other process's newer agent edit yet.
+                guard offer.isValid(in: try store.file.avoidingLockWaits().load()) else {
+                    invalidateDeletionUndo()
+                    store.reloadFromDisk(external: true)
+                    refresh()
+                    return false
+                }
+            } catch {
+                store.lastError = .planner(error.perchPresentationDetail)
+                return false
+            }
             store.undo(); success = store.lastError == nil
         } else {
             success = Self.perform(action, taskID: activity.taskID, thoughtIDs: activity.thoughtIDs, in: store)
