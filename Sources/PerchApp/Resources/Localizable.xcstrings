@@ -2135,6 +2135,57 @@
         }
       }
     },
+    "An imported task has a time limit outside 1 to 720 minutes.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "An imported task has a time limit outside 1 to 720 minutes."
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Ån ïmpörtëd tàsk hàs à tïmë lïmït öütsïdë 1 tö 720 mïnütës. ·~⟧"
+          }
+        }
+      }
+    },
+    "An imported task has duplicate or empty steps.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "An imported task has duplicate or empty steps."
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Ån ïmpörtëd tàsk hàs düplïcàtë ör ëmpty stëps. ·~⟧"
+          }
+        }
+      }
+    },
+    "An imported task has no title.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "An imported task has no title."
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Ån ïmpörtëd tàsk hàs nö tïtlë. ·~⟧"
+          }
+        }
+      }
+    },
     "Another Perch process is syncing Reminders. Retry shortly.": {
       "extractionState": "manual",
       "localizations": {
@@ -11267,6 +11318,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "⟦Thë rïng ëàsës tö ïts nëw lëngth, sö àddëd tïmë rëàds às à gïft, nöt à jölt. ·~⟧"
+          }
+        }
+      }
+    },
+    "The selected file has no tasks to import.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The selected file has no tasks to import."
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Thë sëlëctëd fïlë hàs nö tàsks tö ïmpört. ·~⟧"
+          }
+        }
+      }
+    },
+    "The selected file is not a Perch planner export.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The selected file is not a Perch planner export."
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Thë sëlëctëd fïlë ïs nöt à Përch plànnër ëxpört. ·~⟧"
           }
         }
       }
