@@ -111,13 +111,26 @@ MainActor.assumeIsolated {
             require(added?.remindAt != nil, "parser reads the 9am reminder")
             require(captureEditor()?.string == "", "capture clears and stays focused after add")
 
+            // Exercise the adaptive Week host in both appearances, independently of the runner's desktop.
+            let previousAppearance = NSApp.appearance
+            NSApp.appearance = NSAppearance(named: .darkAqua)
             delegate.model.page = .week
             await settle()
+            require(
+                NSApp.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua,
+                "week: dark appearance is active")
             delegate.notch.snapshot(into: output.appendingPathComponent("week"))
+            NSApp.appearance = NSAppearance(named: .aqua)
+            await settle()
+            require(
+                NSApp.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .aqua,
+                "week-light: light appearance is active")
+            delegate.notch.snapshot(into: output.appendingPathComponent("week-light"))
+            NSApp.appearance = previousAppearance
             require(delegate.store.lastError == nil, "no store error")
             for name in [
                 "empty-home-unfocused", "empty-home-focused", "three-home-unfocused", "three-home-focused",
-                "three-home-typed", "week",
+                "three-home-typed", "week", "week-light",
             ] {
                 let files =
                     (try? FileManager.default.contentsOfDirectory(
