@@ -21,7 +21,7 @@ final class CalendarService: ObservableObject {
     @Published private(set) var events: [Event] = []
     @Published private(set) var access: EKAuthorizationStatus = .notDetermined
     @Published private(set) var calendars: [EKCalendar] = []
-    private let source: any CalendarAccess
+    let source: any CalendarAccess
     private let store: PlannerStore
 
     init(store: PlannerStore, source: (any CalendarAccess)? = nil) {
