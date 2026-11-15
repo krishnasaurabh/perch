@@ -1405,7 +1405,7 @@ final class AllPageMatrix {
             guard let event = NSEvent(cgEvent: wheel), event.type == .scrollWheel else {
                 throw MatrixFailure(label: "could not bridge General scroll event")
             }
-            scrollView.scrollWheel(event)
+            scrollView.scrollWheel(with: event)
             await mxReady(0.3)
             mxLog("General scroll delta=\(delta) before=\(before) after=\(scrollView.contentView.bounds)")
         }
