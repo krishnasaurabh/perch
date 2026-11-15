@@ -31,6 +31,58 @@ struct NotchPills: View {
     }
 }
 
+/// Hardware indicators are unchanged. Flat-display text is projected before paint and accessibility.
+struct NotchPrivacyClosedLayer: View {
+    let geometry: NotchGeometry
+    let bounds: CGRect
+    let presentation: NotchClosedPresentation
+    let now: Date
+    let hideValues: Bool
+    var open: () -> Void
+
+    var body: some View {
+        if geometry.hasHardwareNotch {
+            NotchClosedLayer(geometry: geometry, bounds: bounds, presentation: presentation, now: now, open: open)
+        } else {
+            let tab = NotchFlatTabPresentation(closed: presentation, hideValues: hideValues, now: now)
+            ZStack(alignment: .topLeading) {
+                if tab.visible {
+                    let rect = geometry.closedTab
+                    Button(action: open) {
+                        HStack(spacing: NotchClosedTokens.tabSpacing) {
+                            if tab.showsDot {
+                                Circle().fill(
+                                    NotchClosedLayer.color(
+                                        tab.reminder ? NotchClosedTokens.reminder : NotchClosedTokens.fill)
+                                )
+                                .frame(width: NotchClosedTokens.dotSize, height: NotchClosedTokens.dotSize)
+                                .accessibilityHidden(true)
+                            }
+                            if !tab.text.isEmpty {
+                                Text(tab.text).perchFont(.detailStrong)
+                                    .foregroundStyle(
+                                        NotchClosedLayer.color(
+                                            tab.paused ? NotchPillLayout.pausedInk : NotchClosedTokens.text)
+                                    )
+                                    .lineLimit(1)
+                            }
+                        }
+                        .frame(width: rect.width, height: rect.height)
+                        .background(NotchClosedTabShape().fill(NotchClosedLayer.color(NotchClosedTokens.background)))
+                        .contentShape(NotchClosedTabShape())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(tab.accessibilityLabel)
+                    .accessibilityIdentifier("notch.closed.tab")
+                    .help(tab.accessibilityLabel)
+                    .offset(x: rect.minX - bounds.minX, y: bounds.maxY - rect.maxY)
+                }
+            }
+            .frame(width: bounds.width, height: bounds.height, alignment: .topLeading)
+        }
+    }
+}
+
 struct NotchPillFace: View {
     let text: String
     let showsDot: Bool
@@ -73,6 +125,25 @@ extension NotchModel {
 }
 
 #if DEBUG || PERCH_TESTING
+    extension AppDelegate.PreviewTarget {
+        static var privateFlatTab: Self {
+            .window("notch-flat-private-preview") { app in
+                guard let fixture = AppDelegate.activePreviewFixture else { return }
+                let preview = NotchClosedPreview(
+                    planner: app.store.planner, now: fixture.now, hardware: false, reminderWaiting: false)
+                let geometry = preview.geometry
+                WindowHost.show("notch-flat-private-preview", title: "Perch", size: NotchClosedPreview.size) {
+                    NotchPrivacyClosedLayer(
+                        geometry: geometry, bounds: geometry.screenFrame,
+                        presentation: NotchClosedPresentation(planner: app.store.planner), now: fixture.now,
+                        hideValues: true, open: {}
+                    )
+                    .background(Theme.sheet).motionDiagnostics(model: app.model)
+                }
+            }
+        }
+    }
+
     struct NotchPillsPreview: View {
         let planner: Planner
         let today: DayKey

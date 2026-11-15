@@ -21,6 +21,47 @@ final class NotchBehaviorTests: XCTestCase {
     }
 
     @MainActor
+    func testSavedPillAndFlatPrivacyUpdatesReachTheirPresentations() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let file = PlannerFile(url: root.appendingPathComponent("planner.json"))
+        let now = PlannerPreviewScenarios.referenceDate
+        let store = PlannerStore(file: file, now: { now }, watching: false)
+        let task = try XCTUnwrap(store.addTasks(["Synthetic pill task"], on: .day(store.today), literal: true)?.first)
+        store.apply { try $0.setStart(task.id, at: now.addingTimeInterval(600)) }
+        store.apply { try $0.startTimer(task: nil, minutes: 45) }
+        for update in [
+            PreferenceUpdate.notchTimePill(true), .notchTaskCount(true), .notchNextBlock(true),
+            .notchTimerPlacement(.split), .hideCountsAndTimes(false),
+        ] {
+            store.apply { try $0.updatePreference(update) }
+        }
+        let model = NotchModel()
+        XCTAssertEqual(model.pills(in: store, now: now).map(\.kind), [.time, .tasks, .nextBlock])
+        XCTAssertTrue(model.pills(in: store, now: now).allSatisfy { !$0.text.isEmpty })
+        store.apply { try $0.updatePreference(.hideCountsAndTimes(true)) }
+        XCTAssertTrue(
+            model.pills(in: store, now: now).allSatisfy {
+                $0.text.isEmpty && !$0.accessibilityLabel.contains(where: \.isNumber)
+            })
+        var flat = NotchFlatTabPresentation(
+            closed: model.closed(in: store, screenID: 0, now: now), hideValues: store.prefs.hideCountsAndTimes, now: now
+        )
+        XCTAssertEqual(flat.text, "")
+        let relaunched = PlannerStore(file: file, now: { now }, watching: false)
+        XCTAssertTrue(relaunched.prefs.hideCountsAndTimes)
+        XCTAssertEqual(relaunched.prefs.notchTimerPlacement, .split)
+        XCTAssertTrue(model.pills(in: relaunched, now: now).allSatisfy { $0.text.isEmpty })
+        store.apply { try $0.updatePreference(.hideCountsAndTimes(false)) }
+        flat = NotchFlatTabPresentation(
+            closed: model.closed(in: store, screenID: 0, now: now), hideValues: store.prefs.hideCountsAndTimes, now: now
+        )
+        XCTAssertFalse(flat.text.isEmpty)
+        store.apply { try $0.updatePreference(.notchTimePill(false)) }
+        XCTAssertEqual(model.pills(in: store, now: now).map(\.kind), [.tasks, .nextBlock])
+    }
+
+    @MainActor
     func testPeekPromotesToWorkspaceAndCloseClearsItsLevel() async {
         let model = NotchModel()
         model.openPeek()

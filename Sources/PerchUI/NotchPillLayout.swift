@@ -55,6 +55,35 @@ public struct NotchPillPresentation: Identifiable, Equatable, Sendable {
     }
 }
 
+/// The flat tab uses the same manual privacy preference as side pills.
+public struct NotchFlatTabPresentation: Equatable, Sendable {
+    public let visible: Bool
+    public let text: String
+    public let accessibilityLabel: String
+    public let showsDot: Bool
+    public let reminder: Bool
+    public let paused: Bool
+
+    public init(closed: NotchClosedPresentation, hideValues: Bool, now: Date, locale: Locale = .current) {
+        visible = closed.hasBlock || closed.reminder
+        reminder = closed.reminder
+        paused = closed.focus?.state == .paused
+        showsDot = closed.reminder || closed.focus?.state == .running
+        text = hideValues ? "" : closed.timeText(at: now, locale: locale)
+        if closed.reminder {
+            accessibilityLabel = PerchL10n.text("Reminder waiting. Open Today", locale: locale)
+        } else if closed.hasBlock {
+            let state = PerchL10n.text(paused ? "Paused" : "Time set aside", locale: locale)
+            accessibilityLabel =
+                hideValues
+                ? PerchL10n.format("%@. Open Today", locale: locale, state)
+                : PerchL10n.format("%@, %@. Open Today", locale: locale, state, text)
+        } else {
+            accessibilityLabel = PerchL10n.text("Open Today", locale: locale)
+        }
+    }
+}
+
 /// Pill metrics are independent of AppKit and shared by paint and hit routing.
 public enum NotchPillLayout {
     public static let height: CGFloat = DesignTokens.Size.switchHeight.value

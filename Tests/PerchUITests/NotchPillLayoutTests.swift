@@ -83,6 +83,27 @@ final class NotchPillLayoutTests: XCTestCase {
         XCTAssertFalse(pills(planner).first!.showsDot)
     }
 
+    func testFlatDisplayPrivacyRedactsCountdownAndRestoresItWhenOff() {
+        var planner = sample()
+        let closed = NotchClosedPresentation(planner: planner)
+        let shown = NotchFlatTabPresentation(closed: closed, hideValues: false, now: now)
+        XCTAssertEqual(shown.text, "24:10")
+        XCTAssertTrue(shown.accessibilityLabel.contains("24:10"))
+        let hidden = NotchFlatTabPresentation(closed: closed, hideValues: true, now: now)
+        XCTAssertEqual(hidden.text, "")
+        XCTAssertFalse(hidden.accessibilityLabel.contains { $0.isNumber })
+        XCTAssertTrue(hidden.showsDot)
+        planner.focus?.state = .paused
+        let paused = NotchFlatTabPresentation(
+            closed: NotchClosedPresentation(planner: planner), hideValues: true, now: now)
+        XCTAssertFalse(paused.showsDot)
+        XCTAssertFalse(paused.accessibilityLabel.contains { $0.isNumber })
+        planner.focus = nil
+        let idle = NotchFlatTabPresentation(
+            closed: NotchClosedPresentation(planner: planner), hideValues: true, now: now)
+        XCTAssertFalse(idle.visible)
+    }
+
     func testGeometryIs24HighSixFromHousingClampedAndSymmetric() {
         let housing = CGRect(x: -950, y: 916, width: 190, height: 34)
         var planner = sample()

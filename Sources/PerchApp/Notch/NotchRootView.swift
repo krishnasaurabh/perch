@@ -72,7 +72,10 @@ struct NotchRootView: View {
                     LocalClock(
                         running: store.prefs.notchNextBlock || closed.needsClock(hasHardwareNotch: g.hasHardwareNotch)
                     ) { now in
-                        NotchClosedLayer(geometry: g, bounds: window, presentation: closed, now: now) {
+                        NotchPrivacyClosedLayer(
+                            geometry: g, bounds: window, presentation: closed, now: now,
+                            hideValues: store.prefs.hideCountsAndTimes
+                        ) {
                             model.activateClosed(in: store, on: screen)
                         }
                         if g.hasHardwareNotch {

@@ -52,6 +52,23 @@
         }
       }
     },
+    "%@, %@. Open Today": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@, %@. Open Today"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦%@, %@. Öpën Tödày ·~⟧"
+          }
+        }
+      }
+    },
     "%@, typed date": {
       "extractionState": "manual",
       "localizations": {
@@ -65,6 +82,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "⟦%@, typëd dàtë ·~⟧"
+          }
+        }
+      }
+    },
+    "%@. Open Today": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@. Open Today"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦%@. Öpën Tödày ·~⟧"
           }
         }
       }
@@ -1557,6 +1591,23 @@
         }
       }
     },
+    "Open Today": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open Today"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Öpën Tödày ·~⟧"
+          }
+        }
+      }
+    },
     "Open the task": {
       "extractionState": "manual",
       "localizations": {
@@ -1655,6 +1706,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "⟦Rëmïndër för %@. ·~⟧"
+          }
+        }
+      }
+    },
+    "Reminder waiting. Open Today": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reminder waiting. Open Today"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Rëmïndër wàïtïng. Öpën Tödày ·~⟧"
           }
         }
       }

@@ -22,6 +22,7 @@ import SwiftUI
                 "workspace-narrow": .window("workspace-narrow") {
                     WorkspaceShellPreview.show(page: .week, narrow: true, app: $0)
                 },
+                "notch-flat-private": .privateFlatTab,
                 "notch-peek": .peek,
                 "notch-pills-time": NotchPillsPreview.target("time"),
                 "notch-pills-tasks": NotchPillsPreview.target("tasks"),

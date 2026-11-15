@@ -12,6 +12,8 @@ notch-pills-paused --scenario notch-paused --open notch-pills-paused
 notch-pills-both --scenario notch-running --open notch-pills-both
 notch-pills-left --scenario notch-running --open notch-pills-left
 notch-pills-private --scenario notch-running --open notch-pills-private
+notch-flat-private-running --scenario notch-running --open notch-flat-private
+notch-flat-private-paused --scenario notch-paused --open notch-flat-private
 welcome --scenario empty --open welcome
 today-empty --scenario empty --open today
 today-three --scenario three --open today
