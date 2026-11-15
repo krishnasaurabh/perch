@@ -12,6 +12,7 @@ cp "$ROOT/Package.swift" "$PROBE/"
 cp -R "$ROOT/Sources" "$PROBE/"
 cp -R "$ROOT/Tests" "$PROBE/"
 cp "$ROOT/scripts/focus_entry_probe.swift" "$PROBE/Sources/Perch/main.swift"
+cp "$ROOT/scripts/scheduled_time_card_fixture.swift" "$PROBE/Sources/Perch/"
 git -C "$ROOT" rev-parse HEAD > "$OUT/source-sha.txt"
 swift build -Xswiftc -DPERCH_TESTING -Xswiftc -enable-testing --package-path "$PROBE" -c release --product Perch
 python3 - "$PROBE/.build/release/Perch" "$OUT" <<'PY'

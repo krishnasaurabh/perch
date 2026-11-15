@@ -676,9 +676,9 @@ func verifyRowCustomActions(store: PlannerStore, model: NotchModel, services: Se
 
 @MainActor
 func verifyScheduledTimeCard(store: PlannerStore, model: NotchModel, services: Services, output: URL) async {
-    // A separate store gives this fixture a stable midday clock while sharing the isolated file.
-    let now = store.today.date(calendar: store.engine.calendar).addingTimeInterval(12 * 3_600)
-    let scheduledStore = PlannerStore(file: store.file, now: { now }, watching: false)
+    // Match LocalClock's live wall clock, with a captured store clock for exact engine accounting.
+    let fixture = ScheduledTimeCardProbeFixture(displayNow: Date())
+    let scheduledStore = PlannerStore(file: store.file, now: { fixture.storeNow }, watching: false)
     scheduledStore.seedFixture { engine in
         engine.planner.tasks = []
         engine.planner.focus = nil
@@ -686,7 +686,7 @@ func verifyScheduledTimeCard(store: PlannerStore, model: NotchModel, services: S
         engine.planner.preferences.hiddenWorkspaceCards = ["notepad"]
         let task = try engine.addTasks(["Prepare the launch checklist"], on: .day(engine.today), literal: true)[0]
         let index = engine.planner.tasks.firstIndex { $0.id == task.id }!
-        engine.planner.tasks[index].startAt = now.addingTimeInterval(3_600)
+        engine.planner.tasks[index].startAt = fixture.scheduledStart
         engine.planner.tasks[index].minutes = 12
     }
     let scheduled = scheduledStore.planner.tasks[0]
