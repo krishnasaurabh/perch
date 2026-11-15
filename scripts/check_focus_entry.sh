@@ -34,6 +34,19 @@ menu = json.loads((root / 'context-menu-trace.json').read_text())
 assert menu['mechanism'] == result['taskActivation'] and not menu['timedOut']
 assert any('Start focusing' in titles for titles in menu['menus'])
 assert {row['defaultMinutes'] for row in result['metrics']} == {25, 40}
+assert {row['startedMinutes'] for row in result['metrics']} == {25}
+# Empty time-card activation deliberately starts 25 minutes even when the configurable
+# Command-Return default differs. Completion leaves a finished session and exact ledger time.
+live = json.loads((root / 'live-focus-completed.json').read_text())
+assert live['focus']['state'] == 'finished' and live['focus']['limit'] == 1500
+assert live['focus'].get('taskID') is None
+assert abs(sum(segment['end'] - segment['start'] for segment in live['focusSegments']) - 1500) < 0.001
+scheduled = json.loads((root / 'scheduled-focus-completed.json').read_text())
+assert scheduled['focus']['state'] == 'finished' and scheduled['focus']['limit'] == 1020
+assert scheduled['focus']['taskID'] == scheduled['tasks'][0]['id']
+assert len(scheduled['focusSegments']) == 1
+assert scheduled['focusSegments'][0]['taskID'] == scheduled['tasks'][0]['id']
+assert abs(scheduled['focusSegments'][0]['end'] - scheduled['focusSegments'][0]['start'] - 1020) < 0.001
 # Read the real persisted snapshot before deletion, not a reconstruction from view state.
 saved = json.loads((root / 'linked-focus.json').read_text())
 assert saved['focus']['state'] == 'running' and saved['focus']['limit'] == 720
