@@ -10,6 +10,12 @@ import SwiftUI
         static var previewTargets: [String: PreviewTarget] {
             [
                 "today": .workspace(.home),
+                "menubar-icon": .menuBar(.icon),
+                "menubar-time": .menuBar(.timeLeft),
+                "menubar-tasks": .menuBar(.tasksLeft),
+                "menubar-hidden": .menuBar(.hidden),
+                "menubar-private": .menuBar(.timeLeft, privacy: true),
+                "menubar-block": .menuBar(.timeLeft, block: true),
                 "your-day": .window("your-day-preview") { YourDayPreview.show(app: $0) },
                 "your-day-editing": .window("your-day-preview") { YourDayPreview.show(app: $0, editing: true) },
                 "your-day-capture": .window("your-day-preview") { YourDayPreview.show(app: $0, capture: true) },
