@@ -74,7 +74,7 @@ final class SettingsDisplaySelectionTests: XCTestCase {
         let store = PlannerStore(file: storage, watching: false)
         store.apply { try $0.updatePreference(.showOnDisplay(stored)) }
         XCTAssertNil(store.lastError)
-        let before = try JSONEncoder().encode(XCTUnwrap(adapter.load()))
+        let before = try XCTUnwrap(adapter.load())
 
         let app = NSApplication.shared
         let originalPolicy = app.activationPolicy()
@@ -107,8 +107,7 @@ final class SettingsDisplaySelectionTests: XCTestCase {
         XCTAssertEqual(pickers.count, 1, "The rendered pane must contain exactly one display picker")
         let picker = try XCTUnwrap(pickers.first)
         XCTAssertTrue(picker.isEnabled)
-        XCTAssertEqual(
-            try JSONEncoder().encode(XCTUnwrap(adapter.load())), before, "Rendering must not rewrite preferences")
+        XCTAssertEqual(try XCTUnwrap(adapter.load()), before, "Rendering must not rewrite preferences")
         try await check(picker, store, adapter)
         host.layoutSubtreeIfNeeded()
     }
