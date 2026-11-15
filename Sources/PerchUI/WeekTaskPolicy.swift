@@ -8,6 +8,7 @@ public enum WeekTaskPolicy {
     public enum KeyboardFocus: Hashable {
         case day(DayKey)
         case task(UUID)
+        case checkbox(UUID)
         case other
     }
 
@@ -17,13 +18,23 @@ public enum WeekTaskPolicy {
         guard day >= today else { return nil }
         let id: UUID?
         switch focus {
-        case .task(let taskID): id = taskID
+        case .task(let taskID), .checkbox(let taskID): id = taskID
         case .day(let focusedDay) where focusedDay == day:
             id = summary(day: day, today: today, tasks: tasks).tasks.first?.id
         default: return nil
         }
         guard let id, tasks.first(where: { $0.id == id })?.day == day else { return nil }
         return moveAction(id: id, to: .day(day.adding(days: 1, calendar: calendar)), tasks: tasks, today: today)
+    }
+
+    /// Space belongs only to the live checkbox, never a menu, field or day.
+    public static func completionAction(
+        focus: KeyboardFocus?, from day: DayKey, tasks: [PlanTask], today: DayKey
+    ) -> PlannerAction? {
+        guard case .checkbox(let id) = focus,
+            let task = tasks.first(where: { $0.id == id }), task.day == day
+        else { return nil }
+        return scheduledCompletionAction(for: task, today: today)
     }
 
     public struct Summary: Equatable {

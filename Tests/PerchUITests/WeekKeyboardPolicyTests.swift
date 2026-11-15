@@ -48,6 +48,63 @@ final class WeekKeyboardPolicyTests: XCTestCase {
         XCTAssertNil(push(.day(today), from: today, tasks: tasks))
     }
 
+    func testCheckboxFocusPushesTheExactTask() {
+        let day = today.adding(days: 1, calendar: calendar)
+        let first = PlanTask(title: "Same title", day: day)
+        let second = PlanTask(title: first.title, day: day)
+        assertMove(push(.checkbox(second.id), from: day, tasks: [first, second]), id: second.id, to: "2027-01-17")
+        XCTAssertNil(push(.checkbox(UUID()), from: day, tasks: [first, second]))
+        XCTAssertNil(push(.checkbox(second.id), from: today, tasks: [first, second]))
+    }
+
+    func testCheckboxSpaceChecksAndReopensOnlyItsTaskOnTodayAndComingDays() throws {
+        for day in [today, today.adding(days: 1, calendar: calendar)] {
+            let first = PlanTask(title: "Same title", day: day)
+            let second = PlanTask(title: first.title, day: day)
+            var planner = Planner(); planner.tasks = [first, second]
+            var engine = PlannerEngine(
+                planner: planner, now: { self.today.start(resetHour: 4, calendar: self.calendar) }, calendar: calendar)
+            for done in [true, false] {
+                let action = try XCTUnwrap(
+                    completion(.checkbox(second.id), from: day, tasks: engine.planner.tasks))
+                guard case .setScheduledCompletion(let id, let expectedDay, let completed) = action else {
+                    return XCTFail("Week Space must use the date-bound completion command")
+                }
+                XCTAssertEqual(id, second.id)
+                XCTAssertEqual(expectedDay, day)
+                XCTAssertEqual(completed, done)
+                try engine.execute(action)
+                XCTAssertEqual(try engine.task(second.id).done, done)
+                XCTAssertFalse(try engine.task(first.id).done)
+            }
+        }
+    }
+
+    func testSpaceDoesNotCompleteFromMenuColumnFieldOrMissingFocus() {
+        let task = PlanTask(title: "Task", day: today)
+        for focus: WeekTaskPolicy.KeyboardFocus? in [nil, .task(task.id), .day(today), .other] {
+            XCTAssertNil(completion(focus, from: today, tasks: [task]))
+        }
+    }
+
+    func testSpaceRejectsMissingMovedPastAndUnscheduledCheckboxTasks() {
+        let day = today.adding(days: 1, calendar: calendar)
+        let future = PlanTask(title: "Future", day: day)
+        let past = PlanTask(title: "Past", day: "2027-01-14")
+        let inbox = PlanTask(title: "Inbox", day: nil)
+        let tasks = [future, past, inbox]
+        XCTAssertNil(completion(.checkbox(UUID()), from: day, tasks: tasks))
+        XCTAssertNil(completion(.checkbox(future.id), from: today, tasks: tasks))
+        XCTAssertNil(completion(.checkbox(past.id), from: past.day!, tasks: tasks))
+        XCTAssertNil(completion(.checkbox(inbox.id), from: day, tasks: tasks))
+    }
+
+    private func completion(
+        _ focus: WeekTaskPolicy.KeyboardFocus?, from day: DayKey, tasks: [PlanTask]
+    ) -> PlannerAction? {
+        WeekTaskPolicy.completionAction(focus: focus, from: day, tasks: tasks, today: today)
+    }
+
     private func assertMove(
         _ action: PlannerAction?, id: UUID, to day: DayKey, file: StaticString = #filePath, line: UInt = #line
     ) {

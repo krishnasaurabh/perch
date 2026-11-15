@@ -114,6 +114,16 @@ struct WeekBoard: View {
             guard key.modifiers.isEmpty else { return .ignored }
             navigate(from: day, by: 1); return .handled
         }
+        .onKeyPress(.space, phases: [.down, .repeat, .up]) { key in
+            guard key.modifiers.isEmpty,
+                let action = WeekTaskPolicy.completionAction(
+                    focus: keyboardFocus, from: day, tasks: store.planner.tasks, today: store.today)
+            else { return .ignored }
+            // The checkbox uses a custom focus proxy. Route Space explicitly,
+            // and consume the remaining phases without toggling a second time.
+            if key.phase == .down { store.send(action) }
+            return .handled
+        }
         .id(day)
     }
 
@@ -338,6 +348,7 @@ private struct WeekBoardTask: View {
                 .frame(width: Theme.Size.minimumTarget.value, height: Theme.Size.minimumTarget.value)
                 .contentShape(Rectangle())
                 .accessibilityIdentifier("week-check-\(task.id)")
+                .focusedValue(\.weekKeyboardFocus, .checkbox(task.id))
                 .disabled(WeekTaskPolicy.scheduledCompletionAction(for: task, today: store.today) == nil)
             }
             if past {
@@ -371,7 +382,7 @@ private struct WeekBoardTask: View {
                 FileHandle.standardError.write(
                     Data("WEEK_KEY row id=\(task.id) focus=\(String(describing: keyboardFocus))\n".utf8))
             #endif
-            guard keyboardFocus == .task(task.id), let day = task.day,
+            guard keyboardFocus == .task(task.id) || keyboardFocus == .checkbox(task.id), let day = task.day,
                 let action = WeekTaskPolicy.moveAction(
                     id: task.id, to: .day(day.adding(days: 1, calendar: store.engine.calendar)),
                     tasks: store.planner.tasks, today: store.today)
@@ -647,7 +658,7 @@ struct LegacyWeekPage: View {
                         }
                     }
                 }
-                Text("Scroll across seven days · Drag to reschedule · Only today’s tasks can be checked")
+                Text("Scroll across seven days · Drag to reschedule · Check today and coming days")
                     .font(Theme.meta).foregroundStyle(Theme.secondary)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
@@ -739,7 +750,7 @@ private struct WeekDayList: View {
             ScrollView {
                 VStack(spacing: 4) {
                     ForEach(tasks) { t in
-                        WeekChip(task: t, past: past)
+                        WeekChip(task: t)
                             .background(
                                 GeometryReader { g in
                                     let f = g.frame(in: .named(Self.space))
@@ -794,15 +805,17 @@ private struct WeekDayList: View {
 
 struct WeekChip: View {
     let task: PlanTask
-    let past: Bool
     @EnvironmentObject var store: PlannerStore
     @EnvironmentObject var model: NotchModel
     @FocusState private var menuFocused: Bool
     @State private var menuKeyboard = WeekMenuKeyboardTarget()
 
-    private var completion: PlannerAction? { WeekTaskPolicy.completionAction(for: task, today: store.today) }
+    private var past: Bool { task.day.map { $0 < store.today } ?? false }
+    private var completion: PlannerAction? { WeekTaskPolicy.scheduledCompletionAction(for: task, today: store.today) }
     private var checkHint: String {
-        past ? WeekColumnLayout.pastHint : "Move this task to today before checking it."
+        if past { return WeekColumnLayout.pastHint }
+        if task.day == nil { return "Schedule this task before checking it." }
+        return AppL10n.text(task.done ? "Uncheck task" : "Check off task")
     }
 
     var body: some View {

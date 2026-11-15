@@ -88,7 +88,7 @@ class WeekViewTests(unittest.TestCase):
 
     def test_arrow_handlers_use_the_event_receiving_keypress_overload(self):
         source = (ROOT / "Sources/PerchApp/Workspace/WeekPage.swift").read_text()
-        handlers = re.findall(r'\.onKeyPress\((\.\w+)([^)]*)\)\s*\{\s*key in', source)
+        handlers = re.findall(r'\.onKeyPress\((\.(?:leftArrow|rightArrow))([^)]*)\)\s*\{\s*key in', source)
         self.assertEqual([key for key, _ in handlers], ['.leftArrow', '.rightArrow', '.rightArrow'])
         for key, arguments in handlers:
             with self.subTest(key=key):
@@ -128,9 +128,31 @@ class WeekViewTests(unittest.TestCase):
         self.assertIn('store.planner.tasks.first(where: { $0.id == id })?.day == day', fallback)
         self.assertIn('return pushSelected(from: day) ? .handled : .ignored', board)
 
+    def test_week_space_uses_live_checkbox_focus_without_activating_menus(self):
+        source = (ROOT / "Sources/PerchApp/Workspace/WeekPage.swift").read_text()
+        board, rest = source.split('private struct WeekBoardDay:', 1)
+        row = rest.split('private struct WeekBoardTask:', 1)[1].split('struct WeekParkingColumn:', 1)[0]
+        checkbox = row.split('PerchCheckbox(', 1)[1].split('if past {', 1)[0]
+        self.assertIn('.focusedValue(\\.weekKeyboardFocus, .checkbox(task.id))', checkbox)
+        self.assertIn('.onKeyPress(.space, phases: [.down, .repeat, .up])', board)
+        self.assertIn('guard key.modifiers.isEmpty', board)
+        self.assertIn('if key.phase == .down', board)
+        self.assertIn('WeekTaskPolicy.completionAction(', board)
+        self.assertIn('focus: keyboardFocus, from: day, tasks: store.planner.tasks', board)
+        self.assertNotIn('NSApp.currentEvent', board)
+
+    def test_legacy_chip_completion_and_copy_allow_scheduled_days(self):
+        source = (ROOT / "Sources/PerchApp/Workspace/WeekPage.swift").read_text()
+        chip = source.split('struct WeekChip: View {', 1)[1].split('final class WeekMenuKeyboardTarget', 1)[0]
+        self.assertIn('WeekTaskPolicy.scheduledCompletionAction(for: task, today: store.today)', chip)
+        self.assertIn('task.day.map { $0 < store.today } ?? false', chip)
+        self.assertIn('Schedule this task before checking it.', chip)
+        self.assertNotIn('Move this task to today before checking it.', chip)
+        self.assertNotIn('Only today’s tasks can be checked', source)
+
     def test_chips_have_real_completion_and_menu_controls(self):
         source = (ROOT / "Sources/PerchApp/Workspace/WeekPage.swift").read_text()
-        self.assertIn("WeekTaskPolicy.completionAction", source)
+        self.assertIn("WeekTaskPolicy.scheduledCompletionAction", source)
         self.assertIn(".contextMenu", source)
         self.assertIn(".accessibilityIdentifier(\"week-check-", source)
         board, legacy = source.split('struct LegacyWeekPage: View {', 1)
