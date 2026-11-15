@@ -462,8 +462,10 @@ struct TaskComposer: View {
                 if initialStep { _ = changeIndent(false); capture.text = "Check the final detail" }
                 if let initialText { capture.text = initialText }
             #endif
+            updateDraft()
         }
         .onChange(of: capture) { _, _ in updateDraft() }
+        .onChange(of: day) { _, _ in updateDraft() }
         .onChange(of: fieldFocused) { _, value in
             if value { focusBinding.wrappedValue = .capture } else if focused { focusBinding.wrappedValue = nil }
         }
@@ -484,16 +486,20 @@ struct TaskComposer: View {
     }
 
     private func updateDraft() {
-        guard day == .day(store.today), let language = TaskParserLanguage.current,
-            let draft = capture.preview(using: store.capture, language: language)
-        else {
+        guard day == .day(store.today), let language = TaskParserLanguage.current else {
             parsed = nil; homeState?.captureDraft = nil; return
         }
-        parsed = draft
-        if let start = draft.startAt, !draft.inbox, draft.day == nil || draft.day == store.today {
+        parsed = capture.preview(using: store.capture, language: language)
+        if let draft = parsed, let start = draft.startAt, !draft.inbox, draft.day == nil || draft.day == store.today {
             homeState?.captureDraft = TodayHomeState.CaptureDraft(
                 startTime: start,
                 minutes: draft.minutes ?? store.prefs.defaultFocusMinutes)
+        } else if capture.parentID == nil,
+            let preview = YourDayTimeline.capturePreview(
+                text, using: store.capture, language: language, day: store.today)
+        {
+            homeState?.captureDraft = TodayHomeState.CaptureDraft(
+                startTime: preview.start, minutes: preview.minutes)
         } else {
             homeState?.captureDraft = nil
         }

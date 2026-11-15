@@ -55,6 +55,7 @@
             switch name {
             case "today-before": now = date(hour: 9, minute: 12)
             case "today-editing": now = date(hour: 9, minute: 14)
+            case "today-late": now = date(hour: 3, minute: 50).addingTimeInterval(24 * 3600)
             case "notch-reminder": now = date(hour: 9, minute: 30)
             case "strip-heads-up": now = date(hour: 10, minute: 40)
             case "strip-ended": now = date(hour: 10, minute: 45)
@@ -64,6 +65,10 @@
             var fixture = Fixture(name: name, planner: Planner(), now: now, day: day)
             fixture.planner.preferences.welcomeCompleted = name != "window-welcome"
             fixture.planner.preferences.notchOnMonitors = true
+            if name == "today-late" {
+                fixture.planner.tasks = [PlanTask(id: id(1), title: "Write notes", day: day, createdAt: now)]
+                return fixture
+            }
             if ["today-empty", "notch-idle", "window-welcome", "window-keys", "strip-data", "strip-drop"].contains(name)
             {
                 return fixture
