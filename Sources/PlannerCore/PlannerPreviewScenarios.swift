@@ -97,6 +97,20 @@
                 }
             }
             if name == "strip-undo" { fixture.planner.tasks.removeAll { $0.id == id(2) } }
+            if name == "today-paused" { fixture.planner.focus?.pause(at: now) }
+            // Schedule fixtures use the independent block-start field, not reminders.
+            if name.hasPrefix("today-") {
+                for index in fixture.planner.tasks.indices {
+                    let hour: Int?
+                    switch fixture.planner.tasks[index].id {
+                    case id(1): hour = 10
+                    case id(3): hour = 11
+                    case id(4): hour = 16
+                    default: hour = nil
+                    }
+                    if let hour { fixture.planner.tasks[index].startAt = date(hour: hour) }
+                }
+            }
             if name == "today-before" {
                 fixture.captureText = "Prep for the design review at 1:30 for 20 min"
             }

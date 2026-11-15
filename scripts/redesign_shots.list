@@ -8,6 +8,10 @@ week-three --scenario three --open week
 week-timer --scenario timer --open week
 today-running --scenario today-running --open today
 today-before --scenario today-before --open today
+time-card-ready --scenario today-before --open workspace-today
+time-card-running --scenario today-running --open workspace-today
+time-card-paused --scenario today-paused --open workspace-today
+time-card-empty --scenario today-empty --open workspace-today
 # today-editing is available to the inline-editor target when that screen lands.
 today-fresh --scenario today-empty --open today
 week-full --scenario week-full --open week
