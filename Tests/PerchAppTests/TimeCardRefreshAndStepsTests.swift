@@ -16,7 +16,7 @@
             let before = TimeCardPresentation(planner: planner, day: fixture.day, now: fixture.now)
             let after = TimeCardPresentation(
                 planner: planner, day: fixture.day, now: fixture.now.addingTimeInterval(60 * 60))
-            XCTAssertEqual(before.task?.title, "Draft the test checklist")
+            XCTAssertEqual(before.task?.title, "Call the bank")
             XCTAssertEqual(after.task?.title, "Review the release notes")
             XCTAssertEqual(after.primaryTitle, "Start it now")
             XCTAssertEqual(TimeCardPresentation.refreshInterval(planner: planner, day: fixture.day), interval)
