@@ -76,18 +76,20 @@ class ChecklistVoiceIsolationTests(unittest.TestCase):
             self.fail("Missing accessibility priming helper")
         start = declaration.start()
         end = source.index("\n        @MainActor private func settle", start)
-        helper = source[start:end].strip()
+        helper = source[start:end].strip().replace(
+            "AXUIElementCreateApplication(", "fixtureAXUIElementCreateApplication("
+        )
         call = re.search(r"await (?:Self\.)?primeAccessibility\(\)", source)
         if call is None:
             self.fail("Missing awaited priming call")
         return """import XCTest
-// Only the Foundation-free AX boundary is substituted; the helper is unchanged.
+// Only the AX boundary is substituted; actor isolation and task structure are unchanged.
 private typealias CFString = String
 private typealias CFTypeRef = Any
 private struct AXUIElement {}
 private let kAXWindowsAttribute = "AXWindows"
 private let kAXChildrenAttribute = "AXChildren"
-private func AXUIElementCreateApplication(_ pid: Int32) -> AXUIElement { AXUIElement() }
+private func fixtureAXUIElementCreateApplication(_ pid: Int32) -> AXUIElement { AXUIElement() }
 private func AXUIElementCopyAttributeValue(
     _ element: AXUIElement, _ attribute: CFString, _ value: inout CFTypeRef?
 ) -> Int32 { 0 }
@@ -98,13 +100,13 @@ final class VoiceIsolationFixture: XCTestCase {
     }
     """ + helper + "\n}\n"
 
-    def typecheck(self, source):
+    def typecheck(self, source, imported_symbols=""):
         swift = shutil.which("swiftc")
         if swift is None:
             self.fail("Swift is required to check the native fixture's actor boundary")
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "VoiceIsolationFixture.swift"
-            path.write_text(self.program(source))
+            path.write_text(imported_symbols + self.program(source))
             return subprocess.run(
                 compiler_command(swift, path, path.with_suffix(".sil")),
                 capture_output=True, text=True, timeout=60,
@@ -118,6 +120,23 @@ final class VoiceIsolationFixture: XCTestCase {
         self.assertIn("private nonisolated static func primeAccessibility()", source)
         self.assertIn("await Task.detached {", source)
         self.assertLess(source.index("await Self.primeAccessibility()"), source.index("rootView: VoiceFixture"))
+
+    def test_fixture_does_not_collide_with_platform_ax_function(self):
+        # XCTest exposes the real function on macOS. Reproduce its competing
+        # overload on every host, without requiring an Apple SDK on Linux.
+        imported_symbols = """private struct PlatformAXElement {}
+private func AXUIElementCreateApplication(_ pid: Int32) -> PlatformAXElement {
+    PlatformAXElement()
+}
+"""
+        source = SOURCE.read_text()
+        result = self.typecheck(source, imported_symbols)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        broken = source.replace("nonisolated static func", "nonisolated func")
+        broken = broken.replace("await Self.primeAccessibility()", "await primeAccessibility()")
+        result = self.typecheck(broken, imported_symbols)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("sending 'self' risks causing data races", result.stderr)
 
     def test_instance_helper_is_rejected_by_the_same_compiler(self):
         source = SOURCE.read_text().replace("nonisolated static func", "nonisolated func")
