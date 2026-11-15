@@ -488,6 +488,15 @@ final class DashboardProjectActionView: NSButton {
         super.keyUp(with: event)
     }
 
+    override func performClick(_ sender: Any?) {
+        if let event = NSApp.currentEvent, event.type == .keyDown, event.keyCode == 49,
+            !event.modifierFlags.intersection([.command, .control, .option, .shift]).isEmpty || event.isARepeat
+        {
+            return
+        }
+        super.performClick(sender)
+    }
+
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
         // AppKit can press a focused button here without calling keyDown.
         // Preserve the supplied event through its synchronous target/action.
