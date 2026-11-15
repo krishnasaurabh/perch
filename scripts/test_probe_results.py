@@ -245,6 +245,40 @@ class ProbeReportTests(unittest.TestCase):
         self.assertIn("mxClick(", selector)
         self.assertNotIn('contains("Row")', selector)
 
+    def test_sidebar_focus_reacquires_published_owner_after_child_walk(self):
+        source = (ROOT / "scripts/integration_probe.swift").read_text()
+        walker = source.split("func matrixSettingsFocused(", 1)[1].split("func matrixObservationTrace(", 1)[0]
+        self.assertLess(walker.index("let childFocused = visit(host)"),
+                        walker.index('value(owner, "accessibilityFocusedUIElement")'))
+        self.assertIn("host.window?.firstResponder", walker)
+        self.assertIn('as? String == wanted', walker)
+        self.assertIn("return childFocused", walker)
+        self.assertNotIn("navigation.pane", walker)
+
+    def test_history_sampler_reads_exact_ax_values_from_visible_scroll_hit_tests(self):
+        source = (ROOT / "scripts/integration_probe.swift").read_text()
+        sampler = source.split("func dashboardAXScrollSamples(", 1)[1].split(
+            "func dashboardAXStaticText(", 1)[0]
+        for required in ("document.visibleRect.intersection(document.bounds)",
+                         "scroll.isHiddenOrHasHiddenAncestor", "convertPoint(toScreen:",
+                         "accessibilityHitTest(screenPoint)", "for owner in [root, scroll]",
+                         "DashboardAXSamplingLimit", "seen.insert(ObjectIdentifier(node))"):
+            self.assertIn(required, sampler)
+        for forbidden in ("Matrix history", "matrixText(", "VNRecognize", "fixture.store", "store.planner"):
+            self.assertNotIn(forbidden, sampler)
+        collector = source.split("func dashboardAXStaticText(", 1)[1].split("struct DashboardFocusTrace", 1)[0]
+        self.assertIn("try dashboardAXScrollSamples(root)", collector)
+        self.assertIn('as? String == "AXStaticText"', collector)
+        for attribute in ("accessibilityLabel", "accessibilityValue", "accessibilityTitle",
+                          "accessibilityChildren", "accessibilityContents", "accessibilityChildrenInNavigationOrder"):
+            self.assertIn(attribute, collector)
+        history = source.split("if tab == .history {", 1)[1].split("// Project action:", 1)[0]
+        for exact in ('unfiltered.contains("Matrix history alpha") && unfiltered.contains("Matrix history beta")',
+                      'filtered.contains("Matrix history alpha") && !filtered.contains("Matrix history beta")',
+                      '"history accessibility exposes both task titles before filtering"',
+                      '"typed history search filters the task lines"'):
+            self.assertIn(exact, history)
+
     def test_settings_enablement_reads_only_a_unique_checkbox(self):
         source = (ROOT / "scripts/allpage_matrix_probe.swift").read_text()
         helper_start = "@MainActor\nfunc mxSettingsCheckboxEnabled("

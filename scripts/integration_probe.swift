@@ -499,14 +499,17 @@ func matrixSettingsFocused(_ host: NSView, pane: SettingsView.Pane) -> Bool {
         children += (node as? NSView)?.subviews ?? []
         return children.contains(where: visit)
     }
-    for owner in [NSApp as NSObject, host.window as NSObject?].compactMap({ $0 }) {
+    // Reading SwiftUI's child tree can publish its pending semantic focus. Read
+    // the focused owner again afterward, never infer focus from the selected pane.
+    let childFocused = visit(host)
+    for owner in [NSApp as NSObject, host.window as NSObject?, host, host.window?.firstResponder].compactMap({ $0 }) {
         if let focused = value(owner, "accessibilityFocusedUIElement") as? NSObject,
             value(focused, "accessibilityIdentifier") as? String == wanted
         {
             return true
         }
     }
-    return visit(host)
+    return childFocused
 }
 
 /// Read-only diagnostics: retain native geometry and public AX values even when
@@ -528,6 +531,7 @@ func matrixObservationTrace(_ host: NSView, phase: String, output: URL, text: Se
         return "\(type(of: node))@\(ObjectIdentifier(node)) id=\(value(node, "accessibilityIdentifier") ?? "nil")"
     }
     var pending: [NSObject] = [host]
+    if text != nil { pending.append(contentsOf: try dashboardAXScrollSamples(host)) }
     var owners: [String] = []
     for owner in [NSApp as NSObject, host.window as NSObject?, host, host.window?.firstResponder].compactMap({ $0 }) {
         let element = value(owner, "accessibilityFocusedUIElement") as? NSObject
@@ -721,9 +725,46 @@ func checkSettingsFailure(
     }
 }
 
+/// SwiftUI may omit painted scroll content from accessibilityChildren while
+/// still exposing it through public accessibilityHitTest. Sample only the live
+/// document's visible bounds, not fixture titles, model data or OCR guesses.
+@MainActor
+func dashboardAXScrollSamples(_ root: NSView) throws -> [NSObject] {
+    guard let window = root.window else { throw NSError(domain: "DashboardAXMissingWindow", code: 1) }
+    var nodes: [NSObject] = []
+    var seen = Set<ObjectIdentifier>()
+    var samples = 0
+    for scroll in matrixViews(root).compactMap({ $0 as? NSScrollView }) {
+        guard !scroll.isHiddenOrHasHiddenAncestor, let document = scroll.documentView else { continue }
+        let visible = document.visibleRect.intersection(document.bounds)
+        guard !visible.isEmpty else { continue }
+        let columns = max(1, Int(ceil(visible.width / 12)))
+        let rows = max(1, Int(ceil(visible.height / 12)))
+        guard samples + columns * rows <= 8192 else {
+            throw NSError(domain: "DashboardAXSamplingLimit", code: 1)
+        }
+        samples += columns * rows
+        for row in 0..<rows {
+            for column in 0..<columns {
+                let point = NSPoint(
+                    x: visible.minX + visible.width * (CGFloat(column) + 0.5) / CGFloat(columns),
+                    y: visible.minY + visible.height * (CGFloat(row) + 0.5) / CGFloat(rows))
+                let screenPoint = window.convertPoint(toScreen: document.convert(point, to: nil))
+                for owner in [root, scroll] {
+                    if let node = owner.accessibilityHitTest(screenPoint) as? NSObject,
+                        seen.insert(ObjectIdentifier(node)).inserted
+                    {
+                        nodes.append(node)
+                    }
+                }
+            }
+        }
+    }
+    return nodes
+}
+
 /// Exact static text from public accessibility nodes, never OCR or prefix matches.
-/// Keep native subviews and all three child orders: hosted SwiftUI text can live
-/// in any of them, independently of the keyboard proxy tree.
+/// Include both child traversal and the scroll content's public hit-test roots.
 @MainActor
 func dashboardAXStaticText(_ root: NSView) throws -> Set<String> {
     func value(_ node: NSObject, _ name: String) -> Any? {
@@ -731,6 +772,7 @@ func dashboardAXStaticText(_ root: NSView) throws -> Set<String> {
         return node.responds(to: selector) ? node.perform(selector)?.takeUnretainedValue() : nil
     }
     var pending: [NSObject] = [root]
+    pending.append(contentsOf: try dashboardAXScrollSamples(root))
     var seen = Set<ObjectIdentifier>()
     var strings = Set<String>()
     while let node = pending.popLast() {
