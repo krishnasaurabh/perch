@@ -89,10 +89,7 @@ struct SettingsGeneralPane: View {
             }
             SettingsRow("Time to set aside by default") {
                 HStack(spacing: SurfaceMetrics.gap) {
-                    PerchSegmented(
-                        title: AppL10n.text("Time to set aside by default"),
-                        items: [15, 25, 45, 60].map { ($0, String($0)) },
-                        selection: preference(\.defaultFocusMinutes, update: PreferenceUpdate.defaultFocusMinutes))
+                    Self.defaultLengthControl(store: store)
                     Text(Self.durationUnit(for: store.prefs.defaultFocusMinutes))
                         .perchFont(.detail).foregroundStyle(Theme.ink2)
                 }
@@ -176,6 +173,13 @@ struct SettingsGeneralPane: View {
         Binding(
             get: { store.prefs[keyPath: key] },
             set: { value in store.apply { try $0.updatePreference(update(value)) } })
+    }
+
+    static func defaultLengthControl(store: PlannerStore) -> some View {
+        PerchSegmented(
+            title: AppL10n.text("Time to set aside by default"),
+            items: [15, 25, 45, 60].map { ($0, String($0)) },
+            selection: preference(\.defaultFocusMinutes, update: PreferenceUpdate.defaultFocusMinutes, store: store))
     }
 
     /// Keep a saved custom length visible without changing it to a preset just by opening Settings.
