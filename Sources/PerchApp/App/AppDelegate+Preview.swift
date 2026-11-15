@@ -41,6 +41,7 @@ import SwiftUI
                 "settings/notch-configured": .window("settings", open: SettingsNotchPreview.showConfigured),
                 "settings/calendar": .window("settings") { SettingsWindow.preview(.calendar, app: $0) },
                 "settings/agents": .window("settings") { SettingsWindow.preview(.agents, app: $0) },
+                "settings/agents-connected": .window("settings") { SettingsAgentsPane.previewConnected(app: $0) },
                 "settings/data": .window("settings") { SettingsWindow.preview(.data, app: $0) },
                 "keys": .window("keys") { KeysWindow.show(store: $0.store) },
                 "your-week": .window("dashboard") { DashboardWindow.show(store: $0.store, tab: .insights) },

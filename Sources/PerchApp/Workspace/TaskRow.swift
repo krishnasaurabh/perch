@@ -140,11 +140,31 @@ struct TaskRow: View {
     }
 
     private var details: some View {
-        Text(detailText)
-            .perchFont(.detail)
-            .foregroundStyle(task.done ? Theme.doneText : task.carriedFrom != nil ? Theme.carried : Theme.ink2)
-            .accessibilityIdentifier("task-detail-\(task.id)")
+        HStack(spacing: Theme.Size.focusGap.value) {
+            if task.done {
+                Text(AppL10n.text("Done"))
+            } else if let start = task.startAt {
+                Text(start.formatted(date: .omitted, time: .shortened))
+            }
+            if !task.steps.isEmpty {
+                Label(
+                    AppL10n.format("%lld/%lld steps", task.steps.filter(\.done).count, task.steps.count),
+                    systemImage: "list.bullet")
+            }
+            if let c = task.carriedFrom {
+                Label(AppL10n.format("From %@", shortDay(c)), systemImage: "arrow.uturn.right")
+            }
+            if store.prefs.showAgentAttribution, let agent = task.agentID, let name = AgentName.short(agent) {
+                Label(AppL10n.format("Via %@", name), systemImage: "sparkles").help(
+                    AppL10n.format("Added through MCP by %@", agent))
+            }
+        }
+        .perchFont(.detail)
+        .foregroundStyle(task.done ? Theme.doneText : task.carriedFrom != nil ? Theme.carried : Theme.ink2)
+        .accessibilityIdentifier("task-detail-\(task.id)")
     }
+
+    private func shortDay(_ d: DayKey) -> String { d.date().formatted(.dateTime.month(.abbreviated).day()) }
 
     private var detailText: String {
         if task.done { return AppL10n.text("Done") }
