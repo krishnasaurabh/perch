@@ -56,8 +56,13 @@ def qualify(marker, sha):
         expected_control = EXPECTED['tick'] + task_id if valid_id else None
         if after.get('completed_target') is not True:
             reasons.append('tick-target-not-observed')
-    if name in EXPECTED and (expected_control is None or marker.get('via') != expected_control):
-        reasons.append('missing-real-control')
+    if name in EXPECTED:
+        accepted_controls = (expected_control,)
+        if name == 'timer':
+            # The checklist-only integration still hosts the legacy FocusCard's real Start button.
+            accepted_controls += ('ax-press:Start',)
+        if expected_control is None or marker.get('via') not in accepted_controls:
+            reasons.append('missing-real-control')
     if marker.get('interaction_ok') is False:
         reasons.append('failed-interaction')
     session = marker.get('session', {})

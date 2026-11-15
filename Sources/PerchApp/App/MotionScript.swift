@@ -146,9 +146,7 @@
                         self.tickTaskID = task.id
                         return self.requiredPress("task-complete-\(task.id)", byIdentifier: true)
                     },
-                    Step(name: "timer", wait: 2.4, capture: true) {
-                        self.requiredPress("time-card-primary", byIdentifier: true)
-                    },
+                    Step(name: "timer", wait: 2.4, capture: true) { self.requiredTimerStartPress() },
                     Step(name: "timer-stop", wait: 2.4, capture: false) { self.completeActiveBlockAtControlledEnd() },
                     Step(name: "end", wait: 2.4, capture: false) { [model] in
                         model.close(); return "NotchModel.close"
@@ -251,6 +249,17 @@
                 if let d = try? JSONSerialization.data(withJSONObject: doc, options: [.prettyPrinted, .sortedKeys]) {
                     try? d.write(to: markersURL)
                 }
+            }
+
+            /// Both the legacy FocusCard and redesigned TimeCard are exercised only through real AX.
+            /// The negative-control switch bypasses the compatibility route and still fails closed.
+            private func requiredTimerStartPress() -> String {
+                if ProcessInfo.processInfo.environment["PERCH_MOTION_MISSING_CONTROL"] == "time-card-primary" {
+                    return requiredPress("time-card-primary", byIdentifier: true)
+                }
+                if let via = press("time-card-primary", byIdentifier: true) { return via }
+                if let via = press("Start", byIdentifier: false) { return via }
+                return "FAILED:missing-control:time-card-primary"
             }
 
             /// There is intentionally no Stop button on the redesigned time card. Advance only the
