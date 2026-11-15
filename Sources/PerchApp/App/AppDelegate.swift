@@ -45,16 +45,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func setupMenuBar() {
-        menuBarItem = MenuBarItem(store: store) { [weak self] action in
-            guard let self else { return }
-            switch action {
-            case .addTask, .openToday: self.openWorkspace()
-            case .openWeek: NotificationCenter.default.post(name: .perchOpenWorkspace, object: NotchPage.week)
-            case .settings: self.openSettings()
-            case .quit: NSApp.terminate(nil)
-            case .privacy, .pauseOrContinue, .addFiveMinutes: break
-            }
-        }
+        menuBarItem = MenuBarItem(
+            store: store,
+            navigate: { [weak self] action in
+                guard let self else { return }
+                switch action {
+                case .addTask, .openToday: self.openWorkspace()
+                case .openWeek: NotificationCenter.default.post(name: .perchOpenWorkspace, object: NotchPage.week)
+                case .settings: self.openSettings()
+                case .quit: NSApp.terminate(nil)
+                case .privacy, .pauseOrContinue, .addFiveMinutes: break
+                }
+            })
     }
 
     @objc func openWorkspace() { NotificationCenter.default.post(name: .perchOpenWorkspace, object: NotchPage.home) }

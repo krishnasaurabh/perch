@@ -6,6 +6,25 @@ import XCTest
 
 final class MenuBarItemTests: XCTestCase {
     @MainActor
+    func testExplicitNavigationCallbackWithDefaultDependencies() async throws {
+        _ = NSApplication.shared
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = PlannerStore(
+            file: PlannerFile(
+                url: root.appendingPathComponent("planner.json"), preferences: MemoryPlannerPreferences()),
+            watching: false)
+        var navigations: [MenuBarModel.Action] = []
+        let item = MenuBarItem(store: store, navigate: { navigations.append($0) })
+        defer { item.stop() }
+        let today = try XCTUnwrap(item.menu.items.first { $0.identifier?.rawValue == "menubar.openToday" })
+        XCTAssertTrue(today.isEnabled)
+        item.menu.performActionForItem(at: item.menu.index(of: today))
+        XCTAssertEqual(navigations, [.openToday])
+        XCTAssertFalse(FileManager.default.fileExists(atPath: store.file.url.path))
+    }
+
+    @MainActor
     func testRealStatusItemLifecycleAndTypedPersistedUpdates() async throws {
         _ = NSApplication.shared
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
