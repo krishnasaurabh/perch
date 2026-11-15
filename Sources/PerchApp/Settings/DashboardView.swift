@@ -403,6 +403,7 @@ final class DashboardProjectActionView: NSButton {
     var onAction: () -> Void = {}
     var focusChanged: (Bool) -> Void = { _ in }
     var pressChanged: (Bool) -> Void = { _ in }
+    private var activationEvent: NSEvent?
 
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -463,7 +464,7 @@ final class DashboardProjectActionView: NSButton {
                 !event.isARepeat, event.window === window,
                 window?.isKeyWindow == true, window?.firstResponder === self, acceptsFirstResponder
             else { return }
-            performClick(nil)
+            withActivationEvent(event) { performClick(nil) }
             return
         }
         if event.keyCode == 48,
@@ -487,17 +488,30 @@ final class DashboardProjectActionView: NSButton {
         super.keyUp(with: event)
     }
 
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        // AppKit can press a focused button here without calling keyDown.
+        // Preserve the supplied event through its synchronous target/action.
+        withActivationEvent(event) { super.performKeyEquivalent(with: event) }
+    }
+
     override func mouseDown(with event: NSEvent) {
         guard acceptsFirstResponder else { return }
         pressChanged(true)
         defer { pressChanged(false) }
-        super.mouseDown(with: event)
+        withActivationEvent(event) { super.mouseDown(with: event) }
     }
 
     override func accessibilityPerformPress() -> Bool {
         guard window != nil, acceptsFirstResponder else { return false }
-        performClick(nil)
+        withActivationEvent(nil) { performClick(nil) }
         return true
+    }
+
+    private func withActivationEvent<T>(_ event: NSEvent?, _ body: () -> T) -> T {
+        let previous = activationEvent
+        activationEvent = event
+        defer { activationEvent = previous }
+        return body()
     }
 
     @objc private func activateProjectAction(_ sender: Any?) {
@@ -505,6 +519,15 @@ final class DashboardProjectActionView: NSButton {
             traceProjectAction("activateProjectAction")
         #endif
         guard window != nil, acceptsFirstResponder else { return }
+        // Do not rely on NSApp.currentEvent: direct sendEvent calls need not
+        // update it, and accessibility/programmatic presses are not key events.
+        if let event = activationEvent, event.type == .keyDown || event.type == .keyUp {
+            guard event.type == .keyDown, event.keyCode == 49,
+                event.modifierFlags.intersection([.command, .control, .option, .shift]).isEmpty,
+                !event.isARepeat, event.window === window,
+                window?.isKeyWindow == true, window?.firstResponder === self
+            else { return }
+        }
         onAction()
     }
 
