@@ -184,6 +184,19 @@ public final class PlannerCommandPipeline {
         return result
     }
 
+    /// Replaces the current planner with the newest readable backup. The replaced document
+    /// stays in the backup history, and a readable replaced planner can be restored with Undo.
+    @discardableResult
+    public func restoreLatestBackup() throws -> Planner {
+        gate.lock(); defer { gate.unlock() }
+        let (previous, restored) = try file.restoreLatestBackupReplacing()
+        if let previous {
+            history.record(before: previous, after: restored)
+            agentUndoOrdering.record(before: previous, after: restored)
+        }
+        return restored
+    }
+
     @discardableResult public func undo() throws -> Planner? { try traverse(redo: false) }
     @discardableResult public func redo() throws -> Planner? { try traverse(redo: true) }
     private func traverse(redo: Bool) throws -> Planner? {
