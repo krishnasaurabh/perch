@@ -1,3 +1,4 @@
+import AppKit
 import PlannerCore
 import PerchUI
 import SwiftUI
@@ -97,16 +98,27 @@ struct TasksCard: View {
                         }
                         .frame(maxWidth: .infinity, alignment: .topLeading)
                         .background(Theme.paper)
-                        .background(TasksContinuationObserver())
                     }
                     .scrollIndicators(.automatic)
-                    .accessibilityElement(children: .contain)
-                    .focusable(!tasks.isEmpty)
-                    .focused($focus, equals: .checklist)
-                    .focusEffectDisabled()
-                    .accessibilityIdentifier("today-checklist")
-                    .accessibilityLabel("The checklist")
-                    .onKeyPress(phases: [.down, .repeat, .up]) { handle($0, tasks: tasks) }
+                    .background {
+                        TasksContinuationObserver().frame(maxWidth: .infinity, maxHeight: .infinity)
+                    }
+                    .overlay {
+                        // The native key view is also the semantic group. No SwiftUI
+                        // KeyViewProxy or individual row owns a second checklist stop.
+                        ChecklistKeyTarget(
+                            onKey: { handle($0, tasks: tasks) },
+                            onTab: { backwards in
+                                guard !backwards, store.canUndo else { return false }
+                                focus = .undo
+                                return true
+                            }
+                        )
+                        .focusable(!tasks.isEmpty)
+                        .focused($focus, equals: .checklist)
+                        .accessibilityIdentifier("today-checklist")
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    }
                     .onChange(of: homeState.selectedTaskID) { _, id in
                         selectedStepID = nil
                         if let id, !foldSelected { scroll.scrollTo(id) }
@@ -235,7 +247,7 @@ struct TasksCard: View {
     }
     private func edit(_ id: UUID) { homeState.selectedTaskID = id; homeState.editingTaskID = id }
 
-    private func handle(_ press: KeyPress, tasks: [PlanTask]) -> KeyPress.Result {
+    private func handle(_ press: ChecklistKeyPress, tasks: [PlanTask]) -> KeyPress.Result {
         guard focus == .checklist else { return .ignored }
         let modifiers = press.modifiers.intersection([.command, .control, .option, .shift])
         let plain = modifiers.isEmpty
@@ -301,6 +313,197 @@ struct TasksCard: View {
     }
 }
 
+/// The native responder and the AX group are deliberately the same object.
+/// These concrete modifiers configure AppKit directly instead of adding a SwiftUI focus proxy.
+private struct ChecklistKeyTarget: NSViewRepresentable {
+    let onKey: (ChecklistKeyPress) -> KeyPress.Result
+    let onTab: (Bool) -> Bool
+    private var enabled = false
+    private var binding: FocusState<TodayFocus?>.Binding?
+    private var destination: TodayFocus = .checklist
+    private var identifier = ""
+
+    init(onKey: @escaping (ChecklistKeyPress) -> KeyPress.Result, onTab: @escaping (Bool) -> Bool) {
+        self.onKey = onKey
+        self.onTab = onTab
+    }
+
+    func focusable(_ enabled: Bool) -> Self {
+        var copy = self; copy.enabled = enabled; return copy
+    }
+
+    func focused(_ binding: FocusState<TodayFocus?>.Binding, equals destination: TodayFocus) -> Self {
+        var copy = self; copy.binding = binding; copy.destination = destination; return copy
+    }
+
+    func accessibilityIdentifier(_ identifier: String) -> Self {
+        var copy = self; copy.identifier = identifier; return copy
+    }
+
+    func makeNSView(context: Context) -> ChecklistKeyView { ChecklistKeyView() }
+
+    func updateNSView(_ view: ChecklistKeyView, context: Context) {
+        let binding = binding, destination = destination
+        view.key = onKey
+        view.tab = onTab
+        view.focusChanged = { focused in
+            if focused {
+                binding?.wrappedValue = destination
+            } else if binding?.wrappedValue == destination {
+                binding?.wrappedValue = nil
+            }
+        }
+        view.active = enabled
+        view.setAccessibilityIdentifier(identifier)
+        // Re-read current intent when the view is attached. A queued old selection must
+        // never steal focus back from capture, Undo, another window, or a removed card.
+        DispatchQueue.main.async { [weak view] in
+            guard let view, binding?.wrappedValue == destination,
+                view.window?.isKeyWindow == true, view.acceptsFirstResponder,
+                view.window?.firstResponder !== view
+            else { return }
+            view.window?.makeFirstResponder(view)
+        }
+    }
+
+    static func dismantleNSView(_ view: ChecklistKeyView, coordinator: ()) {
+        view.active = false
+        view.focusChanged(false)
+        view.focusChanged = { _ in }
+        view.key = { _ in .ignored }
+        view.tab = { _ in false }
+    }
+}
+
+/// One actual AppKit key view for the entire checklist, never one per task or step.
+final class ChecklistKeyView: NSView {
+    var active = false {
+        didSet {
+            if !active && window?.firstResponder === self { window?.makeFirstResponder(nil) }
+            if active != oldValue { window?.recalculateKeyViewLoop() }
+        }
+    }
+    var key: (ChecklistKeyPress) -> KeyPress.Result = { _ in .ignored }
+    var tab: (Bool) -> Bool = { _ in false }
+    var focusChanged: (Bool) -> Void = { _ in }
+    private var keyFrame = NSRect.zero
+
+    override init(frame: NSRect) {
+        super.init(frame: frame)
+        focusRingType = .none
+        setAccessibilityElement(true)
+        setAccessibilityRole(.group)
+        setAccessibilityLabel(AppL10n.text("The checklist"))
+    }
+    required init?(coder: NSCoder) { nil }
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+    override var acceptsFirstResponder: Bool {
+        active && window != nil && !bounds.isEmpty && !isHiddenOrHasHiddenAncestor
+    }
+    override var canBecomeKeyView: Bool { acceptsFirstResponder }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        window?.recalculateKeyViewLoop()
+    }
+
+    override func layout() {
+        super.layout()
+        guard keyFrame != frame else { return }
+        keyFrame = frame
+        window?.recalculateKeyViewLoop()
+    }
+
+    override func becomeFirstResponder() -> Bool {
+        guard acceptsFirstResponder, super.becomeFirstResponder() else { return false }
+        focusChanged(true)
+        NSAccessibility.post(element: self, notification: .focusedUIElementChanged)
+        return true
+    }
+
+    override func resignFirstResponder() -> Bool {
+        guard super.resignFirstResponder() else { return false }
+        // Emptying the list invalidates this key view before SwiftUI may run its
+        // removal observer. Preserve that observer's checklist -> Undo/capture intent.
+        if active { focusChanged(false) }
+        return true
+    }
+
+    override func isAccessibilityEnabled() -> Bool { active }
+    override func isAccessibilityFocused() -> Bool {
+        acceptsFirstResponder && window?.isKeyWindow == true && window?.firstResponder === self
+    }
+    override var accessibilityFocusedUIElement: Any? { isAccessibilityFocused() ? self : nil }
+    override func setAccessibilityFocused(_ focused: Bool) {
+        if focused && acceptsFirstResponder {
+            window?.makeFirstResponder(self)
+        } else if !focused && window?.firstResponder === self {
+            window?.makeFirstResponder(nil)
+        }
+    }
+
+    override func keyDown(with event: NSEvent) {
+        let flags = event.modifierFlags.intersection([.command, .control, .option, .shift])
+        if event.keyCode == 48, flags.isEmpty || flags == .shift {
+            guard !event.isARepeat else { return }
+            let backwards = flags == .shift
+            if !tab(backwards) {
+                if backwards { window?.selectPreviousKeyView(self) } else { window?.selectNextKeyView(self) }
+            }
+        } else if !dispatch(event) {
+            super.keyDown(with: event)
+        }
+    }
+
+    override func keyUp(with event: NSEvent) {
+        if event.keyCode != 48 && !dispatch(event) { super.keyUp(with: event) }
+    }
+
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        guard window?.firstResponder === self else { return super.performKeyEquivalent(with: event) }
+        return dispatch(event) || super.performKeyEquivalent(with: event)
+    }
+
+    private func dispatch(_ event: NSEvent) -> Bool {
+        guard isAccessibilityFocused() else { return false }
+        switch key(ChecklistKeyPress(event)) {
+        case .handled: return true
+        case .ignored: return false
+        @unknown default: return false
+        }
+    }
+}
+
+/// Normalize AppKit events once; task/step actions retain their existing phase/modifier rules.
+struct ChecklistKeyPress {
+    enum Phase: Equatable { case down, `repeat`, up }
+    let key: KeyEquivalent
+    let characters: String
+    let modifiers: EventModifiers
+    let phase: Phase
+
+    init(_ event: NSEvent) {
+        characters = event.charactersIgnoringModifiers ?? ""
+        switch event.keyCode {
+        case 123: key = .leftArrow
+        case 124: key = .rightArrow
+        case 125: key = .downArrow
+        case 126: key = .upArrow
+        case 36, 76: key = .return
+        case 49: key = .space
+        case 51: key = .delete
+        default: key = KeyEquivalent(characters.first ?? "\0")
+        }
+        var flags: EventModifiers = []
+        if event.modifierFlags.contains(.command) { flags.insert(.command) }
+        if event.modifierFlags.contains(.control) { flags.insert(.control) }
+        if event.modifierFlags.contains(.option) { flags.insert(.option) }
+        if event.modifierFlags.contains(.shift) { flags.insert(.shift) }
+        modifiers = flags
+        phase = event.type == .keyUp ? .up : (event.isARepeat ? .repeat : .down)
+    }
+}
+
 /// The scroll proxy stays owned by the checklist, not its individual step rows.
 enum ChecklistStepScroll {
     static func reveal(_ id: UUID?, using scrollTo: (UUID, UnitPoint) -> Void) {
@@ -346,7 +549,11 @@ private struct OverdueReview: View {
 /// The existing AppKit fade draws over hosted rows and never intercepts their clicks.
 private struct TasksContinuationObserver: NSViewRepresentable {
     func makeNSView(context: Context) -> Marker { Marker() }
-    func updateNSView(_ view: Marker, context: Context) { view.attach() }
+    func updateNSView(_ view: Marker, context: Context) {
+        view.attach()
+        DispatchQueue.main.async { [weak view] in view?.attach() }
+    }
+    static func dismantleNSView(_ view: Marker, coordinator: ()) { view.detach() }
 
     final class Marker: NSView {
         private weak var scroll: NSScrollView?
@@ -367,13 +574,21 @@ private struct TasksContinuationObserver: NSViewRepresentable {
         override func layout() { super.layout(); attach() }
         deinit { NotificationCenter.default.removeObserver(self) }
 
+        func detach() {
+            NotificationCenter.default.removeObserver(self)
+            fade.removeFromSuperview()
+            scroll = nil
+        }
+
         func attach() {
-            guard let enclosing = enclosingScrollView else { return }
+            guard let enclosing = ChecklistViewportAttachment.resolve(from: self) else {
+                detach()
+                return
+            }
             // Native-only identity must not overwrite the checklist focus proxy or its children.
             enclosing.setAccessibilityIdentifier("today-task-viewport")
             if scroll !== enclosing {
-                NotificationCenter.default.removeObserver(self)
-                fade.removeFromSuperview()
+                detach()
                 scroll = enclosing
                 enclosing.addSubview(fade, positioned: .above, relativeTo: nil)
                 let clip = enclosing.contentView
@@ -408,6 +623,35 @@ private struct TasksContinuationObserver: NSViewRepresentable {
                 contentHeight: Double(document.bounds.height),
                 visibleOffset: Double(offset), visibleHeight: Double(visible.height))
         }
+    }
+}
+
+/// SwiftUI may host a ScrollView background beside, rather than inside, its native scroller.
+/// The viewport-sized marker must match exactly one scroll frame in its nearest hosting scope.
+@MainActor
+enum ChecklistViewportAttachment {
+    static func resolve(from marker: NSView) -> NSScrollView? {
+        if let enclosing = marker.enclosingScrollView { return enclosing }
+        guard marker.window != nil, !marker.bounds.isEmpty, !marker.isHiddenOrHasHiddenAncestor else { return nil }
+        var ancestor = marker.superview
+        while let container = ancestor {
+            let target = marker.convert(marker.bounds, to: container)
+            let matches = scrolls(in: container).filter { scroll in
+                let frame = scroll.convert(scroll.bounds, to: container)
+                return !scroll.isHiddenOrHasHiddenAncestor && scroll.documentView != nil
+                    && abs(frame.minX - target.minX) <= 1 && abs(frame.minY - target.minY) <= 1
+                    && abs(frame.width - target.width) <= 1 && abs(frame.height - target.height) <= 1
+            }
+            if matches.count == 1 { return matches[0] }
+            if matches.count > 1 { return nil }
+            ancestor = container.superview
+        }
+        return nil
+    }
+
+    private static func scrolls(in view: NSView) -> [NSScrollView] {
+        if let scroll = view as? NSScrollView { return [scroll] }
+        return view.subviews.flatMap { scrolls(in: $0) }
     }
 }
 
