@@ -572,6 +572,34 @@ func checkSettingsFailure(
     }
 }
 
+/// Exact static text from public accessibility nodes, never OCR or prefix matches.
+/// Keep native subviews and all three child orders: hosted SwiftUI text can live
+/// in any of them, independently of the keyboard proxy tree.
+@MainActor
+func dashboardAXStaticText(_ root: NSView) throws -> Set<String> {
+    func value(_ node: NSObject, _ name: String) -> Any? {
+        let selector = NSSelectorFromString(name)
+        return node.responds(to: selector) ? node.perform(selector)?.takeUnretainedValue() : nil
+    }
+    var pending: [NSObject] = [root]
+    var seen = Set<ObjectIdentifier>()
+    var strings = Set<String>()
+    while let node = pending.popLast() {
+        guard seen.insert(ObjectIdentifier(node)).inserted else { continue }
+        guard seen.count <= 4096 else { throw NSError(domain: "DashboardAXTraversalLimit", code: 1) }
+        if value(node, "accessibilityRole") as? String == "AXStaticText" {
+            for name in ["accessibilityLabel", "accessibilityValue", "accessibilityTitle"] {
+                if let text = value(node, name) as? String { strings.insert(text) }
+            }
+        }
+        if let view = node as? NSView { pending.append(contentsOf: view.subviews) }
+        for name in ["accessibilityChildren", "accessibilityContents", "accessibilityChildrenInNavigationOrder"] {
+            pending.append(contentsOf: value(node, name) as? [NSObject] ?? [])
+        }
+    }
+    return strings
+}
+
 /// Read-only, bounded snapshots. Native object identity is retained alongside
 /// public accessibility semantics; neither is inferred from a private class name.
 @MainActor
@@ -649,8 +677,19 @@ struct DashboardFocusTrace {
             }
             return row
         }
+        var validChain: [String] = []
+        var validSeen = Set<ObjectIdentifier>()
+        var validNext = tabs
+        while let view = validNext, validChain.count < 64, validSeen.insert(ObjectIdentifier(view)).inserted {
+            validChain.append(identity(view))
+            validNext = view.nextValidKeyView
+        }
         let snapshot: [String: Any] = [
             "phase": phase, "firstResponder": identity(first), "tabKeyView": identity(tabs),
+            "firstResponderLabel": first.flatMap { attribute($0, "accessibilityLabel") as? String } ?? "unavailable",
+            "firstResponderIdentifier": first.flatMap { attribute($0, "accessibilityIdentifier") as? String }
+                ?? "unavailable",
+            "tabNextValidKeyViewChain": validChain,
             "selectedTab": DashboardWindow.selection?.tab.rawValue ?? "unavailable",
             "sameTabObject": first != nil && first === tabs,
             "initialFirstResponder": identity(window.initialFirstResponder),
@@ -660,6 +699,10 @@ struct DashboardFocusTrace {
         try JSONSerialization.data(withJSONObject: snapshot, options: [.prettyPrinted, .sortedKeys])
             .write(to: output.appendingPathComponent("dashboard-focus-\(phase).json"), options: .atomic)
         print("dashboard focus \(phase): first=\(identity(first)) tabs=\(identity(tabs)) same=\(first === tabs)")
+        print(
+            "dashboard focus \(phase): label=\(snapshot["firstResponderLabel"] ?? "unavailable") "
+                + "identifier=\(snapshot["firstResponderIdentifier"] ?? "unavailable")")
+        print("dashboard focus \(phase): tabs nextValidKeyView chain=\(validChain)")
         print("dashboard focus \(phase): content nextKeyView chain=\(chain)")
         for row in rows {
             print("dashboard focus \(phase): \(row)")
@@ -744,12 +787,23 @@ func checkDashboardMatrix(_ fixture: MatrixFixture, output: URL) async throws {
             matrixRequire(
                 field?.placeholderString == "Search history", "Tab moves from the tabs to the history search",
                 "firstResponder=\(String(describing: window.firstResponder))")
+            let unfiltered = try dashboardAXStaticText(host)
+            matrixRequire(
+                unfiltered.contains("Matrix history alpha") && unfiltered.contains("Matrix history beta"),
+                "history accessibility exposes both task titles before filtering", "\(unfiltered.sorted())")
             await matrixType(window, "alpha")
             await matrixSettle()
-            let filtered = try matrixText(host, name: "dashboard-history-search", output: output)
+            _ = try matrixText(host, name: "dashboard-history-search", output: output)
             matrixRequire(
-                filtered.contains("matrix history alpha") && !filtered.contains("matrix history beta"),
-                "typed history search filters the task lines", filtered)
+                field?.accessibilityValue() as? String == "alpha",
+                "typed history search updates the field accessibility value",
+                "value=\(String(describing: field?.accessibilityValue()))")
+            let filtered = try dashboardAXStaticText(host)
+            try JSONSerialization.data(withJSONObject: filtered.sorted(), options: [.prettyPrinted, .sortedKeys])
+                .write(to: output.appendingPathComponent("dashboard-history-search.ax.json"), options: .atomic)
+            matrixRequire(
+                filtered.contains("Matrix history alpha") && !filtered.contains("Matrix history beta"),
+                "typed history search filters the task lines", "\(filtered.sorted())")
             await matrixKey(window, 48, "\t", .shift)
             try trace.record(window, phase: "behavior-history-backtab")
             matrixRequire(

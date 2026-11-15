@@ -311,6 +311,18 @@ enum DashboardKeyLoop {
         window.initialFirstResponder = tabs
         root.nextKeyView = tabs
         tabs.nextKeyView = following ?? tabs
+        if host.selectionState?.tab == .projects {
+            // The page's destructive actions have concrete native targets. Do not
+            // enter a SwiftUI focus proxy that can discard Tab and Space instead.
+            let actions = descendants(root).compactMap({ $0 as? DashboardProjectActionView })
+                .filter { action in action.canBecomeKeyView }
+            if let first = actions.first {
+                tabs.nextKeyView = first
+                for (index, action) in actions.enumerated() {
+                    action.nextKeyView = index + 1 < actions.count ? actions[index + 1] : tabs
+                }
+            }
+        }
         guard host.selectionState?.tab == .history,
             let search = descendants(root).compactMap({ $0 as? NSTextField }).first(where: {
                 $0.identifier?.rawValue == searchIdentifier && !$0.isHiddenOrHasHiddenAncestor
@@ -339,5 +351,154 @@ enum DashboardKeyLoop {
 
     private static func descendants(_ root: NSView) -> [NSView] {
         [root] + root.subviews.flatMap(descendants)
+    }
+}
+
+/// Token-based paint has no SwiftUI Tab stop. One native button owns focus,
+/// accessibility and activation, including when the enclosing page is rebuilt.
+struct DashboardProjectDeleteButton: View {
+    let action: () -> Void
+    @Environment(\.isEnabled) private var enabled
+    @State private var focused = false
+    @State private var pressed = false
+
+    var body: some View {
+        Text(AppL10n.text("Delete project"))
+            .font(Theme.label)
+            .padding(.horizontal, Theme.Size.segmentRadius.value)
+            .frame(minWidth: Theme.minimumTarget, minHeight: Theme.primaryHeight)
+            .foregroundStyle(Theme.text)
+            .background(Capsule().fill(Theme.fill))
+            .overlay(Capsule().strokeBorder(Theme.inputStroke, lineWidth: Theme.Size.checkboxStroke.value / 2))
+            .overlay(ControlFocusRing(shape: Capsule(), focused: focused && enabled))
+            .perchControlFeedback(pressed: pressed)
+            .accessibilityHidden(true)
+            .overlay {
+                DashboardProjectActionTarget(
+                    enabled: enabled, action: action,
+                    focusChanged: { focused = $0 }, pressChanged: { pressed = $0 })
+            }
+    }
+}
+
+private struct DashboardProjectActionTarget: NSViewRepresentable {
+    let enabled: Bool
+    let action: () -> Void
+    let focusChanged: (Bool) -> Void
+    let pressChanged: (Bool) -> Void
+
+    func makeNSView(context: Context) -> DashboardProjectActionView { DashboardProjectActionView() }
+
+    func updateNSView(_ view: DashboardProjectActionView, context: Context) {
+        view.onAction = action
+        view.focusChanged = focusChanged
+        view.pressChanged = pressChanged
+        view.isEnabled = enabled
+        if !enabled, view.window?.firstResponder === view { view.window?.makeFirstResponder(nil) }
+    }
+}
+
+/// A transparent native action over the shared paint, not a proxy for a second button.
+final class DashboardProjectActionView: NSButton {
+    var onAction: () -> Void = {}
+    var focusChanged: (Bool) -> Void = { _ in }
+    var pressChanged: (Bool) -> Void = { _ in }
+
+    override init(frame: NSRect) {
+        super.init(frame: frame)
+        title = AppL10n.text("Delete project")
+        isTransparent = true
+        focusRingType = .none
+        setButtonType(.momentaryPushIn)
+        target = self
+        action = #selector(activateProjectAction(_:))
+        setAccessibilityIdentifier("dashboard-project-delete")
+        setAccessibilityLabel(title)
+    }
+
+    required init?(coder: NSCoder) { nil }
+
+    override var acceptsFirstResponder: Bool { isEnabled && !isHiddenOrHasHiddenAncestor }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        if let window {
+            DispatchQueue.main.async { [weak self, weak window] in
+                guard let self, let window, self.window === window else { return }
+                DashboardKeyLoop.install(in: window)
+            }
+        }
+        updateFocusPaint()
+    }
+
+    override func becomeFirstResponder() -> Bool {
+        guard acceptsFirstResponder, super.becomeFirstResponder() else { return false }
+        updateFocusPaint()
+        return true
+    }
+
+    override func resignFirstResponder() -> Bool {
+        guard super.resignFirstResponder() else { return false }
+        updateFocusPaint()
+        return true
+    }
+
+    private func updateFocusPaint() {
+        // Native focus is synchronous; paint publication waits until SwiftUI has
+        // finished the layout which may have mounted this representable.
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.focusChanged(self.window?.isKeyWindow == true && self.window?.firstResponder === self)
+        }
+    }
+
+    override func keyDown(with event: NSEvent) {
+        if event.keyCode == 48,
+            event.modifierFlags.intersection([.command, .control, .option]).isEmpty
+        {
+            if event.modifierFlags.contains(.shift) {
+                window?.selectPreviousKeyView(self)
+            } else {
+                window?.selectNextKeyView(self)
+            }
+            return
+        }
+        guard event.keyCode == 49,
+            event.modifierFlags.intersection([.command, .control, .option, .shift]).isEmpty
+        else {
+            super.keyDown(with: event)
+            return
+        }
+        guard !event.isARepeat, event.window === window,
+            window?.isKeyWindow == true, window?.firstResponder === self, acceptsFirstResponder
+        else { return }
+        performClick(nil)
+    }
+
+    override func keyUp(with event: NSEvent) {
+        if event.keyCode == 49,
+            event.modifierFlags.intersection([.command, .control, .option, .shift]).isEmpty
+        {
+            return
+        }
+        super.keyUp(with: event)
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        guard acceptsFirstResponder else { return }
+        pressChanged(true)
+        defer { pressChanged(false) }
+        super.mouseDown(with: event)
+    }
+
+    override func accessibilityPerformPress() -> Bool {
+        guard window != nil, acceptsFirstResponder else { return false }
+        performClick(nil)
+        return true
+    }
+
+    @objc private func activateProjectAction(_ sender: Any?) {
+        guard window != nil, acceptsFirstResponder else { return }
+        onAction()
     }
 }

@@ -209,6 +209,95 @@
         }
 
         @MainActor
+        func testProjectActionsAreNativeTabStopsAndSpaceActivatesOnce() async throws {
+            let window = NSWindow(
+                contentRect: NSRect(x: 0, y: 0, width: 720, height: 520),
+                styleMask: [.titled], backing: .buffered, defer: false)
+            window.isReleasedWhenClosed = false
+            defer { window.close() }
+            let selection = DashboardSelection(tab: .projects)
+            let root = NSView(frame: window.contentLayoutRect)
+            let host = DashboardTabsHost(selection: selection, environment: EnvironmentValues())
+            host.frame = NSRect(x: 20, y: 450, width: 280, height: 30)
+            var actions = 0
+            let firstHost = NSHostingView(
+                rootView: DashboardProjectDeleteButton { actions += 1 }.environment(\.accessibilityEnabled, true))
+            let secondHost = NSHostingView(
+                rootView: DashboardProjectDeleteButton { actions += 10 }.environment(\.accessibilityEnabled, true))
+            let disabledHost = NSHostingView(
+                rootView: DashboardProjectDeleteButton { actions += 100 }.disabled(true)
+                    .environment(\.accessibilityEnabled, true))
+            firstHost.frame = NSRect(x: 20, y: 350, width: 150, height: 40)
+            secondHost.frame = NSRect(x: 20, y: 280, width: 150, height: 40)
+            disabledHost.frame = NSRect(x: 20, y: 210, width: 150, height: 40)
+            root.addSubview(host)
+            root.addSubview(firstHost)
+            root.addSubview(secondHost)
+            root.addSubview(disabledHost)
+            window.contentView = root
+            @MainActor func targets(_ view: NSView) -> [DashboardProjectActionView] {
+                (view as? DashboardProjectActionView).map { [$0] } ?? view.subviews.flatMap(targets)
+            }
+            try await Self.activateKeyWindow(window)
+            for _ in 0..<30 {
+                root.layoutSubtreeIfNeeded()
+                if DashboardKeyLoop.tabKeyView(in: window) != nil,
+                    targets(firstHost).count == 1, targets(secondHost).count == 1, targets(disabledHost).count == 1
+                {
+                    break
+                }
+                try? await Task.sleep(nanoseconds: 50_000_000)
+            }
+            let first = try unwrap(targets(firstHost).first)
+            let second = try unwrap(targets(secondHost).first)
+            let disabled = try unwrap(targets(disabledHost).first)
+            try equal(first.accessibilityLabel(), AppL10n.text("Delete project"))
+            try equal(first.accessibilityIdentifier(), "dashboard-project-delete")
+            try reject(disabled.isEnabled)
+            try reject(disabled.accessibilityPerformPress())
+            @MainActor func send(
+                _ code: UInt16, _ text: String, flags: NSEvent.ModifierFlags = [], repeatKey: Bool = false
+            ) {
+                for phase in [NSEvent.EventType.keyDown, .keyUp] {
+                    let event = NSEvent.keyEvent(
+                        with: phase, location: .zero, modifierFlags: flags,
+                        timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber,
+                        context: nil, characters: text, charactersIgnoringModifiers: text,
+                        isARepeat: repeatKey, keyCode: code)!
+                    NSApp.sendEvent(event)
+                }
+            }
+            DashboardKeyLoop.install(in: window)
+            let tabs = try unwrap(DashboardKeyLoop.tabKeyView(in: window))
+            try require(tabs.nextValidKeyView === first)
+            try require(first.nextValidKeyView === second)
+            try require(second.nextValidKeyView === tabs)
+            try require(window.makeFirstResponder(tabs))
+            send(48, "\t")
+            try require(window.firstResponder === first)
+            send(49, " ")
+            try equal(actions, 1)
+            send(49, " ", repeatKey: true)
+            try equal(actions, 1, "Holding Space must not repeat a destructive action")
+            send(49, " ", flags: .command)
+            try equal(actions, 1, "Command-Space is not project deletion")
+            send(48, "\t")
+            try require(window.firstResponder === second)
+            send(48, "\t", flags: .shift)
+            try require(window.firstResponder === first)
+            send(48, "\t", flags: .shift)
+            try require(window.firstResponder === tabs)
+            first.isEnabled = false
+            DashboardKeyLoop.install(in: window)
+            try require(tabs.nextValidKeyView === second)
+            secondHost.removeFromSuperview()
+            DashboardKeyLoop.install(in: window)
+            try reject(tabs.nextKeyView === second, "Detached project actions must leave the loop")
+            try reject(second.accessibilityPerformPress(), "Detached actions cannot delete projects")
+            try equal(actions, 1)
+        }
+
+        @MainActor
         private static func activateKeyWindow(
             _ window: NSWindow, file: StaticString = #filePath, line: UInt = #line
         ) async throws {
@@ -325,6 +414,8 @@
             log("PASS: Dashboard testArrowAndSpaceUseCurrentSelectionAndDoNotStealPageKeys")
             try await check.testSelectionChangesPreserveHostedRootAndRefreshHistoryLinks()
             log("PASS: Dashboard testSelectionChangesPreserveHostedRootAndRefreshHistoryLinks")
+            try await check.testProjectActionsAreNativeTabStopsAndSpaceActivatesOnce()
+            log("PASS: Dashboard testProjectActionsAreNativeTabStopsAndSpaceActivatesOnce")
         }
 
         private static func log(_ message: String) {
@@ -432,6 +523,7 @@
                 "PASS: Dashboard testEverySectionInstallsInitialTabStopWithoutRequiringSearch",
                 "PASS: Dashboard testArrowAndSpaceUseCurrentSelectionAndDoNotStealPageKeys",
                 "PASS: Dashboard testSelectionChangesPreserveHostedRootAndRefreshHistoryLinks",
+                "PASS: Dashboard testProjectActionsAreNativeTabStopsAndSpaceActivatesOnce",
             ] {
                 XCTAssertEqual(lines.filter { $0 == marker }.count, 1, "Missing or repeated native scenario: \(marker)")
             }
