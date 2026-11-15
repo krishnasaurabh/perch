@@ -32,6 +32,8 @@ notch-flat-reminder --scenario notch-reminder --open notch-flat
 settings-general --scenario empty --open settings/general
 settings-notch --scenario empty --open settings/notch
 settings-calendar --scenario empty --open settings/calendar
+settings-calendar-denied --scenario empty --open settings/calendar-denied
+settings-calendar-picker --scenario empty --open settings/calendar-picker
 settings-agents --scenario empty --open settings/agents
 settings-data --scenario empty --open settings/data
 workspace-band-today --scenario today-running --open workspace-today

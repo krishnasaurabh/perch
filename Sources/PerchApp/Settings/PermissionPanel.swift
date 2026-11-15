@@ -125,6 +125,14 @@ final class PermissionPanelModel: ObservableObject {
         errors = workflow.errors
         requesting = nil
     }
+
+    /// Switch-on shares the panel's request-and-requery flow. Denial never means enabled.
+    func ensureAllowed(_ feature: PermissionFeature) async -> Bool {
+        guard requesting == nil else { return false }
+        await refresh()
+        if readings[feature]?.state == .notDetermined { await request(feature) }
+        return readings[feature]?.state == .allowed
+    }
 }
 
 struct PermissionPanel: View {
@@ -137,13 +145,21 @@ struct PermissionPanel: View {
         self.features = features
     }
 
+    init(model: PermissionPanelModel, features: [PermissionFeature]) {
+        _model = StateObject(wrappedValue: model)
+        self.features = features
+    }
+
     var body: some View {
-        VStack(alignment: .leading, spacing: Theme.cardPadding) {
+        VStack(alignment: .leading, spacing: SettingsMetrics.sectionGap) {
             ForEach(features) { feature in
                 row(feature)
                 if feature != features.last { Divider() }
             }
-            if let settingsError { Text(settingsError).font(Theme.meta).foregroundStyle(Theme.danger) }
+            if let settingsError {
+                Text(settingsError).perchFont(.detail).foregroundStyle(Theme.ink2)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
         }
         .task { await model.refresh() }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
@@ -156,53 +172,46 @@ struct PermissionPanel: View {
 
     private func row(_ feature: PermissionFeature) -> some View {
         let reading = model.readings[feature] ?? PermissionReading(.checking)
-        return VStack(alignment: .leading, spacing: Theme.gutter) {
-            ViewThatFits(in: .horizontal) {
-                HStack(alignment: .firstTextBaseline) {
-                    Text(feature.title).font(Theme.title)
-                    Spacer(minLength: Theme.gutter)
+        return VStack(alignment: .leading, spacing: SettingsMetrics.titleGap) {
+            SettingsRow(feature.title) {
+                HStack(spacing: SurfaceMetrics.compactGap) {
                     status(reading.state)
                     action(feature, reading.state)
                 }
-                VStack(alignment: .leading, spacing: Theme.gutter) {
-                    Text(feature.title).font(Theme.title)
-                    HStack {
-                        status(reading.state); Spacer(); action(feature, reading.state)
-                    }
-                }
             }
-            Text(reading.detail ?? feature.detail).font(Theme.meta).foregroundStyle(Theme.secondary)
+            Text(reading.detail ?? feature.detail).perchFont(.detail).foregroundStyle(Theme.ink2)
                 .fixedSize(horizontal: false, vertical: true)
             if reading.state == .restricted {
                 Text("This access is managed by macOS or your administrator. It may not be changeable here.")
-                    .font(Theme.meta).foregroundStyle(Theme.secondary)
+                    .perchFont(.detail).foregroundStyle(Theme.ink2)
             }
-            if let error = model.errors[feature] { Text(error).font(Theme.meta).foregroundStyle(Theme.danger) }
+            if let error = model.errors[feature] {
+                Text(error).perchFont(.detail).foregroundStyle(Theme.ink2)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
         }
-        .foregroundStyle(Theme.text)
+        .foregroundStyle(Theme.ink)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("permission-row.\(feature.rawValue)")
     }
 
     private func status(_ state: PermissionState) -> some View {
-        StatusLabel(title: state.title, tone: state == .allowed ? .success : state == .checking ? .info : .warning)
+        PerchPill(state.title, ink: state == .allowed ? .doneText : .ink2)
     }
 
     @ViewBuilder private func action(_ feature: PermissionFeature, _ state: PermissionState) -> some View {
         if state == .notDetermined {
-            Button(AppL10n.text(model.requesting == feature ? "Requesting…" : "Allow")) {
+            PerchButton(model.requesting == feature ? "Requesting…" : "Allow", kind: .soft, size: .small) {
                 Task { await model.request(feature) }
             }
-            .buttonStyle(PillStyle(disabledReason: "Wait for the current permission request."))
             .disabled(model.requesting != nil)
             .accessibilityLabel(AppL10n.format("Allow %@", feature.title))
         } else if state != .checking {
-            Button("Settings…") {
+            PerchButton("System Settings…", kind: .soft, size: .small) {
                 if !NSWorkspace.shared.open(feature.settingsURL) {
                     settingsError = AppL10n.format("Open System Settings manually and select %@.", feature.title)
                 }
             }
-            .buttonStyle(PillStyle())
             .accessibilityLabel(AppL10n.format("Open %@ settings", feature.title))
         }
     }
