@@ -24,7 +24,7 @@ data.write_text(json.dumps({'preferences': {'welcomeCompleted': True,
 env = dict(os.environ, PERCH_DATA=str(data), THEME_PROBE_OUTPUT=output)
 (pathlib.Path(output) / 'measured-states.json').unlink(missing_ok=True)
 # Argument-domain override is process-local: never write global keyboard preferences.
-subprocess.run([binary, '-AppleKeyboardUIMode', '3'], env=env, check=True, timeout=120)
+subprocess.run([binary, '-AppleKeyboardUIMode', '3'], env=env, check=True, timeout=240)
 PY
 python3 "$ROOT/scripts/check_probe_results.py" theme "$OUT/measured-states.json"
 python3 "$ROOT/scripts/theme_contrast.py" --pixels "$OUT"

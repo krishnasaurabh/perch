@@ -21,7 +21,7 @@ spec.loader.exec_module(results)
 
 def integration_report():
     required = [f"settings {p} pane renders its content" for p in
-                ("General", "Workspace", "Focus timer", "AI agents", "System")]
+                ("general", "notch", "calendar", "agents", "data")]
     required += [f"dashboard {p} tab renders its content" for p in
                  ("This week", "History", "Projects")]
     required += ["dashboard has effective full keyboard access", "Tab enters the dashboard tab control"]
@@ -156,6 +156,203 @@ class ProbeReportTests(unittest.TestCase):
         report["passed"] = report["passed"][:-1]
         with self.assertRaises(ValueError):
             results.validate("theme", report)
+
+    def test_settings_reports_use_all_five_current_panes(self):
+        panes = {"general", "notch", "calendar", "agents", "data"}
+        self.assertEqual({p for p in results.THEME_PAGES if p.startswith("settings-")},
+                         {f"settings-{p}" for p in panes})
+        for pane in panes:
+            report = integration_report()
+            label = f"settings {pane} pane renders its content"
+            report["passed"].remove(label)
+            with self.subTest(pane=pane), self.assertRaises(ValueError):
+                results.validate("integration", report)
+        # Retired identities cannot fill in for the new pages, even with enough total assertions.
+        report = integration_report()
+        report["passed"] = [label for label in report["passed"] if not label.startswith("settings ")]
+        report["passed"] += [f"settings {p} pane renders its content"
+                             for p in ("General", "Workspace", "Focus timer", "AI agents", "System")]
+        with self.assertRaises(ValueError):
+            results.validate("integration", report)
+
+    def test_theme_rejects_retired_settings_captures(self):
+        report = theme_report()
+        for row in report["rows"]:
+            if row["page"] == "settings-calendar":
+                row["page"] = "settings-System"
+        with self.assertRaises(ValueError):
+            results.validate("theme", report)
+
+    def test_native_settings_marker_arrays_use_real_panes_and_content(self):
+        view = (ROOT / "Sources/PerchApp/Settings/SettingsView.swift").read_text()
+        match = re.search(r"case (general, notch, calendar, agents, data)", view)
+        assert match is not None
+        cases = match.group(1)
+        pane_files = {p: (ROOT / f"Sources/PerchApp/Settings/Settings{p.title()}Pane.swift").read_text()
+                      for p in cases.split(", ")}
+        pane_files["agents"] += (ROOT / "Sources/PerchApp/Settings/AgentsSettings.swift").read_text()
+        programs = []
+        for file, end in (("integration_probe.swift", "var previous:"),
+                          ("allpage_matrix_probe.swift", "var observed:")):
+            source = (ROOT / "scripts" / file).read_text()
+            array = source.split("let markers: [(SettingsView.Pane,", 1)[1].split(end, 1)[0]
+            declaration = "let markers: [(SettingsView.Pane," + array
+            entries = re.findall(r'\(\.(\w+), "([^"]+)"(?:, "([^"]+)")?\)', array)
+            self.assertEqual([p for p, _, _ in entries], cases.split(", "))
+            for pane, first, second in entries:
+                for marker in (first, second):
+                    if marker:
+                        self.assertIn(marker.lower(), pane_files[pane].lower(), (file, pane, marker))
+            programs.append("enum SettingsView { enum Pane: String { case " + cases + " } }\n" + declaration)
+        swift = shutil.which("swiftc")
+        assert swift is not None
+        with tempfile.TemporaryDirectory() as directory:
+            for index, program in enumerate(programs):
+                path = Path(directory) / f"markers{index}.swift"
+                path.write_text(program)
+                built = subprocess.run([swift, "-swift-version", "6", "-typecheck", str(path)],
+                                       capture_output=True, text=True)
+                self.assertEqual(built.returncode, 0, built.stderr)
+
+    def test_settings_navigation_keeps_real_keyboard_and_button_identity(self):
+        integration = (ROOT / "scripts/integration_probe.swift").read_text()
+        settings = integration.split("func checkSettingsMatrix(", 1)[1].split("func checkDashboardMatrix(", 1)[0]
+        self.assertNotIn("NSTableView", settings)
+        self.assertNotIn("selectedRow", settings)
+        self.assertIn("matrixSettingsFocused", settings)
+        self.assertIn('matrixKey(window, 48, "\\t")', settings)
+        self.assertIn('matrixKey(window, 125, "\\u{f701}")', settings)
+        self.assertIn("navigation.pane == pane", settings)
+        self.assertNotIn("navigation.pane = pane", settings)
+        theme = (ROOT / "scripts/theme_probe.swift").read_text()
+        self.assertNotIn("firstTable", theme)
+        self.assertIn("settingsSidebarFocused", theme)
+        self.assertIn("navigation.pane == pane", theme)
+        self.assertIn('"settings-calendar"', theme)
+        for source, start, end in (
+                (integration, "func matrixSettingsFocused(", "func checkSettingsMatrix("),
+                (theme, "func settingsSidebarFocused(", "func measureEffectiveStates(")):
+            walker = source.split(start, 1)[1].split(end, 1)[0]
+            for selector in ("accessibilityChildren", "accessibilityContents",
+                             "accessibilityChildrenInNavigationOrder", "isAccessibilityFocused"):
+                self.assertIn(selector, walker)
+            self.assertIn("subviews", walker)
+            self.assertIn("@convention(c) (AnyObject, Selector) -> Bool", walker)
+        matrix = (ROOT / "scripts/allpage_matrix_probe.swift").read_text()
+        selector = matrix.split("func selectPane(", 1)[1].split("// MARK:", 1)[0]
+        self.assertIn('"settings.sidebar.\\(pane.rawValue)"', selector)
+        self.assertIn('mxRole($0) == "AXButton"', selector)
+        self.assertIn("mxClick(", selector)
+        self.assertNotIn('contains("Row")', selector)
+
+    def test_settings_enablement_reads_only_a_unique_checkbox(self):
+        source = (ROOT / "scripts/allpage_matrix_probe.swift").read_text()
+        helper_start = "@MainActor\nfunc mxSettingsCheckboxEnabled("
+        self.assertIn(helper_start, source)
+        declarations = source.split("struct MatrixFailure:", 1)[1].split("/// Unbuffered", 1)[0]
+        declarations = "struct MatrixFailure:" + declarations
+        declarations += "struct MatrixElement:" + source.split("struct MatrixElement:", 1)[1].split(
+            "/// All native AX calls", 1)[0]
+        declarations += "@MainActor\nfunc mxString(" + source.split("@MainActor\nfunc mxString(", 1)[1].split(
+            "@MainActor\nfunc mxIdentifier(", 1)[0]
+        declarations += "@MainActor\nfunc mxNames(" + source.split("@MainActor\nfunc mxNames(", 1)[1].split(
+            "@MainActor\nfunc mxName(", 1)[0]
+        declarations += helper_start + source.split(helper_start, 1)[1].split(
+            "@MainActor\nfunc mxIdentified(", 1)[0]
+        program = r'''
+import Foundation
+#if canImport(CoreGraphics)
+import CoreGraphics
+#endif
+let kAXRoleAttribute = "AXRole"
+let kAXChildrenAttribute = "AXChildren"
+let kAXDescriptionAttribute = "AXDescription"
+let kAXTitleAttribute = "AXTitle"
+let kAXValueAttribute = "AXValue"
+let kAXHelpAttribute = "AXHelp"
+@MainActor enum MatrixAX { static var snapshot = MatrixAXSnapshot() }
+@MainActor enum MatrixStage { static func mark(_ stage: String) {} }
+''' + declarations + r'''
+@MainActor
+func fixture(_ name: String, _ role: String = "AXCheckBox", enabled: Bool?,
+             labelEnabled: Bool? = true, nameAttribute: String = "AXDescription",
+             duplicate: Bool = false, labelFirst: Bool = true) -> MatrixElement {
+    let root = MatrixElement(id: 0), label = MatrixElement(id: 1)
+    let control = MatrixElement(id: 2), other = MatrixElement(id: 3)
+    let duplicateControl = MatrixElement(id: 4)
+    var children = labelFirst ? [label, control, other] : [control, label, other]
+    if duplicate { children.append(duplicateControl) }
+    MatrixAX.snapshot = MatrixAXSnapshot(nodes: [
+        root: MatrixAXNode(edges: ["AXChildren": children]),
+        label: MatrixAXNode(strings: ["AXRole": "AXStaticText", "AXValue": name], enabled: labelEnabled),
+        control: MatrixAXNode(strings: ["AXRole": role, nameAttribute: name], enabled: enabled),
+        other: MatrixAXNode(strings: ["AXRole": "AXCheckBox", "AXDescription": name + " other"], enabled: true),
+        duplicateControl: MatrixAXNode(strings: ["AXRole": "AXCheckBox", "AXDescription": name], enabled: enabled),
+    ])
+    return root
+}
+@MainActor
+func expectFailure(_ name: String, root: MatrixElement, fragment: String) {
+    do {
+        _ = try mxSettingsCheckboxEnabled(root, name: name)
+        fatalError("accepted invalid checkbox: \(fragment)")
+    } catch let error as MatrixFailure {
+        precondition(error.label.contains(name), "failure must name its control")
+        precondition(error.label.contains(fragment), error.label)
+    } catch { fatalError("unexpected error: \(error)") }
+}
+MainActor.assumeIsolated {
+    for name in ["Auto-sort new tasks", "Alert on iPhone and Apple Watch too"] {
+        for enabled in [false, true] {
+            for labelEnabled: Bool? in [nil, false, true] {
+                for labelFirst in [false, true] {
+                    for attribute in ["AXDescription", "AXTitle", "AXValue", "AXHelp"] {
+                        let root = fixture(name, enabled: enabled, labelEnabled: labelEnabled,
+                                           nameAttribute: attribute, labelFirst: labelFirst)
+                        let observed = try! mxSettingsCheckboxEnabled(root, name: name)
+                        precondition(observed == enabled, "read label state instead of checkbox state")
+                    }
+                }
+            }
+        }
+        let root = fixture(name, enabled: true)
+        MatrixAX.snapshot.nodes[MatrixElement(id: 0)]?.edges["AXChildren"] = [MatrixElement(id: 1)]
+        expectFailure(name, root: root, fragment: "saw 0")
+        for role in ["AXStaticText", "AXButton", "AXSwitch", "AXUnknown"] {
+            expectFailure(name, root: fixture(name, role, enabled: true), fragment: "saw 0")
+        }
+        for enabled in [false, true] {
+            expectFailure(name, root: fixture(name, enabled: enabled, duplicate: true), fragment: "saw 2")
+        }
+        expectFailure(name, root: fixture(name, enabled: nil), fragment: "missing enabled state")
+    }
+}
+print("settings checkbox selector controls passed")
+'''
+        swift = shutil.which("swiftc")
+        assert swift is not None
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "settings-checkbox.swift"
+            path.write_text(program)
+            executable = Path(directory) / "settings-checkbox"
+            built = subprocess.run([swift, "-swift-version", "6", str(path), "-o", str(executable)],
+                                   capture_output=True, text=True)
+            self.assertEqual(built.returncode, 0, built.stderr)
+            ran = subprocess.run([str(executable)], capture_output=True, text=True)
+            self.assertEqual(ran.returncode, 0, ran.stderr)
+            self.assertIn("settings checkbox selector controls passed", ran.stdout)
+
+    def test_settings_enablement_assertions_use_strict_checkbox_lookup(self):
+        source = (ROOT / "scripts/allpage_matrix_probe.swift").read_text()
+        settings = source.split("func settingsFailurePaths()", 1)[1].split("// MARK: Dashboard", 1)[0]
+        for variable, title, expected in (
+                ("autoSortEnabled", "Auto-sort new tasks", "AISorter.isSupported"),
+                ("phoneAlertEnabled", "Alert on iPhone and Apple Watch too", "fixture.store.prefs.remindersSync")):
+            call = rf'let {variable} = try mxSettingsCheckboxEnabled\(\s*root, name: AppL10n.text\("{title}"\)\)'
+            self.assertRegex(settings, call)
+            self.assertIn(f"{variable} == {expected}", settings)
+        self.assertNotIn("mxFind(", settings)
+        self.assertNotIn("mxEnabled(", settings)
 
     def test_every_keyboard_assertion_is_mandatory(self):
         for index in range(19):

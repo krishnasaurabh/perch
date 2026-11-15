@@ -5,8 +5,8 @@ import json
 from pathlib import Path
 
 THEME_PAGES = {
-    "settings-General", "settings-Workspace", "settings-Focus timer",
-    "settings-AI agents", "settings-System", "dashboard-This week",
+    "settings-general", "settings-notch", "settings-calendar",
+    "settings-agents", "settings-data", "dashboard-This week",
     "dashboard-History", "dashboard-Projects",
     "welcome", "details", "details-removed", "week", "clips",
 }
@@ -93,7 +93,7 @@ def validate(kind, report):
     passed = labels(report, 59)
     if kind == "integration":
         required = [f"settings {pane} pane renders its content" for pane in
-                    ("General", "Workspace", "Focus timer", "AI agents", "System")]
+                    ("general", "notch", "calendar", "agents", "data")]
         required += [f"dashboard {tab} tab renders its content" for tab in
                      ("This week", "History", "Projects")]
         required += ["dashboard has effective full keyboard access", "Tab enters the dashboard tab control"]

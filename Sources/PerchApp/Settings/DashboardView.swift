@@ -453,6 +453,9 @@ final class DashboardProjectActionView: NSButton {
     }
 
     override func keyDown(with event: NSEvent) {
+        #if DASHBOARD_KEYBOARD_PROBE
+            if event.keyCode == 49 { traceProjectAction("keyDown", event: event) }
+        #endif
         if event.keyCode == 49 {
             // NSButton may activate even modified Space. Keep one deliberate
             // activation path here and never forward Space to the superclass.
@@ -477,6 +480,9 @@ final class DashboardProjectActionView: NSButton {
     }
 
     override func keyUp(with event: NSEvent) {
+        #if DASHBOARD_KEYBOARD_PROBE
+            if event.keyCode == 49 { traceProjectAction("keyUp", event: event) }
+        #endif
         if event.keyCode == 49 { return }
         super.keyUp(with: event)
     }
@@ -495,7 +501,35 @@ final class DashboardProjectActionView: NSButton {
     }
 
     @objc private func activateProjectAction(_ sender: Any?) {
+        #if DASHBOARD_KEYBOARD_PROBE
+            traceProjectAction("activateProjectAction")
+        #endif
         guard window != nil, acceptsFirstResponder else { return }
         onAction()
     }
+
+    #if DASHBOARD_KEYBOARD_PROBE
+        private func traceProjectAction(_ phase: String, event: NSEvent? = nil) {
+            // Direct sendEvent can leave currentEvent nil or pointing at another
+            // event. Record both without changing the native dispatch under test.
+            func eventSummary(_ event: NSEvent?) -> String {
+                guard let event else { return "nil" }
+                let keyCode: String
+                switch event.type {
+                case .keyDown, .keyUp, .flagsChanged: keyCode = String(event.keyCode)
+                default: keyCode = "not-key"
+                }
+                return "type=\(event.type.rawValue),keyCode=\(keyCode),modifiers=\(event.modifierFlags.rawValue)"
+            }
+            let responder = window?.firstResponder
+            let responderType = responder.map { String(describing: type(of: $0)) } ?? "nil"
+            let identifier = (responder as? NSView)?.accessibilityIdentifier() ?? "nil"
+            let message =
+                "TRACE: DashboardProjectAction \(phase) instance=\(ObjectIdentifier(self)) "
+                + "event=\(eventSummary(event)) currentEvent=\(eventSummary(NSApp.currentEvent)) "
+                + "responder=\(responderType) responderIdentifier=\(identifier) "
+                + "stack=\(Thread.callStackSymbols.joined(separator: " | "))\n"
+            FileHandle.standardError.write(Data(message.utf8))
+        }
+    #endif
 }

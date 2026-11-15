@@ -475,34 +475,72 @@ func checkPageMatrix(store _: PlannerStore, output: URL) async throws {
     print("Page matrix passed")
 }
 
+/// Read only in-process accessibility objects; never query our own process through AX IPC.
+@MainActor
+func matrixSettingsFocused(_ host: NSView, pane: SettingsView.Pane) -> Bool {
+    let wanted = "settings.sidebar.\(pane.rawValue)"
+    var seen = Set<ObjectIdentifier>()
+    @MainActor func value(_ node: NSObject, _ name: String) -> Any? {
+        let selector = NSSelectorFromString(name)
+        return node.responds(to: selector) ? node.perform(selector)?.takeUnretainedValue() : nil
+    }
+    @MainActor func visit(_ node: NSObject) -> Bool {
+        guard seen.insert(ObjectIdentifier(node)).inserted else { return false }
+        let selector = NSSelectorFromString("isAccessibilityFocused")
+        if value(node, "accessibilityIdentifier") as? String == wanted, node.responds(to: selector) {
+            typealias ReadBool = @convention(c) (AnyObject, Selector) -> Bool
+            let read = unsafeBitCast(node.method(for: selector), to: ReadBool.self)
+            if read(node, selector) { return true }
+        }
+        var children: [NSObject] = []
+        children += (value(node, "accessibilityChildren") as? [NSObject]) ?? []
+        children += (value(node, "accessibilityContents") as? [NSObject]) ?? []
+        children += (value(node, "accessibilityChildrenInNavigationOrder") as? [NSObject]) ?? []
+        children += (node as? NSView)?.subviews ?? []
+        return children.contains(where: visit)
+    }
+    for owner in [NSApp as NSObject, host.window as NSObject?].compactMap({ $0 }) {
+        if let focused = value(owner, "accessibilityFocusedUIElement") as? NSObject,
+            value(focused, "accessibilityIdentifier") as? String == wanted
+        {
+            return true
+        }
+    }
+    return visit(host)
+}
+
 @MainActor
 func checkSettingsMatrix(_ fixture: MatrixFixture, output: URL) async throws {
+    let navigation = SettingsNavigation()
     let host = NSHostingView(
-        rootView: SettingsView().environmentObject(fixture.store).environmentObject(fixture.services)
-            .environment(\.accessibilityEnabled, true))
+        rootView: SettingsView(navigation: navigation).environmentObject(fixture.store).environmentObject(
+            fixture.services
+        )
+        .environment(\.accessibilityEnabled, true))
     let window = matrixWindow(host, size: NSSize(width: 760, height: 1000))
     defer { window.close() }
     await matrixSettle(1.0)
     matrixRequire(window.isKeyWindow, "settings window owns the key window")
     print("matrix: full keyboard access=\(NSApp.isFullKeyboardAccessEnabled)")
-    // The sidebar is the one native list with exactly one row per pane.
-    let tables = matrixViews(host).compactMap { $0 as? NSTableView }
-    print("matrix: settings tables \(tables.map { "\(type(of: $0)) rows=\($0.numberOfRows)" })")
-    let sidebar = tables.first { $0.numberOfRows == SettingsView.Pane.allCases.count }
-    matrixRequire(sidebar != nil, "settings exposes its native sidebar list")
-    guard let sidebar else { return }
-    matrixRequire(window.makeFirstResponder(sidebar), "settings sidebar accepts keyboard focus")
+    // Reach the production sidebar buttons with Tab, then use their real arrow-key handler.
+    window.makeFirstResponder(nil)
+    for _ in 0..<16 {
+        if matrixSettingsFocused(host, pane: .general) { break }
+        await matrixKey(window, 48, "\t")
+    }
+    matrixRequire(matrixSettingsFocused(host, pane: .general), "settings sidebar accepts keyboard focus")
     let markers: [(SettingsView.Pane, String)] = [
-        (.general, "open the notch on"), (.workspace, "reset to default"), (.focus, "default length"),
-        (.agents, "use terminal"), (.system, "mirror tasks"),
+        (.general, "open the notch on"), (.notch, "around the notch"), (.calendar, "mirror tasks"),
+        (.agents, "use terminal"), (.data, "where it lives"),
     ]
     var previous: String?
     for (index, (pane, marker)) in markers.enumerated() {
         if index > 0 { await matrixKey(window, 125, "\u{f701}") }
         let text = try matrixText(host, name: "settings-\(pane.rawValue)", output: output)
         matrixRequire(
-            sidebar.selectedRow == index, "settings Down arrow selects the \(pane.rawValue) pane",
-            "selectedRow=\(sidebar.selectedRow)")
+            navigation.pane == pane && matrixSettingsFocused(host, pane: pane),
+            "settings Down arrow selects the \(pane.rawValue) pane",
+            "selected=\(navigation.pane.rawValue)")
         matrixRequire(text.contains(marker), "settings \(pane.rawValue) pane renders its content", text)
         if let previous {
             matrixRequire(!text.contains(previous), "settings \(pane.rawValue) pane replaces the previous pane", text)
@@ -525,50 +563,81 @@ func checkSettingsFailure(
             name: ShortcutStore.didFail, object: nil,
             userInfo: ["key": ShortcutKey(keyCode: 45, modifiers: [.command]), "restored": ShortcutKey.default])
         await matrixSettle()
-        let text = try matrixText(host, name: name, output: output)
-        matrixRequire(text.contains("give up"), "general pane reports a refused shortcut", text)
-    case .workspace:
-        let lock = MatrixStorageLock(fixture.file)
-        fixture.store.updatePrefs { $0.hiddenWorkspaceCards = [] }
-        await matrixSettle()
-        let error = fixture.store.lastError?.message ?? ""
-        let shown = fixture.store.prefs.hiddenWorkspaceCards
-        lock.release()
-        matrixRequire(error.contains("Another process"), "workspace pane edit reports busy storage", error)
-        matrixRequire(shown == ["notepad"], "workspace pane does not show an unsaved card change", "\(shown)")
-        matrixRequire(
-            try fixture.file.load().preferences.hiddenWorkspaceCards == ["notepad"],
-            "workspace pane failure leaves persisted cards unchanged")
-        fixture.store.lastError = nil
-    case .focus:
-        matrixRequire(before.contains("45 min"), "focus pane shows the persisted default length", before)
+        let shortcutText = try matrixText(host, name: name, output: output)
+        matrixRequire(shortcutText.contains("give up"), "general pane reports a refused shortcut", shortcutText)
+        do {
+            let cardsLock = MatrixStorageLock(fixture.file)
+            fixture.store.updatePrefs { $0.hiddenWorkspaceCards = [] }
+            await matrixSettle()
+            let error = fixture.store.lastError?.message ?? ""
+            let shown = fixture.store.prefs.hiddenWorkspaceCards
+            cardsLock.release()
+            matrixRequire(error.contains("Another process"), "general pane card edit reports busy storage", error)
+            matrixRequire(shown == ["notepad"], "general pane does not show an unsaved card change", "\(shown)")
+            matrixRequire(
+                try fixture.file.load().preferences.hiddenWorkspaceCards == ["notepad"],
+                "general pane failure leaves persisted cards unchanged")
+            fixture.store.lastError = nil
+        }
+        matrixRequire(before.contains("45 min"), "general pane shows the persisted default length", before)
         let lock = MatrixStorageLock(fixture.file)
         fixture.store.updatePrefs { $0.defaultFocusMinutes = 30 }
         await matrixSettle()
         let text = try matrixText(host, name: name, output: output)
         let error = fixture.store.lastError?.message ?? ""
         lock.release()
-        matrixRequire(error.contains("Another process"), "focus pane edit reports busy storage", error)
+        matrixRequire(error.contains("Another process"), "general pane length edit reports busy storage", error)
         matrixRequire(
-            text.contains("45 min") && !text.contains("30 min"), "focus pane keeps rendering the persisted length",
+            text.contains("45 min") && !text.contains("30 min"), "general pane keeps rendering the persisted length",
             text)
         matrixRequire(
             try fixture.file.load().preferences.defaultFocusMinutes == 45,
-            "focus pane failure leaves the persisted length unchanged")
+            "general pane length failure leaves the persisted length unchanged")
+        fixture.store.lastError = nil
+    case .notch:
+        let original = fixture.store.prefs.notchTaskCount
+        let lock = MatrixStorageLock(fixture.file)
+        fixture.store.updatePrefs { $0.notchTaskCount = !original }
+        await matrixSettle()
+        let error = fixture.store.lastError?.message ?? ""
+        lock.release()
+        let text = try matrixText(host, name: name, output: output)
+        matrixRequire(error.contains("Another process"), "notch pane edit reports busy storage", error)
+        matrixRequire(text.contains("another process"), "notch pane renders the storage failure", text)
+        matrixRequire(fixture.store.prefs.notchTaskCount == original, "notch pane rejects an unsaved count change")
+        matrixRequire(
+            try fixture.file.load().preferences.notchTaskCount == original, "notch pane keeps persisted count unchanged"
+        )
+        fixture.store.lastError = nil
+    case .data:
+        let original = try Data(contentsOf: fixture.file.url)
+        let destination = fixture.directory.appendingPathComponent("missing/export.json")
+        let feedback = SettingsFailureFeedback()
+        feedback.exportBackup(to: destination, store: fixture.store) { _ in
+            throw NSError(
+                domain: "SettingsExportFixture", code: 1,
+                userInfo: [NSLocalizedDescriptionKey: "Synthetic export failure"])
+        }
+        await matrixSettle()
+        let text = try matrixText(host, name: name, output: output)
+        matrixRequire(fixture.store.lastError != nil, "data pane reports an export failure")
+        matrixRequire(text.contains("synthetic export failure"), "data pane renders the export failure", text)
+        matrixRequire(
+            try Data(contentsOf: fixture.file.url) == original, "data pane export failure keeps the planner unchanged")
         fixture.store.lastError = nil
     case .agents:
         // The probe binary is not installed in Applications, so setup must refuse and say why.
         matrixRequire(!AppInfo.isInApplications, "agents fixture runs outside Applications")
         matrixRequire(before.contains("installed in applications"), "agents pane explains the setup refusal", before)
-    case .system:
+    case .calendar:
         let failure = fixture.services.remindersSync.lastError?.message ?? ""
         matrixRequire(
             failure.contains("not supported"), "reminders sync rejects unreadable synthetic metadata", failure)
-        matrixRequire(before.contains("not supported"), "system pane renders the reminders sync failure", before)
+        matrixRequire(before.contains("not supported"), "calendar pane renders the reminders sync failure", before)
         matrixRequire(
             try Data(contentsOf: fixture.file.url.appendingPathExtension("reminders.json"))
                 == Data(#"{"version":99}"#.utf8),
-            "system pane leaves unreadable reminders metadata untouched")
+            "calendar pane leaves unreadable reminders metadata untouched")
     }
 }
 
