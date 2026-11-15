@@ -11,6 +11,12 @@ import SwiftUI
             [
                 "today": .workspace(.home),
                 "parking-thoughts": .window("parking-thoughts") { ParkingLotPreview.show(app: $0) },
+                "your-day": .window("your-day-preview") { YourDayPreview.show(app: $0) },
+                "your-day-editing": .window("your-day-preview") { YourDayPreview.show(app: $0, editing: true) },
+                "your-day-capture": .window("your-day-preview") { YourDayPreview.show(app: $0, capture: true) },
+                "your-day-overlap": .window("your-day-preview") { YourDayPreview.show(app: $0, overlap: true) },
+                "your-day-multiline": .window("your-day-preview") { YourDayPreview.show(app: $0, multiline: true) },
+                "your-day-empty": .window("your-day-preview") { YourDayPreview.show(app: $0, withoutMeetings: true) },
                 "welcome": .window("welcome") { WelcomeView.show(store: $0.store, done: $0.completeWelcome) },
                 "workspace-today": .window("workspace-home") { WorkspaceShellPreview.show(page: .home, app: $0) },
                 "workspace-week": .window("workspace-week") { WorkspaceShellPreview.show(page: .week, app: $0) },
