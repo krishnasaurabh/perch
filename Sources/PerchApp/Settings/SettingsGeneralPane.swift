@@ -16,6 +16,13 @@ struct SettingsGeneralPane: View {
 
     var body: some View {
         SettingsSection("Opening") {
+            SettingsRow("Open the notch on") {
+                Picker("Open the notch on", selection: SettingsView.openingPreference(store: store)) {
+                    Text("Hover").tag(NotchOpenTrigger.hover)
+                    Text("Click").tag(NotchOpenTrigger.click)
+                    Text("Double-click").tag(NotchOpenTrigger.doubleClick)
+                }.labelsHidden()
+            }
             SettingsRow("Hovering over the notch shows") {
                 PerchSegmented(
                     title: AppL10n.text("Hovering over the notch shows"),
