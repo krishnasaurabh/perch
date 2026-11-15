@@ -35,36 +35,36 @@
         }
       }
     },
-    "%@, %@ left": {
+    "%@ elapsed": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@, %@ left"
+            "value": "%@ elapsed"
           }
         },
         "zz": {
           "stringUnit": {
             "state": "translated",
-            "value": "⟦%@, %@ lëft ·~⟧"
+            "value": "⟦%@ ëlàpsëd ·~⟧"
           }
         }
       }
     },
-    "%@, %@. Open Today": {
+    "%@ left": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@, %@. Open Today"
+            "value": "%@ left"
           }
         },
         "zz": {
           "stringUnit": {
             "state": "translated",
-            "value": "⟦%@, %@. Öpën Tödày ·~⟧"
+            "value": "⟦%@ lëft ·~⟧"
           }
         }
       }
@@ -1659,6 +1659,23 @@
         }
       }
     },
+    "Paused": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Paused"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Pàüsëd ·~⟧"
+          }
+        }
+      }
+    },
     "Push a task a day": {
       "extractionState": "manual",
       "localizations": {
@@ -2019,6 +2036,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "⟦Tïmë ·~⟧"
+          }
+        }
+      }
+    },
+    "Time set aside": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Time set aside"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Tïmë sët àsïdë ·~⟧"
           }
         }
       }

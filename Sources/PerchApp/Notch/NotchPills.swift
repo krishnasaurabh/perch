@@ -182,7 +182,9 @@ extension NotchModel {
                 guard let fixture = AppDelegate.activePreviewFixture else { return }
                 var planner = app.store.planner
                 planner.preferences.hideCountsAndTimes = mode == "private"
-                planner.preferences.notchTimePill = ["time", "paused", "both", "left", "private"].contains(mode)
+                planner.preferences.notchTimePill = ["time", "paused", "both", "left", "private", "stopwatch"].contains(
+                    mode)
+                if mode == "stopwatch" { planner.focus?.limit = nil; planner.focus?.banked = 75 }
                 planner.preferences.notchTaskCount = ["tasks", "both", "left", "private"].contains(mode)
                 planner.preferences.notchNextBlock = mode == "next"
                 planner.preferences.notchTimerPlacement = mode == "both" ? .split : mode == "left" ? .left : .right

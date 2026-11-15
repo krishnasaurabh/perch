@@ -20,8 +20,8 @@ struct NotchPeekView: View {
             Theme.band.frame(height: bandHeight)
             ScrollView {
                 VStack(alignment: .leading, spacing: NotchPeekLayout.gap) {
-                    if let task = peek.task {
-                        current(task)
+                    if peek.showsBlock {
+                        current
                     } else {
                         Text("Nothing planned yet").perchFont(.body).foregroundStyle(Theme.ink2)
                     }
@@ -70,34 +70,31 @@ struct NotchPeekView: View {
         .accessibilityIdentifier("notch.peek")
     }
 
-    private func current(_ task: PlanTask) -> some View {
+    private var current: some View {
         VStack(alignment: .leading, spacing: SurfaceMetrics.compactGap) {
             HStack(spacing: NotchPeekLayout.gap) {
                 VStack(alignment: .leading, spacing: .zero) {
-                    Text(task.title).perchFont(.currentTask).foregroundStyle(Theme.ink)
+                    Text(peek.title).perchFont(.currentTask).foregroundStyle(Theme.ink)
                         .fixedSize(horizontal: false, vertical: true)
                     LocalClock(running: peek.focus?.state == .running) { now in
-                        Text(summary(task, now: now)).perchFont(.detail).foregroundStyle(Theme.ink2)
+                        Text(summary(peek.task, now: now)).perchFont(.detail).foregroundStyle(Theme.ink2)
                             .fixedSize(horizontal: false, vertical: true)
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 if let focus = peek.focus {
                     LocalClock(running: focus.state == .running) { now in
-                        Text(
-                            NotchTimerPresentation(seconds: focus.remaining(at: now) ?? focus.elapsed(at: now)).fullText
-                        )
-                        .perchFont(.cardTitle).foregroundStyle(Theme.ink)
-                        .accessibilityLabel(
-                            AppL10n.format(
-                                "%@ left",
-                                NotchTimerPresentation(seconds: focus.remaining(at: now) ?? focus.elapsed(at: now))
-                                    .fullText))
+                        let time = NotchBlockTimePresentation(focus: focus, now: now)
+                        Text(time.face.fullText)
+                            .perchFont(.cardTitle).foregroundStyle(Theme.ink)
+                            .accessibilityLabel(time.valueDescription)
+                            .accessibilityIdentifier("notch.peek.time")
+                            .help(time.valueDescription)
                     }
                 }
                 blockButton
             }
-            if let step = peek.nextStep {
+            if let task = peek.task, let step = peek.nextStep {
                 // TODO: t_314c0739 — use TaskStepRow when the checklist component reaches main.
                 PeekStepRow(taskID: task.id, step: step)
             }
@@ -161,7 +158,7 @@ struct NotchPeekView: View {
         if model.submitPeek(draft, park: park, in: store) { draft = "" }
     }
 
-    private func summary(_ task: PlanTask, now: Date) -> String {
+    private func summary(_ task: PlanTask?, now: Date) -> String {
         var bits: [String] = []
         if let focus = peek.focus {
             if focus.state == .paused {
@@ -170,10 +167,10 @@ struct NotchPeekView: View {
                 let end = now.addingTimeInterval(remaining).formatted(date: .omitted, time: .shortened)
                 bits.append(AppL10n.format("Until %@", end))
             }
-        } else if let start = task.startAt {
+        } else if let start = task?.startAt {
             bits.append(start.formatted(date: .omitted, time: .shortened))
         }
-        if !task.steps.isEmpty {
+        if let task, !task.steps.isEmpty {
             bits.append(AppL10n.format("%lld of %lld steps", task.steps.filter(\.done).count, task.steps.count))
         }
         return bits.joined(separator: " · ")
@@ -259,6 +256,20 @@ private struct PeekAppearanceBridge: NSViewRepresentable {
 
 #if DEBUG || PERCH_TESTING
     extension AppDelegate.PreviewTarget {
+        static func tasklessPeek(stopwatch: Bool, empty: Bool = false) -> Self {
+            .window("notch-peek-preview") { app in
+                guard let fixture = AppDelegate.activePreviewFixture else { return }
+                do {
+                    try PlannerPreviewScenarios.installTasklessBlock(
+                        fixture, in: app.store.file, stopwatch: stopwatch, empty: empty)
+                    app.store.reloadFromDisk(external: false)
+                    Self.peek.open(app)
+                } catch {
+                    preconditionFailure("Could not prepare block preview: \(error)")
+                }
+            }
+        }
+
         static var peek: Self {
             .window("notch-peek-preview") { app in
                 WindowHost.show(

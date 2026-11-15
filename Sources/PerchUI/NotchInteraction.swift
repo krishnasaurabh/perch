@@ -20,14 +20,42 @@ public struct NotchPeekPresentation: Equatable, Sendable {
     public let focus: FocusSession?
     public let moreToday: Int
     public var nextStep: Subtask? { task?.steps.first { !$0.done } }
+    public var showsBlock: Bool { focus != nil || task != nil }
+    public var title: String { task?.title ?? PerchL10n.text("Time set aside") }
 
     public init(planner: Planner, today: DayKey) {
         let focus = planner.focus.flatMap { $0.state == .finished ? nil : $0 }
         let open = planner.tasks.filter { $0.day == today && !$0.done }
-        let task = focus.flatMap { block in planner.tasks.first { $0.id == block.taskID && !$0.done } } ?? open.first
+        let task: PlanTask?
+        if let focus {
+            task = planner.tasks.first { $0.id == focus.taskID && !$0.done }
+        } else {
+            task = open.first
+        }
         self.task = task
         self.focus = focus
         self.moreToday = open.filter { $0.id != task?.id }.count
+    }
+}
+
+/// Shared value and wording for countdown and elapsed blocks across notch surfaces.
+public struct NotchBlockTimePresentation: Equatable, Sendable {
+    public let face: NotchTimerPresentation
+    public let state: String
+    public let valueDescription: String
+    public let accessibilityLabel: String
+
+    public init(focus: FocusSession, now: Date, locale: Locale = .current) {
+        face = NotchTimerPresentation(seconds: focus.remaining(at: now) ?? focus.elapsed(at: now))
+        state =
+            focus.state == .paused
+            ? PerchL10n.text("Paused", locale: locale) : PerchL10n.text("Time set aside", locale: locale)
+        if focus.limit == nil {
+            valueDescription = PerchL10n.format("%@ elapsed", locale: locale, face.fullText)
+        } else {
+            valueDescription = PerchL10n.format("%@ left", locale: locale, face.fullText)
+        }
+        accessibilityLabel = PerchL10n.format("%@, %@", locale: locale, state, valueDescription)
     }
 }
 

@@ -20,13 +20,11 @@ public struct NotchPillPresentation: Identifiable, Equatable, Sendable {
         let focus = planner.focus.flatMap { $0.state == .finished ? nil : $0 }
         if prefs.notchTimePill, let focus {
             let paused = focus.state == .paused
-            let face = NotchTimerPresentation(seconds: focus.remaining(at: now) ?? focus.elapsed(at: now))
-            let state = PerchL10n.text(paused ? "Paused" : "Time set aside", locale: locale)
+            let time = NotchBlockTimePresentation(focus: focus, now: now, locale: locale)
             result.append(
                 Self(
-                    kind: .time, text: prefs.hideCountsAndTimes ? "" : face.text,
-                    accessibilityLabel: prefs.hideCountsAndTimes
-                        ? state : PerchL10n.format("%@, %@ left", locale: locale, state, face.fullText),
+                    kind: .time, text: prefs.hideCountsAndTimes ? "" : time.face.text,
+                    accessibilityLabel: prefs.hideCountsAndTimes ? time.state : time.accessibilityLabel,
                     showsDot: !paused, paused: paused))
         }
         let open = planner.tasks.filter { !$0.done && $0.day == today }
@@ -72,12 +70,10 @@ public struct NotchFlatTabPresentation: Equatable, Sendable {
         text = hideValues ? "" : closed.timeText(at: now, locale: locale)
         if closed.reminder {
             accessibilityLabel = PerchL10n.text("Reminder waiting. Open Today", locale: locale)
-        } else if closed.hasBlock {
-            let state = PerchL10n.text(paused ? "Paused" : "Time set aside", locale: locale)
-            accessibilityLabel =
-                hideValues
-                ? PerchL10n.format("%@. Open Today", locale: locale, state)
-                : PerchL10n.format("%@, %@. Open Today", locale: locale, state, text)
+        } else if let focus = closed.focus, closed.hasBlock {
+            let time = NotchBlockTimePresentation(focus: focus, now: now, locale: locale)
+            accessibilityLabel = PerchL10n.format(
+                "%@. Open Today", locale: locale, hideValues ? time.state : time.accessibilityLabel)
         } else {
             accessibilityLabel = PerchL10n.text("Open Today", locale: locale)
         }

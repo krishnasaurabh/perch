@@ -151,15 +151,12 @@ struct TimerPillLayer: View {
         let rect = geometry.pill(side: side)
         if let focus, focus.state != .finished {
             LocalClock(running: focus.state == .running) { now in
-                let face = NotchTimerPresentation(seconds: focus.remaining(at: now) ?? focus.elapsed(at: now))
-                NotchPillFace(text: face.text, showsDot: focus.state == .running, paused: focus.state == .paused)
+                let time = NotchBlockTimePresentation(focus: focus, now: now)
+                NotchPillFace(text: time.face.text, showsDot: focus.state == .running, paused: focus.state == .paused)
                     .frame(width: rect.width, height: rect.height)
                     .accessibilityElement(children: .ignore)
-                    .accessibilityLabel(
-                        AppL10n.format(
-                            "%@, %@ left", AppL10n.text(focus.state == .paused ? "Paused" : "Time set aside"),
-                            face.fullText)
-                    )
+                    .accessibilityLabel(time.accessibilityLabel)
+                    .help(time.accessibilityLabel)
                     .offset(x: rect.minX - bounds.minX, y: bounds.maxY - rect.maxY)
             }
         }
