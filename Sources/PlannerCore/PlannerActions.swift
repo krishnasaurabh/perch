@@ -61,6 +61,8 @@ public enum PlannerAction {
     case deleteProject(UUID)
     case suggest(UUID, priority: TaskPriority, projectID: UUID?)
     case lifecycle(PlannerLifecycle)
+    /// Clears all local planner content and resets preferences to their defaults.
+    case eraseLocalPlanner
     #if DEBUG || PERCH_TESTING
         /// Explicit synthetic preview initialization; rejected unless the document is empty.
         case seedPreview(PlannerPreview)
@@ -166,12 +168,15 @@ extension PlannerEngine {
             }
             let previousDay = today
             let changedPolicy = value.carryMode != planner.preferences.carryMode
+            let changedRetention = value.finishedTaskRetention != planner.preferences.finishedTaskRetention
             planner.preferences = value
             if changedPolicy || previousDay != today {
                 _ = applyRepeats(on: today)
                 _ = applyCarryMode()
             }
+            if changedRetention || previousDay != today { _ = pruneFinishedTasks() }
         case .deleteProject(let id): try deleteProject(id)
+        case .eraseLocalPlanner: eraseLocalPlanner()
         case .reminderLinks(let links):
             for (id, link) in links {
                 if let i = planner.tasks.firstIndex(where: { $0.id == id }) { planner.tasks[i].reminderLink = link }
@@ -190,9 +195,11 @@ extension PlannerEngine {
                 _ = recoverFocus()
                 _ = applyRepeats(on: today)
                 _ = applyCarryMode()
+                _ = pruneFinishedTasks()
             case .dayChanged:
                 _ = applyRepeats(on: today)
                 _ = applyCarryMode()
+                _ = pruneFinishedTasks()
             case .openDay(let day):
                 // Browsing history must not create tasks on an earlier day.
                 if day >= today { result.tasks = applyRepeats(on: day) }
