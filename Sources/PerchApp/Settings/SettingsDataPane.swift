@@ -211,6 +211,8 @@ struct SettingsDataBackupStatus {
     }
 
     init(file: PlannerFile) {
+        // Status is read while rendering Settings; another writer must not stall the UI.
+        let file = file.avoidingLockWaits()
         do {
             let urls = try file.backupURLs()
             let date = try urls.first?.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate
