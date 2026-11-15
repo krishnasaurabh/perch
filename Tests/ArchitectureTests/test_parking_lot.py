@@ -24,7 +24,7 @@ class ParkingLotContractTests(unittest.TestCase):
         self.assertIn('try $0.parkThought(draft)', card)
         self.assertIn('try $0.promoteThought(id, on: $0.today)', card)
         self.assertIn('onSubmit:', card)
-        self.assertIn('.onKeyPress(.return)', card)
+        self.assertIn('.onKeyPress(.return, phases: .down)', card)
         self.assertIn('key.modifiers == .command', card)
         self.assertIn('Make it a task', card)
         self.assertNotIn('writeNotepad', card)

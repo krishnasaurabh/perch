@@ -148,7 +148,7 @@ struct ParkedThoughtsView: View {
                 shape: RoundedRectangle(cornerRadius: Theme.Size.cardRadius.value), focused: selected == thought.id,
                 surface: .apricot)
         )
-        .onKeyPress(.return) { key in
+        .onKeyPress(.return, phases: .down) { key in
             guard key.modifiers == .command else { return .ignored }
             promote(thought.id)
             return .handled
@@ -170,7 +170,7 @@ struct ParkedThoughtsView: View {
             WindowHost.show(
                 "parking-thoughts", title: "Parking lot",
                 size: CGSize(width: Theme.Size.peekWidth.value, height: Theme.Size.peekWidth.value),
-                onUndo: { app.store.undo(redo: $0) }
+                onUndo: { redo in redo ? app.store.redo() : app.store.undo() }
             ) {
                 ParkedThoughtsView().environmentObject(app.store)
             }
