@@ -611,7 +611,7 @@ func checkSettingsMatrix(_ fixture: MatrixFixture, output: URL) async throws {
     }
     matrixRequire(matrixSettingsFocused(host, pane: .general), "settings sidebar accepts keyboard focus")
     let markers: [(SettingsView.Pane, String)] = [
-        (.general, "open the notch on"), (.notch, "around the notch"), (.calendar, "mirror tasks"),
+        (.general, "a new day starts at"), (.notch, "around the notch"), (.calendar, "mirror tasks"),
         (.agents, "use terminal"), (.data, "where it lives"),
     ]
     var previous: String?
@@ -1034,18 +1034,30 @@ func checkWelcomeMatrix(_ fixture: MatrixFixture, output: URL) async throws {
     let host = NSHostingView(
         rootView: WelcomeView { done.value += 1 }.environmentObject(fixture.store)
             .environmentObject(fixture.services).environment(\.accessibilityEnabled, true))
-    let window = matrixWindow(host, size: NSSize(width: 560, height: 900))
+    let window = matrixWindow(host, size: WelcomeView.windowSize)
     await matrixSettle(1.5)
     let text = try matrixText(host, name: "welcome-returning", output: output)
-    matrixRequire(text.contains("close at hand"), "welcome renders for a returning user", text)
-    // Error: notification access cannot be granted to an unbundled process; it must say so.
+    matrixRequire(text.contains("a calmer way through a busy day"), "welcome renders for a returning user", text)
     matrixRequire(
-        text.contains("requires the installed perch app"), "welcome reports unavailable notification access", text)
+        text.contains("nothing to allow yet") && text.contains("your tasks stay on this mac"),
+        "welcome explains first-use access without prompting", text)
     matrixRequire(matrixKeyEquivalent(window, 36, "\r"), "Return reaches the welcome default action")
     await matrixSettle()
     matrixRequire(done.value == 1, "Return opens the workspace exactly once", "done=\(done.value)")
     matrixRequire(fixture.store.planner.tasks == tasksBefore, "welcome leaves planner history unchanged")
     window.close()
+
+    // Live permission status belongs to Settings, not the informational Welcome page.
+    let permissionHost = NSHostingView(
+        rootView: PermissionPanel(services: fixture.services, features: [.notifications])
+            .environment(\.accessibilityEnabled, true))
+    let permissionWindow = matrixWindow(permissionHost, size: NSSize(width: 560, height: 320))
+    await matrixSettle(1.5)
+    let permissionText = try matrixText(permissionHost, name: "settings-notification-access", output: output)
+    matrixRequire(
+        permissionText.contains("requires the installed perch app"),
+        "settings reports unavailable notification access", permissionText)
+    permissionWindow.close()
 
     // Error: Welcome over planner data that cannot be read must still be operable and never rewrite it.
     let directory = fixture.directory.appendingPathComponent("corrupt")
@@ -1061,11 +1073,13 @@ func checkWelcomeMatrix(_ fixture: MatrixFixture, output: URL) async throws {
     let errorHost = NSHostingView(
         rootView: WelcomeView { doneAfterError.value += 1 }.environmentObject(store).environmentObject(services)
             .environment(\.accessibilityEnabled, true))
-    let errorWindow = matrixWindow(errorHost, size: NSSize(width: 560, height: 900))
+    let errorWindow = matrixWindow(errorHost, size: WelcomeView.windowSize)
     defer { errorWindow.close() }
     await matrixSettle(1.5)
     let errorText = try matrixText(errorHost, name: "welcome-unreadable-data", output: output)
-    matrixRequire(errorText.contains("close at hand"), "welcome renders over unreadable planner data", errorText)
+    matrixRequire(
+        errorText.contains("a calmer way through a busy day"),
+        "welcome renders over unreadable planner data", errorText)
     matrixRequire(matrixKeyEquivalent(errorWindow, 36, "\r"), "Return reaches welcome over unreadable data")
     await matrixSettle()
     matrixRequire(doneAfterError.value == 1, "welcome over unreadable data opens the workspace once")

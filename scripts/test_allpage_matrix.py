@@ -406,9 +406,10 @@ print("Permission row positive and negative controls passed")
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertIn("Permission row positive and negative controls passed", result.stdout)
 
-        welcome = self.source.split("func welcomeStates()", 1)[1].split("func detailsStates()", 1)[0]
-        self.assertIn("mxPermissionRow(root, feature: feature.rawValue)", welcome)
-        self.assertIn("mxHas(row, reading.state.title)", welcome)
+        settings = self.source.split("func welcomeSettingsPermissionStates(", 1)[1].split("func detailsStates()", 1)[0]
+        self.assertIn("PermissionPanel(services: fixture.services)", settings)
+        self.assertIn("mxPermissionRow(root, feature: feature.rawValue)", settings)
+        self.assertIn("mxHas(row, reading.state.title)", settings)
         panel = (ROOT / "Sources/PerchApp/Settings/PermissionPanel.swift").read_text()
         self.assertIn('.accessibilityIdentifier("permission-row.\\(feature.rawValue)")', panel)
 
