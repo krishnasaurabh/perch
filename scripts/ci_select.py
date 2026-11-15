@@ -245,7 +245,7 @@ def main() -> int:
     ap.add_argument("--force-full", default="false")
     ap.add_argument("--repo", default=os.environ.get("GITHUB_REPOSITORY", ""))
     a = ap.parse_args()
-    labels = {l.get("name") if isinstance(l, dict) else l for l in json.loads(a.labels or "[]")}
+    labels = {l.get("name") if isinstance(l, dict) else l for l in (json.loads(a.labels or "[]") or [])}
     if a.event == "workflow_dispatch" and a.force_full == "true":
         result = plan(full=True, reason="manual full run")
     elif a.event == "pull_request" and "ci:full" in labels:

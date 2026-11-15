@@ -1,8 +1,11 @@
+import io
 import json
 import subprocess
 import sys
 import unittest
+from contextlib import redirect_stdout
 from pathlib import Path
+from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import ci_select as s  # noqa: E402
@@ -90,6 +93,61 @@ class SelectTests(unittest.TestCase):
         out = subprocess.check_output([sys.executable, str(ROOT / "scripts/ci_select.py"), "--event",
                                        "workflow_dispatch", "--force-full", "true"], cwd=ROOT, text=True)
         self.assertTrue(json.loads(out)["full"])
+
+
+class MainTests(unittest.TestCase):
+    def run_main(self, *args):
+        out = io.StringIO()
+        with mock.patch.object(sys, "argv", ["ci_select.py", "--repo", "", *args]), \
+                mock.patch.dict(s.os.environ, {"GITHUB_OUTPUT": ""}), redirect_stdout(out):
+            self.assertEqual(s.main(), 0)
+        return json.loads(out.getvalue())
+
+    def test_push_accepts_null_empty_and_omitted_labels(self):
+        cases = {
+            "omitted": [],
+            "empty string": ["--labels", ""],
+            "literal null": ["--labels", "null"],
+            "JSON null": ["--labels", json.dumps(None)],
+            "empty list": ["--labels", "[]"],
+        }
+        expected = s.plan(full=True, reason="no trustworthy base")
+        for name, args in cases.items():
+            with self.subTest(labels=name):
+                self.assertEqual(self.run_main("--event", "push", *args), expected)
+
+    def test_push_accepts_none_labels(self):
+        args = s.argparse.Namespace(event="push", base="", labels=None, force_full="false", repo="")
+        with mock.patch.object(s.argparse.ArgumentParser, "parse_args", return_value=args):
+            self.assertEqual(self.run_main(), s.plan(full=True, reason="no trustworthy base"))
+
+    def test_push_null_labels_preserve_targeted_history_plan(self):
+        paths = ["Sources/PerchApp/Workspace/WeekPage.swift"]
+        history = [("1234567890", {s.FULL_STATUS, s.VERIFIED_STATUS})]
+        expected = s.select(paths)
+        expected["reason"] += " (main since 12345678)"
+        with mock.patch.object(s, "main_history", return_value=history) as main_history, \
+                mock.patch.object(s, "changed", return_value=paths) as changed:
+            result = self.run_main("--event", "push", "--repo", "example/perch", "--labels", "null")
+        self.assertEqual(result, expected)
+        self.assertFalse(result["full"])
+        main_history.assert_called_once_with("example/perch")
+        changed.assert_called_once_with("1234567890")
+
+    def test_pull_request_full_label_accepts_objects_and_strings(self):
+        for labels in [[{"name": "ci:full"}], ["ci:full"], ["other", {"name": "ci:full"}]]:
+            with self.subTest(labels=labels):
+                result = self.run_main("--event", "pull_request", "--labels", json.dumps(labels))
+                self.assertEqual(result, s.plan(full=True, reason="ci:full label"))
+
+    def test_pull_request_without_full_label_preserves_targeted_plan(self):
+        paths = ["Sources/PerchApp/Workspace/WeekPage.swift"]
+        with mock.patch.object(s, "changed", return_value=paths) as changed:
+            result = self.run_main("--event", "pull_request", "--base", "pr-base",
+                                   "--labels", '[{"name":"other"}, "ci:fuller"]')
+        self.assertEqual(result, s.select(paths))
+        self.assertFalse(result["full"])
+        changed.assert_called_once_with("pr-base")
 
 
 if __name__ == "__main__":

@@ -25,6 +25,14 @@ notch-pills-private --scenario notch-running --open notch-pills-private
 notch-flat-private-running --scenario notch-running --open notch-flat-private
 notch-flat-private-paused --scenario notch-paused --open notch-flat-private
 welcome --scenario empty --open welcome
+menubar-icon --scenario notch-running --open menubar-icon
+menubar-time --scenario notch-running --open menubar-time
+menubar-idle --scenario notch-idle --open menubar-time
+menubar-tasks --scenario today-editing --open menubar-tasks
+menubar-hidden --scenario notch-running --open menubar-hidden
+menubar-paused --scenario notch-paused --open menubar-time
+menubar-private --scenario notch-running --open menubar-private
+menubar-block --scenario notch-running --open menubar-block
 today-empty --scenario empty --open today
 today-three --scenario three --open today
 today-timer --scenario timer --open today
@@ -54,6 +62,7 @@ notch-flat-running --scenario notch-running --open notch-flat
 notch-flat-paused --scenario notch-paused --open notch-flat
 notch-flat-reminder --scenario notch-reminder --open notch-flat
 settings-general --scenario empty --open settings/general
+settings-general-alternatives --scenario empty --open settings/general-alternatives
 settings-notch --scenario empty --open settings/notch
 settings-notch-configured --scenario empty --open settings/notch-configured
 settings-calendar --scenario empty --open settings/calendar
