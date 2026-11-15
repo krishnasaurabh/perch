@@ -9,7 +9,7 @@ ROOT = Path(__file__).resolve().parents[2]
 class WorkspaceTaskViewportTests(unittest.TestCase):
     def test_legacy_task_viewport_is_capped_without_changing_shell_budget(self):
         card = (ROOT / "Sources/PerchApp/Workspace/TasksCard.swift").read_text()
-        self.assertRegex(card, r"\.frame\(minHeight: WorkspaceLayout\.contentHeight, maxHeight: WorkspaceLayout\.contentHeight\)")
+        self.assertRegex(card, r"\.frame\(minHeight: 0, maxHeight: WorkspaceLayout\.contentHeight\)")
         self.assertRegex(card, r'\.accessibilityIdentifier\(\s*"today-task-viewport"\)')
         layout = (ROOT / "Sources/PerchUI/WorkspaceLayout.swift").read_text()
         self.assertIn("public static let contentHeight: CGFloat = 300", layout)
