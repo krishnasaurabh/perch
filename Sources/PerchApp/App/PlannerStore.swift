@@ -189,6 +189,9 @@ final class PlannerStore: ObservableObject {
         }
     }
 
+    /// Replaces the planner with the newest readable backup. Callers flush pending text first.
+    func restoreLatestBackup() throws { publish(try pipeline.restoreLatestBackup()) }
+
     func updatePrefs(_ body: (inout Preferences) -> Void) {
         apply { try $0.updatePrefs(body) }
     }
