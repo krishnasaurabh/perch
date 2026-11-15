@@ -241,14 +241,16 @@ jobs:
           done
       - name: Redesign snapshots (light, dark and Reduce Motion at 2x)
         if: ${{ !cancelled() && steps.restore.outcome == 'success' }}
-        timeout-minutes: 4
+        timeout-minutes: 8
         run: bash scripts/redesign_shots.sh "$RUNNER_TEMP/redesign-shots"
       - name: Upload redesign snapshots
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: redesign-shots
-          path: ${{ runner.temp }}/redesign-shots
+          path: |
+            ${{ runner.temp }}/redesign-shots
+            !**/planner.json.backups/**
           if-no-files-found: error
       - name: Home cards legibility (exact timer value, default and dot-matrix faces, heavy notepad)
         if: ${{ !cancelled() && steps.restore.outcome == 'success' }}
