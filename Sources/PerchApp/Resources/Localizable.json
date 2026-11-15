@@ -9673,6 +9673,23 @@
         }
       }
     },
+    "Stop listening": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stop listening"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Stöp lïstënïng ·~⟧"
+          }
+        }
+      }
+    },
     "Stored at": {
       "extractionState": "manual",
       "localizations": {

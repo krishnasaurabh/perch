@@ -30,16 +30,28 @@ class TodayInteractionTests(unittest.TestCase):
         self.assertIn(".downArrow", source)
         self.assertIn("TodayTaskNavigation", source)
 
-    def test_empty_state_probe_uses_stable_task_identifiers(self):
+    def test_empty_state_probe_uses_single_checklist_and_stable_task_identifiers(self):
         source = (ROOT / "scripts/empty_states_probe.swift").read_text()
-        self.assertIn('pressControl(completionID, attribute: "accessibilityIdentifier")', source)
-        self.assertIn('let completionID = "task-complete-\\(id)"', source)
-        self.assertIn('findControl(completionID, attribute: "accessibilityIdentifier")', source)
-        self.assertIn('findControl("task-complete-\\($0)", attribute: "accessibilityIdentifier")', source)
+        self.assertEqual(source.count('await pressControl(completionID, attribute: "accessibilityIdentifier")'), 3)
+        self.assertIn("let completionID =", source)
+        self.assertIn('waitForControl("task-complete-', source)
         for label in ("Reopen Capture probe task", "Complete Capture probe task"):
+            self.assertIn(f'waitForControl("{label}")', source)
             self.assertIn(f'findControl("{label}")', source)
+        for persisted in ("persistedCompletion", "persistedReopen", "persistedSecondCompletion"):
+            self.assertIn(f"let {persisted} = try! delegate.store.file.load()", source)
+        for count in ("A fresh page", "1 to do", "1 of 1 done", "1 of 3 done", "3 to do"):
+            self.assertIn(f'waitForControl("{count}")', source)
+        for marker in ('requireChecklistRows(allIDs', 'accessibilityContents',
+                       'accessibilityChildrenInNavigationOrder', 'NSAttributedString',
+                       'node as? NSTextField', 'node as? NSButton', 'layoutSubtreeIfNeeded()',
+                       'AX inventory after missing', 'today-single-checklist-completed',
+                       'today-single-checklist-reopened'):
+            self.assertIn(marker, source)
         self.assertIn('delegate.store.planner.tasks.first { $0.id == id }?.done == false', source)
-        for stale in ('"Check off task"', '"Uncheck task"'):
+        for stale in ('"Check off task"', '"Uncheck task"', 'pressControl("Completed 1")',
+                      'findControl("To do 0") != nil', 'findControl("Completed 1") != nil',
+                      'delegate.store.apply { try $0.complete(id) }'):
             self.assertNotIn(stale, source)
 
     def test_motion_probe_and_qualifiers_agree_on_identifiers(self):

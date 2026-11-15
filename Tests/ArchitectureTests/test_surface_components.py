@@ -64,7 +64,11 @@ class SurfaceComponentArchitectureTests(unittest.TestCase):
         source = (COMPONENTS / 'AddField.swift').read_text()
         for required in ('TextField(', 'Text(AppL10n.text(label))', '.labelsHidden()',
                          '.accessibilityLabel(Text(AppL10n.text(label)))',
-                         'AppL10n.text("Dictate instead")', '.onSubmit(onSubmit)', 'Button(action: onDictate)',
+                         'isDictating: Bool = false', 'Image(systemName: dictationSymbol)',
+                         'if isDictating { return "stop.fill" }', 'return "mic"',
+                         'isDictating ? "Stop listening" : "Dictate instead"',
+                         '.accessibilityLabel(dictationLabel)', '.help(dictationLabel)',
+                         '.onSubmit(onSubmit)', 'Button(action: onDictate)',
                          '.focused(', 'fieldFocusWidth', 'focusWidth', 'focusGap', '.paper', '.field',
                          'minimumTarget', 'addFieldHeight', 'addFieldRadius'):
             self.assertIn(required, source)
@@ -101,6 +105,29 @@ class SurfaceComponentArchitectureTests(unittest.TestCase):
             self.assertIn(required, source)
         self.assertNotIn('if window.firstResponder is NSTextView { break }', source)
         self.assertIn('"capture-add-task"', (COMPONENTS / 'AddField.swift').read_text())
+
+    def test_real_field_covers_idle_and_active_dictation_without_voice_access(self):
+        source = (ROOT / 'Tests/PerchAppTests/SurfaceComponentTests.swift').read_text()
+        for required in ('testCaptureHasNamedFieldReturnActionAndSeparateDictationTarget',
+                         'testActiveDictationUsesStopControlWithoutVoiceAccess',
+                         'EntryHarness(state: state, isDictating: true)',
+                         'EntryHarness(state: state)', 'isDictating = false',
+                         '"accessibilityHelp") as? String == "Dictate instead"',
+                         '"accessibilityHelp") as? String == "Stop listening"',
+                         'nodes.compactMap { $0 as? NSButton }', 'NSAttributedString',
+                         'primeAccessibility()', 'AXUIElementCreateApplication',
+                         'kAXWindowsAttribute', 'kAXChildrenAttribute',
+                         'accessibilityChildrenInNavigationOrder', 'layoutSubtreeIfNeeded()',
+                         'Active dictation inventory:'):
+            self.assertIn(required, source)
+        active = source.split('testActiveDictationUsesStopControlWithoutVoiceAccess', 1)[1].split(
+            'testRenderedFieldsPublishDistinctNamesInsteadOfPrompts', 1)[0]
+        self.assertIn('XCTAssertFalse(nodes.contains', active)
+        self.assertIn('"Dictate instead"', active)
+        self.assertIn('accessibilityPerformPress', active)
+        self.assertIn('XCTAssertEqual(state.dictations, 1)', active)
+        for forbidden in ('SFSpeechRecognizer', 'AVAudioSession', 'requestAuthorization'):
+            self.assertNotIn(forbidden, active)
 
 
 if __name__ == '__main__':

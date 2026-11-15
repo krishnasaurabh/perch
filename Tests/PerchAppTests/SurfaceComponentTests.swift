@@ -1,4 +1,5 @@
 import AppKit
+import ApplicationServices
 import PerchUI
 import SwiftUI
 import XCTest
@@ -69,6 +70,7 @@ final class SurfaceComponentTests: XCTestCase {
                 && candidates.contains {
                     Self.attribute($0, "accessibilityRole") as? String == "AXButton"
                         && Self.attribute($0, "accessibilityLabel") as? String == "Dictate instead"
+                        && Self.attribute($0, "accessibilityHelp") as? String == "Dictate instead"
                 }
         }
         let diagnostics = Self.diagnostics(in: window)
@@ -86,6 +88,8 @@ final class SurfaceComponentTests: XCTestCase {
                 Self.attribute($0, "accessibilityRole") as? String == "AXButton"
                     && Self.attribute($0, "accessibilityLabel") as? String == "Dictate instead"
             })
+        XCTAssertEqual(Self.attribute(microphone, "accessibilityHelp") as? String, "Dictate instead")
+        XCTAssertFalse(nodes.contains { Self.attribute($0, "accessibilityLabel") as? String == "Stop listening" })
         let frame = try XCTUnwrap(microphone.value(forKey: "accessibilityFrame") as? NSValue).rectValue
         XCTAssertGreaterThanOrEqual(frame.width, 28)
         XCTAssertGreaterThanOrEqual(frame.height, 28)
@@ -114,6 +118,63 @@ final class SurfaceComponentTests: XCTestCase {
         XCTAssertEqual(state.dictations, 1)
         XCTAssertEqual(state.submissions, 1)
         XCTAssertEqual(state.text, "A new task")
+    }
+
+    @MainActor func testActiveDictationUsesStopControlWithoutVoiceAccess() async throws {
+        let app = NSApplication.shared
+        let originalPolicy = app.activationPolicy()
+        app.setActivationPolicy(.regular)
+        defer { app.setActivationPolicy(originalPolicy) }
+        let primer = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 100, height: 100),
+            styleMask: [.titled], backing: .buffered, defer: false)
+        primer.isReleasedWhenClosed = false
+        primer.contentView = NSTextField(labelWithString: "Accessibility primer")
+        primer.orderFront(nil)
+        await Self.primeAccessibility()
+        primer.close()
+
+        let state = EntryState()
+        let host = NSHostingView(
+            rootView: EntryHarness(state: state, isDictating: true).environment(\.accessibilityEnabled, true))
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 400, height: 160),
+            styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = host
+        app.activate(ignoringOtherApps: true)
+        window.makeKeyAndOrderFront(nil)
+        defer { window.close() }
+        let nodes = try await Self.readyNodes(in: window) { candidates in
+            candidates.contains {
+                Self.attribute($0, "accessibilityRole") as? String == "AXButton"
+                    && Self.attribute($0, "accessibilityLabel") as? String == "Stop listening"
+                    && Self.attribute($0, "accessibilityHelp") as? String == "Stop listening"
+            }
+        }
+        let diagnostics = Self.diagnostics(in: window)
+        print("Active dictation inventory:\n\(diagnostics)")
+        let typed = nodes.compactMap { $0 as? NSButton }.first {
+            $0.accessibilityLabel() == "Stop listening" || $0.title == "Stop listening"
+        }
+        let semantic = nodes.first {
+            Self.attribute($0, "accessibilityRole") as? String == "AXButton"
+                && Self.attribute($0, "accessibilityLabel") as? String == "Stop listening"
+        }
+        let microphone = try XCTUnwrap(typed.map { $0 as NSObject } ?? semantic, diagnostics)
+        XCTAssertEqual(Self.attribute(microphone, "accessibilityLabel") as? String, "Stop listening")
+        XCTAssertEqual(Self.attribute(microphone, "accessibilityHelp") as? String, "Stop listening")
+        XCTAssertFalse(nodes.contains { Self.attribute($0, "accessibilityLabel") as? String == "Dictate instead" })
+        XCTAssertEqual(state.dictations, 0)
+        XCTAssertEqual(state.submissions, 0)
+        let action = NSSelectorFromString("accessibilityPerformPress")
+        let implementation = try XCTUnwrap(microphone.responds(to: action) ? microphone.method(for: action) : nil)
+        typealias Press = @convention(c) (NSObject, Selector) -> Bool
+        XCTAssertTrue(unsafeBitCast(implementation, to: Press.self)(microphone, action))
+        await Task.yield()
+        XCTAssertEqual(state.dictations, 1)
+        XCTAssertEqual(state.submissions, 0)
+        XCTAssertEqual(state.text, "")
     }
 
     @MainActor func testRenderedFieldsPublishDistinctNamesInsteadOfPrompts() async throws {
@@ -258,6 +319,21 @@ final class SurfaceComponentTests: XCTestCase {
         return value as? String
     }
 
+    private nonisolated static func primeAccessibility() async {
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            DispatchQueue.global().async {
+                let app = AXUIElementCreateApplication(getpid())
+                var raw: CFTypeRef?
+                _ = AXUIElementCopyAttributeValue(app, kAXWindowsAttribute as CFString, &raw)
+                for window in (raw as? [AXUIElement]) ?? [] {
+                    var children: CFTypeRef?
+                    _ = AXUIElementCopyAttributeValue(window, kAXChildrenAttribute as CFString, &children)
+                }
+                continuation.resume()
+            }
+        }
+    }
+
     @MainActor private static func readyNodes(
         in window: NSWindow, matching predicate: ([NSObject]) -> Bool
     ) async throws -> [NSObject] {
@@ -303,12 +379,14 @@ final class SurfaceComponentTests: XCTestCase {
 
     private struct EntryHarness: View {
         @ObservedObject var state: EntryState
+        var isDictating = false
         @FocusState private var focused: Bool
 
         var body: some View {
             DotGridSheet(.window) {
                 AddField(
                     "Add a task", text: $state.text, prompt: "Add a task. Tab makes it a step.", focus: $focused,
+                    isDictating: isDictating,
                     onSubmit: { state.submissions += 1 }, onDictate: { state.dictations += 1 })
             }
             .task { focused = true }
