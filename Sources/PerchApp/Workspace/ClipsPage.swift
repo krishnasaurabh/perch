@@ -3,402 +3,139 @@ import PerchUI
 import SwiftUI
 import UniformTypeIdentifiers
 
+/// Compatibility for saved deep links. Clips is no longer a workspace page.
 struct ClipsPage: View {
-    @EnvironmentObject var services: Services
-    var body: some View { ClipsBody(clips: services.clips) }
+    @EnvironmentObject private var model: NotchModel
+    var body: some View { HomePage().onAppear { model.page = .home } }
 }
 
+/// Storage-backed content shown only in the drag shelf.
 struct ClipsBody: View {
     @ObservedObject var clips: ClipsService
-    @EnvironmentObject var store: PlannerStore
+    @EnvironmentObject private var store: PlannerStore
 
     var body: some View {
-        VStack(alignment: .leading, spacing: Theme.gutter) {
+        VStack(alignment: .leading, spacing: DropShelfLayout.gap) {
             ViewThatFits(in: .horizontal) {
-                HStack {
-                    CardHeading(AppL10n.text("Clips"), symbol: "paperclip").fixedSize()
-                    Spacer(minLength: Theme.gutter)
-                    captureControls
-                    removeUnpinned.fixedSize()
+                HStack(alignment: .top, spacing: DropShelfLayout.gap) {
+                    heading; clear
                 }
-                // Leave room for whole, minimum-size controls on a single row.
-                // Compact cards put the capture controls below the heading.
-                .frame(minWidth: 640)
-                VStack(alignment: .leading, spacing: Theme.gutter) {
-                    HStack {
-                        CardHeading(AppL10n.text("Clips"), symbol: "paperclip"); Spacer(); removeUnpinned
-                    }
-                    captureControls
+                VStack(alignment: .leading, spacing: DropShelfLayout.gap) {
+                    heading; clear
                 }
             }
-            ZStack(alignment: .top) {
-                ClipsRope()
-                Group {
-                    if clips.clips.isEmpty {
-                        EmptyStateView("Drop something here to keep it close.", symbol: "paperclip")
-                            .padding(.top, ClipsLineLayout.emptyMessageTop)
-                            .transition(.opacity)
-                    } else {
-                        ScrollView([.horizontal, .vertical]) {
-                            HStack(alignment: .top, spacing: 14) {
-                                ForEach(Array(clips.clips.enumerated()), id: \.element.id) { i, c in
-                                    ClipCard(clip: c, clips: clips).rotationEffect(
-                                        .degrees(i.isMultiple(of: 2) ? -2 : 2), anchor: .top
-                                    )
-                                    .transition(.opacity)
-                                }
-                            }
-                            .padding(.horizontal, 16).padding(.top, 16).padding(.bottom, Theme.gutter)
-                            .motion(Motion.row, value: clips.clips.map(\.id))
-                        }.scrollIndicators(.automatic)
-                            .transition(.opacity)
+            HStack(spacing: DropShelfLayout.gap) {
+                if !clips.clips.isEmpty {
+                    ScrollView(.horizontal) {
+                        HStack(spacing: DropShelfLayout.gap) {
+                            ForEach(clips.clips) { clip in ShelfItemCard(clip: clip, clips: clips) }
+                        }
+                        .padding(Theme.Size.focusGap.value + Theme.Size.focusWidth.value)
                     }
+                    .scrollIndicators(.automatic)
+                    .frame(
+                        height: DropShelfLayout.cardHeight + 2
+                            * (Theme.Size.focusGap.value + Theme.Size.focusWidth.value))
                 }
+                dropSlot
             }
-            .frame(maxHeight: .infinity, alignment: .top)
-            // Reserve space rather than covering clips or their action targets.
             if let banner = clips.letGoBanner {
-                LetGoToast(banner: banner) { clips.undoLetGo() }
-                    .transition(.opacity)
-            }
-            ViewThatFits(in: .horizontal) {
-                HStack(spacing: Theme.gutter) {
-                    hints; Spacer(minLength: Theme.gutter); FolderWatchStatus(state: clips.folderWatch)
-                }
-                VStack(alignment: .leading, spacing: Theme.gutter) {
-                    hints; FolderWatchStatus(state: clips.folderWatch)
+                HStack(spacing: DropShelfLayout.gap) {
+                    Text(AppL10n.format("Removed %lld clips", banner.count)).perchFont(.detail)
+                    NotchStripButton(title: AppL10n.text("Undo"), surface: .apricot) { clips.undoLetGo() }
+                        .accessibilityIdentifier("shelf.undo")
                 }
             }
+            if let error = store.lastError {
+                Text(error.message).perchFont(.detail).foregroundStyle(Theme.ink2)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
         }
-        .motion(Motion.page, value: clips.clips.isEmpty)
-        .card()
+        .padding(.horizontal, DropShelfLayout.inset)
+        .padding(.vertical, Theme.Size.sheetPadding.value)
+        .foregroundStyle(Theme.ink)
+        .background(Theme.apricot)
+        .onDrop(of: [.fileURL, .url, .plainText, .image], isTargeted: nil) { clips.acceptDrop($0) }
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel(AppL10n.text("Drop shelf"))
     }
 
-    private var captureControls: some View {
-        HStack(spacing: Theme.gutter) {
-            Toggle(
-                "Add screenshots",
-                isOn: Binding(
-                    get: { store.prefs.catchScreenshots },
-                    set: { value in store.updatePrefs { $0.catchScreenshots = value } })
+    private var heading: some View {
+        VStack(alignment: .leading, spacing: Theme.Size.focusGap.value) {
+            Text("Drop it here to keep it handy").perchFont(.stripTitle)
+            Text("The shelf shows up only while you drag. Drag an item back out to use it.")
+                .perchFont(.detail).foregroundStyle(Theme.ink2)
+        }.frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var clear: some View {
+        NotchStripButton(title: AppL10n.text("Clear"), kind: .quiet, surface: .apricot) { clips.clearShelf() }
+            .disabled(clips.clips.isEmpty).accessibilityIdentifier("shelf.clear")
+    }
+
+    private var dropSlot: some View {
+        Text("Drop here").perchFont(.detailStrong)
+            .frame(width: clips.clips.isEmpty ? nil : DropShelfLayout.slotWidth)
+            .frame(maxWidth: clips.clips.isEmpty ? .infinity : nil)
+            .frame(height: DropShelfLayout.cardHeight)
+            .background(
+                RoundedRectangle(cornerRadius: DropShelfLayout.radius).strokeBorder(
+                    Theme.ink2, style: StrokeStyle(lineWidth: Theme.Size.cardEdge.value, dash: [DropShelfLayout.dash]))
             )
-            .toggleStyle(ClipsCaptureToggleStyle(title: AppL10n.text("Add screenshots")))
-            .fixedSize()
-            Toggle(
-                "Add copied items",
-                isOn: Binding(
-                    get: { store.prefs.catchCopies }, set: { value in store.updatePrefs { $0.catchCopies = value } })
-            )
-            .toggleStyle(ClipsCaptureToggleStyle(title: AppL10n.text("Add copied items")))
-            .fixedSize()
-        }
-        .font(Theme.meta)
-        // Refuse label compression so ViewThatFits moves these whole controls
-        // below the heading instead of fitting a row of broken-up words.
-        .fixedSize(horizontal: true, vertical: false)
-        .frame(minHeight: Theme.minimumTarget)
-    }
-
-    private var removeUnpinned: some View {
-        Button("Remove unpinned") { clips.sweep() }
-            .buttonStyle(PillStyle(disabledReason: "There are no unpinned clips to remove."))
-            .disabled(!clips.clips.contains(where: { !$0.pinned }))
-            .help("Remove unpinned clips. Undo is available for 5 seconds. Original files are not deleted.")
-    }
-
-    @ViewBuilder private var hints: some View {
-        if ClipsLineLayout.showsGestureHints(clipCount: clips.clips.count) {
-            Text("Click to copy · Drag to share · More for clip actions")
-                .font(Theme.meta).foregroundStyle(Theme.secondary)
-        }
+            .accessibilityIdentifier("shelf.drop")
     }
 }
 
-/// Keep the label and state inside one native action target, rather than a
-/// small switch whose separate text is not part of its accessibility frame.
-private struct ClipsCaptureToggleStyle: ToggleStyle {
-    let title: String
-
-    func makeBody(configuration: Configuration) -> some View {
-        Button {
-            configuration.isOn.toggle()
-        } label: {
-            HStack(spacing: Theme.gutter) {
-                Image(systemName: configuration.isOn ? "checkmark.circle.fill" : "circle")
-                    .accessibilityHidden(true)
-                configuration.label
-            }
-        }
-        .buttonStyle(PillStyle(prominent: configuration.isOn))
-        .accessibilityLabel(title)
-        .accessibilityValue(AppL10n.text(configuration.isOn ? "On" : "Off"))
-    }
-}
-
-private struct ClipsRope: View {
-    var body: some View {
-        GeometryReader { g in
-            if let rope = ClipsLineLayout.rope(width: g.size.width) {
-                Path { p in
-                    p.move(to: CGPoint(x: rope.start.x, y: rope.start.y))
-                    p.addQuadCurve(
-                        to: CGPoint(x: rope.end.x, y: rope.end.y),
-                        control: CGPoint(x: rope.control.x, y: rope.control.y))
-                }
-                .stroke(Theme.rope, style: StrokeStyle(lineWidth: 1.5, lineCap: .round))
-            }
-        }
-        .frame(height: ClipsLineLayout.bandHeight)
-        .clipped().allowsHitTesting(false).accessibilityHidden(true)
-    }
-}
-
-private struct LetGoToast: View {
-    let banner: ClipsService.LetGoBanner
-    let undo: () -> Void
-
-    var body: some View {
-        VStack(spacing: 4) {
-            HStack(spacing: Theme.gutter) {
-                Text(AppL10n.format("Removed %lld clips", banner.count))
-                    .font(Theme.meta).foregroundStyle(Theme.text)
-                Spacer(minLength: Theme.gutter)
-                Button("Undo", action: undo).buttonStyle(PillStyle(prominent: true))
-                    .accessibilityHint("Restore the removed clips")
-            }
-            TimelineView(.periodic(from: .now, by: 0.1)) { ctx in
-                let left = max(0, banner.deadline.timeIntervalSince(ctx.date)) / LetGoLedger<ClipsService.Clip>.window
-                GeometryReader { g in
-                    Capsule().fill(Theme.accent).frame(width: g.size.width * min(1, left), height: 2)
-                }.frame(height: 2).accessibilityHidden(true)
-            }
-        }
-        .padding(Theme.gutter)
-        .background(RoundedRectangle(cornerRadius: Theme.controlRadius).fill(Theme.fill))
-        .overlay(RoundedRectangle(cornerRadius: Theme.controlRadius).strokeBorder(Theme.cardStroke))
-        .id(banner.token)
-    }
-}
-
-private struct FolderWatchStatus: View {
-    let state: ClipsService.FolderWatch
-
-    var body: some View {
-        switch state {
-        case .off:
-            EmptyView()
-        case .watching(let url):
-            Label(AppL10n.format("Watching %@", url.lastPathComponent), systemImage: "eye")
-                .font(Theme.meta).foregroundStyle(Theme.secondary)
-                .help(AppL10n.format("New screenshots in %@ appear here.", url.path))
-        case .unreadable(let url):
-            Button {
-                NSWorkspace.shared.open(
-                    URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_FilesAndFolders")!)
-            } label: {
-                Label("Folder access unavailable · Settings…", systemImage: "exclamationmark.triangle")
-            }
-            .buttonStyle(PillStyle())
-            .help(
-                AppL10n.format(
-                    "Allow Perch to access %@ in Privacy & Security › Files and Folders. Only Spotlight is active until then.",
-                    url.path)
-            )
-        }
-    }
-}
-
-/// Assign identity to the AppKit launcher itself. A SwiftUI Menu's outer
-/// accessibility label does not label its native popup cell on macOS.
-private struct ClipsActionsMenu: NSViewRepresentable {
+private struct ShelfItemCard: View {
     let clip: ClipsService.Clip
-    let clips: ClipsService
-    let keyboard: ClipsMenuKeyboardTarget
-    @Environment(\.isEnabled) private var isEnabled
-
-    func makeCoordinator() -> Coordinator { Coordinator() }
-
-    func makeNSView(context: Context) -> NSPopUpButton {
-        let button = NSPopUpButton(frame: .zero, pullsDown: true)
-        let cell = ClipsActionsCell(textCell: "", pullsDown: true)
-        button.cell = cell
-        cell.menuButton = button
-        // Unlike fixed-height popup bezels, this bezel fills the real 32pt target.
-        button.bezelStyle = .regularSquare
-        button.font = .systemFont(ofSize: ThemeTokens.TypeSize.meta, weight: .medium)
-        button.controlSize = .regular
-        keyboard.button = button
-        return button
-    }
-
-    func updateNSView(_ button: NSPopUpButton, context: Context) {
-        keyboard.button = button
-        let menu = NSMenu()
-        menu.autoenablesItems = false
-        let title = NSMenuItem(title: AppL10n.text("More"), action: nil, keyEquivalent: "")
-        title.image = NSImage(systemSymbolName: "ellipsis", accessibilityDescription: nil)
-        menu.addItem(title)
-        context.coordinator.actions = []
-        @MainActor func add(_ title: String, action: @escaping () -> Void) {
-            let item = NSMenuItem(title: title, action: #selector(Coordinator.performAction(_:)), keyEquivalent: "")
-            item.target = context.coordinator
-            item.tag = context.coordinator.actions.count
-            item.isEnabled = isEnabled
-            context.coordinator.actions.append(action)
-            menu.addItem(item)
-        }
-        add(AppL10n.text(clip.pinned ? "Unpin" : "Pin")) { clips.togglePin(clip.id) }
-        add(AppL10n.text("Copy")) { clips.copy(clip) }
-        if let url = clips.clipURL(clip) {
-            add(AppL10n.text("Open")) { clips.open(clip) }
-            add(AppL10n.text("Show in Finder")) { NSWorkspace.shared.activateFileViewerSelecting([url]) }
-        }
-        menu.addItem(.separator())
-        add(AppL10n.text("Remove")) { clips.letGo(clip.id) }
-        button.menu = menu
-        button.isEnabled = isEnabled
-        let label = AppL10n.format("Actions for %@", clip.title)
-        let identifier = "clips.actions.\(clip.id)"
-        button.setAccessibilityLabel(label)
-        button.setAccessibilityIdentifier(identifier)
-        button.cell?.setAccessibilityLabel(label)
-        button.cell?.setAccessibilityIdentifier(identifier)
-    }
-
-    @MainActor final class Coordinator: NSObject {
-        var actions: [() -> Void] = []
-        @objc func performAction(_ sender: NSMenuItem) {
-            guard sender.isEnabled, actions.indices.contains(sender.tag) else { return }
-            actions[sender.tag]()
-        }
-    }
-}
-
-/// Forward the cell's accessibility actions to the same native popup tracking
-/// used for pointer activation. No menu item is selected merely by opening it.
-@MainActor
-private final class ClipsActionsCell: NSPopUpButtonCell {
-    weak var menuButton: NSPopUpButton?
-
-    override func accessibilityPerformPress() -> Bool { showActions() }
-    override func accessibilityPerformShowMenu() -> Bool { showActions() }
-
-    private func showActions() -> Bool {
-        guard let button = menuButton, button.cell === self, button.window != nil,
-            button.isEnabled, button.bounds.width > 0, button.bounds.height > 0,
-            let menu = button.menu, menu.items.contains(where: { $0.isEnabled && $0.action != nil })
-        else { return false }
-        performClick(withFrame: button.bounds, in: button)
-        return true
-    }
-}
-
-/// The SwiftUI Tab stop and ring belong to the launcher; Space forwards to
-/// its existing native menu rather than creating a second action surface.
-@MainActor
-private final class ClipsMenuKeyboardTarget {
-    weak var button: NSPopUpButton?
-
-    func open() -> Bool {
-        guard let button, button.window != nil, button.isEnabled,
-            !button.isHiddenOrHasHiddenAncestor,
-            button.bounds.width > 0, button.bounds.height > 0,
-            let menu = button.menu, menu.items.contains(where: { $0.isEnabled && $0.action != nil })
-        else { return false }
-        button.performClick(nil)
-        return true
-    }
-}
-
-private struct ClipCard: View {
-    let clip: ClipsService.Clip
-    let clips: ClipsService
+    @ObservedObject var clips: ClipsService
     @State private var copied = false
     @FocusState private var copyFocused: Bool
-    @FocusState private var menuFocused: Bool
-    @State private var menuKeyboard = ClipsMenuKeyboardTarget()
     @Environment(\.isEnabled) private var enabled
 
-    private func copyClip() {
-        clips.copy(clip)
-        copied = true
-    }
+    private func copyClip() { clips.copy(clip); copied = true }
 
     var body: some View {
-        VStack(spacing: 0) {
-            RoundedRectangle(cornerRadius: 2).fill(Theme.accent).frame(width: 8, height: 18).offset(y: 6).zIndex(1)
-            VStack(alignment: .leading, spacing: 5) {
-                Button(action: copyClip) {
-                    VStack(alignment: .leading, spacing: 5) {
-                        ClipPreview(content: clip.content, thumbnail: clip.thumbnail)
-                        Text(clip.displayTitle(copied: copied)).font(Theme.meta).lineLimit(1)
-                            .foregroundStyle(Theme.text).frame(width: 132, alignment: .leading)
-                    }.contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .focusable()
-                .focused($copyFocused)
-                .focusEffectDisabled()
-                .onKeyPress(.space, phases: .down) { _ in
-                    guard enabled else { return .ignored }
-                    copyClip()
-                    return .handled
-                }
-                .overlay(
-                    ControlFocusRing(shape: RoundedRectangle(cornerRadius: Theme.controlRadius), focused: copyFocused)
-                )
-                .accessibilityLabel(AppL10n.format("Copy %@", clip.title))
-                HStack {
-                    if clip.pinned {
-                        Label("Pinned", systemImage: "pin.fill").font(Theme.meta).foregroundStyle(Theme.secondary)
-                    }
-                    Spacer(minLength: 0)
-                    ClipsActionsMenu(clip: clip, clips: clips, keyboard: menuKeyboard)
-                        .frame(width: 80, height: 32)
-                        .focusable(enabled)
-                        .focused($menuFocused).focusEffectDisabled()
-                        .onKeyPress(.space, phases: .down) { _ in
-                            guard enabled && menuFocused else { return .ignored }
-                            return menuKeyboard.open() ? .handled : .ignored
-                        }
-                        .overlay(
-                            ControlFocusRing(
-                                shape: RoundedRectangle(cornerRadius: Theme.controlRadius), focused: menuFocused)
-                        )
-                        .accessibilityLabel(AppL10n.format("Actions for %@", clip.title))
-                        .accessibilityIdentifier("clips.actions.\(clip.id)")
-                }.frame(width: 132)
+        Button(action: copyClip) {
+            VStack(alignment: .leading, spacing: DropShelfLayout.gap) {
+                ClipPreview(content: clip.content, thumbnail: clip.thumbnail).accessibilityHidden(true)
+                Text(clip.displayTitle(copied: copied)).perchFont(.detail).lineLimit(1).help(clip.title)
             }
-            .padding(6)
-            .background(RoundedRectangle(cornerRadius: Theme.controlRadius).fill(Theme.fill))
-            .overlay(RoundedRectangle(cornerRadius: Theme.controlRadius).strokeBorder(Theme.cardStroke))
-            // These are intentionally paper tiles even in the dark notch, not dark-mode text on white.
-            .environment(\.colorScheme, .light)
-            .environment(\.controlSurface, Theme.fill)
+            .padding(DropShelfLayout.gap)
+            .frame(width: DropShelfLayout.cardWidth, height: DropShelfLayout.cardHeight, alignment: .leading)
+            .background(Theme.paper, in: RoundedRectangle(cornerRadius: DropShelfLayout.radius))
+            .overlay(
+                FocusRing(
+                    shape: RoundedRectangle(cornerRadius: DropShelfLayout.radius), focused: copyFocused,
+                    surface: .apricot)
+            )
+            .contentShape(RoundedRectangle(cornerRadius: DropShelfLayout.radius))
+        }
+        .buttonStyle(.plain)
+        .focusable(enabled)
+        .focused($copyFocused)
+        .focusEffectDisabled()
+        .onKeyPress(.space, phases: .down) { _ in
+            guard enabled else { return .ignored }
+            copyClip()
+            return .handled
         }
         .task(id: copied) {
             guard copied else { return }
-            do { try await Task.sleep(nanoseconds: 1_200_000_000) } catch { return }
-            if !Task.isCancelled { copied = false }
+            do { try await Task.sleep(for: .seconds(DropShelfLayout.copyFeedbackDuration)) } catch { return }
+            copied = false
         }
-        .onDrag {
-            switch clip.content {
-            case .file(let u): return NSItemProvider(contentsOf: u) ?? NSItemProvider()
-            case .text(let s): return NSItemProvider(object: s as NSString)
-            case .image(let d): return NSItemProvider(item: d as NSData, typeIdentifier: UTType.png.identifier)
-            }
+        .onDeleteCommand { clips.letGo(clip.id) }
+        .onKeyPress(.return) {
+            if clips.clipURL(clip) != nil { clips.open(clip); return .handled }; return .ignored
         }
-        .contextMenu { clipActions }
-    }
-
-    @ViewBuilder private var clipActions: some View {
-        Button(AppL10n.text(clip.pinned ? "Unpin" : "Pin")) { clips.togglePin(clip.id) }
-        Button("Copy") { clips.copy(clip) }
-        if let url = clips.clipURL(clip) {
-            Button("Open") { clips.open(clip) }
-            Button("Show in Finder") { NSWorkspace.shared.activateFileViewerSelecting([url]) }
+        .accessibilityLabel(AppL10n.format("Copy %@", clip.title))
+        .accessibilityIdentifier("shelf.item.\(clip.id)")
+        .onDrag { clips.dragProvider(for: clip) }
+        .contextMenu {
+            Button("Copy", action: copyClip)
+            if clips.clipURL(clip) != nil { Button("Open") { clips.open(clip) } }
+            Button("Remove") { clips.letGo(clip.id) }
         }
-        Divider()
-        Button("Remove", role: .destructive) { clips.letGo(clip.id) }
     }
 }

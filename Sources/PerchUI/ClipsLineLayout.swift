@@ -1,7 +1,30 @@
 import Foundation
 import PlannerCore
 
-/// Geometry and visibility rules for the Clips line, kept here so they are testable on Linux.
+/// The shelf is entered by a drag, never by ordinary notch hover. Once entered,
+/// both the drag and pointer must leave before it closes.
+public struct DropShelfSession: Equatable, Sendable {
+    public private(set) var visible = false
+    public init() {}
+    public mutating func update(dragging: Bool, pointerInside: Bool) {
+        if dragging && pointerInside { visible = true } else if !dragging && !pointerInside { visible = false }
+    }
+}
+
+public enum DropShelfLayout {
+    public static let width = DesignTokens.Size.stripMaxWidth.value
+    public static let gap = DesignTokens.Size.segmentItemRadius.value
+    public static let inset = DesignTokens.Size.buttonSidePadding.value
+    public static let cardWidth = 150.0
+    public static let cardHeight = 84.0
+    public static let thumbnailHeight = DesignTokens.Size.addFieldHeight.value
+    public static let slotWidth = 128.0
+    public static let radius = DesignTokens.Size.segmentRadius.value
+    public static let copyFeedbackDuration = 1.2
+    public static let dash = DesignTokens.Size.stepCheckboxRadius.value
+}
+
+// Geometry and visibility rules for the Clips line, kept here so they are testable on Linux.
 public enum ClipsLineLayout {
     /// Gap between each rope end and the edge of the space it is drawn in (the card's padded content box).
     /// Larger than half the stroke width, so the round caps stay inside too.

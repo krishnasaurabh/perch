@@ -120,13 +120,13 @@ final class ClipsConsentTests: XCTestCase {
         queue.sync {}
         let consented = counts.snapshot()
         XCTAssertTrue(store.prefs.catchScreenshots)
-        XCTAssertEqual(consented.opens, 1)
-        XCTAssertEqual(consented.enumerations, 1)
-        XCTAssertEqual(consented.queries, 1)
+        XCTAssertEqual(consented.opens, 0)
+        XCTAssertEqual(consented.enumerations, 0)
+        XCTAssertEqual(consented.queries, 0)
         withExtendedLifetime(clips) {}
     }
 
-    @MainActor func testSavedScreenshotOptInStartsWithoutANewConsentPrompt() throws {
+    @MainActor func testSavedScreenshotOptInDecodesWithoutStartingRetiredMonitoring() throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: root) }
@@ -153,9 +153,9 @@ final class ClipsConsentTests: XCTestCase {
         let access = counts.snapshot()
         XCTAssertTrue(store.prefs.catchScreenshots)
         XCTAssertFalse(store.prefs.welcomeCompleted)
-        XCTAssertEqual(access.opens, 1)
-        XCTAssertEqual(access.enumerations, 1)
-        XCTAssertEqual(access.queries, 1)
+        XCTAssertEqual(access.opens, 0)
+        XCTAssertEqual(access.enumerations, 0)
+        XCTAssertEqual(access.queries, 0)
         withExtendedLifetime(clips) {}
     }
 }

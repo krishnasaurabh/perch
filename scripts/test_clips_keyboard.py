@@ -335,7 +335,7 @@ print("diagnostic schema controls passed")
         self.assertIn("window.isKeyWindow && destinations.before.currentEditor() === window.firstResponder", SOURCE)
         # A source regression guard complements, but does not replace, native runs.
         for index in range(19):
-            if index in (0, 9, 12):
+            if index in (0, 9, 12, 14, 16):
                 self.assertTrue(f"run: run, assertion: clipsKeyboardAssertions[{index}]" in SOURCE,
                                 f"Missing Tab negative control for assertion {index}")
             else:

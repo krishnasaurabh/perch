@@ -11,27 +11,7 @@ THEME_PAGES = {
     "welcome", "details", "details-removed", "week", "clips",
 }
 THEME_STATES = {"standard", "enlarged-type", "increased-contrast", "enlarged-increased"}
-CLIPS_KEYBOARD_ASSERTIONS = (
-    "week: Tab reaches the task-line actions menu",
-    "week: Space opens the native task-line menu",
-    "week: Escape closes the task-line menu",
-    "week: focus returns to the task-line menu after Escape",
-    "week: cancelling the task-line menu never mutates the task",
-    "week: arrow keys and Return choose Details and attach the sheet",
-    "week: nested Escape dismisses the details sheet",
-    "week: focus returns to the task-line menu after the sheet closes",
-    "week: cancelling the details sheet never mutates the task",
-    "clips: Tab reaches the clip copy control",
-    "clips: Space copies the clip once into the fake pasteboard",
-    "clips: focus stays on the copy control after Space",
-    "clips: Tab reaches the clip actions menu",
-    "clips: Space opens the native clip actions menu",
-    "clips: Escape closes the clip actions menu",
-    "clips: focus returns to the clip actions menu after Escape",
-    "clips: cancelling the clip actions menu never pins or removes",
-    "clips: arrow keys and Return choose Copy in the actions menu",
-    "clips: focus returns to the clip actions menu after choosing Copy",
-)
+CLIPS_KEYBOARD_ASSERTIONS = __import__("measure_clips_bounds").SHELF_KEYBOARD_ASSERTIONS
 # The native producer records two successful setup preconditions per surface.
 # They are required separately, not counted as keyboard interaction coverage.
 CLIPS_FIXTURE_ASSERTIONS = ("week fixture", "week fixture", "clips fixture", "clips fixture")

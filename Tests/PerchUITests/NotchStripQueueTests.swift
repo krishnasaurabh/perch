@@ -109,11 +109,47 @@ final class NotchStripQueueTests: XCTestCase {
         XCTAssertNil(queue.current)
     }
 
+    func testParkedThoughtsUseTheWallClockEndAfterAPausedGap() {
+        var planner = Planner()
+        var focus = FocusSession(taskID: nil, limit: 120, now: now)
+        focus.banked = 120; focus.state = .finished; focus.resumedAt = nil
+        planner.focus = focus
+        planner.focusSegments = [
+            FocusSegment(taskID: nil, start: now, end: now.addingTimeInterval(60)),
+            FocusSegment(taskID: nil, start: now.addingTimeInterval(600), end: now.addingTimeInterval(660)),
+        ]
+        planner.parkedThoughts = [
+            ParkedThought(text: "Before the block", createdAt: now.addingTimeInterval(-1)),
+            ParkedThought(text: "Parked after continuing", createdAt: now.addingTimeInterval(610)),
+            ParkedThought(text: "After the block", createdAt: now.addingTimeInterval(661)),
+        ]
+        XCTAssertEqual(NotchStripPolicy.parkedDuringBlock(in: planner).map(\.text), ["Parked after continuing"])
+    }
+
+    func testStripWidthsGrowForContentWithoutExceedingTheShelfWidth() {
+        XCTAssertEqual(NotchStripMetrics.fittedWidth(for: .undo, ideal: 200), 400)
+        XCTAssertEqual(NotchStripMetrics.fittedWidth(for: .undo, ideal: 512), 512)
+        XCTAssertEqual(NotchStripMetrics.fittedWidth(for: .reminder, ideal: 900), 640)
+        XCTAssertEqual(NotchStripMetrics.fittedWidth(for: .dropShelf, ideal: 200), 640)
+        XCTAssertEqual(NotchStripMetrics.fittedWidth(for: .undo, ideal: .nan), 400)
+    }
+
     func testPolicyReadsLiveHeadsUpAndReminderPreferences() {
         var planner = Planner()
         let task = PlanTask(title: "Call the bank", day: "2027-01-15", remindAt: now.addingTimeInterval(-120))
         planner.tasks = [task]
-        XCTAssertEqual(NotchStripPolicy.reminders(in: planner, at: now).map(\.id), [task.id])
+        let request = ScheduledReminder(task: task)
+        let records = [request.id: ReminderRecord(date: request.date, state: .missed)]
+        XCTAssertTrue(
+            NotchStripPolicy.reminders(in: planner, at: now).isEmpty, "An old timestamp alone is not a waiting reminder"
+        )
+        XCTAssertEqual(NotchStripPolicy.reminders(in: planner, at: now, records: records).map(\.id), [task.id])
+        XCTAssertEqual(NotchStripPolicy.reminders(in: planner, at: now, waiting: [request.id]).map(\.id), [task.id])
+        XCTAssertTrue(
+            NotchStripPolicy.reminders(
+                in: planner, at: now,
+                records: [request.id: .init(date: request.date.addingTimeInterval(1), state: .missed)]
+            ).isEmpty)
         planner.preferences.persistentReminders = false
         XCTAssertTrue(NotchStripPolicy.reminders(in: planner, at: now).isEmpty)
         planner.focus = FocusSession(taskID: task.id, limit: 600, now: now)

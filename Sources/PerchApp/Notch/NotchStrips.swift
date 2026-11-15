@@ -23,10 +23,22 @@ final class NotchStrips {
     private var oneOffs: [String: (NotchStripQueue.Item, PresentedNotchActivity)] = [:]
     private var recovery: PlannerRecoveryError?
     private var inspectedError: PerchAppError?
+    private var waitingReminders = Set<String>()
     private var updating = false
     private var visibleID: UUID?
     private(set) var currentActivity: PresentedNotchActivity?
     private(set) var bounds: CGRect = .zero
+    private(set) var undoFocus: FocusState<TodayFocus?>.Binding?
+    private var undoFocusID: UUID?
+
+    func registerUndoFocus(_ focus: FocusState<TodayFocus?>.Binding, id: UUID) {
+        guard undoFocusID != id else { return }
+        undoFocus = focus; undoFocusID = id; model?.objectWillChange.send()
+    }
+    func unregisterUndoFocus(id: UUID) {
+        guard undoFocusID == id else { return }
+        undoFocus = nil; undoFocusID = nil; model?.objectWillChange.send()
+    }
 
     static func install(store: PlannerStore, calendar: CalendarService, reminders: ReminderService, model: NotchModel) {
         model.strips = NotchStrips(store: store, calendar: calendar, reminders: reminders, model: model)
@@ -63,7 +75,7 @@ final class NotchStrips {
         if origin == .user || before.agentActions.sequence != after.agentActions.sequence {
             oneOffs = oneOffs.filter { $0.value.0.kind != .undo }
         }
-        guard origin == .user else { return }
+        guard origin == .user, before.agentActions.sequence == after.agentActions.sequence else { return }
         let removed = before.tasks.filter { old in !after.tasks.contains { $0.id == old.id } }
         guard !removed.isEmpty else { return }
         let id = "undo:\(UUID())", date = now()
@@ -77,6 +89,22 @@ final class NotchStrips {
         oneOffs[id] = (.init(id: id, kind: .undo, createdAt: date), card)
     }
 
+    /// Preserve producer-specific confirmation durations while routing every
+    /// activity through the same priority policy. Reminder identity stays per due occurrence.
+    func enqueueLegacy(_ activity: PresentedNotchActivity, timeout: TimeInterval? = nil) {
+        if case .reminder(let taskID) = activity.kind,
+            let task = store?.planner.tasks.first(where: { $0.id == taskID }), task.remindAt != nil
+        {
+            waitingReminders.insert(ScheduledReminder(task: task).id)
+            refresh(); return
+        }
+        if case .focusDone = activity.kind { refresh(); return }
+        let id = "legacy:\(activity.id)"
+        var card = activity; card.stripID = id
+        oneOffs[id] = (.init(id: id, kind: card.stripKind, createdAt: now(), timeout: timeout), card)
+        refresh()
+    }
+
     /// Legacy callers still work, but cannot replace a higher-priority occurrence.
     private func legacyChanged(_ activity: PresentedNotchActivity?) {
         guard !updating, let model else { return }
@@ -84,9 +112,7 @@ final class NotchStrips {
         // A deferred publication may describe an older value. Read only the current one.
         guard activity == model.activity else { return }
         if let activity, activity.stripID == nil {
-            let id = "legacy:\(activity.id)"
-            var card = activity; card.stripID = id
-            oneOffs[id] = (.init(id: id, kind: card.stripKind, createdAt: now()), card)
+            enqueueLegacy(activity); return
         } else if activity == nil, let id = currentActivity?.stripID {
             queue.answer(id, at: now())
         }
@@ -114,17 +140,24 @@ final class NotchStrips {
             let count = Set(
                 recovery.issues.filter { $0.path.hasPrefix("tasks[") }.map { $0.path.components(separatedBy: "]")[0] }
             ).count
-            add(
-                .init(id: id, kind: .dataProblem, createdAt: .distantPast),
-                .init(
-                    kind: .strip(.dataProblem, id),
-                    title: count > 0
-                        ? AppL10n.format("Perch couldn't read %lld tasks", count)
-                        : AppL10n.text("Perch couldn't read some data"),
-                    subtitle: AppL10n.format(
-                        "The original is safe at %@. The readable tasks are here.", recovery.quarantineURL.path)))
+            let title =
+                count == 1
+                ? AppL10n.text("Perch couldn't read 1 task")
+                : (count > 0
+                    ? AppL10n.format("Perch couldn't read %lld tasks", count)
+                    : AppL10n.text("Perch couldn't read some data"))
+            var card = PresentedNotchActivity(
+                kind: .strip(.dataProblem, id), title: title,
+                subtitle: AppL10n.format(
+                    "The original is safe at %@. The readable tasks are here.", recovery.quarantineURL.path))
+            card.recoveryCount = count
+            card.restoreLabel = AppL10n.text("Restore latest backup")
+            add(.init(id: id, kind: .dataProblem, createdAt: .distantPast), card)
         }
-        for task in NotchStripPolicy.reminders(in: planner, at: date) {
+        let reminderTasks = NotchStripPolicy.reminders(
+            in: planner, at: date, records: reminders?.records ?? [:], waiting: waitingReminders)
+        waitingReminders = Set(reminderTasks.map { ScheduledReminder(task: $0).id })
+        for task in reminderTasks {
             let due = task.remindAt!, id = ScheduledReminder(task: task).id
             var card = PresentedNotchActivity(
                 kind: .reminder(task.id), title: AppL10n.format("Time for ‘%@’", task.title),
@@ -150,10 +183,8 @@ final class NotchStrips {
                 } ?? ""
             if NotchStripPolicy.showsBlockEnded(in: planner) {
                 let id = "ended:\(sessionID):\(focus.limit ?? 0)"
-                let endedAt = focus.startedAt.addingTimeInterval(focus.elapsed(at: date))
-                let thoughts = planner.parkedThoughts.filter {
-                    $0.createdAt >= focus.startedAt && $0.createdAt <= endedAt
-                }
+                let endedAt = NotchStripPolicy.blockEndedAt(in: planner) ?? date
+                let thoughts = NotchStripPolicy.parkedDuringBlock(in: planner)
                 add(
                     .init(id: id, kind: .blockEnded, createdAt: endedAt),
                     .init(
@@ -193,7 +224,8 @@ final class NotchStrips {
                 .init(
                     kind: .eventSoon(id), title: event.title,
                     subtitle: date < event.start
-                        ? NotchTimelineDriver.countdown(to: event.start, now: date) : AppL10n.text("Starting now")))
+                        ? NotchTimelineDriver.countdown(to: event.start, now: date) : AppL10n.text("Starting now"),
+                    eventStart: event.start))
         }
         for pending in planner.agentActions.pending(at: date) {
             let id = "approval:\(pending.id)"
@@ -210,10 +242,23 @@ final class NotchStrips {
             let verb: String
             switch change.operation {
             case "add_tasks":
-                verb = AppL10n.format("%@ added %lld tasks to today", agentName(change.agentID), change.tasks.count)
+                if change.tasks.allSatisfy({ $0.day == store.today }) {
+                    verb =
+                        change.tasks.count == 1
+                        ? AppL10n.format("%@ added 1 task to today", agentName(change.agentID))
+                        : AppL10n.format("%@ added %lld tasks to today", agentName(change.agentID), change.tasks.count)
+                } else {
+                    verb =
+                        change.tasks.count == 1
+                        ? AppL10n.format("%@ added 1 task", agentName(change.agentID))
+                        : AppL10n.format("%@ added %lld tasks", agentName(change.agentID), change.tasks.count)
+                }
             case "delete_task":
-                verb = AppL10n.format("%@ deleted %lld tasks", agentName(change.agentID), change.tasks.count)
-            default: verb = AppL10n.format("%@ changed %lld tasks", agentName(change.agentID), change.tasks.count)
+                verb =
+                    change.tasks.count == 1
+                    ? AppL10n.format("%@ deleted 1 task", agentName(change.agentID))
+                    : AppL10n.format("%@ deleted %lld tasks", agentName(change.agentID), change.tasks.count)
+            default: verb = AppL10n.format("%@ made a change", agentName(change.agentID))
             }
             add(
                 .init(id: id, kind: .agentChange, createdAt: change.occurredAt),
@@ -267,14 +312,32 @@ final class NotchStrips {
     }
 
     func setBounds(_ size: CGSize, geometry: NotchGeometry) {
-        bounds = CGRect(
+        let next = CGRect(
             x: geometry.notchRect.midX - size.width / 2, y: geometry.notchRect.maxY - size.height, width: size.width,
             height: size.height)
+        guard bounds != next else { return }
+        bounds = next
+        model?.objectWillChange.send()
     }
 
     func contains(_ point: CGPoint, on screenID: CGDirectDisplayID) -> Bool? {
         guard let model, model.screenID == screenID, currentActivity != nil else { return nil }
         return bounds.contains(point) ? true : (model.expanded ? nil : false)
+    }
+
+    func setShelfVisible(_ visible: Bool) {
+        let id = "drop-shelf"
+        if visible, oneOffs[id] == nil {
+            oneOffs[id] = (
+                .init(id: id, kind: .dropShelf, createdAt: now()),
+                .init(
+                    kind: .strip(.dropShelf, id), title: AppL10n.text("Drop it here to keep it handy"), subtitle: "",
+                    stripID: id)
+            )
+        } else if !visible {
+            oneOffs[id] = nil
+        }
+        refresh()
     }
 
     func fraction(at date: Date) -> Double { queue.remainingFraction(at: date) }
@@ -283,12 +346,17 @@ final class NotchStrips {
         guard let store, let id = activity.stripID, currentActivity?.stripID == id else { return false }
         let date = now()
         let success: Bool
+        var acknowledgedChanges: [UUID] = []
         if action == .notNow || action == .keep && !id.hasPrefix("approval:") {
             success = true
         } else if id.hasPrefix("approval:"), let request = UUID(uuidString: String(id.dropFirst("approval:".count))) {
-            success =
-                store.apply { try $0.resolveAgentAction(request, decision: action == .keep ? .keep : .undo, at: date) }
-                != nil
+            let applied = store.apply { commands in
+                let previous = Set(commands.planner.agentActions.changes.map(\.id))
+                try commands.resolveAgentAction(request, decision: action == .keep ? .keep : .undo, at: date)
+                return commands.planner.agentActions.changes.filter { !previous.contains($0.id) }.map(\.id)
+            }
+            success = applied != nil
+            acknowledgedChanges = applied ?? []
         } else if id.hasPrefix("agent:"), let change = UUID(uuidString: String(id.dropFirst("agent:".count))) {
             success = store.apply { try $0.undoAgentChange(change, at: date) } != nil
         } else if action == .undo {
@@ -297,6 +365,7 @@ final class NotchStrips {
             success = Self.perform(action, taskID: activity.taskID, thoughtIDs: activity.thoughtIDs, in: store)
         }
         if success {
+            for change in acknowledgedChanges { queue.answer("agent:\(change)", at: date) }
             queue.answer(id, at: date)
             oneOffs[id] = nil
             refresh()
@@ -351,6 +420,70 @@ extension NotchModel {
     }
 }
 
+/// Resolve the app's system appearance rather than the fixed-black housing's
+/// local environment. KVO is released with the native view; callbacks retain neither.
+struct StripAppearanceBridge: NSViewRepresentable {
+    let changed: (ColorScheme) -> Void
+    func makeNSView(context: Context) -> AppearanceView {
+        let view = AppearanceView(); view.changed = changed; return view
+    }
+    func updateNSView(_ view: AppearanceView, context: Context) { view.changed = changed; view.refresh() }
+
+    @MainActor final class AppearanceView: NSView {
+        var changed: ((ColorScheme) -> Void)?
+        private var observation: NSKeyValueObservation?
+        private var lastScheme: ColorScheme?
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            if observation == nil {
+                observation = NSApp.observe(\.effectiveAppearance) { [weak self] _, _ in
+                    Task { @MainActor [weak self] in self?.refresh() }
+                }
+            }
+            refresh()
+        }
+        func refresh() {
+            let scheme: ColorScheme =
+                NSApp.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua ? .dark : .light
+            guard lastScheme != scheme else { return }; lastScheme = scheme
+            Task { @MainActor [weak self] in self?.changed?(scheme) }
+        }
+    }
+}
+
+struct NotchStripClock<Content: View>: View {
+    let running: Bool
+    var interval: TimeInterval = NotchStripMetrics.clockInterval
+    @ViewBuilder var content: @MainActor (Date) -> Content
+    var body: some View {
+        if running {
+            TimelineView(.periodic(from: .now, by: interval)) { context in
+                content(PreviewClock.date ?? context.date)
+            }
+        } else {
+            content(PreviewClock.date ?? Date())
+        }
+    }
+}
+
+/// Only the one strip is measured. This layout is never used inside task rows.
+private struct NotchStripFittingLayout: Layout {
+    let kind: NotchStripQueue.Kind
+    func makeCache(subviews: Subviews) -> CGSize { .zero }
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout CGSize) -> CGSize {
+        guard let content = subviews.first else { return .zero }
+        let ideal = content.sizeThatFits(.unspecified)
+        let width = NotchStripMetrics.fittedWidth(for: kind, ideal: ideal.width)
+        let fitted = content.sizeThatFits(.init(width: width, height: nil))
+        cache = CGSize(width: width, height: fitted.height)
+        return cache
+    }
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout CGSize) {
+        subviews.first?.place(
+            at: bounds.origin, anchor: .topLeading, proposal: .init(width: cache.width, height: cache.height))
+    }
+}
+
 /// Actual strip surface, including the runtime-height housing band. Its measured
 /// size is the controller's pointer region, not an independently guessed frame.
 struct NotchStripLayer: View {
@@ -360,11 +493,14 @@ struct NotchStripLayer: View {
     @Environment(\.motionPolicy) private var motionPolicy
 
     var body: some View {
-        VStack(spacing: .zero) {
-            Theme.band.frame(height: DesignTokens.bandHeight(menuBarHeight: screen.geometry.screen.menuBarHeight))
-            ActivityStrip(activity: activity)
+        NotchStripFittingLayout(kind: activity.stripKind) {
+            VStack(spacing: .zero) {
+                Theme.band.frame(
+                    height: DesignTokens.bandHeight(
+                        menuBarHeight: max(screen.geometry.screen.menuBarHeight, screen.geometry.notchSize.height)))
+                ActivityStrip(activity: activity)
+            }
         }
-        .frame(width: NotchStripMetrics.width(for: activity.stripKind))
         .fixedSize(horizontal: false, vertical: true)
         .clipShape(
             UnevenRoundedRectangle(
@@ -377,9 +513,10 @@ struct NotchStripLayer: View {
                     .onChange(of: proxy.size) { _, size in model.strips?.setBounds(size, geometry: screen.geometry) }
             }
         )
+        .frame(width: screen.geometry.window.width, alignment: .top)
         .offset(
-            x: screen.geometry.notchRect.midX - screen.geometry.window.minX - NotchStripMetrics.width(
-                for: activity.stripKind) / 2, y: screen.geometry.window.maxY - screen.geometry.notchRect.maxY
+            x: screen.geometry.notchRect.midX - screen.geometry.window.midX,
+            y: screen.geometry.window.maxY - screen.geometry.notchRect.maxY
         )
         .transition(
             .asymmetric(
@@ -406,7 +543,7 @@ struct NotchStripContent: View {
                 HStack(spacing: NotchStripMetrics.gap) {
                     Text(activity.title).perchFont(.stripTitle)
                     Spacer(minLength: .zero)
-                    button(AppL10n.text("Undo"), .undo, style: .soft, identifier: "notch.undo")
+                    NotchUndoAction(activity: activity, action: { action(.undo) })
                     Text("⌘Z").perchFont(.detail).foregroundStyle(Theme.ink2)
                 }
                 GeometryReader { proxy in
@@ -465,10 +602,15 @@ struct NotchStripContent: View {
         HStack(spacing: NotchStripMetrics.gap) {
             switch kind {
             case .dataProblem:
-                PerchButton("Show the two", kind: .soft, size: .strip, action: showFiles)
-                    .accessibilityIdentifier("notch.showRecovery")
-                PerchButton("Restore this morning's backup", kind: .soft, size: .strip, action: restore)
-                    .accessibilityIdentifier("notch.restore")
+                NotchStripButton(
+                    title: activity.recoveryCount == nil || activity.recoveryCount == 2
+                        ? AppL10n.text("Show the two") : AppL10n.text("Show saved tasks"), action: showFiles
+                )
+                .accessibilityIdentifier("notch.showRecovery")
+                NotchStripButton(
+                    title: activity.restoreLabel ?? AppL10n.text("Restore this morning's backup"), action: restore
+                )
+                .accessibilityIdentifier("notch.restore")
                 button(AppL10n.text("Not now"), .notNow, style: .quiet, identifier: "notch.dismiss")
             case .reminder:
                 button(AppL10n.text("Done"), .done, style: .main, identifier: "notch.done")
@@ -489,8 +631,12 @@ struct NotchStripContent: View {
                 button(AppL10n.text("+10 min"), .extend, style: .main, identifier: "notch.extend")
                 button(AppL10n.text("Wrap up"), .wrapUp, identifier: "notch.wrapUp")
             case .agentChange:
-                button(AppL10n.text("Keep"), .keep, identifier: "notch.keep")
-                button(AppL10n.text("Undo"), .undo, style: .quiet, identifier: "notch.undo")
+                if case .message = activity.kind {
+                    button(AppL10n.text("Not now"), .notNow, style: .quiet, identifier: "notch.dismiss")
+                } else {
+                    button(AppL10n.text("Keep"), .keep, identifier: "notch.keep")
+                    button(AppL10n.text("Undo"), .undo, style: .quiet, identifier: "notch.undo")
+                }
             case .undo, .dropShelf: EmptyView()
             }
         }
@@ -507,13 +653,15 @@ struct NotchStripContent: View {
 /// Keeps the existing non-text Undo keyboard destination, but only inside the
 /// six-second strip. The ordinary footer no longer reserves a permanent row.
 struct NotchUndoFooter: ViewModifier {
+    let focus: FocusState<TodayFocus?>.Binding
     @Binding var reviewingOverdue: Bool
+    @State private var registration = UUID()
     @EnvironmentObject private var store: PlannerStore
     @EnvironmentObject private var model: NotchModel
 
     func body(content: Content) -> some View {
         VStack(spacing: .zero) {
-            if let activity = model.strips?.currentActivity, activity.stripKind == .undo {
+            if model.geometry == nil, let activity = model.strips?.currentActivity, activity.stripKind == .undo {
                 VStack(alignment: .leading, spacing: NotchStripMetrics.gap) {
                     Text(activity.title).perchFont(.stripTitle).foregroundStyle(Theme.ink)
                     content
@@ -536,7 +684,44 @@ struct NotchUndoFooter: ViewModifier {
         }
         .onAppear {
             if model.strips == nil { model.strips = NotchStrips(store: store, model: model) }
+            model.strips?.registerUndoFocus(focus, id: registration)
         }
+        .onDisappear { model.strips?.unregisterUndoFocus(id: registration) }
+    }
+}
+
+private struct NotchUndoAction: View {
+    let activity: PresentedNotchActivity
+    let action: () -> Void
+    @EnvironmentObject private var model: NotchModel
+    @EnvironmentObject private var store: PlannerStore
+
+    var body: some View {
+        if let focus = model.strips?.undoFocus {
+            Button(AppL10n.text("Undo"), action: action)
+                .buttonStyle(NotchUndoStyle(focused: focus.wrappedValue == .undo))
+                .focusable(store.canUndo).focused(focus, equals: .undo).focusEffectDisabled()
+                .onKeyPress(.space, phases: [.down, .repeat, .up]) { press in
+                    guard focus.wrappedValue == .undo, store.canUndo, press.modifiers.isEmpty else { return .ignored }
+                    if press.phase == .down { action() }
+                    return .handled
+                }
+                .accessibilityIdentifier("today-undo")
+        } else {
+            NotchStripButton(title: AppL10n.text("Undo"), action: action).accessibilityIdentifier("notch.undo")
+        }
+    }
+}
+
+private struct NotchUndoStyle: ButtonStyle {
+    let focused: Bool
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label.perchFont(.button).foregroundStyle(Theme.ink)
+            .padding(.horizontal, Theme.Size.buttonSidePadding.value)
+            .frame(minHeight: Theme.Size.stripButtonHeight.value)
+            .background(Theme.field, in: Capsule())
+            .overlay(FocusRing(shape: Capsule(), focused: focused, surface: .paper))
+            .perchControlFeedback(pressed: configuration.isPressed)
     }
 }
 
@@ -608,7 +793,7 @@ struct NotchStripButton: View {
                 Theme.band.frame(height: band)
                 NotchStripContent(activity: card, fraction: 0.6, action: { _ in }, showFiles: {}, restore: {})
             }.frame(width: NotchStripMetrics.width(for: kind)).fixedSize(horizontal: false, vertical: true)
-                .environmentObject(app.store).previewEnvironment()
+                .environmentObject(app.store).environmentObject(app.model).previewEnvironment()
                 .environment(\.colorScheme, PreviewAppearance.scheme ?? .light)
             let height = NSHostingView(rootView: content).fittingSize.height
             WindowHost.show(

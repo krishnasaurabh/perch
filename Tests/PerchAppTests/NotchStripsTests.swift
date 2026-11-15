@@ -62,4 +62,30 @@ final class NotchStripsTests: XCTestCase {
         XCTAssertEqual(store.planner.tasks.count, 1)
         XCTAssertEqual(store.planner.tasks.first?.steps, [first, last])
     }
+    @MainActor
+    func testPendingAgentDecisionDoesNotAnnounceTheSameDeletionAgain() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        let store = PlannerStore(
+            file: PlannerFile(url: root.appendingPathComponent("planner.json")), now: { now }, watching: false)
+        let model = NotchModel()
+        let strips = NotchStrips(store: store, model: model, now: { now })
+        model.strips = strips
+        let task = try XCTUnwrap(store.addTasks(["Call the bank"], on: .day(store.today), literal: true)?.first)
+        for choice in [NotchStrips.Action.undo, .keep] {
+            _ = try XCTUnwrap(store.apply { try $0.requestAgentDeletion(task.id, agentID: "claude-code", at: now) })
+            strips.refresh()
+            let request = try XCTUnwrap(strips.currentActivity)
+            XCTAssertEqual(request.stripKind, .agentChange)
+            XCTAssertTrue(strips.answer(choice, activity: request))
+            XCTAssertNil(
+                strips.currentActivity,
+                "An answered approval must not produce a duplicate announcement or local Undo strip")
+            XCTAssertTrue(try store.file.load().agentActions.pending.isEmpty)
+            XCTAssertEqual(try store.file.load().tasks.contains { $0.id == task.id }, choice == .undo)
+        }
+        XCTAssertTrue(store.canUndo, "The approved agent deletion remains in ordinary Command-Z history")
+    }
+
 }

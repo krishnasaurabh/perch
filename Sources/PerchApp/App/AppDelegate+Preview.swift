@@ -27,6 +27,8 @@ import SwiftUI
                 "notch-progress-off": .closedNotch(hardware: true, progress: false),
                 "notch-reminder-off": .closedNotch(hardware: true, reminder: false),
                 "week": .workspace(.week),
+                "drop-shelf": .window(DropShelfPreview.windowID) { DropShelfPreview.show(app: $0) },
+                "drop-shelf-empty": .window(DropShelfPreview.windowID) { DropShelfPreview.show(app: $0, empty: true) },
                 "strip-data": .window(NotchStripPreview.windowID) { NotchStripPreview.show(.dataProblem, app: $0) },
                 "strip-reminder": .window(NotchStripPreview.windowID) { NotchStripPreview.show(.reminder, app: $0) },
                 "strip-ended": .window(NotchStripPreview.windowID) { NotchStripPreview.show(.blockEnded, app: $0) },

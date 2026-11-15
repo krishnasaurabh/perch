@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import PerchUI
 import UniformTypeIdentifiers
 
 /// A bounded, readable preview even while Quick Look is unavailable or returns blank paper.
@@ -13,22 +14,22 @@ struct ClipPreview: View {
             if let image = thumbnail, usableThumbnail(image) {
                 Image(nsImage: image).resizable().aspectRatio(contentMode: .fill)
             } else if let text = previewText {
-                Text(text).font(Theme.meta).foregroundStyle(Theme.text)
-                    .lineLimit(6).padding(6)
+                Text(text).perchFont(.detail).foregroundStyle(Theme.ink)
+                    .lineLimit(2).padding(DropShelfLayout.gap)
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             } else {
-                VStack(spacing: 6) {
-                    Image(systemName: fileSymbol).font(.system(size: 22))
-                    Text(filename).font(Theme.meta)
+                VStack(spacing: DropShelfLayout.gap) {
+                    Image(systemName: fileSymbol).perchFont(.stripTitle)
+                    Text(filename).perchFont(.detail)
                         .lineLimit(2).multilineTextAlignment(.center)
                 }
-                .foregroundStyle(Theme.secondary).padding(6)
+                .foregroundStyle(Theme.ink2).padding(DropShelfLayout.gap)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
-        .frame(width: 132, height: 92).clipped()
-        .background(Color.white.opacity(0.92))
-        .environment(\.colorScheme, .light)
+        .frame(width: DropShelfLayout.cardWidth - 2 * DropShelfLayout.gap, height: DropShelfLayout.thumbnailHeight)
+        .clipped()
+        .background(Theme.field)
         .task(id: content) {
             fileText = nil
             guard case .file(let url) = content else { return }

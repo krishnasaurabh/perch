@@ -80,7 +80,7 @@ struct TasksCard: View {
             TaskComposer(day: .day(store.today), placeholder: "What would you like to do?", focus: $focus)
                 .fixedSize(horizontal: false, vertical: true)
                 .layoutPriority(1)
-            footer.modifier(NotchUndoFooter(reviewingOverdue: $reviewingOverdue)).fixedSize(
+            footer.modifier(NotchUndoFooter(focus: $focus, reviewingOverdue: $reviewingOverdue)).fixedSize(
                 horizontal: false, vertical: true
             ).layoutPriority(1)
         }

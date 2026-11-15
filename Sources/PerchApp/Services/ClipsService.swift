@@ -14,17 +14,15 @@ protocol ScreenshotQuerying: AnyObject {
 
 extension NSMetadataQuery: ScreenshotQuerying {}
 
-/// Clips: new screenshots and screen recordings (and optionally anything copied) hang on a line in the notch.
-///
-/// Screenshots arrive two ways, deduplicated by path: Spotlight (`NSMetadataQuery`, no permission needed but it can lag)
-/// and a file-descriptor watch on the `com.apple.screencapture` save folder (instant once Perch can read that folder).
-/// Files in a temporary location (a screenshot thumbnail dragged onto the notch) are copied into Application Support
-/// first, so the clip keeps working after macOS cleans up. Letting go of clips can be undone for 5 seconds.
+/// Durable file, image, link and text references for the drop shelf. Only explicit
+/// drops add content. Stored capture preferences remain compatible but never start
+/// screenshot watching or clipboard polling. Temporary files receive kept copies;
+/// letting go remains undoable without deleting original files.
 @MainActor
 final class ClipsService: ObservableObject {
     struct Clip: Identifiable, Equatable {
         enum Content: Equatable { case file(URL), text(String), image(Data) }
-        let id = UUID()
+        var id = UUID()
         var content: Content
         var source: String  // captured, copied, dropped
         var date: Date
@@ -42,7 +40,9 @@ final class ClipsService: ObservableObject {
             switch content {
             case .file(let u): return u.lastPathComponent
             case .text(let s): return String(s.prefix(60))
-            case .image: return AppL10n.text("Copied image", locale: locale)
+            case .image:
+                return source == "copied"
+                    ? AppL10n.text("Copied image", locale: locale) : AppL10n.text("Picture", locale: locale)
             }
         }
 
@@ -90,6 +90,11 @@ final class ClipsService: ObservableObject {
     private let pasteboard: any PasteboardAccess
     private let clipOpener: ClipOpener
     private var lastClipError: PerchAppError?
+    private var archiveReadable = true
+    private var shelfSession = DropShelfSession()
+    private var dragBaseline = NSPasteboard(name: .drag).changeCount
+    @Published private(set) var shelfVisible = false
+    private var shelfStorage: ClipShelfFile { ClipShelfFile(vault: vault) }
     @MainActor
     private final class LifetimeState {
         var letGoWork: (any AppScheduledAction)?
@@ -162,19 +167,9 @@ final class ClipsService: ObservableObject {
         self.folderQueue = folderQueue
         self.pasteboardCount = pasteboard.changeCount
         self.vault = store.file.url.deletingLastPathComponent().appendingPathComponent("Clips", isDirectory: true)
-        guard monitoring else { return }
-        store.$planner.map(\.preferences.catchScreenshots).removeDuplicates().sink { [weak self] on in
-            on ? self?.startScreenshots() : self?.stopScreenshots()
-        }.store(in: &cancellables)
-        store.$planner.map(\.preferences.catchCopies).removeDuplicates().sink { [weak self] on in
-            on ? self?.startPasteboard() : self?.stopPasteboard()
-        }.store(in: &cancellables)
-        // The line is not persisted, so kept copies from earlier runs are orphans once they age out.
-        let vault = vault
-        let cutoff = now().addingTimeInterval(-ClipVault.retention)
-        DispatchQueue.global(qos: .utility).async {
-            ClipVault.sweep(vault, olderThan: cutoff, keeping: [])
-        }
+        // Capture preferences decode for compatibility, but no watcher or pasteboard
+        // polling starts, even for a previously opted-in profile.
+        loadShelf()
         #if DEBUG || PERCH_TESTING
             if Self.demo {
                 demoWork = scheduler.schedule(after: 0.8) { [weak self] in self?.seedDemo() }
@@ -192,7 +187,7 @@ final class ClipsService: ObservableObject {
             add(.text("Ship notes: folder watch, kept copies, undo"), source: "copied")
             if let first = clips.first { letGo(first.id) }
             debugLog("seeded kept=\(clips.compactMap(\.content.fileURL).count)")
-            model?.open(page: .clips, pinned: true)
+            model?.strips?.setShelfVisible(true)
         }
 
         private static let demo = CommandLine.arguments.contains("--demo-clips")
@@ -206,6 +201,144 @@ final class ClipsService: ObservableObject {
                     "clips: \(event) | line=\(clips.count) pending=\(letGoBanner?.count ?? 0) watch=\(folderWatch.diagnosticName)\n"
                         .utf8))
         #endif
+    }
+
+    // MARK: Durable drop shelf
+
+    private func loadShelf() {
+        do {
+            let saved = try shelfStorage.load()
+            clips = saved.map { item in
+                var clip = Clip(content: Self.content(item.content), source: "dropped", date: item.date)
+                clip.id = item.id; clip.pinned = item.pinned; clip.origin = item.origin
+                if case .image(let data) = clip.content { clip.thumbnail = NSImage(data: data) }
+                return clip
+            }
+            for clip in clips { if case .file(let url) = clip.content { thumbnail(for: clip.id, url: url) } }
+            // Existing kept copies are live references, not old unowned files.
+            let storage = shelfStorage, keeping = shelfStorage.retainedPaths(saved)
+            let cutoff = now().addingTimeInterval(-ClipVault.retention)
+            DispatchQueue.global(qos: .utility).async {
+                ClipVault.sweep(storage.vault, olderThan: cutoff, keeping: keeping)
+            }
+        } catch {
+            archiveReadable = false
+            reportClipError(error)
+        }
+    }
+
+    private func persistShelf(_ values: [Clip]) -> Bool {
+        guard archiveReadable else { return false }
+        do {
+            try shelfStorage.save(
+                values.map { clip in
+                    let content: ClipShelfFile.Content
+                    switch clip.content {
+                    case .file(let url): content = .file(url)
+                    case .text(let text): content = .text(text)
+                    case .image(let data): content = .image(data)
+                    }
+                    return .init(
+                        id: clip.id, content: content, date: clip.date, pinned: clip.pinned, origin: clip.origin)
+                })
+            clearClipError(); return true
+        } catch {
+            reportClipError(error); return false
+        }
+    }
+
+    private static func content(_ value: ClipShelfFile.Content) -> Clip.Content {
+        switch value {
+        case .file(let url): return .file(url)
+        case .text(let text): return .text(text)
+        case .image(let data): return .image(data)
+        }
+    }
+
+    /// The controller delegates its old Clips-opening drag route here. This always
+    /// consumes that route; ordinary pointer movement can never show the shelf.
+    func routeShelfDrag(at point: CGPoint, model: NotchModel, screens: [CGDirectDisplayID: NotchScreenState]) -> Bool {
+        let dragging = isEligibleDrag
+        if dragging,
+            let target = screens.values.first(where: {
+                !$0.fullScreen
+                    && ($0.geometry.notchRect.contains(point)
+                        || (model.screenID == $0.id && model.strips?.bounds.contains(point) == true))
+            })
+        {
+            if model.screenID != target.id {
+                model.close(); model.screenID = target.id; model.geometry = target.geometry
+            }
+            if !shelfSession.visible { model.close() }
+            updateShelf(dragging: true, pointerInside: true, model: model)
+        } else {
+            trackShelfPointer(at: point, model: model)
+        }
+        return true
+    }
+
+    func trackShelfPointer(at point: CGPoint, model: NotchModel) {
+        let inside = model.strips?.bounds.contains(point) == true || model.geometry?.notchRect.contains(point) == true
+        updateShelf(dragging: isEligibleDrag, pointerInside: inside, model: model)
+        if NSEvent.pressedMouseButtons & 1 == 0 { dragBaseline = NSPasteboard(name: .drag).changeCount }
+    }
+
+    private var isEligibleDrag: Bool {
+        let board = NSPasteboard(name: .drag)
+        guard NSEvent.pressedMouseButtons & 1 != 0, board.changeCount != dragBaseline else { return false }
+        return board.types?.contains { [.fileURL, .URL, .string, .png, .tiff].contains($0) } == true
+    }
+
+    private func updateShelf(dragging: Bool, pointerInside: Bool, model: NotchModel) {
+        shelfSession.update(dragging: dragging, pointerInside: pointerInside)
+        guard shelfVisible != shelfSession.visible else { return }
+        shelfVisible = shelfSession.visible
+        model.strips?.setShelfVisible(shelfVisible)
+    }
+
+    /// A successful provider load is the only input path. No background capture.
+    @discardableResult
+    func acceptDrop(_ providers: [NSItemProvider]) -> Bool {
+        let supported = providers.filter {
+            $0.hasItemConformingToTypeIdentifier("public.file-url") || $0.canLoadObject(ofClass: URL.self)
+                || $0.hasItemConformingToTypeIdentifier("public.image") || $0.canLoadObject(ofClass: String.self)
+        }
+        for provider in supported {
+            if provider.hasItemConformingToTypeIdentifier("public.file-url") {
+                _ = provider.loadObject(ofClass: URL.self) { [weak self] url, _ in
+                    if let url { Task { @MainActor in self?.add(.file(url), source: "dropped") } }
+                }
+            } else if provider.canLoadObject(ofClass: URL.self) {
+                _ = provider.loadObject(ofClass: URL.self) { [weak self] url, _ in
+                    if let url { Task { @MainActor in self?.add(.text(url.absoluteString), source: "dropped") } }
+                }
+            } else if provider.hasItemConformingToTypeIdentifier("public.image") {
+                provider.loadDataRepresentation(forTypeIdentifier: "public.image") { [weak self] data, _ in
+                    if let data { Task { @MainActor in self?.add(.image(data), source: "dropped") } }
+                }
+            } else {
+                _ = provider.loadObject(ofClass: String.self) { [weak self] text, _ in
+                    if let text { Task { @MainActor in self?.add(.text(text), source: "dropped") } }
+                }
+            }
+        }
+        return !supported.isEmpty
+    }
+
+    func clearShelf() { letGo(clips.map(\.id)) }
+
+    func dragProvider(for clip: Clip) -> NSItemProvider {
+        switch clip.content {
+        case .file(let kept):
+            let url = clip.origin.flatMap { FileManager.default.fileExists(atPath: $0.path) ? $0 : nil } ?? kept
+            return NSItemProvider(object: url as NSURL)
+        case .text(let text):
+            if let url = URL(string: text), url.scheme != nil { return NSItemProvider(object: url as NSURL) }
+            return NSItemProvider(object: text as NSString)
+        case .image(let data):
+            if let image = NSImage(data: data) { return NSItemProvider(object: image) }
+            return NSItemProvider()
+        }
     }
 
     // MARK: Screenshots
@@ -367,6 +500,8 @@ final class ClipsService: ObservableObject {
     // MARK: Line
 
     func add(_ content: Clip.Content, source: String) {
+        guard archiveReadable else { return }
+        if case .file(let url) = content, Self.canonicalPath(url) == Self.canonicalPath(shelfStorage.url) { return }
         var content = content
         var origin: URL?
         if case .file(let u) = content {
@@ -394,20 +529,16 @@ final class ClipsService: ObservableObject {
         var clip = Clip(content: content, source: source, date: now())
         clip.origin = origin
         if case .image(let d) = content { clip.thumbnail = NSImage(data: d) }
-        clips.insert(clip, at: 0)
-        // Oldest unpinned clips fall off the line.
+        var next = clips
+        next.insert(clip, at: 0)
         var fell: [Clip] = []
-        while clips.count > Self.capacity, let i = clips.lastIndex(where: { !$0.pinned }) {
-            fell.append(clips.remove(at: i))
+        while next.count > Self.capacity, let i = next.lastIndex(where: { !$0.pinned }) {
+            fell.append(next.remove(at: i))
         }
+        guard persistShelf(next) else { return }
+        clips = next
         discard(fell)
         if case .file(let u) = content { thumbnail(for: clip.id, url: u) }
-        if source == "captured" {
-            model?.show(
-                .init(
-                    kind: .clip(clipURL(clip) ?? URL(fileURLWithPath: "/")), title: "On the line", subtitle: clip.title),
-                for: 3)
-        }
     }
 
     // Retained for the baseline view compiled by the before/after CI probe.
@@ -415,18 +546,27 @@ final class ClipsService: ObservableObject {
 
     func clearUnpinned() {
         let removed = clips.filter { !$0.pinned }
-        clips.removeAll { !$0.pinned }
+        let next = clips.filter(\.pinned)
+        guard persistShelf(next) else { return }
+        clips = next
         discard(removed)
     }
 
-    func togglePin(_ id: UUID) { if let i = clips.firstIndex(where: { $0.id == id }) { clips[i].pinned.toggle() } }
+    func togglePin(_ id: UUID) {
+        guard let i = clips.firstIndex(where: { $0.id == id }) else { return }
+        var next = clips; next[i].pinned.toggle()
+        if persistShelf(next) { clips = next }
+    }
 
     /// Takes clips off the line. `undoLetGo()` brings the latest batch back within `LetGoLedger.window` seconds.
     func letGo(_ ids: [UUID]) {
-        let r = ledger.letGo(ids, from: &clips, now: now())
+        var next = clips, nextLedger = ledger
+        let r = nextLedger.letGo(ids, from: &next, now: now())
+        guard persistShelf(next) else { return }
+        ledger = nextLedger; clips = next
         discard(r.finalized)
         guard let token = r.token, let p = ledger.pending else { return }
-        withAnimation(.easeOut(duration: 0.15)) {
+        Motion.animate(Motion.token(.hover)) {
             letGoBanner = LetGoBanner(token: token, count: p.items.count, deadline: p.deadline)
         }
         letGoWork?.cancel()
@@ -442,16 +582,18 @@ final class ClipsService: ObservableObject {
     func sweep() { letGo(clips.filter { !$0.pinned }.map(\.id)) }
 
     func undoLetGo() {
-        guard ledger.undo(into: &clips) else { return }
+        var next = clips, nextLedger = ledger
+        guard nextLedger.undo(into: &next), persistShelf(next) else { return }
+        ledger = nextLedger; clips = next
         letGoWork?.cancel()
         letGoWork = nil
-        withAnimation(.easeOut(duration: 0.15)) { letGoBanner = nil }
+        Motion.animate(Motion.token(.hover)) { letGoBanner = nil }
         debugLog("undo")
     }
 
     private func expireLetGo(_ token: Int) {
         discard(ledger.expire(token: token))
-        if letGoBanner?.token == token { withAnimation(.easeOut(duration: 0.15)) { letGoBanner = nil } }
+        if letGoBanner?.token == token { Motion.animate(Motion.token(.hover)) { letGoBanner = nil } }
         debugLog("undo window \(token) closed")
     }
 

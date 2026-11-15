@@ -17,6 +17,17 @@ struct PresentedNotchActivity: Identifiable, Equatable {
     var titles: [String] = []
     var thoughtIDs: [UUID] = []
     var affectedTaskIDs: [UUID] = []
+    var recoveryCount: Int?
+    var restoreLabel: String?
+    var eventStart: Date?
+
+    @MainActor func updatingTime(at date: Date) -> Self {
+        guard let eventStart else { return self }
+        var copy = self
+        copy.subtitle =
+            date < eventStart ? NotchTimelineDriver.countdown(to: eventStart, now: date) : AppL10n.text("Starting now")
+        return copy
+    }
 
     var stripKind: NotchStripQueue.Kind {
         switch kind {

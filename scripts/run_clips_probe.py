@@ -1,4 +1,4 @@
-"""Launch the macOS Clips fixture with all automatic integrations disabled."""
+"""Launch the macOS drop-shelf fixture with automatic integrations disabled."""
 import json
 import os
 from pathlib import Path

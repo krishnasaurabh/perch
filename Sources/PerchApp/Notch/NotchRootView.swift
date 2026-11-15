@@ -47,7 +47,7 @@ struct NotchRootView: View {
                 .designMotion(.pop, value: shell.width)
             }
 
-            if !expanded || (activity != nil && activity?.stripKind != .undo) {
+            if !expanded || activity != nil {
                 if let activity {
                     NotchStripLayer(activity: activity)
                 } else {
@@ -78,34 +78,8 @@ struct NotchRootView: View {
             && !expanded && activity == nil
     }
 
-    /// Files and images become file/image clips; links and text become text clips. Then Clips opens on this screen.
-    private func handleDrop(_ providers: [NSItemProvider]) {
-        let clips = services.clips
-        for p in providers {
-            if p.hasItemConformingToTypeIdentifier("public.file-url") {
-                _ = p.loadObject(ofClass: URL.self) { url, _ in
-                    if let url { Task { @MainActor in clips.add(.file(url), source: "dropped") } }
-                }
-            } else if p.canLoadObject(ofClass: URL.self) {
-                _ = p.loadObject(ofClass: URL.self) { url, _ in
-                    if let url { Task { @MainActor in clips.add(.text(url.absoluteString), source: "dropped") } }
-                }
-            } else if p.canLoadObject(ofClass: String.self) {
-                _ = p.loadObject(ofClass: String.self) { s, _ in
-                    if let s { Task { @MainActor in clips.add(.text(s), source: "dropped") } }
-                }
-            } else if p.hasItemConformingToTypeIdentifier("public.image") {
-                p.loadDataRepresentation(forTypeIdentifier: "public.image") { d, _ in
-                    if let d { Task { @MainActor in clips.add(.image(d), source: "dropped") } }
-                }
-            }
-        }
-        if model.screenID != screen.id {
-            model.screenID = screen.id
-            model.geometry = screen.geometry
-        }
-        model.open(page: .clips)
-    }
+    /// Explicit drops are the only way content enters the shelf.
+    private func handleDrop(_ providers: [NSItemProvider]) { services.clips.acceptDrop(providers) }
 }
 
 /// Closed with a running timer: the notch stays hidden behind the hardware, and a black capsule beside it shows the
@@ -162,6 +136,7 @@ struct TimerPillLayer: View {
 struct ActivityStrip: View {
     let activity: PresentedNotchActivity
     @EnvironmentObject private var store: PlannerStore
+    @EnvironmentObject private var services: Services
     @EnvironmentObject private var model: NotchModel
     @State private var actionFailed = false
     @State private var confirmingRestore = false
@@ -169,15 +144,23 @@ struct ActivityStrip: View {
 
     var body: some View {
         VStack(spacing: .zero) {
-            TimelineView(.periodic(from: .now, by: NotchStripMetrics.clockInterval)) { context in
-                NotchStripContent(
-                    activity: activity,
-                    fraction: model.strips?.fraction(at: PreviewClock.date ?? context.date) ?? 1,
-                    action: { choice in
-                        actionFailed = !(model.strips?.answer(choice, activity: activity) ?? false)
-                    },
-                    showFiles: { model.strips?.showRecoveryFiles() },
-                    restore: { confirmingRestore = true })
+            if activity.stripKind == .dropShelf {
+                DropShelf(clips: services.clips)
+            } else {
+                NotchStripClock(
+                    running: activity.stripKind == .undo || activity.eventStart != nil,
+                    interval: activity.eventStart == nil
+                        ? NotchStripMetrics.clockInterval : NotchStripMetrics.countdownInterval
+                ) { date in
+                    NotchStripContent(
+                        activity: activity.updatingTime(at: date),
+                        fraction: model.strips?.fraction(at: date) ?? 1,
+                        action: { choice in
+                            actionFailed = !(model.strips?.answer(choice, activity: activity) ?? false)
+                        },
+                        showFiles: { model.strips?.showRecoveryFiles() },
+                        restore: { confirmingRestore = true })
+                }
             }
             if actionFailed {
                 Text(AppL10n.text("That change couldn't be saved. Please try again."))
@@ -187,7 +170,7 @@ struct ActivityStrip: View {
             }
         }
         .environment(\.colorScheme, PreviewAppearance.scheme ?? scheme)
-        .background(WorkspaceAppearanceBridge { scheme = $0 }.allowsHitTesting(false))
+        .background(StripAppearanceBridge { scheme = $0 }.allowsHitTesting(false))
         .onChange(of: activity.id) { _, _ in actionFailed = false }
         .confirmationDialog(AppL10n.text("Restore the latest backup?"), isPresented: $confirmingRestore) {
             Button(AppL10n.text("Restore backup")) { actionFailed = !(model.strips?.restoreBackup() ?? false) }

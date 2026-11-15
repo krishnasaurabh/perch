@@ -131,11 +131,16 @@ public struct NotchStripQueue: Equatable, Sendable {
 
 /// Live preference policy, independent of the notification-delivery ledger.
 public enum NotchStripPolicy {
-    public static func reminders(in planner: Planner, at now: Date) -> [PlanTask] {
+    public static func reminders(
+        in planner: Planner, at now: Date, records: [String: ReminderRecord] = [:], waiting: Set<String> = []
+    ) -> [PlanTask] {
         planner.tasks.filter { task in
             guard !task.done, task.day != nil, let due = task.remindAt, due <= now else { return false }
-            return planner.preferences.persistentReminders
-                || now < due.addingTimeInterval(NotchActivityTimeline.reminderDuration)
+            let liveWindow = now < due.addingTimeInterval(NotchActivityTimeline.reminderDuration)
+            guard planner.preferences.persistentReminders else { return liveWindow }
+            let request = ScheduledReminder(task: task)
+            let accounted = records[request.id].map { $0.date == due && $0.state != .scheduled } == true
+            return liveWindow || waiting.contains(request.id) || accounted
         }.sorted { ($0.remindAt!, $0.id.uuidString) < ($1.remindAt!, $1.id.uuidString) }
     }
 
@@ -146,6 +151,18 @@ public enum NotchStripPolicy {
             remaining <= Double(planner.preferences.blockHeadsUp.rawValue * 60)
         else { return nil }
         return now.addingTimeInterval(remaining)
+    }
+
+    public static func blockEndedAt(in planner: Planner) -> Date? {
+        guard let focus = planner.focus, focus.state == .finished else { return nil }
+        return planner.focusSegments.filter { $0.taskID == focus.taskID && $0.start >= focus.startedAt }.map(\.end)
+            .max()
+            ?? focus.startedAt.addingTimeInterval(focus.banked)
+    }
+
+    public static func parkedDuringBlock(in planner: Planner) -> [ParkedThought] {
+        guard let focus = planner.focus, let end = blockEndedAt(in: planner) else { return [] }
+        return planner.parkedThoughts.filter { $0.createdAt >= focus.startedAt && $0.createdAt <= end }
     }
 
     public static func showsBlockEnded(in planner: Planner) -> Bool {
@@ -200,6 +217,12 @@ public enum NotchStripMetrics {
     public static let bottomRadius = DesignTokens.Size.currentTaskRadius.value
     public static let progressHeight = DesignTokens.Size.checkboxStroke.value
     public static let clockInterval = DesignTokens.MotionToken.press.duration
+    public static let countdownInterval = 60.0
+
+    public static func fittedWidth(for kind: NotchStripQueue.Kind, ideal: Double) -> Double {
+        let minimum = width(for: kind)
+        return ideal.isFinite ? min(DesignTokens.Size.stripMaxWidth.value, max(minimum, ideal)) : minimum
+    }
 
     public static func width(for kind: NotchStripQueue.Kind) -> Double {
         switch kind {

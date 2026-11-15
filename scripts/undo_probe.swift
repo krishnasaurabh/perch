@@ -294,6 +294,85 @@ func checkNotepadView(_ store: PlannerStore) async throws {
     window.close()
 }
 
+/// The deletion action now lives in the real strip, not a permanent Today row.
+@MainActor
+func checkDeletionStrip() async throws {
+    let clock = ProbeClock()
+    let root = PlannerFile.defaultURL.deletingLastPathComponent().appendingPathComponent("strip")
+    let store = PlannerStore(
+        file: PlannerFile(url: root.appendingPathComponent("planner.json")), now: { clock.now }, watching: false)
+    let model = NotchModel()
+    model.strips = NotchStrips(store: store, model: model, now: { clock.now })
+    let task = try XCTStripTask(store)
+    store.apply { try $0.delete(task.id, on: .day($0.today)) }
+    model.strips?.refresh()
+    guard let activity = model.displayedActivity else { throw PlannerError("Deletion did not produce a strip.") }
+    require(activity.stripKind == .undo, "deletion enters the shared Undo strip queue")
+    let content = NotchStripContent(
+        activity: activity, fraction: 0.5,
+        action: { choice in
+            _ = model.strips?.answer(choice, activity: activity)
+        }, showFiles: {}, restore: {}
+    )
+    .environmentObject(store).environmentObject(model)
+    .environment(\.accessibilityEnabled, true).environment(\.colorScheme, .light)
+    .frame(width: NotchStripMetrics.width(for: .undo))
+    let host = NSHostingView(rootView: content)
+    let size = host.fittingSize
+    host.sizingOptions = []
+    let window = NSWindow(
+        contentRect: NSRect(origin: .zero, size: size), styleMask: [.titled], backing: .buffered, defer: false)
+    window.isReleasedWhenClosed = false; window.contentView = host
+    window.makeKeyAndOrderFront(nil)
+    defer { window.close() }
+    try await Task.sleep(for: .milliseconds(200))
+    var visited = Set<ObjectIdentifier>(), nodes: [NSObject] = []
+    @MainActor func walk(_ node: NSObject) {
+        guard visited.insert(ObjectIdentifier(node)).inserted else { return }
+        nodes.append(node)
+        for name in ["accessibilityChildren", "accessibilityContents", "accessibilityChildrenInNavigationOrder"] {
+            if node.responds(to: NSSelectorFromString(name)), let children = node.value(forKey: name) as? [NSObject] {
+                children.forEach(walk)
+            }
+        }
+        if let view = node as? NSView { view.subviews.forEach(walk) }
+        if let window = node as? NSWindow, let content = window.contentView { walk(content) }
+    }
+    walk(window)
+    let matches = nodes.filter { node in
+        node.responds(to: NSSelectorFromString("accessibilityIdentifier"))
+            && node.value(forKey: "accessibilityIdentifier") as? String == "notch.undo"
+            && node.responds(to: NSSelectorFromString("accessibilityRole"))
+            && node.value(forKey: "accessibilityRole") as? String == "AXButton"
+    }
+    require(matches.count == 1, "one real strip Undo action is published")
+    let button = matches[0], selector = NSSelectorFromString("accessibilityPerformPress")
+    require(button.responds(to: selector), "the strip Undo action supports native press")
+    typealias Press = @convention(c) (AnyObject, Selector) -> Bool
+    guard let implementation = button.method(for: selector) else {
+        throw PlannerError("The strip Undo action is unavailable.")
+    }
+    let pressed = unsafeBitCast(implementation, to: Press.self)(button, selector)
+    require(pressed, "native press activates strip Undo")
+    require(store.planner.tasks.contains { $0.id == task.id }, "strip Undo restores the exact task")
+    let persisted = try store.file.load()
+    require(persisted.tasks.contains { $0.id == task.id }, "strip Undo persists the restored task")
+    store.apply { try $0.delete(task.id, on: .day($0.today)) }
+    model.strips?.refresh()
+    clock.advance(6)
+    model.strips?.refresh()
+    require(
+        model.displayedActivity == nil && store.canUndo, "six-second strip expiry leaves Command-Z history available")
+}
+
+@MainActor
+private func XCTStripTask(_ store: PlannerStore) throws -> PlanTask {
+    guard let task = store.addTasks(["Deletion strip fixture"], on: .day(store.today), literal: true)?.first else {
+        throw PlannerError("The deletion strip fixture couldn't be created.")
+    }
+    return task
+}
+
 let app = NSApplication.shared
 app.setActivationPolicy(.accessory)
 Task { @MainActor in
@@ -301,6 +380,7 @@ Task { @MainActor in
         let store = try checkStore()
         try await checkNotepadView(store)
         try checkDeletionRedo()
+        try await checkDeletionStrip()
         print("Undo app probe passed")
         exit(0)
     } catch { fputs("FAIL: \(error)\n", stderr); exit(1) }

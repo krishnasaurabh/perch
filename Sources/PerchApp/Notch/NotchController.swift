@@ -112,6 +112,7 @@ final class NotchModel: ObservableObject {
     }
 
     func show(_ a: PresentedNotchActivity, for seconds: Double? = nil) {
+        if let strips, a.stripID == nil { strips.enqueueLegacy(a, timeout: seconds); return }
         if case .reminder(let id) = a.kind { closedReminderIDs.insert(id) }
         activityWork?.cancel()
         activityWork = nil
@@ -290,9 +291,11 @@ final class NotchController {
                 self.updateMouseRouting(); self.applyFullScreen()
             }
         }.store(in: &cancellables)
-        model.$activity.merge(with: model.$missedReminder)
-            .sink { [weak self] _ in DispatchQueue.main.async { self?.updateMouseRouting() } }
-            .store(in: &cancellables)
+        model.$activity.merge(
+            with: model.$missedReminder, model.objectWillChange.map { [weak model] _ in model?.activity }
+        )
+        .sink { [weak self] _ in DispatchQueue.main.async { self?.updateMouseRouting() } }
+        .store(in: &cancellables)
         // A count toggle, completion, timer change or day rollover can remove a capsule
         // beneath a stationary pointer. Re-route after publication stores the incoming value.
         model.$taskCountSuppressed.sink { [weak self] _ in
@@ -578,6 +581,7 @@ final class NotchController {
 
     /// A file, link or text dragged onto a notch opens that screen's workspace on Clips, ready for the drop.
     private func watchForDrop(at p: NSPoint) {
+        if services.clips.routeShelfDrag(at: p, model: model, screens: slots.mapValues { $0.state }) { return }
         let pb = NSPasteboard(name: .drag)
         guard NSEvent.pressedMouseButtons & 1 != 0 else { dragBaseline = pb.changeCount; return }
         guard pb.changeCount != dragBaseline, !(model.expanded && openedForDrop),
@@ -592,6 +596,7 @@ final class NotchController {
     }
 
     private func handle(_ e: NSEvent) {
+        services.clips.trackShelfPointer(at: NSEvent.mouseLocation, model: model)
         if e.type == .leftMouseUp {
             dragObservation.stop()
             trackPointer()
