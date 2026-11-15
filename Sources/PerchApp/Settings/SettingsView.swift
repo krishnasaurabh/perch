@@ -32,7 +32,10 @@ enum SettingsWindow {
     static func show(store: PlannerStore, services: Services, pane: SettingsView.Pane? = nil) {
         if WindowHost.windows["settings"] == nil { navigation = SettingsNavigation() }
         if let pane { navigation.pane = pane }
-        WindowHost.show("settings", title: "Perch Settings", size: SettingsMetrics.windowSize) {
+        WindowHost.show(
+            "settings", title: "Perch Settings", size: SettingsMetrics.windowSize,
+            onUndo: { redo in redo ? store.redo() : store.undo() }
+        ) {
             SettingsView(navigation: navigation).environmentObject(store).environmentObject(services)
         }
     }
