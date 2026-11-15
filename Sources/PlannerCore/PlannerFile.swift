@@ -526,7 +526,10 @@ public final class PlannerFile: Sendable {
     /// Explicit recovery only: choose the newest readable, decodable backup. Never
     /// silently fall back to empty data or overwrite an unreadable current file.
     @discardableResult
-    func restoreLatestBackup() throws -> Planner {
+    func restoreLatestBackup() throws -> Planner { try restoreLatestBackupReplacing().restored }
+
+    /// Restores the newest valid backup and returns the readable document it replaced, if any.
+    func restoreLatestBackupReplacing() throws -> (previous: Planner?, restored: Planner) {
         try withLock {
             var candidate: (Data, Planner)?
             for backup in try backupURLsLocked() {
@@ -539,19 +542,20 @@ public final class PlannerFile: Sendable {
                 throw PlannerError("No readable, valid planner backup is available.")
             }
             let restored = try applyingPreferences(to: planner)
+            var previous: Planner?
             if let current = try readIfPresent(url) {
                 // A newer schema is not corrupt and must never be downgraded by restore.
-                do { _ = try decode(current) } catch let error as PlannerSchemaError { throw error } catch
+                do { previous = try decode(current) } catch let error as PlannerSchemaError { throw error } catch
                 { /* Corrupt current data is preserved below before explicit restore. */  }
-                if current == data { return restored }
-                if (try? decode(current)) != nil {
+                if current == data { return (try previous.map(applyingPreferences), restored) }
+                if previous != nil {
                     try backUpLocked(current)
                 } else {
                     _ = try preserveCorruptCurrent(current)
                 }
             }
             try io.write(data, url)
-            return restored
+            return (try previous.map(applyingPreferences), restored)
         }
     }
 
