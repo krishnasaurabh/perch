@@ -43,12 +43,13 @@ class SettingsDataContractTests(unittest.TestCase):
         self.assertIn('alert.addButton(withTitle: AppL10n.text("Cancel"))', source)
         self.assertIn("== .alertSecondButtonReturn", source)
 
-    def test_cancel_shortcut_is_restored_after_default_button_assignment(self):
+    def test_cancel_escape_does_not_compete_with_a_return_default(self):
         source = PANE.read_text()
         body = source.split("static func alert(for", 1)[1].split("return alert", 1)[0]
-        default = body.index("alert.window.defaultButtonCell = cancel.cell as? NSButtonCell")
-        escape = body.index(r'cancel.keyEquivalent = "\u{1b}"')
-        self.assertLess(default, escape, "AppKit replaces the key equivalent when assigning the default button")
+        self.assertIn(r'cancel.keyEquivalent = "\u{1b}"', body)
+        self.assertIn('proceed.keyEquivalent = ""', body)
+        self.assertNotIn("defaultButtonCell =", body,
+                         "AppKit couples the default cell to Return, not Escape")
 
     def test_live_storage_is_used_instead_of_a_fictional_backup_schedule(self):
         source = PANE.read_text()

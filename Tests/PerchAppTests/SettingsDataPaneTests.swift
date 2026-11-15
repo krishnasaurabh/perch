@@ -230,7 +230,9 @@ final class SettingsDataPaneTests: XCTestCase {
             let alert = SettingsDataActions.alert(for: request)
             XCTAssertEqual(alert.buttons.first?.title, "Cancel")
             XCTAssertEqual(alert.buttons.first?.keyEquivalent, "\u{1b}")
-            XCTAssertTrue(alert.window.defaultButtonCell === alert.buttons.first?.cell)
+            // AppKit couples defaultButtonCell to Return and clears it for Escape.
+            // Check safety, not an incompatible Return/Escape cell identity.
+            XCTAssertFalse(alert.window.defaultButtonCell === alert.buttons.last?.cell)
             XCTAssertEqual(alert.buttons.last?.keyEquivalent, "")
             XCTAssertFalse(alert.informativeText.isEmpty)
         }

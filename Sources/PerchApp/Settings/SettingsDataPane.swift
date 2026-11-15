@@ -91,7 +91,14 @@ struct SettingsDataPane: View {
 @MainActor
 struct SettingsDataActions {
     var confirm: (SettingsDataConfirmation) -> Bool = { request in
-        alert(for: request).runModal() == .alertSecondButtonReturn
+        presentConfirmation(for: request)
+    }
+
+    static func presentConfirmation(
+        for request: SettingsDataConfirmation,
+        runModal: (NSAlert) -> NSApplication.ModalResponse = { $0.runModal() }
+    ) -> Bool {
+        runModal(alert(for: request)) == .alertSecondButtonReturn
     }
     var reveal: (URL) -> Void = { NSWorkspace.shared.activateFileViewerSelecting([$0]) }
     var chooseExport: (String) -> URL? = { name in
@@ -150,12 +157,11 @@ struct SettingsDataActions {
         alert.alertStyle = .warning
         alert.messageText = request.title
         alert.informativeText = request.detail
-        // Return and Escape both cancel; the destructive action requires an explicit choice.
+        // Escape cancels; the destructive action requires an explicit choice.
         let cancel = alert.addButton(withTitle: AppL10n.text("Cancel"))
         let proceed = alert.addButton(withTitle: request.actionTitle)
         proceed.keyEquivalent = ""
-        alert.window.defaultButtonCell = cancel.cell as? NSButtonCell
-        // AppKit assigns Return when setting the default cell; restore Escape afterward.
+        // A default cell requires Return. Leave it unset rather than competing with Escape.
         cancel.keyEquivalent = "\u{1b}"
         return alert
     }
