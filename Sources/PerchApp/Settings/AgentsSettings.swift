@@ -4,98 +4,144 @@ import SwiftUI
 
 struct AgentsSettings: View {
     @EnvironmentObject var store: PlannerStore
+    @Environment(\.agentPreviewConnected) private var previewConnected
     @Binding var statuses: [AgentConnector.App: AgentConnector.Status]
     @ObservedObject var feedback: SettingsFailureFeedback
-    var readStatus: (AgentConnector.App) -> AgentConnector.Status = AgentConnector.status
-    var disconnect: (AgentConnector.App) throws -> Void = AgentConnector.disconnect
+    var readStatus: @MainActor (AgentConnector.App) -> AgentConnector.Status = AgentsSettings.connectionStatus
+    var disconnect: @MainActor (AgentConnector.App) throws -> Void = AgentConnector.disconnect
+    var connect: @MainActor (AgentConnector.App) throws -> String = AgentConnector.connect
     @State private var message: String?
-    @State private var copied: String?
 
     var body: some View {
-        Section("Connect AI agents") {
-            Text(
-                "One-time setup that lets Claude read and edit your plan, tick tasks off and run timers. The MCP server runs inside Perch on this Mac, with no network hop."
-            )
-            .font(Theme.meta).foregroundStyle(Theme.secondary)
-            if !AppInfo.isInApplications {
-                Label(
-                    "Agent setup requires Perch to be installed in Applications.",
-                    systemImage: "exclamationmark.triangle"
-                ).foregroundStyle(Theme.warning)
+        SettingsSection("Connected apps") {
+            if !AppInfo.isInApplications && !Self.isPreview {
+                VStack(alignment: .leading, spacing: SettingsMetrics.titleGap) {
+                    Text("Connect AI agents").perchFont(.stripTitle)
+                    Text("Agent setup requires Perch to be installed in Applications.")
+                        .perchFont(.detail).foregroundStyle(Theme.ink2)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Text("Or use Terminal").perchFont(.detail)
+                    Text(AgentConnector.terminalCommand).perchFont(.detail).monospaced()
+                        .textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
+                    PerchButton("Copy", kind: .soft, size: .small) {
+                        NSPasteboard.general.clearContents()
+                        NSPasteboard.general.setString(AgentConnector.terminalCommand, forType: .string)
+                        message = AppL10n.text("Copied")
+                    }
+                }
+                .padding(.vertical, SettingsMetrics.titleGap)
             }
-            ForEach(AgentConnector.App.allCases) { app in
-                HStack {
-                    Text(app.name)
-                    Spacer()
-                    switch statuses[app] ?? .notInstalled {
-                    case .connected:
-                        Label("Connected", systemImage: "checkmark.circle.fill").foregroundStyle(Theme.success)
-                        Button("Disconnect") { disconnectAgent(app) }
-                    case .notConnected:
-                        Button("Connect") {
-                            do {
-                                message = try AgentConnector.connect(app)
-                                feedback.failedAgentDisconnects.remove(app)
-                            } catch {
-                                message = error.perchPresentationDetail
+            for app in AgentConnector.App.allCases {
+                SettingsRow(Self.name(app)) {
+                    HStack(spacing: SettingsMetrics.rowGap) {
+                        switch statuses[app] ?? .notConnected {
+                        case .connected:
+                            Text("Connected").perchFont(.detail).foregroundStyle(Theme.doneText)
+                            PerchButton("Disconnect", kind: .quiet, size: .small) { disconnectAgent(app) }
+                                .accessibilityIdentifier("settings.agents.\(app.rawValue).disconnect")
+                        case .notConnected:
+                            PerchButton("Connect", kind: .soft, size: .small) { connectAgent(app) }
+                                .accessibilityValue("Not connected")
+                                .accessibilityIdentifier("settings.agents.\(app.rawValue).connect")
+                        case .notInstalled:
+                            Text("Not installed").perchFont(.detail).foregroundStyle(Theme.ink2)
+                            if app == .claudeApp {
+                                PerchButton("Get it", kind: .quiet, size: .small) {
+                                    if let url = URL(string: "https://claude.ai/download") {
+                                        NSWorkspace.shared.open(url)
+                                    }
+                                }
                             }
-                            refresh()
+                            PerchButton("Connect", kind: .soft, size: .small) {}
+                                .disabled(true)
+                                .help("Install the app before connecting it to Perch.")
                         }
-                    case .notInstalled:
-                        Text("Not installed").foregroundStyle(Theme.secondary)
-                        if app == .claudeApp { Link("Get it", destination: URL(string: "https://claude.ai/download")!) }
                     }
                 }
             }
-            if let message { Text(message).font(Theme.meta) }
-        }
-        Section("Or use Terminal") {
-            HStack {
-                Text(AgentConnector.terminalCommand).font(Theme.meta.monospaced()).textSelection(
-                    .enabled
-                ).lineLimit(2)
-                Spacer()
-                Button(AppL10n.text(copied == "cmd" ? "Copied" : "Copy")) {
-                    copy(AgentConnector.terminalCommand, "cmd")
-                }
+            if let message {
+                Text(message).perchFont(.detail).foregroundStyle(Theme.ink2)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.vertical, SettingsMetrics.titleGap)
             }
-            Text("Scripts can also open perch://add?title=Your%20task").font(Theme.meta).foregroundStyle(
-                Theme.secondary)
-        }
-        Section("Try one of these") {
-            ForEach(AgentConnector.examplePrompts, id: \.self) { p in
-                Button {
-                    copy(p, p)
-                } label: {
-                    HStack {
-                        Text(AppL10n.text(p)); Spacer();
-                        if copied == p { Text("Copied").foregroundStyle(Theme.secondary) }
-                    }
-                }.buttonStyle(PillStyle())
-            }
-            Text(
-                "Click a prompt to copy it and paste it into Claude. Its edits appear in the notch immediately; ⌘Z reverts them."
-            ).font(Theme.meta).foregroundStyle(Theme.secondary)
         }
         .onAppear(perform: refresh)
-        .task(id: copied) {
-            guard copied != nil else { return }
-            do { try await Task.sleep(nanoseconds: 1_500_000_000) } catch { return }
-            if !Task.isCancelled { copied = nil }
+    }
+
+    static func name(_ app: AgentConnector.App) -> String {
+        switch app {
+        case .claudeCode: AppL10n.text("Claude Code")
+        case .claudeApp: AppL10n.text("Claude Desktop")
+        case .cursor: AppL10n.text("Cursor")
         }
     }
 
+    static var isPreview: Bool {
+        #if DEBUG || PERCH_TESTING
+            AppDelegate.snapshotDate != nil
+        #else
+            false
+        #endif
+    }
+
+    static func connectionStatus(_ app: AgentConnector.App) -> AgentConnector.Status {
+        isPreview ? .notConnected : AgentConnector.status(app)
+    }
+
+    func connectAgent(_ app: AgentConnector.App) {
+        guard !Self.isPreview else { return }
+        message = Self.connectAgent(
+            app, store: store, statuses: $statuses, feedback: feedback,
+            readStatus: readStatus, connect: connect)
+    }
+
     func disconnectAgent(_ app: AgentConnector.App) {
-        let disconnect = disconnect, readStatus = readStatus, statuses = $statuses, feedback = feedback
+        guard !Self.isPreview else { return }
+        message = nil
+        Self.disconnectAgent(
+            app, store: store, statuses: $statuses, feedback: feedback,
+            readStatus: readStatus, disconnect: disconnect)
+    }
+
+    /// Refresh from configuration only after the connector confirms success.
+    static func connectAgent(
+        _ app: AgentConnector.App, store: PlannerStore,
+        statuses: Binding<[AgentConnector.App: AgentConnector.Status]>, feedback: SettingsFailureFeedback,
+        readStatus: @escaping @MainActor (AgentConnector.App) -> AgentConnector.Status,
+        connect: @escaping @MainActor (AgentConnector.App) throws -> String
+    ) -> String? {
+        var message: String?
+        feedback.perform(store: store, failure: { .planner($0.perchPresentationDetail) }) { [weak feedback] in
+            guard let feedback else { return }
+            let result = try connect(app)
+            guard readStatus(app) == .connected else {
+                throw PlannerError("Perch could not confirm the connection. Check the app and try again.")
+            }
+            statuses.wrappedValue[app] = .connected
+            feedback.failedAgentDisconnects.remove(app)
+            message = result
+        }
+        return message
+    }
+
+    static func disconnectAgent(
+        _ app: AgentConnector.App, store: PlannerStore,
+        statuses: Binding<[AgentConnector.App: AgentConnector.Status]>, feedback: SettingsFailureFeedback,
+        readStatus: @escaping @MainActor (AgentConnector.App) -> AgentConnector.Status,
+        disconnect: @escaping @MainActor (AgentConnector.App) throws -> Void
+    ) {
         feedback.perform(store: store, failure: { .planner($0.perchPresentationDetail) }) { [weak feedback] in
             guard let feedback else { return }
             do {
                 try disconnect(app)
-                statuses.wrappedValue[app] = readStatus(app)
+                let status = readStatus(app)
+                guard status != .connected else {
+                    throw PlannerError("Perch is still connected. Check the app and try again.")
+                }
+                statuses.wrappedValue[app] = status
                 feedback.failedAgentDisconnects.remove(app)
             } catch {
-                // Keep this app's last-known state even across pane re-entry: the
-                // status reader can mistake an unreadable configuration for removal.
+                // Preserve last-known state across pane re-entry if configuration is unreadable.
                 feedback.failedAgentDisconnects.insert(app)
                 throw error
             }
@@ -104,11 +150,19 @@ struct AgentsSettings: View {
 
     func refresh() {
         for app in AgentConnector.App.allCases where !feedback.failedAgentDisconnects.contains(app) {
-            statuses[app] = readStatus(app)
+            statuses[app] = Self.isPreview && previewConnected && app == .claudeCode ? .connected : readStatus(app)
         }
     }
-    func copy(_ s: String, _ tag: String) {
-        NSPasteboard.general.clearContents(); NSPasteboard.general.setString(s, forType: .string)
-        copied = tag
+}
+
+/// The connected sample never reads or modifies installed agents' configuration.
+private struct AgentPreviewConnectedKey: EnvironmentKey {
+    static let defaultValue = false
+}
+
+extension EnvironmentValues {
+    var agentPreviewConnected: Bool {
+        get { self[AgentPreviewConnectedKey.self] }
+        set { self[AgentPreviewConnectedKey.self] = newValue }
     }
 }
