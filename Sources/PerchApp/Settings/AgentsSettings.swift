@@ -92,7 +92,7 @@ struct AgentsSettings: View {
         guard !Self.isPreview else { return }
         message = Self.connectAgent(
             app, store: store, statuses: $statuses, feedback: feedback,
-            readStatus: readStatus, connect: connect)
+            readStatus: readStatus, connect: connect, message: $message)
     }
 
     func disconnectAgent(_ app: AgentConnector.App) {
@@ -108,9 +108,10 @@ struct AgentsSettings: View {
         _ app: AgentConnector.App, store: PlannerStore,
         statuses: Binding<[AgentConnector.App: AgentConnector.Status]>, feedback: SettingsFailureFeedback,
         readStatus: @escaping @MainActor (AgentConnector.App) -> AgentConnector.Status,
-        connect: @escaping @MainActor (AgentConnector.App) throws -> String
+        connect: @escaping @MainActor (AgentConnector.App) throws -> String,
+        message: Binding<String?>? = nil
     ) -> String? {
-        var message: String?
+        var initialMessage: String?
         feedback.perform(store: store, failure: { .planner($0.perchPresentationDetail) }) { [weak feedback] in
             guard let feedback else { return }
             let result = try connect(app)
@@ -119,9 +120,11 @@ struct AgentsSettings: View {
             }
             statuses.wrappedValue[app] = .connected
             feedback.failedAgentDisconnects.remove(app)
-            message = result
+            initialMessage = result
+            // Retry retains this binding, so guidance reaches the view after later successes too.
+            message?.wrappedValue = result
         }
-        return message
+        return initialMessage
     }
 
     static func disconnectAgent(
