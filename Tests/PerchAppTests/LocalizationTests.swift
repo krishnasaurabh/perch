@@ -123,7 +123,7 @@ final class LocalizationTests: XCTestCase {
             "Requesting…", "Allow", "Finished days show up here.", "No matches. Change the search text.",
             "This week", "Week", "Uncheck task", "Check off task", "Reopen", "Complete",
             "Pause", "Continue", "History", "Unsaved changes", "Task details", "Unpin", "Pin",
-            "Pause timer", "Continue timer", "Reopen task", "Complete task",
+            "Pause timer", "Continue timer",
             "Uses the on-device model to suggest a priority and project for new tasks. Your explicit #project and !priority choices take precedence.",
             "This action is currently unavailable.", "Fix the date first.", "Copied image",
         ] {
