@@ -3,7 +3,6 @@ from collections import Counter
 import json
 from pathlib import Path
 import sys
-from PIL import Image
 
 SHELF_KEYBOARD_ASSERTIONS = (
     "week: Tab reaches the task-line actions menu",
@@ -53,6 +52,9 @@ def validate_shelf_keyboard(report):
 
 
 def measure(folder):
+    # Manifest validation is also used on runners without image dependencies.
+    from PIL import Image
+
     folder = Path(folder)
     records = json.loads((folder / "captures.json").read_text())
     expected = {(appearance, width, state) for appearance in ("light", "dark")
