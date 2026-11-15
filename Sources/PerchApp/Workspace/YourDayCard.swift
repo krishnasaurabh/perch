@@ -41,6 +41,17 @@ private struct YourDayBody: View {
                         .padding(YourDayMetrics.focusInset)
                     }
                     .scrollIndicators(.hidden)
+                    .overlay {
+                        if timeline.items.isEmpty {
+                            Color.clear
+                                .contentShape(Rectangle())
+                                .dropDestination(for: TaskDragItem.self) { items, _ in
+                                    YourDayActions.dropIntoEmptyTimeline(
+                                        items, timeline: timeline, now: now, store: store)
+                                }
+                                .accessibilityIdentifier("your-day-empty-drop-target")
+                        }
+                    }
                     if store.prefs.showCalendarMeetings && !calendar.hasAccess && meetingOverride == nil {
                         PerchButton("Show meetings", kind: .quiet, size: .small, surface: .mint) {
                             Task { await calendar.requestAccess() }
@@ -359,15 +370,24 @@ struct YourDayCaptureBridge: View {
         language: TaskParserLanguage? = .current
     ) {
         guard day == .day(store.today), let language else { home.captureDraft = nil; return }
-        let parsed = store.capture.parse(text, language: language)
-        guard !parsed.inbox, let start = parsed.startAt,
-            DayKey(start, resetHour: store.prefs.resetHour, calendar: store.engine.calendar) == store.today
+        guard
+            let preview = YourDayTimeline.capturePreview(
+                text, using: store.capture, language: language, day: store.today)
         else { home.captureDraft = nil; return }
-        home.captureDraft = .init(startTime: start, minutes: parsed.minutes ?? store.prefs.defaultFocusMinutes)
+        home.captureDraft = .init(startTime: preview.start, minutes: preview.minutes)
     }
 }
 
 @MainActor enum YourDayActions {
+    @discardableResult static func dropIntoEmptyTimeline(
+        _ items: [TaskDragItem], timeline: YourDayTimeline, now: Date, store: PlannerStore
+    ) -> Bool {
+        guard items.count == 1, let drag = items.first,
+            let start = timeline.emptyDropTime(at: now, calendar: store.engine.calendar)
+        else { return false }
+        return setStart(drag.taskID, at: start, store: store)
+    }
+
     @discardableResult static func setStart(_ id: UUID, at start: Date, store: PlannerStore) -> Bool {
         // Do not move history, unscheduled inbox items or a concurrently removed task.
         guard let task = store.planner.tasks.first(where: { $0.id == id }), task.day == store.today,
@@ -382,7 +402,10 @@ struct YourDayCaptureBridge: View {
 
 #if DEBUG || PERCH_TESTING
     @MainActor enum YourDayPreview {
-        static func show(app: AppDelegate, editing: Bool = false, capture: Bool = false, overlap: Bool = false) {
+        static func show(
+            app: AppDelegate, editing: Bool = false, capture: Bool = false, overlap: Bool = false,
+            multiline: Bool = false, withoutMeetings: Bool = false
+        ) {
             let state = TodayHomeState()
             let day = app.store.today
             let calendar = app.store.engine.calendar
@@ -392,9 +415,15 @@ struct YourDayCaptureBridge: View {
             }
             if editing { state.editingTaskID = app.store.planner.tasks.first { $0.minutes == 45 }?.id }
             if capture { state.captureDraft = .init(startTime: at(13, 30), minutes: 20) }
+            if multiline {
+                YourDayCapture.update(
+                    text: "Read today at 10am\nWrite today at 1pm for 20 min", day: .day(day),
+                    home: state, store: app.store, language: .english)
+            }
             var meetings = [
                 YourDayTimeline.Meeting(id: "preview-review", title: "Design review", start: at(14), end: at(15))
             ]
+            if withoutMeetings { meetings = [] }
             if overlap {
                 meetings.append(.init(id: "preview-overlap", title: "Planning", start: at(10, 15), end: at(11)))
             }

@@ -111,6 +111,29 @@ public struct YourDayTimeline: Equatable, Sendable {
         items = (rows + gaps).sorted(by: Self.ordered)
     }
 
+    /// Preview the first scheduled line for this day, using the same line splitting
+    /// as task submission. A time and duration on separate lines never form a block.
+    public static func capturePreview(
+        _ text: String, using capture: TaskCapture, language: TaskParserLanguage, day: DayKey
+    ) -> Preview? {
+        for line in TaskCapture.splitLines(text) {
+            let parsed = capture.parse(line, language: language)
+            guard !parsed.inbox, let start = parsed.startAt, let minutes = parsed.minutes,
+                parsed.day == day,
+                DayKey(start, resetHour: capture.resetHour, calendar: capture.calendar) == day
+            else { continue }
+            return Preview(start: start, minutes: minutes)
+        }
+        return nil
+    }
+
+    /// An empty list still accepts a drop, even when the remaining time is too
+    /// short to display a gap. Use the same logical-day clamp as every other slot.
+    public func emptyDropTime(at now: Date, calendar: Calendar) -> Date? {
+        guard items.isEmpty else { return nil }
+        return snapped(now, calendar: calendar)
+    }
+
     /// Snap in local wall time, then constrain to the logical day. Calendar arithmetic
     /// retains the chosen occurrence in repeated hours and skips nonexistent DST times.
     public func snapped(_ date: Date, calendar: Calendar) -> Date {

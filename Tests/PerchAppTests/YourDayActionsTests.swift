@@ -61,6 +61,59 @@ final class YourDayActionsTests: XCTestCase {
         XCTAssertEqual(store.planner, before)
     }
 
+    @MainActor func testMultilineCaptureMatchesRealSubmission() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let now = DayKey("2026-11-13").date().addingTimeInterval(9 * 3600)
+        let store = PlannerStore(
+            file: PlannerFile(url: root.appendingPathComponent("planner.json")),
+            now: { now }, watching: false, parserLanguage: { .english })
+        let home = TodayHomeState()
+        let text = "Read today at 10am\nWrite today at 1pm for 20 min"
+        YourDayCapture.update(text: text, day: .day(store.today), home: home, store: store, language: .english)
+        let preview = try XCTUnwrap(home.captureDraft)
+        let added = try XCTUnwrap(store.addTasks([text], on: .day(store.today)))
+        let scheduled = try XCTUnwrap(added.first { $0.startAt != nil })
+        XCTAssertEqual(preview.startTime, scheduled.startAt)
+        XCTAssertEqual(preview.minutes, scheduled.minutes)
+        XCTAssertEqual(added.count, 2)
+        XCTAssertNil(added[0].startAt)
+        XCTAssertEqual(store.planner.tasks.first { $0.id == scheduled.id }?.startAt, preview.startTime)
+    }
+
+    @MainActor func testEmptyLateDayDropSchedulesAndUndoesWithoutAGapPill() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let now = DayKey("2026-11-14").date().addingTimeInterval(3 * 3600 + 50 * 60)
+        let store = PlannerStore(
+            file: PlannerFile(url: root.appendingPathComponent("planner.json")),
+            now: { now }, watching: false)
+        let id = try XCTUnwrap(
+            store.send(.addTasks(["Write notes"], day: nil, literal: true, agentID: nil))?.tasks.first?.id)
+        let timeline = YourDayTimeline(
+            tasks: store.planner.tasks, meetings: [], day: store.today, now: now,
+            calendar: store.engine.calendar, resetHour: store.prefs.resetHour,
+            defaultMinutes: store.prefs.defaultFocusMinutes)
+        XCTAssertTrue(timeline.items.isEmpty)
+        let before = try Data(contentsOf: store.file.url)
+        XCTAssertFalse(YourDayActions.dropIntoEmptyTimeline([], timeline: timeline, now: now, store: store))
+        XCTAssertFalse(
+            YourDayActions.dropIntoEmptyTimeline(
+                [TaskDragItem(taskID: id), TaskDragItem(taskID: id)], timeline: timeline, now: now, store: store))
+        XCTAssertFalse(
+            YourDayActions.dropIntoEmptyTimeline(
+                [TaskDragItem(taskID: UUID())], timeline: timeline, now: now, store: store))
+        XCTAssertEqual(try Data(contentsOf: store.file.url), before)
+        XCTAssertTrue(
+            YourDayActions.dropIntoEmptyTimeline(
+                [TaskDragItem(taskID: id)], timeline: timeline, now: now, store: store))
+        let start = try XCTUnwrap(store.file.load().tasks.first { $0.id == id }?.startAt)
+        XCTAssertEqual(start, now.addingTimeInterval(-5 * 60))
+        XCTAssertEqual(store.dayKey(start), store.today)
+        store.undo()
+        XCTAssertNil(store.planner.tasks.first { $0.id == id }?.startAt)
+    }
+
     @MainActor func testCalendarQueriesBothCivilDaysAndKeepsPickerFiltering() async throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: root) }

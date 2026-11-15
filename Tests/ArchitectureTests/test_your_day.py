@@ -34,6 +34,16 @@ class YourDayContractTests(unittest.TestCase):
         self.assertIn('task.day == store.today', source)
         self.assertNotIn('ViewThatFits', source)
 
+    def test_empty_list_has_a_drop_destination_without_visible_gap_rows(self):
+        source = CARD.read_text()
+        body, rows = source.split('private struct YourDayRow:', 1)
+        self.assertIn('if timeline.items.isEmpty', body)
+        self.assertIn('.dropDestination(for: TaskDragItem.self)', body)
+        self.assertIn('YourDayActions.dropIntoEmptyTimeline(', body)
+        self.assertIn('.contentShape(Rectangle())', body)
+        self.assertIn('timeline.emptyDropTime(', source)
+        self.assertIn('.dropDestination(for: TaskDragItem.self)', rows)
+
     def test_paint_and_type_use_design_tokens(self):
         source = CARD.read_text()
         self.assertIn('Card(.mint)', source)
@@ -48,7 +58,7 @@ class YourDayContractTests(unittest.TestCase):
     def test_each_schedule_state_has_a_registered_snapshot(self):
         shots = (ROOT / 'scripts/redesign_shots.list').read_text()
         targets = (ROOT / 'Sources/PerchApp/App/AppDelegate+Preview.swift').read_text()
-        for name in ('running', 'before', 'editing', 'capture', 'open', 'overlap'):
+        for name in ('running', 'before', 'editing', 'capture', 'open', 'overlap', 'multiline', 'late-empty'):
             match = re.search(rf'^your-day-{name} .*--open (\S+)$', shots, re.M)
             self.assertIsNotNone(match, name)
             assert match is not None

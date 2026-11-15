@@ -8,7 +8,7 @@ public enum AppLaunchConfiguration {
     #if DEBUG || PERCH_TESTING
         public static let previewScenarioNames: Set<String> = [
             "empty", "three", "timer", "insights",
-            "today-running", "today-before", "today-editing", "today-empty", "week-full",
+            "today-running", "today-before", "today-editing", "today-empty", "today-late", "week-full",
             "notch-idle", "notch-running", "notch-paused", "notch-reminder", "notch-peek",
             "strip-heads-up", "strip-ended", "strip-agent", "strip-undo", "strip-data", "strip-drop",
             "window-review", "window-history", "window-projects", "window-welcome", "window-keys",

@@ -161,6 +161,69 @@ final class YourDayTimelineTests: XCTestCase {
         XCTAssertTrue(schedule.items.contains { $0.id == "meeting:next-morning" })
     }
 
+    func testMultilinePreviewMatchesTheFirstScheduledTaskFromSubmission() throws {
+        let inputs = [
+            "Read today at 10am\nWrite today at 1pm for 20 min",
+            "  • Read today at 10am\r\n\r\n2. Write today at 1pm for 20 min\r\nPlan today at 2pm for 45 min",
+            "Write today at 1pm for 20 min\nPlan today at 2pm for 45 min",
+        ]
+        for text in inputs {
+            var engine = PlannerEngine(planner: Planner(), now: { self.date(9) }, calendar: calendar)
+            let capture = TaskCapture(now: date(9), resetHour: 4, calendar: calendar)
+            let preview = try XCTUnwrap(
+                YourDayTimeline.capturePreview(text, using: capture, language: .english, day: day))
+            let added = try engine.addTasks([text], on: .day(day), language: .english)
+            let scheduled = try XCTUnwrap(added.first { $0.startAt != nil && $0.day == day })
+            XCTAssertEqual(preview.start, scheduled.startAt, text)
+            XCTAssertEqual(preview.minutes, scheduled.minutes, text)
+            XCTAssertEqual(preview.start, date(13))
+            XCTAssertEqual(preview.minutes, 20)
+        }
+    }
+
+    func testPreviewNeverBorrowsDurationFromAnotherLine() throws {
+        let text = "Read today at 10am\nWrite for 20 min"
+        let capture = TaskCapture(now: date(9), resetHour: 4, calendar: calendar)
+        XCTAssertNil(YourDayTimeline.capturePreview(text, using: capture, language: .english, day: day))
+        var engine = PlannerEngine(planner: Planner(), now: { self.date(9) }, calendar: calendar)
+        XCTAssertTrue(try engine.addTasks([text]).allSatisfy { $0.startAt == nil })
+    }
+
+    func testCapturePreviewSkipsInboxAndOtherDays() throws {
+        let capture = TaskCapture(now: date(9), resetHour: 4, calendar: calendar)
+        let text = "Read #inbox today at 10am for 30 min\nPlan tomorrow at 11am for 45 min"
+        XCTAssertNil(YourDayTimeline.capturePreview(text, using: capture, language: .english, day: day))
+        let preview = try XCTUnwrap(
+            YourDayTimeline.capturePreview(
+                text + "\nWrite today at 1pm for 20 min", using: capture, language: .english, day: day))
+        XCTAssertEqual(preview.start, date(13))
+        XCTAssertEqual(preview.minutes, 20)
+    }
+
+    func testEmptyLateDayHasASnappedDropSlotWithoutAShortGapPill() throws {
+        let now = date(3, 50).addingTimeInterval(86400)
+        var unscheduled = task(10); unscheduled.startAt = nil
+        let value = build([unscheduled], now: now)
+        XCTAssertTrue(value.items.isEmpty)
+        let slot = try XCTUnwrap(value.emptyDropTime(at: now, calendar: calendar))
+        XCTAssertEqual(slot, date(3, 45).addingTimeInterval(86400))
+        XCTAssertEqual(DayKey(slot, resetHour: 4, calendar: calendar), day)
+        XCTAssertNil(build([unscheduled]).emptyDropTime(at: date(9), calendar: calendar))
+    }
+
+    func testLateDaySnapshotKeepsAnUnscheduledTaskAndNoVisibleGap() throws {
+        let fixture = try PlannerPreviewScenarios.make("today-late")
+        XCTAssertFalse(fixture.planner.tasks.isEmpty)
+        XCTAssertTrue(fixture.planner.tasks.allSatisfy { $0.startAt == nil })
+        let value = YourDayTimeline(
+            tasks: fixture.planner.tasks, meetings: [], day: fixture.day, now: fixture.now,
+            calendar: PlannerPreviewScenarios.calendar, resetHour: fixture.planner.preferences.resetHour,
+            defaultMinutes: fixture.planner.preferences.defaultFocusMinutes)
+        XCTAssertEqual(value.end.timeIntervalSince(fixture.now), 10 * 60)
+        XCTAssertTrue(value.items.isEmpty)
+        XCTAssertNotNil(value.emptyDropTime(at: fixture.now, calendar: PlannerPreviewScenarios.calendar))
+    }
+
     func testDSTDayBoundsAndWallTimeSnap() {
         var local = calendar; local.timeZone = TimeZone(identifier: "America/Los_Angeles")!
         let spring: DayKey = "2026-03-08"
