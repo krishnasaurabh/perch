@@ -96,6 +96,7 @@ struct TasksCard: View {
                             }
                         }
                         .frame(maxWidth: .infinity, alignment: .topLeading)
+                        .background(Theme.paper)
                         .background(TasksContinuationObserver())
                     }
                     .scrollIndicators(.automatic)
@@ -117,8 +118,7 @@ struct TasksCard: View {
                     }
                 }
             }
-            .frame(minHeight: 0, maxHeight: WorkspaceLayout.contentHeight).accessibilityIdentifier(
-                "today-task-viewport")
+            .frame(minHeight: 0, maxHeight: WorkspaceLayout.contentHeight)
             Spacer(minLength: .zero).layoutPriority(-1)
             if store.canUndo || !store.engine.overdue().isEmpty {
                 footer.fixedSize(horizontal: false, vertical: true).layoutPriority(1)
@@ -133,7 +133,7 @@ struct TasksCard: View {
             )
             .fixedSize(horizontal: false, vertical: true).layoutPriority(1)
         }
-        .card(surface: .paper)
+        .card(.tasks, padding: Theme.Size.cardPadding.value)
         .onAppear {
             #if DEBUG || PERCH_TESTING
                 if preview == .expanded { showsLater = true }
@@ -177,7 +177,7 @@ struct TasksCard: View {
             } label: {
                 Label("Undo", systemImage: "arrow.uturn.backward")
             }
-            .buttonStyle(.plain).perchFont(.detailStrong).foregroundStyle(Theme.ink2)
+            .buttonStyle(.plain).perchFont(.detailStrong).foregroundStyle(Theme.secondary)
             .frame(minHeight: Theme.Size.minimumTarget.value)
             .disabled(!store.canUndo).focusable(store.canUndo).focused($focus, equals: .undo)
             .onKeyPress(.space, phases: [.down, .repeat, .up]) { press in
@@ -191,7 +191,7 @@ struct TasksCard: View {
             Spacer(minLength: .zero)
             if !store.engine.overdue().isEmpty {
                 Button("Bring over") { reviewingOverdue = true }
-                    .buttonStyle(.plain).perchFont(.detailStrong).foregroundStyle(Theme.brandText)
+                    .buttonStyle(.plain).perchFont(.detailStrong).foregroundStyle(Theme.secondary)
                     .frame(minHeight: Theme.Size.minimumTarget.value)
                     .accessibilityIdentifier("today-review-overdue")
             }
@@ -351,6 +351,8 @@ private struct TasksContinuationObserver: NSViewRepresentable {
 
         func attach() {
             guard let enclosing = enclosingScrollView else { return }
+            // Native-only identity must not overwrite the checklist focus proxy or its children.
+            enclosing.setAccessibilityIdentifier("today-task-viewport")
             if scroll !== enclosing {
                 NotificationCenter.default.removeObserver(self)
                 fade.removeFromSuperview()

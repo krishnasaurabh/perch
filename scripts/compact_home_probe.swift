@@ -122,6 +122,14 @@ func taskViewport(in root: NSView, excluding editor: NSTextView? = nil) -> NSScr
     return lists[index]
 }
 
+/// Disclosure selects its last virtual row. Begin overflow checks at the real list origin.
+@MainActor
+func scrollToTaskOrigin(_ list: NSScrollView) {
+    guard let document = list.documentView else { return }
+    document.scroll(
+        NSPoint(x: document.bounds.minX, y: document.isFlipped ? document.bounds.minY : document.bounds.maxY))
+}
+
 @MainActor
 enum GeometryDiagnostics {
     static var measurements: [[String: Any]] = []
@@ -560,6 +568,11 @@ MainActor.assumeIsolated {
                             unsafeBitCast(implementation, to: Press.self)(later, selector),
                             "dense: later disclosure opens")
                         await settle()
+                        scrollToTaskOrigin(list)
+                        await settle()
+                        guard let expandedCapture = controlFrame("Add a task", in: root) else {
+                            require(false, "dense: capture bounds exist after expanding"); continue
+                        }
                         require(
                             document.frame.height > list.contentSize.height,
                             "dense: content scrolls instead of growing shell")
@@ -567,7 +580,7 @@ MainActor.assumeIsolated {
                         await settle()
                         recordGeometry(scenario: "dense-scrolled", delegate: delegate, root: root, output: output)
                         require(
-                            editor.convert(editor.visibleRect, to: nil) == capture,
+                            controlFrame("Add a task", in: root) == expandedCapture,
                             "dense: capture does not move when tasks scroll")
                         delegate.notch.snapshot(into: output.appendingPathComponent("dense-scrolled"))
                     }
@@ -712,6 +725,13 @@ MainActor.assumeIsolated {
                             require(false, "\(name): identified task viewport and document exist")
                             window.orderOut(nil); continue
                         }
+                        scrollToTaskOrigin(list)
+                        await settle()
+                        let origin = document.convert(list.contentView.bounds, from: list.contentView)
+                        require(
+                            document.isFlipped
+                                ? origin.minY <= document.bounds.minY + 1 : origin.maxY >= document.bounds.maxY - 1,
+                            "\(name): actual scroll origin reached")
                         require(
                             document.frame.height > list.contentSize.height, "\(name): multiline dense rows overflow")
                         require(controlFrame("Add a task", in: root) == capture, "\(name): dense capture unchanged")

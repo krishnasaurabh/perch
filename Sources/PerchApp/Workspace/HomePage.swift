@@ -11,7 +11,6 @@ struct HomePage: View {
                 HStack(alignment: .top, spacing: HomeLayout.gap) {
                     // CHECKLIST CARD SLOT: replace this call only when the checklist lands.
                     TasksCard().frame(width: columns.checklist).frame(maxHeight: .infinity)
-                        .accessibilityIdentifier("today-checklist-card")
                     VStack(spacing: HomeLayout.gap) {
                         // TIME CARD SLOT: replace this call only when TimeCard lands.
                         FocusCard().frame(maxHeight: .infinity)

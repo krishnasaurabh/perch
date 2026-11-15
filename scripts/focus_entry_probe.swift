@@ -334,7 +334,25 @@ func focusByTab(_ identifier: String, in window: NSWindow, root: NSView, output:
     for step in 0..<60 {
         key("\t", code: 48, in: window)
         try? await Task.sleep(nanoseconds: 50_000_000)
+        let chain = nodes(root).filter(isFocused).map { node -> [String: String] in
+            let selected = NSSelectorFromString("isAccessibilitySelected")
+            typealias Selected = @convention(c) (AnyObject, Selector) -> Bool
+            let isSelected =
+                node.responds(to: selected)
+                && unsafeBitCast(node.method(for: selected), to: Selected.self)(node, selected)
+            return [
+                "element": String(describing: type(of: node)),
+                "role": axText(node, "accessibilityRole"),
+                "identifier": axText(node, "accessibilityIdentifier"),
+                "label": axText(node, "accessibilityLabel"),
+                "selected": String(isSelected), "focused": String(isFocused(node)),
+            ]
+        }
+        let observed: [String: Any] = ["step": step, "target": identifier, "chain": chain]
+        let diagnostic = try! JSONSerialization.data(withJSONObject: observed, options: [.sortedKeys])
+        FileHandle.standardError.write(Data("TAB FOCUS ".utf8) + diagnostic + Data("\n".utf8))
         trace.append([
+            "chain": chain,
             "step": step, "target": identifier, "keyWindow": window.isKeyWindow,
             "firstResponder": String(describing: window.firstResponder),
             "focusedIdentifiers": nodes(root).filter(isFocused).map {
