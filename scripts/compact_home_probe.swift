@@ -9,10 +9,33 @@ import AppKit
 import SwiftUI
 import ApplicationServices
 
+/// Collect rather than exit on the first failed check so every scenario can report its geometry.
+/// The process still exits nonzero if any assertion failed.
+struct ProbeAssertions {
+    private(set) var failures: [String] = []
+    var succeeded: Bool { failures.isEmpty }
+
+    mutating func check(_ condition: @autoclosure () -> Bool, _ message: String) -> Bool {
+        let passed = condition()
+        if !passed { failures.append(message) }
+        return passed
+    }
+}
+
 @MainActor
-func require(_ condition: @autoclosure () -> Bool, _ message: String) {
-    guard condition() else { fputs("FAIL: \(message)\n", stderr); exit(1) }
-    print("PASS: \(message)")
+enum ProbeCheckLog {
+    static var assertions = ProbeAssertions()
+    static var geometryContext = ""
+}
+
+@MainActor
+@discardableResult
+func require(_ condition: @autoclosure () -> Bool, _ message: String) -> Bool {
+    let passed = condition()
+    let detail = passed ? message : message + "\n" + ProbeCheckLog.geometryContext
+    _ = ProbeCheckLog.assertions.check(passed, detail)
+    FileHandle.standardError.write(Data("\(passed ? "PASS" : "FAIL"): \(detail)\n".utf8))
+    return passed
 }
 @MainActor
 func settle() async { try? await Task.sleep(nanoseconds: 800_000_000) }
@@ -44,12 +67,139 @@ func axNodes(_ root: NSObject) -> [NSObject] {
     }
     return walk(root)
 }
+struct TaskViewportCandidate {
+    let frame: CGRect
+    let identifier: String
+    let hasTaskMarker: Bool
+}
+
+enum TaskViewportSelection {
+    static func index(in candidates: [TaskViewportCandidate], ownerFrames: [CGRect]) -> Int? {
+        let matches = candidates.indices.filter { index in
+            let candidate = candidates[index]
+            return candidate.identifier == "today-task-viewport" || candidate.hasTaskMarker
+                || ownerFrames.contains { $0.contains(candidate.frame) }
+        }
+        // Missing and ambiguous identities are harness failures, never a reason to guess by position.
+        return matches.count == 1 ? matches[0] : nil
+    }
+}
+
+func axString(_ value: Any?) -> String {
+    if let text = value as? NSAttributedString { return text.string }
+    return value as? String ?? ""
+}
+
+@MainActor
+func accessibilityFrame(_ node: NSObject) -> CGRect? {
+    // CGRect is a value type; perform(_:) is valid only for object-returning AX selectors.
+    guard node.responds(to: NSSelectorFromString("accessibilityFrame")) else { return nil }
+    return (node.value(forKey: "accessibilityFrame") as? NSValue)?.rectValue
+}
+
+@MainActor
+func scrollViews(in root: NSView) -> [NSScrollView] {
+    descendants(root).compactMap { $0 as? NSScrollView }
+}
+
+@MainActor
+func taskViewport(in root: NSView, excluding editor: NSTextView? = nil) -> NSScrollView? {
+    let lists = scrollViews(in: root).filter {
+        $0.documentView !== editor && !$0.isHiddenOrHasHiddenAncestor && $0.frame.height > 70 && $0.frame.width > 100
+    }
+    let candidates = lists.map {
+        TaskViewportCandidate(
+            frame: $0.convert($0.bounds, to: nil), identifier: $0.accessibilityIdentifier() ?? "",
+            hasTaskMarker: descendants($0).contains { $0.identifier?.rawValue == "today-continuation-fade" })
+    }
+    let ownerFrames = axNodes(root).compactMap { node -> CGRect? in
+        guard axString(attribute(node, "accessibilityIdentifier")) == "today-task-viewport",
+            let frame = accessibilityFrame(node), let window = root.window
+        else { return nil }
+        return window.convertFromScreen(frame)
+    }
+    guard let index = TaskViewportSelection.index(in: candidates, ownerFrames: ownerFrames) else { return nil }
+    return lists[index]
+}
+
+@MainActor
+enum GeometryDiagnostics {
+    static var measurements: [[String: Any]] = []
+
+    static func flush(output: URL) {
+        let data = try! JSONSerialization.data(withJSONObject: measurements, options: [.prettyPrinted, .sortedKeys])
+        try! data.write(to: output.appendingPathComponent("geometry-diagnostics.json"))
+    }
+}
+
+/// Persist every candidate before any assertion: a failed check must not hide later measurements.
+@MainActor
+func recordGeometry(scenario: String, delegate: AppDelegate, root: NSView?, output: URL) {
+    root?.layoutSubtreeIfNeeded()
+    let geometry = delegate.model.geometry
+    let panel = root?.window
+    let workspace: CGRect?
+    if panel is NotchPanel {
+        workspace = geometry?.workspace
+    } else if let root, let panel {
+        workspace = panel.convertToScreen(root.convert(root.bounds, to: nil))
+    } else {
+        workspace = nil
+    }
+    let shell = workspace.map { $0.offsetBy(dx: -(panel?.frame.minX ?? 0), dy: -(panel?.frame.minY ?? 0)) }
+    let editor = panel?.firstResponder as? NSTextView
+    let capture = editor.map { $0.convert($0.visibleRect, to: nil) }
+    let nodes = root.map(axNodes) ?? []
+    let lists = root.map(scrollViews) ?? []
+    let measurement: [String: Any] = [
+        "scenario": scenario, "workspaceHeight": workspace?.height ?? -1,
+        "shell": shell.map(NSStringFromRect) ?? "missing", "capture": capture.map(NSStringFromRect) ?? "missing",
+        "scrollCandidates": lists.map { list -> [String: Any] in
+            [
+                "frame": NSStringFromRect(list.convert(list.bounds, to: nil)),
+                "accessibilityIdentifier": list.accessibilityIdentifier() ?? "",
+                "nativeIdentifier": list.identifier?.rawValue ?? "",
+                "documentHeight": list.documentView?.frame.height ?? -1,
+                "hidden": list.isHiddenOrHasHiddenAncestor,
+                "isFieldEditor": list.documentView === editor,
+                "hasTaskMarker": descendants(list).contains { $0.identifier?.rawValue == "today-continuation-fade" },
+            ]
+        },
+        "accessibility": nodes.map { node -> [String: String] in
+            [
+                "role": axString(attribute(node, "accessibilityRole")),
+                "label": axString(attribute(node, "accessibilityLabel")),
+                "identifier": axString(attribute(node, "accessibilityIdentifier")),
+                "frame": accessibilityFrame(node).map(NSStringFromRect) ?? "",
+            ]
+        },
+    ]
+    GeometryDiagnostics.measurements.append(measurement)
+    GeometryDiagnostics.flush(output: output)
+    let data = try! JSONSerialization.data(withJSONObject: measurement, options: [.sortedKeys])
+    let context = measurement.filter { $0.key != "accessibility" }
+    let contextData = try! JSONSerialization.data(withJSONObject: context, options: [.sortedKeys])
+    ProbeCheckLog.geometryContext = String(decoding: contextData, as: UTF8.self)
+    FileHandle.standardError.write(Data("GEOMETRY ".utf8) + data + Data("\n".utf8))
+}
+
+@MainActor
+func matchesLabel(_ node: NSObject, _ label: String) -> Bool {
+    if let button = node as? NSButton, button.title == label || button.accessibilityLabel() == label { return true }
+    if let field = node as? NSTextField, field.isEditable,
+        field.placeholderString == label || field.accessibilityLabel() == label
+    {
+        return true
+    }
+    return axString(attribute(node, "accessibilityLabel")) == label
+}
+
 @MainActor
 func controlFrame(_ label: String, in root: NSView) -> CGRect? {
-    guard let node = axNodes(root).first(where: { attribute($0, "accessibilityLabel") as? String == label }),
-        let value = node.value(forKey: "accessibilityFrame") as? NSValue
+    guard let node = axNodes(root).first(where: { matchesLabel($0, label) }),
+        let frame = accessibilityFrame(node)
     else { return nil }
-    return value.rectValue
+    return frame
 }
 @MainActor
 func snapshot(_ root: NSView, _ name: String, into output: URL) {
@@ -328,6 +478,9 @@ MainActor.assumeIsolated {
                         delegate, label: scenario, full: scenario == "dense", deadline: focusDeadline)
                     FocusTraceLog.append(open, output: output)
                     recordFocus(delegate: delegate, scenario: scenario, output: output)
+                    await wakeAX()
+                    recordGeometry(
+                        scenario: scenario, delegate: delegate, root: NSApp.keyWindow?.contentView, output: output)
                     require(
                         (open["settledFocusAt"] as? Double ?? -1) >= 0 && open["focusedAtEnd"] as? Bool == true
                             && open["lostAfterFocus"] as? Bool == false,
@@ -336,7 +489,7 @@ MainActor.assumeIsolated {
                         let editor = panel.firstResponder as? NSTextView, editor.isFieldEditor,
                         let geometry = delegate.model.geometry
                     else {
-                        require(false, "\(scenario): capture editor is focused"); return
+                        require(false, "\(scenario): capture editor is focused"); continue
                     }
                     let workspace = geometry.workspace
                     let shell = workspace.offsetBy(dx: -panel.frame.minX, dy: -panel.frame.minY)
@@ -361,12 +514,9 @@ MainActor.assumeIsolated {
                                         ?? geometry.screen.menuBarHeight
                                 ).height) < 1,
                         "\(scenario): actual geometry uses the compact budget")
-                    let lists = descendants(root).compactMap { $0 as? NSScrollView }.filter {
-                        $0.documentView !== editor && $0.frame.height > 70 && $0.frame.width > 100
-                    }
-                    require(!lists.isEmpty, "\(scenario): bounded task scroll viewport exists")
-                    // Pick the leftmost scroll view (the task list), excluding the field editor's own scroll view.
-                    let list = lists.min { $0.convert($0.bounds, to: nil).minX < $1.convert($1.bounds, to: nil).minX }!
+                    let selectedList = taskViewport(in: root, excluding: editor)
+                    require(selectedList != nil, "\(scenario): bounded task scroll viewport exists")
+                    guard let list = selectedList else { continue }
                     let listFrame = list.convert(list.bounds, to: nil)
                     require(shell.contains(listFrame), "\(scenario): scroll viewport stays inside shell")
                     require(!listFrame.intersects(capture), "\(scenario): task scroll cannot cover capture")
@@ -379,23 +529,26 @@ MainActor.assumeIsolated {
                     ])
                     if scenario == "completed" && !baseline {
                         await wakeAX(); await settle()
+                        recordGeometry(scenario: "completed-filter", delegate: delegate, root: root, output: output)
                         guard let captureBounds = controlFrame("Add a task", in: root) else {
-                            require(false, "completed: capture bounds exist"); return
+                            require(false, "completed: capture bounds exist"); continue
                         }
                         guard
                             let button = axNodes(root).first(where: {
-                                attribute($0, "accessibilityLabel") as? String == "Completed 3"
+                                matchesLabel($0, "Completed 3")
                             })
-                        else { require(false, "completed: filter remains reachable"); return }
+                        else { require(false, "completed: filter remains reachable"); continue }
                         let selector = NSSelectorFromString("accessibilityPerformPress")
                         guard button.responds(to: selector), let implementation = button.method(for: selector) else {
-                            require(false, "completed: filter exposes native action"); return
+                            require(false, "completed: filter exposes native action"); continue
                         }
                         typealias Press = @convention(c) (AnyObject, Selector) -> Bool
                         require(
                             unsafeBitCast(implementation, to: Press.self)(button, selector),
                             "completed: filter action succeeds")
                         await settle(); await wakeAX(); await settle()
+                        recordGeometry(
+                            scenario: "completed-filter-open", delegate: delegate, root: root, output: output)
                         let title = delegate.store.planner.tasks[0].title
                         require(
                             controlFrame("Reopen \(title)", in: root) != nil,
@@ -411,6 +564,7 @@ MainActor.assumeIsolated {
                             "dense: content scrolls instead of growing shell")
                         document.scroll(NSPoint(x: 0, y: document.frame.height))
                         await settle()
+                        recordGeometry(scenario: "dense-scrolled", delegate: delegate, root: root, output: output)
                         require(
                             editor.convert(editor.visibleRect, to: nil) == capture,
                             "dense: capture does not move when tasks scroll")
@@ -421,6 +575,7 @@ MainActor.assumeIsolated {
                             String(repeating: "A multi-line capture draft with more release notes. ", count: 12),
                             replacementRange: NSRange(location: NSNotFound, length: 0))
                         await settle()
+                        recordGeometry(scenario: "multiline-capture", delegate: delegate, root: root, output: output)
                         require(
                             delegate.model.geometry?.workspace == workspace && panel.frame == geometry.window,
                             "typing never resizes the workspace")
@@ -508,26 +663,25 @@ MainActor.assumeIsolated {
                         window.contentView = root
                         window.makeKeyAndOrderFront(nil); NSApp.activate(ignoringOtherApps: true)
                         await settle(); await wakeAX(); await settle()
+                        recordGeometry(scenario: name, delegate: delegate, root: root, output: output)
                         require(axNodes(root).count > 10, "\(name): AX populated before bounds checks")
                         guard let capture = controlFrame("Add a task", in: root) else {
-                            require(false, "\(name): capture bounds exist"); return
+                            require(false, "\(name): capture bounds exist"); window.orderOut(nil); continue
                         }
                         let entry = controlFrame("Start focus", in: root)
                         require(running ? entry == nil : entry != nil, "\(name): expected Start focus visibility")
-                        @MainActor func taskList() -> NSScrollView {
-                            descendants(root).compactMap { $0 as? NSScrollView }
-                                .filter { $0.frame.height > 70 && $0.frame.width > 100 }
-                                .min { $0.convert($0.bounds, to: nil).minX < $1.convert($1.bounds, to: nil).minX }!
-                        }
                         @MainActor func fade() -> NSView? {
-                            descendants(taskList()).first { $0.identifier?.rawValue == "today-continuation-fade" }
+                            taskViewport(in: root).flatMap { list in
+                                descendants(list).first { $0.identifier?.rawValue == "today-continuation-fade" }
+                            }
                         }
                         if !geometryOnly {
-                            require(fade() != nil && fade()!.isHidden, "\(name): no fade when empty")
+                            require(fade()?.isHidden == true, "\(name): no fade when empty")
                         }
                         delegate.store.apply { try $0.addTasks(["Inspect one short checklist"], on: .day($0.today)) }
                         await settle()
-                        if !geometryOnly { require(fade()!.isHidden, "\(name): no fade for fitting rows") }
+                        recordGeometry(scenario: name + "-one-row", delegate: delegate, root: root, output: output)
+                        if !geometryOnly { require(fade()?.isHidden == true, "\(name): no fade for fitting rows") }
                         delegate.store.seedFixture { e in
                             e.planner.tasks = []
                             _ = try e.addTasks(
@@ -540,7 +694,11 @@ MainActor.assumeIsolated {
                                 && delegate.store.planner.tasks.allSatisfy { $0.title.contains("\n") },
                             "\(name): fixture retains 24 actual multiline titles")
                         await settle(); await wakeAX(); await settle()
-                        let list = taskList(), document = taskList().documentView!
+                        recordGeometry(scenario: name + "-dense", delegate: delegate, root: root, output: output)
+                        guard let list = taskViewport(in: root), let document = list.documentView else {
+                            require(false, "\(name): identified task viewport and document exist")
+                            window.orderOut(nil); continue
+                        }
                         require(
                             document.frame.height > list.contentSize.height, "\(name): multiline dense rows overflow")
                         require(controlFrame("Add a task", in: root) == capture, "\(name): dense capture unchanged")
@@ -551,7 +709,7 @@ MainActor.assumeIsolated {
                         require(document.frame.height / 24 > 40, "\(name): rendered rows occupy multiple lines")
                         if !geometryOnly {
                             guard let cue = fade() else {
-                                require(false, "\(name): continuation cue installed"); return
+                                require(false, "\(name): continuation cue installed"); window.orderOut(nil); continue
                             }
                             require(!cue.isHidden, "\(name): fade visible during overflow")
                             require(
@@ -563,12 +721,13 @@ MainActor.assumeIsolated {
                         document.scroll(
                             NSPoint(x: 0, y: document.isFlipped ? document.bounds.maxY : document.bounds.minY))
                         await settle()
+                        recordGeometry(scenario: name + "-end", delegate: delegate, root: root, output: output)
                         let visible = document.convert(list.contentView.bounds, from: list.contentView)
                         require(
                             document.isFlipped
                                 ? visible.maxY >= document.bounds.maxY - 1 : visible.minY <= document.bounds.minY + 1,
                             "\(name): actual scroll end reached")
-                        if !geometryOnly { require(fade()!.isHidden, "\(name): fade absent at scroll end") }
+                        if !geometryOnly { require(fade()?.isHidden == true, "\(name): fade absent at scroll end") }
                         require(controlFrame("Add a task", in: root) == capture, "\(name): scroll capture unchanged")
                         require(
                             controlFrame("Start focus", in: root) == denseEntry, "\(name): scroll Start focus unchanged"
@@ -582,13 +741,25 @@ MainActor.assumeIsolated {
                         // Shrinking content must also clear the cue without any user scroll.
                         delegate.store.seedFixture { $0.planner.tasks = [] }
                         await settle()
-                        if !geometryOnly { require(fade()!.isHidden, "\(name): fade clears after content removal") }
+                        recordGeometry(scenario: name + "-cleared", delegate: delegate, root: root, output: output)
+                        if !geometryOnly {
+                            require(fade()?.isHidden == true, "\(name): fade clears after content removal")
+                        }
                         window.orderOut(nil)
                     }
                 }
             }
             let data = try! JSONSerialization.data(withJSONObject: metrics, options: [.prettyPrinted, .sortedKeys])
             try! data.write(to: output.appendingPathComponent("layout-metrics.json"))
+            GeometryDiagnostics.flush(output: output)
+            guard ProbeCheckLog.assertions.succeeded else {
+                let failures = ProbeCheckLog.assertions.failures
+                FileHandle.standardError.write(
+                    Data(
+                        ("Compact Home layout probes failed: \(failures.count) assertions.\n"
+                            + failures.joined(separator: "\n") + "\n").utf8))
+                exit(1)
+            }
             print("Compact Home layout probes passed.")
             exit(0)
         }
