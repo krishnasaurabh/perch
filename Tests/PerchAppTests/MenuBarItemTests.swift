@@ -6,8 +6,26 @@ import XCTest
 
 final class MenuBarItemTests: XCTestCase {
     @MainActor
+    private func allowStatusBarWindows() -> NSApplication.ActivationPolicy {
+        let app = NSApplication.shared
+        let policy = app.activationPolicy()
+        // Allow status windows in the unbundled test host, then restore its original policy.
+        XCTAssertTrue(app.setActivationPolicy(.accessory))
+        return policy
+    }
+
+    @MainActor
+    private func waitForVisible(_ item: NSStatusItem) async throws {
+        // Let AppKit install the status window without blocking its main run loop.
+        for _ in 0..<100 {
+            if item.isVisible { return }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+    }
+    @MainActor
     func testExplicitNavigationCallbackWithDefaultDependencies() async throws {
-        _ = NSApplication.shared
+        let policy = allowStatusBarWindows()
+        defer { NSApp.setActivationPolicy(policy) }
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: root) }
         let store = PlannerStore(
@@ -26,7 +44,8 @@ final class MenuBarItemTests: XCTestCase {
 
     @MainActor
     func testRealStatusItemLifecycleAndTypedPersistedUpdates() async throws {
-        _ = NSApplication.shared
+        let policy = allowStatusBarWindows()
+        defer { NSApp.setActivationPolicy(policy) }
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: root) }
         let preferences = MemoryPlannerPreferences()
@@ -36,6 +55,7 @@ final class MenuBarItemTests: XCTestCase {
         defer { item.stop() }
         let original = try XCTUnwrap(item.statusItem)
         XCTAssertTrue(try XCTUnwrap(original.button?.image).isTemplate)
+        try await waitForVisible(original)
         XCTAssertTrue(original.isVisible)
         try XCTUnwrap(store.apply { try $0.updatePreference(.menuBarDisplay(.hidden)) })
         XCTAssertNil(item.statusItem)
@@ -43,6 +63,7 @@ final class MenuBarItemTests: XCTestCase {
         try XCTUnwrap(store.apply { try $0.updatePreference(.menuBarDisplay(.icon)) })
         let restored = try XCTUnwrap(item.statusItem)
         XCTAssertFalse(restored === original)
+        try await waitForVisible(restored)
         XCTAssertTrue(restored.isVisible)
         try XCTUnwrap(store.apply { try $0.updatePreference(.hideCountsAndTimes(false)) })
         try XCTUnwrap(store.apply { try $0.updatePreference(.menuBarDisplay(.tasksLeft)) })
@@ -62,7 +83,8 @@ final class MenuBarItemTests: XCTestCase {
 
     @MainActor
     func testNativeMenuActionsPersistAndRedactVisibleAndAccessibleValues() async throws {
-        _ = NSApplication.shared
+        let policy = allowStatusBarWindows()
+        defer { NSApp.setActivationPolicy(policy) }
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: root) }
         let now = Date(timeIntervalSince1970: 1_800_000_000)
@@ -111,7 +133,8 @@ final class MenuBarItemTests: XCTestCase {
 
     @MainActor
     func testNavigationAndMenuKeyboardEquivalents() async throws {
-        _ = NSApplication.shared
+        let policy = allowStatusBarWindows()
+        defer { NSApp.setActivationPolicy(policy) }
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: root) }
         let store = PlannerStore(
@@ -140,10 +163,11 @@ final class MenuBarItemTests: XCTestCase {
                 characters: "p", charactersIgnoringModifiers: "p", isARepeat: false, keyCode: 35))
         XCTAssertTrue(item.menu.performKeyEquivalent(with: pause))
         XCTAssertEqual(try store.file.load().focus?.state, .paused)
+        // Ignoring modifiers preserves Shift: the physical Shift-= key produces "+" in both fields.
         let extend = try XCTUnwrap(
             NSEvent.keyEvent(
                 with: .keyDown, location: .zero, modifierFlags: [.command, .shift], timestamp: 0, windowNumber: 0,
-                context: nil, characters: "+", charactersIgnoringModifiers: "=", isARepeat: false, keyCode: 24))
+                context: nil, characters: "+", charactersIgnoringModifiers: "+", isARepeat: false, keyCode: 24))
         XCTAssertTrue(item.menu.performKeyEquivalent(with: extend))
         XCTAssertEqual(try store.file.load().focus?.limit, 30 * 60)
         let repeatPause = try XCTUnwrap(
@@ -158,7 +182,8 @@ final class MenuBarItemTests: XCTestCase {
 
     @MainActor
     func testTaskChangesAndShortcutRollbackRefreshTheExistingItem() async throws {
-        _ = NSApplication.shared
+        let policy = allowStatusBarWindows()
+        defer { NSApp.setActivationPolicy(policy) }
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: root) }
         let store = PlannerStore(
@@ -190,7 +215,8 @@ final class MenuBarItemTests: XCTestCase {
 
     @MainActor
     func testHiddenAtStartupAndPrivacyAtStartupAreAppliedWithoutWrites() async throws {
-        _ = NSApplication.shared
+        let policy = allowStatusBarWindows()
+        defer { NSApp.setActivationPolicy(policy) }
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: root) }
         var prefs = Preferences()

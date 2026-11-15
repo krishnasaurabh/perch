@@ -90,6 +90,7 @@ final class MenuBarItem: NSObject, NSMenuDelegate {
             } else {
                 item = statusBar.statusItem(withLength: NSStatusItem.variableLength)
                 item.menu = menu
+                item.isVisible = true
                 lifetime.state.item = item
             }
             let image = MenuBarArtwork.image(for: presentation.item)
