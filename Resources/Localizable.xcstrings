@@ -2696,6 +2696,23 @@
         }
       }
     },
+    "Choose Automatic to let Perch use any attached display.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Choose Automatic to let Perch use any attached display."
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Chöösë Åütömàtïc tö lët Përch üsë àny àttàchëd dïsplày. ·~⟧"
+          }
+        }
+      }
+    },
     "Choose a future reminder for an open, scheduled task.": {
       "extractionState": "manual",
       "localizations": {
