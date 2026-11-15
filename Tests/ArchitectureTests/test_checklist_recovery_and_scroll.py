@@ -19,6 +19,15 @@ class ChecklistRecoveryAndScrollTests(unittest.TestCase):
         swift = shutil.which("swiftc")
         if swift is None:
             self.fail("Swift is required for checklist regressions")
+        framework_flags = []
+        xcrun = shutil.which("xcrun")
+        if xcrun:
+            platform = subprocess.run(
+                [xcrun, "--show-sdk-platform-path"],
+                capture_output=True, text=True, timeout=30)
+            if platform.returncode == 0:
+                frameworks = str(Path(platform.stdout.strip()) / "Developer/Library/Frameworks")
+                framework_flags = ["-F", frameworks, "-Xlinker", "-rpath", "-Xlinker", frameworks]
         with tempfile.TemporaryDirectory() as directory:
             folder = Path(directory)
             main = folder / "main.swift"
@@ -27,7 +36,7 @@ class ChecklistRecoveryAndScrollTests(unittest.TestCase):
             binary = folder / "checklist"
             compiled = subprocess.run(
                 [swift, "-swift-version", "6", *map(str, sources),
-                 *map(str, extra_sources), str(main), "-o", str(binary)],
+                 *map(str, extra_sources), str(main), "-o", str(binary), *framework_flags],
                 capture_output=True, text=True, timeout=180)
             self.assertEqual(compiled.returncode, 0, compiled.stdout + compiled.stderr)
             result = subprocess.run([str(binary)], capture_output=True, text=True, timeout=30)
