@@ -13,7 +13,7 @@ class ChecklistRedesignTests(unittest.TestCase):
         for forbidden in ("ViewThatFits", "sizeThatFits(", "TitleActionsLayout", "GeometryReader"):
             self.assertNotIn(forbidden, row)
         for marker in ("PerchCheckbox(", "Theme.Size.taskRowHeight.value",
-                       "Theme.Size.stepRowHeight.value", ".draggable(TaskDragItem(taskID: task.id))",
+                       "Theme.Size.stepRowHeight.value", ".onDrag { ChecklistTaskDrag.provider(for: task.id) }",
                        "Theme.carried", "Theme.ink3", "Theme.doneText"):
             self.assertIn(marker, row)
         details = row.split("private var detailText:", 1)[1].split("private var steps:", 1)[0]
@@ -45,7 +45,7 @@ class ChecklistRedesignTests(unittest.TestCase):
     def test_live_draft_and_native_text_undo_keep_separate_ownership(self):
         source = (WORKSPACE / "TasksCard.swift").read_text()
         for marker in ('placeholder: "Add a task. Tab makes it a step."',
-                       'AddField("Add a task"', 'homeState?.captureDraft = TodayHomeState.CaptureDraft',
+                       'ChecklistCaptureField(', 'homeState?.captureDraft = TodayHomeState.CaptureDraft',
                        'draft.startAt', 'draft.minutes ?? store.prefs.defaultFocusMinutes',
                        'CaptureTextUndo(onTab: changeIndent)', 'return capture.outdent()',
                        'return capture.indent(parentID: parent?.id)', 'editor.hasMarkedText()',

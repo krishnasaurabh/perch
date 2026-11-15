@@ -5484,6 +5484,23 @@
         }
       }
     },
+    "Listening. Tap the mic to stop.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Listening. Tap the mic to stop."
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Lïstënïng. Tàp thë mïc tö stöp. ·~⟧"
+          }
+        }
+      }
+    },
     "Low": {
       "extractionState": "manual",
       "localizations": {
@@ -10893,6 +10910,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "⟦Tömörröw ·~⟧"
+          }
+        }
+      }
+    },
+    "Try adding the dictated task again": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Try adding the dictated task again"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Try àddïng thë dïctàtëd tàsk àgàïn ·~⟧"
           }
         }
       }

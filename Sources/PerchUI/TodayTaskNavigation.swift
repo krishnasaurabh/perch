@@ -59,8 +59,35 @@ public enum TodayTaskNavigation {
 
 /// The add field has one indentation level. A second Tab can leave it normally.
 public struct TodayTaskCapture: Equatable, Sendable {
+    public var text = ""
     public private(set) var parentID: UUID?
+    public private(set) var pendingDictation: String?
+    public private(set) var pendingDictationParentID: UUID?
     public init() {}
+
+    /// Speech has its own submission buffer. Neither successful insertion nor a
+    /// failure can replace text the person entered before or during recording.
+    @discardableResult
+    public mutating func submitDictation(
+        _ spoken: String, parentID: UUID? = nil, using submit: (String) -> Bool
+    ) -> Bool {
+        let value = spoken.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !value.isEmpty else { return false }
+        pendingDictation = value
+        pendingDictationParentID = parentID
+        guard submit(value) else { return false }
+        pendingDictation = nil
+        pendingDictationParentID = nil
+        return true
+    }
+
+    /// A single preview must describe a single submitted task, never metadata
+    /// combined from different lines. Blank lines and list bullets follow capture.
+    public func preview(using parser: TaskCapture, language: TaskParserLanguage) -> CapturedTask? {
+        let lines = TaskCapture.splitLines(text)
+        guard parentID == nil, lines.count == 1, let line = lines.first else { return nil }
+        return parser.parse(line, language: language)
+    }
     public mutating func indent(parentID: UUID?) -> Bool {
         guard self.parentID == nil, let parentID else { return false }
         self.parentID = parentID

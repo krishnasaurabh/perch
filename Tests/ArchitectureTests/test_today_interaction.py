@@ -12,7 +12,7 @@ class TodayInteractionTests(unittest.TestCase):
         self.assertNotIn("if hover", source)
         self.assertNotIn("DragGesture", source)
         for marker in ('task-complete-', '.contextMenu { menu }', '.accessibilityActions {',
-                       'Theme.Size.minimumTarget', '.draggable(TaskDragItem(taskID: task.id))'):
+                       'Theme.Size.minimumTarget', '.onDrag { ChecklistTaskDrag.provider(for: task.id) }'):
             self.assertIn(marker, source)
 
     def test_priority_is_textual_and_includes_medium_and_low(self):

@@ -1,6 +1,22 @@
 import PlannerCore
 import PerchUI
 import SwiftUI
+import UniformTypeIdentifiers
+
+/// Export the typed identity and the legacy UUID text from a single drag. Week's
+/// existing String destinations remain usable while typed timelines adopt it.
+@MainActor enum ChecklistTaskDrag {
+    static func provider(for id: UUID) -> NSItemProvider {
+        let provider = NSItemProvider(object: id.uuidString as NSString)
+        let data = try? JSONEncoder().encode(TaskDragItem(taskID: id))
+        provider.registerDataRepresentation(forTypeIdentifier: UTType.perchTask.identifier, visibility: .ownProcess) {
+            completion in
+            completion(data, nil)
+            return nil
+        }
+        return provider
+    }
+}
 
 /// Capture and Undo stay outside the checklist's single keyboard stop.
 enum TodayFocus: Hashable {
@@ -65,7 +81,7 @@ struct TaskRow: View {
                 shape: RoundedRectangle(cornerRadius: Theme.Size.currentTaskRadius.value),
                 focused: keyboardFocused && selected && selectedStepID == nil, surface: surface)
         )
-        .draggable(TaskDragItem(taskID: task.id))
+        .onDrag { ChecklistTaskDrag.provider(for: task.id) }
     }
 
     private var accessibleTitle: some View {

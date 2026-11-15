@@ -113,6 +113,7 @@ struct TasksCard: View {
             TaskComposer(
                 day: .day(store.today), placeholder: "Add a task. Tab makes it a step.", focus: $focus,
                 homeState: homeState, initialStep: preview == .stepEntry,
+                initialText: preview == .multiline ? "Call Sam at 1:30 PM\nWrite notes for 20 min" : nil,
                 onStep: {
                     expandedTasks.insert($0); showsLater = true
                 }
@@ -357,11 +358,11 @@ struct TaskComposer: View {
     var focus: FocusState<TodayFocus?>.Binding? = nil
     var homeState: TodayHomeState? = nil
     var initialStep = false
+    var initialText: String? = nil
     var onStep: (UUID) -> Void = { _ in }
     @EnvironmentObject var store: PlannerStore
     @EnvironmentObject var services: Services
     @EnvironmentObject var model: NotchModel
-    @State private var text = ""
     @State private var capture = TodayTaskCapture()
     @State private var lastAddedID: UUID?
     @State private var parsed: CapturedTask?
@@ -369,18 +370,25 @@ struct TaskComposer: View {
     @FocusState private var fieldFocused: Bool
     private var focusBinding: FocusState<TodayFocus?>.Binding { focus ?? $localFocus }
     private var focused: Bool { focusBinding.wrappedValue == .capture }
+    private var text: String { capture.text }
 
     var body: some View {
         VStack(alignment: .leading, spacing: Theme.Size.focusGap.value * 3) {
             if let parent = capture.parentID.flatMap({ id in store.planner.tasks.first { $0.id == id } }) {
                 Text(AppL10n.format("Step of %@", parent.title)).perchFont(.detail).foregroundStyle(Theme.ink2)
             }
-            AddField("Add a task", text: $text, prompt: placeholder, focus: $fieldFocused, onSubmit: add) {
-                services.voice.toggle { spoken in
-                    text = spoken; updateDraft(); add()
+            ChecklistCaptureField(
+                voice: services.voice, text: $capture.text, prompt: placeholder,
+                focus: $fieldFocused, onSubmit: add, onDictate: dictate
+            )
+            .background(CaptureTextUndo(onTab: changeIndent))
+            if let pending = capture.pendingDictation {
+                Text(pending).perchFont(.detail).foregroundStyle(Theme.ink2)
+                    .fixedSize(horizontal: false, vertical: true)
+                PerchButton("Try adding the dictated task again", kind: .quiet, size: .small) {
+                    addDictation(pending, parentID: capture.pendingDictationParentID)
                 }
             }
-            .background(CaptureTextUndo(onTab: changeIndent))
             if !text.isEmpty {
                 HStack(spacing: Theme.Size.focusGap.value * 3) {
                     if capture.parentID == nil, let parsed {
@@ -398,10 +406,10 @@ struct TaskComposer: View {
         }
         .onAppear {
             #if DEBUG || PERCH_TESTING
-                if initialStep { _ = changeIndent(false); text = "Check the final detail" }
+                if initialStep { _ = changeIndent(false); capture.text = "Check the final detail" }
+                if let initialText { capture.text = initialText }
             #endif
         }
-        .onChange(of: text) { _, _ in updateDraft() }
         .onChange(of: capture) { _, _ in updateDraft() }
         .onChange(of: fieldFocused) { _, value in
             if value { focusBinding.wrappedValue = .capture } else if focused { focusBinding.wrappedValue = nil }
@@ -423,12 +431,11 @@ struct TaskComposer: View {
     }
 
     private func updateDraft() {
-        guard capture.parentID == nil, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-            let language = TaskParserLanguage.current
+        guard day == .day(store.today), let language = TaskParserLanguage.current,
+            let draft = capture.preview(using: store.capture, language: language)
         else {
             parsed = nil; homeState?.captureDraft = nil; return
         }
-        let draft = store.capture.parse(text, language: language)
         parsed = draft
         if let start = draft.startAt, !draft.inbox, draft.day == nil || draft.day == store.today {
             homeState?.captureDraft = TodayHomeState.CaptureDraft(
@@ -449,26 +456,70 @@ struct TaskComposer: View {
     func add() {
         let value = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !value.isEmpty else { return }
-        let result: [PlanTask]?
-        if capture.parentID == nil {
-            result = store.addTasks([value], on: day)
-        } else {
-            result = store.apply { commands in
-                try TodayTaskCapture.submit(
-                    value, parentID: capture.parentID, on: day, commands: commands, language: .english)
-            }
-        }
-        guard let added = result else { return }
-        if let parentID = capture.parentID {
-            onStep(parentID)
-        } else {
-            lastAddedID = added.last?.id; AISorter.sort(added.map(\.id), store: store)
-        }
-        text = ""
+        guard submit(value, parentID: capture.parentID) else { return }
+        capture.text = ""
         parsed = nil
         homeState?.captureDraft = nil
         focusBinding.wrappedValue = .capture
         fieldFocused = true
+    }
+
+    private func dictate() {
+        let parentID = capture.parentID
+        services.voice.toggle { spoken in addDictation(spoken, parentID: parentID) }
+    }
+
+    private func addDictation(_ spoken: String, parentID: UUID?) {
+        // The callback never assigns or clears the live editor, including on failure.
+        _ = capture.submitDictation(spoken, parentID: parentID) { submit($0, parentID: parentID) }
+    }
+
+    private func submit(_ value: String, parentID: UUID?) -> Bool {
+        let result: [PlanTask]?
+        if parentID == nil {
+            result = store.addTasks([value], on: day)
+        } else {
+            result = store.apply { commands in
+                try TodayTaskCapture.submit(
+                    value, parentID: parentID, on: day, commands: commands, language: .english)
+            }
+        }
+        guard let added = result else { return false }
+        if let parentID {
+            onStep(parentID)
+        } else {
+            lastAddedID = added.last?.id; AISorter.sort(added.map(\.id), store: store)
+        }
+        return true
+    }
+}
+
+/// Observe the voice service itself; its publisher is not forwarded by Services.
+struct ChecklistCaptureField: View {
+    @ObservedObject var voice: VoiceCapture
+    @Binding var text: String
+    let prompt: String
+    let focus: FocusState<Bool>.Binding
+    let onSubmit: () -> Void
+    let onDictate: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: Theme.Size.focusGap.value) {
+            AddField(
+                "Add a task", text: $text, prompt: prompt, focus: focus, onSubmit: onSubmit,
+                isDictating: voice.state == .listening, onDictate: onDictate)
+            switch voice.state {
+            case .idle: EmptyView()
+            case .listening:
+                Text("Listening. Tap the mic to stop.").perchFont(.detail).foregroundStyle(Theme.ink2)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityIdentifier("capture-listening")
+            case .error(let message):
+                Text(message).perchFont(.detail).foregroundStyle(Theme.ink2)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityIdentifier("capture-dictation-error")
+            }
+        }
     }
 }
 
@@ -550,12 +601,19 @@ struct CaptureTextUndo: NSViewRepresentable {
     }
 }
 
-enum ChecklistPreviewState { case none, expanded, steps, selected, stepEntry, completed }
+enum ChecklistPreviewState {
+    case none, expanded, steps, selected, stepEntry, completed, dictating, voiceError, multiline
+}
 
 #if DEBUG || PERCH_TESTING
     @MainActor enum ChecklistPreview {
         static func show(_ state: ChecklistPreviewState, app: AppDelegate) {
             WindowHost.windows["checklist-preview"]?.close()
+            if state == .dictating { app.services.voice.state = .listening }
+            if state == .voiceError {
+                app.services.voice.state = .error(
+                    AppL10n.text("Allow Speech Recognition for Perch under System Settings › Privacy & Security."))
+            }
             if state == .completed {
                 for task in app.store.engine.tasks(on: .day(app.store.today)) where !task.done {
                     app.store.send(.complete(task.id))

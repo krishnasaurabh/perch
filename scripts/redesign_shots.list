@@ -42,3 +42,6 @@ checklist-step-entry --scenario three --open checklist-step-entry
 checklist-completed --scenario today-running --open checklist-completed
 checklist-draft --scenario today-before --open today
 checklist-paused --scenario notch-paused --open today
+checklist-dictating --scenario three --open checklist-dictating
+checklist-voice-error --scenario three --open checklist-voice-error
+checklist-multiline --scenario three --open checklist-multiline
