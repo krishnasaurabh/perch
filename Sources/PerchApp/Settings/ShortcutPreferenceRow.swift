@@ -73,7 +73,7 @@ struct ShortcutPreferenceRow: View {
         problem = nil
         if let store {
             guard Self.save(key, in: store) else { return }
-            // The application-wide synchronizer updates the live registration after publication.
+            // The application-wide synchronizer applies successful choices, including unchanged values.
         } else {
             ShortcutStore.save(key)
         }
@@ -85,8 +85,12 @@ struct ShortcutPreferenceRow: View {
     }
 
     static func save(_ key: ShortcutKey, in store: PlannerStore) -> Bool {
-        guard key.isValid else { return false }
-        return store.apply { try $0.updatePreference(.openShortcut(ShortcutPreferenceSync.preference(key))) } != nil
+        guard key.isValid,
+            store.apply({ try $0.updatePreference(.openShortcut(ShortcutPreferenceSync.preference(key))) }) != nil
+        else { return false }
+        // A saved default can be a no-op for the planner, but is still an explicit replacement.
+        NotificationCenter.default.post(name: ShortcutPreferenceSync.didChoose, object: store)
+        return true
     }
 }
 
@@ -95,6 +99,7 @@ struct ShortcutPreferenceRow: View {
 @MainActor
 final class ShortcutPreferenceSync {
     static let migrationKey = "perch.shortcutPreferenceMigrated"
+    fileprivate static let didChoose = Notification.Name("PerchShortcutPreferenceDidChoose")
     private var observations = Set<AnyCancellable>()
     private var pendingRestore: (rejected: ShortcutKey, restored: ShortcutKey)?
     private weak var store: PlannerStore?
@@ -116,6 +121,15 @@ final class ShortcutPreferenceSync {
     init(store: PlannerStore, defaults: UserDefaults = .standard) {
         self.store = store
         self.defaults = defaults
+        // save posts on the main actor after persistence succeeds. Handle it synchronously so a
+        // queued planner publication cannot re-import the legacy chord over an explicit default.
+        NotificationCenter.default.publisher(for: Self.didChoose)
+            .sink { [weak self] note in
+                guard let self, let store = self.store, note.object as? PlannerStore === store else { return }
+                self.defaults.set(true, forKey: Self.migrationKey)
+                self.pendingRestore = nil
+                self.synchronize()
+            }.store(in: &observations)
         // Always connect before importing: a storage failure must not disable later updates.
         // Retain failed storage restorations until the next publication, even if the chord is unchanged.
         store.$planner.dropFirst().receive(on: RunLoop.main)
