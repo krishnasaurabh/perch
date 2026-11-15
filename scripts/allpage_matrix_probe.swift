@@ -1284,7 +1284,7 @@ final class AllPageMatrix {
 
         // Detail markers are distinct from the five sidebar titles.
         let markers: [(SettingsView.Pane, String, String)] = [
-            (.general, "Opening", "Hovering over the notch shows"),
+            (.general, "Your day", "Hovering over the notch shows"),
             (.notch, "Around the notch", "Pill details"),
             (.calendar, "Calendar", "Apple Reminders"),
             (.agents, "Connect AI agents", "Or use Terminal"),
@@ -1356,8 +1356,19 @@ final class AllPageMatrix {
         // General: the Apple Intelligence control must present the real availability reason and
         // follow the real availability; nothing may touch the login item.
         try selectPane(.general, window: window, host: host, root: root)
-        try mxClick(host: host, window: window, screenRect: mxFrame(try mxIdentified(root, "settings.general.more")))
+        let moreOptions = try mxIdentified(root, "settings.general.more")
+        let beforeExpansion = mxString(moreOptions, kAXValueAttribute as String) ?? "missing"
+        try mxClick(host: host, window: window, screenRect: mxFrame(moreOptions))
         await mxReady(0.8)
+        if !mxHas(root, AppL10n.text("Auto-sort new tasks")) {
+            let afterExpansion =
+                (try? mxIdentified(root, "settings.general.more"))
+                .flatMap { mxString($0, kAXValueAttribute as String) } ?? "missing"
+            mxLog("General More options before=\(beforeExpansion) after=\(afterExpansion) texts=\(mxText(root))")
+            mxDumpAX(root, "general-more-options-failure")
+            try? writeAX(root, output.appendingPathComponent("general-more-options-failure.ax.json"))
+            try? mxSave(host, output.appendingPathComponent("general-more-options-failure.png"))
+        }
         let loginStatus = SMAppService.mainApp.status
         let expectedExplanation = SettingsView.appleIntelligenceExplanation(
             isSupported: AISorter.isSupported, unavailableReason: AISorter.unavailableReason)

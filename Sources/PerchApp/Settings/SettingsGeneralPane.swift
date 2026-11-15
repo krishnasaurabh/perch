@@ -12,6 +12,7 @@ struct SettingsGeneralPane: View {
     @ObservedObject var feedback: SettingsFailureFeedback
     @State private var choosingHour = false
     @State private var loginNeedsApproval = false
+    @State private var showingMoreOptions = false
 
     var body: some View {
         SettingsSection("Opening") {
@@ -125,12 +126,22 @@ struct SettingsGeneralPane: View {
             }
         }
         // Preserve the existing optional workspace and language controls below the primary rows.
-        DisclosureGroup("More options") {
-            additionalOptions
+        PerchButton(kind: .quiet, size: .small, action: { showingMoreOptions.toggle() }) {
+            Label {
+                Text("More options")
+            } icon: {
+                if showingMoreOptions {
+                    Image(systemName: "chevron.down")
+                } else {
+                    Image(systemName: "chevron.right")
+                }
+            }
         }
         .accessibilityIdentifier("settings.general.more")
-        .perchFont(.detail)
-        .foregroundStyle(Theme.ink2)
+        .accessibilityValue(showingMoreOptions ? AppL10n.text("Expanded") : AppL10n.text("Collapsed"))
+        if showingMoreOptions {
+            additionalOptions
+        }
     }
 
     static func connect(store: PlannerStore) -> AnyCancellable {

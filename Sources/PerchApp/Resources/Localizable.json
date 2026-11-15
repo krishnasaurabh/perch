@@ -3155,6 +3155,23 @@
         }
       }
     },
+    "Collapsed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Collapsed"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Cöllàpsëd ·~⟧"
+          }
+        }
+      }
+    },
     "Color, one job per card": {
       "extractionState": "manual",
       "localizations": {
@@ -4562,6 +4579,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "⟦Ëvërythïng wörks wïthöüt thë möüsë. Prëss ? ïn Përch tö sëë thïs shëët. ·~⟧"
+          }
+        }
+      }
+    },
+    "Expanded": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Expanded"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Ëxpàndëd ·~⟧"
           }
         }
       }
@@ -6262,6 +6296,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "⟦Mörë ·~⟧"
+          }
+        }
+      }
+    },
+    "More options": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "More options"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Mörë öptïöns ·~⟧"
           }
         }
       }
