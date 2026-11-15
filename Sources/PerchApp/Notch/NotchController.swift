@@ -274,6 +274,9 @@ final class NotchController {
             }
         }
 
+        model.$page.removeDuplicates().dropFirst().sink { [weak self] _ in
+            DispatchQueue.main.async { self?.updateScreens() }
+        }.store(in: &cancellables)
         model.$expanded.removeDuplicates().sink { [weak self] open in
             guard let self else { return }
             self.cancelHover(blocking: open ? nil : self.model.screenID)
@@ -422,7 +425,7 @@ final class NotchController {
             slots[id] = nil
         }
         for screen in screens {
-            let g = NotchGeometry(screen: screen)
+            let g = NotchGeometry(screen: screen).forWorkspace(model.page)
             if let slot = slots[screen.displayID] {
                 if slot.state.geometry != g { slot.state.geometry = g }
                 if slot.panel.frame != g.window { slot.panel.setFrame(g.window, display: true) }
