@@ -16,6 +16,7 @@ import SwiftUI
                 "your-day-overlap": .window("your-day-preview") { YourDayPreview.show(app: $0, overlap: true) },
                 "your-day-multiline": .window("your-day-preview") { YourDayPreview.show(app: $0, multiline: true) },
                 "your-day-empty": .window("your-day-preview") { YourDayPreview.show(app: $0, withoutMeetings: true) },
+                "welcome": .window("welcome") { WelcomeView.show(store: $0.store, done: $0.completeWelcome) },
                 "workspace-today": .window("workspace-home") { WorkspaceShellPreview.show(page: .home, app: $0) },
                 "workspace-week": .window("workspace-week") { WorkspaceShellPreview.show(page: .week, app: $0) },
                 "workspace-narrow": .window("workspace-narrow") {

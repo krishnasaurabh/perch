@@ -8,6 +8,16 @@ struct SettingsNotchPane: View {
 
     var body: some View {
         SettingsSection("Around the notch") {
+            SettingsRow(
+                "Open the notch on",
+                help: "Hover keeps your click choice. Double-click opens only after two clicks."
+            ) {
+                Picker("Open the notch on", selection: SettingsView.openingPreference(store: store)) {
+                    Text("Hover").tag(NotchOpenTrigger.hover)
+                    Text("Click").tag(NotchOpenTrigger.click)
+                    Text("Double-click").tag(NotchOpenTrigger.doubleClick)
+                }.labelsHidden()
+            }
             SettingsRow("Progress line under the housing") {
                 PerchSwitch(title: "Progress line under the housing", isOn: preferences.progressLine)
                     .accessibilityIdentifier("settings.notchProgressLine")
@@ -115,5 +125,23 @@ struct SettingsNotchPreferences {
         Binding(
             get: { store.prefs[keyPath: keyPath] },
             set: { value in store.apply { try $0.updatePreference(update(value)) } })
+    }
+}
+
+extension SettingsView {
+    /// Bridge the legacy picker at its UI boundary; hover keeps the independent click choice.
+    static func openingPreference(store: PlannerStore) -> Binding<NotchOpenTrigger> {
+        Binding(
+            get: { store.prefs.notchOpenTrigger },
+            set: { choice in
+                store.updatePrefs {
+                    $0.notchOpenTrigger = choice
+                    switch choice {
+                    case .click: $0.notchClickToOpen = true
+                    case .doubleClick: $0.notchClickToOpen = false
+                    default: break
+                    }
+                }
+            })
     }
 }

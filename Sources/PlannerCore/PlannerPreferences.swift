@@ -44,6 +44,7 @@ public struct DevicePreferences: Codable, Equatable, Sendable {
     public var notchTimerPlacement: NotchTimerPlacement
     public var workspaceTimerStyle: WorkspaceTimerStyle
     public var notchOpenTrigger: NotchOpenTrigger
+    public var notchClickToOpen: Bool
     public var notchTaskCount: Bool
     public var notchOnMonitors: Bool
     public var showOnDisplay: String?
@@ -88,6 +89,7 @@ public struct DevicePreferences: Codable, Equatable, Sendable {
         notchTimerPlacement = value.notchTimerPlacement
         workspaceTimerStyle = value.workspaceTimerStyle
         notchOpenTrigger = value.notchOpenTrigger
+        notchClickToOpen = value.notchClickToOpen
         notchTaskCount = value.notchTaskCount
         notchOnMonitors = value.notchOnMonitors
         showOnDisplay = value.showOnDisplay
@@ -129,6 +131,7 @@ public struct DevicePreferences: Codable, Equatable, Sendable {
         value.notchTimerPlacement = notchTimerPlacement
         value.workspaceTimerStyle = workspaceTimerStyle
         value.notchOpenTrigger = notchOpenTrigger
+        value.notchClickToOpen = notchClickToOpen
         value.notchTaskCount = notchTaskCount
         value.notchOnMonitors = notchOnMonitors
         value.showOnDisplay = showOnDisplay
@@ -200,6 +203,7 @@ public enum PreferenceUpdate: Equatable, Sendable {
     case notchTimerPlacement(NotchTimerPlacement)
     case workspaceTimerStyle(WorkspaceTimerStyle)
     case notchOpenTrigger(NotchOpenTrigger)
+    case notchClickToOpen(Bool)
     case notchTaskCount(Bool)
     case notchOnMonitors(Bool)
     case showOnDisplay(String?)
@@ -246,6 +250,7 @@ public enum PreferenceUpdate: Equatable, Sendable {
                 if planner.preferences[keyPath: key] == new { planner.preferences[keyPath: key] = old }
             }
         }
+        field(\.notchClickToOpen)
         field(\.notchTaskCount)
         field(\.openShortcut)
         field(\.launchAtLogin)
@@ -281,6 +286,7 @@ public enum PreferenceUpdate: Equatable, Sendable {
         case .notchTimerPlacement(let choice): value.notchTimerPlacement = choice
         case .workspaceTimerStyle(let choice): value.workspaceTimerStyle = choice
         case .notchOpenTrigger(let choice): value.notchOpenTrigger = choice
+        case .notchClickToOpen(let choice): value.notchClickToOpen = choice
         case .notchTaskCount(let choice): value.notchTaskCount = choice
         case .notchOnMonitors(let choice): value.notchOnMonitors = choice
         case .showOnDisplay(let choice): value.showOnDisplay = choice
