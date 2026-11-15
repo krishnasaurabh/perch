@@ -287,6 +287,48 @@ final class DashboardTabsHost: NSHostingView<AnyView> {
 @MainActor
 enum DashboardKeyLoop {
     static let searchIdentifier = "dashboard-history-search"
+    private static var projectActionMonitor: Any?
+
+    /// Install once for the app lifetime, without retaining a window or a page.
+    /// The cell's native activation may bypass the button's key handlers, so
+    /// reject unsafe Space events before AppKit starts dispatching them.
+    private static func installProjectActionMonitor() {
+        guard projectActionMonitor == nil else { return }
+        projectActionMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+            let handled = MainActor.assumeIsolated { handleProjectActionKey(event) }
+            return handled ? nil : event
+        }
+    }
+
+    private static func handleProjectActionKey(_ event: NSEvent) -> Bool {
+        guard event.type == .keyDown, event.keyCode == 49,
+            !event.modifierFlags.intersection([.command, .control, .option]).isEmpty || event.isARepeat,
+            let window = event.window, window.isKeyWindow,
+            let root = window.contentView,
+            let host = descendants(root).compactMap({ $0 as? DashboardTabsHost }).first,
+            host.selectionState?.tab == .projects,
+            let focused = window.firstResponder as? NSView
+        else { return false }
+        var candidate: NSView? = focused
+        while let view = candidate {
+            if let action = view as? DashboardProjectActionView {
+                guard action.window === window, action.isDescendant(of: root), action.acceptsFirstResponder else {
+                    return false
+                }
+                #if DASHBOARD_KEYBOARD_PROBE
+                    let identifier = action.accessibilityIdentifier() ?? "nil"
+                    let message =
+                        "TRACE: DashboardKeyLoop swallowed type=\(event.type.rawValue) keyCode=\(event.keyCode) "
+                        + "modifiers=\(event.modifierFlags.rawValue) isARepeat=\(event.isARepeat) "
+                        + "responderIdentifier=\(identifier)\n"
+                    FileHandle.standardError.write(Data(message.utf8))
+                #endif
+                return true
+            }
+            candidate = view.superview
+        }
+        return false
+    }
 
     static func tabKeyView(in window: NSWindow) -> NSView? {
         guard let root = window.contentView,
@@ -300,6 +342,7 @@ enum DashboardKeyLoop {
             let host = descendants(root).compactMap({ $0 as? DashboardTabsHost }).first,
             !host.installingKeyLoop
         else { return }
+        installProjectActionMonitor()
         host.installingKeyLoop = true
         defer { host.installingKeyLoop = false }
         window.autorecalculatesKeyViewLoop = false
