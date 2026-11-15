@@ -12,6 +12,11 @@ class ParkingLotContractTests(unittest.TestCase):
         self.assertNotIn('NotepadCard()', home)
         self.assertNotIn('hiddenWorkspaceCards', home)
 
+    def test_parking_slot_reserves_a_rigid_height(self):
+        home = (ROOT / 'Sources/PerchApp/Workspace/HomePage.swift').read_text()
+        self.assertIn('ParkingLotCard().frame(height: HomeLayout.parkingHeight)', home)
+        self.assertNotIn('ParkingLotCard().frame(minHeight:', home)
+
     def test_retired_editor_is_not_reachable(self):
         cards = (ROOT / 'Sources/PerchApp/Workspace/HomeCards.swift').read_text()
         self.assertNotIn('struct NotepadCard', cards)

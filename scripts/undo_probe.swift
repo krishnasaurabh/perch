@@ -1,4 +1,5 @@
 import AppKit
+import ApplicationServices
 @testable import PlannerCore
 #if canImport(PerchApp)
     @testable import PerchApp
@@ -11,6 +12,18 @@ import SwiftUI
 func require(_ condition: @autoclosure () -> Bool, _ message: String) {
     if !condition() { fputs("FAIL: \(message)\n", stderr); exit(1) }
     print("PASS: \(message)")
+}
+
+func wakeAX() async {
+    await Task.detached {
+        let app = AXUIElementCreateApplication(getpid())
+        var result: CFTypeRef?
+        _ = AXUIElementCopyAttributeValue(app, kAXWindowsAttribute as CFString, &result)
+        for window in (result as? [AXUIElement]) ?? [] {
+            var children: CFTypeRef?
+            _ = AXUIElementCopyAttributeValue(window, kAXChildrenAttribute as CFString, &children)
+        }
+    }.value
 }
 
 @MainActor
@@ -329,7 +342,12 @@ func checkParkingLotView(_ store: PlannerStore) async throws {
 
     // Exercise the actual review button, not the entry model's promotion helper.
     let thought = beforeRemoval.parkedThoughts.last!
-    window.contentView = NSHostingView(rootView: ParkedThoughtsView().environmentObject(store))
+    window.contentView = NSHostingView(
+        rootView: ParkedThoughtsView().environmentObject(store).environment(\.accessibilityEnabled, true))
+    window.makeKeyAndOrderFront(nil)
+    NSApp.activate(ignoringOtherApps: true)
+    try await settle()
+    await wakeAX()
     try await settle()
     @MainActor func attribute(_ node: NSObject, _ name: String) -> Any? {
         let selector = NSSelectorFromString(name)
@@ -347,11 +365,15 @@ func checkParkingLotView(_ store: PlannerStore) async throws {
         }
         return walk(root)
     }
+    var seenIdentifiers = Set<String>()
     let buttons = nodes(window).filter {
-        attribute($0, "accessibilityIdentifier") as? String == "parking-promote-\(thought.id.uuidString)"
-            && attribute($0, "accessibilityRole") as? String == "AXButton"
+        guard let identifier = attribute($0, "accessibilityIdentifier") as? String,
+            identifier == "parking-promote-\(thought.id.uuidString)",
+            attribute($0, "accessibilityRole") as? String == "AXButton"
+        else { return false }
+        return seenIdentifiers.insert(identifier).inserted
     }
-    require(buttons.count == 1, "saved thought exposes exactly one native promotion button")
+    require(buttons.count == 1, "saved thought exposes exactly one native promotion button (found \(buttons.count))")
     let button = buttons[0]
     let press = NSSelectorFromString("accessibilityPerformPress")
     require(button.responds(to: press), "promotion button supports native press")

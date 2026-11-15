@@ -29,6 +29,32 @@ class ParkingUndoProbeTests(unittest.TestCase):
         self.assertIn('NSSelectorFromString("accessibilityPerformPress")', self.source)
         self.assertIn('Undo restores the thought and removes only its promoted task', self.source)
 
+    def test_review_host_enables_and_primes_accessibility_before_lookup(self):
+        review = self.source.split('// Exercise the actual review button', 1)[1]
+        host, lookup = review.split('let buttons =', 1)
+        self.assertIn('import ApplicationServices', self.source)
+        self.assertIn('func wakeAX() async', self.source)
+        self.assertIn('AXUIElementCreateApplication(getpid())', self.source)
+        self.assertIn('kAXWindowsAttribute', self.source)
+        self.assertIn('kAXChildrenAttribute', self.source)
+        self.assertIn('.environment(\\.accessibilityEnabled, true)', host)
+        ordered = ['window.contentView =', 'window.makeKeyAndOrderFront(nil)',
+                   'NSApp.activate(ignoringOtherApps: true)', 'try await settle()',
+                   'await wakeAX()', 'try await settle()']
+        cursor = 0
+        for statement in ordered:
+            found = host.find(statement, cursor)
+            self.assertGreaterEqual(found, cursor, statement)
+            cursor = found + len(statement)
+        self.assertIn('nodes(window)', lookup)
+
+    def test_promotion_lookup_deduplicates_identifiers_and_reports_count(self):
+        lookup = self.source.split('let buttons =', 1)[1].split('let button =', 1)[0]
+        self.assertIn('var seenIdentifiers = Set<String>()', self.source)
+        self.assertIn('seenIdentifiers.insert(identifier).inserted', lookup)
+        self.assertIn('buttons.count == 1', lookup)
+        self.assertIn('found \\(buttons.count)', lookup)
+
     def test_legacy_storage_and_focus_probes_still_run(self):
         self.assertIn('let store = try checkStore()', self.source)
         self.assertIn('try checkDeletionRedo()', self.source)

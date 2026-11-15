@@ -15,7 +15,7 @@ struct HomePage: View {
                         // TIME CARD SLOT: replace this call only when TimeCard lands.
                         FocusCard().frame(maxHeight: .infinity)
                         // PARKING LOT SLOT: replace this call only when ParkingLotCard lands.
-                        ParkingLotCard().frame(minHeight: HomeLayout.parkingHeight)
+                        ParkingLotCard().frame(height: HomeLayout.parkingHeight)
                     }
                     .frame(width: columns.time).frame(maxHeight: .infinity)
                     // YOUR DAY SLOT: this card owns its contents from here onward.
