@@ -164,6 +164,11 @@ public struct AgentActionLedger: Codable, Equatable, Sendable {
 
     public func pending(at time: Date) -> [PendingAgentAction] { pending.filter { $0.expiresAt > time } }
 
+    /// Drops every recorded action and event. The sequence stays monotonic for event readers.
+    mutating func eraseKeepingSequence() {
+        pending.removeAll(); changes.removeAll(); events.removeAll()
+    }
+
     private enum Field: String, CodingKey { case agentActions }
     static func decodeField(from decoder: Decoder) throws -> Self {
         let container = try decoder.container(keyedBy: Field.self)
