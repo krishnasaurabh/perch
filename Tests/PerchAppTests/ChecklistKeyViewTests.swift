@@ -42,27 +42,51 @@
             window.contentView = root
             window.autorecalculatesKeyViewLoop = false
             before.nextKeyView = group; group.nextKeyView = after; after.nextKeyView = before
+            @MainActor
+            func responderState(_ stage: String) -> String {
+                let responder = window.firstResponder
+                let responderClass = responder.map { String(reflecting: type(of: $0)) } ?? "nil"
+                return "\(stage): firstResponder=\(responderClass), "
+                    + "isGroup=\(responder === group), isBeforeEditor=\(responder === before.currentEditor()), "
+                    + "isAfterEditor=\(responder === after.currentEditor()), "
+                    + "groupCanBecomeKeyView=\(group.canBecomeKeyView), windowIsKey=\(window.isKeyWindow)"
+            }
+            @MainActor
+            func logResponder(_ stage: String) {
+                FileHandle.standardError.write(Data((responderState(stage) + "\n").utf8))
+            }
             window.orderFront(nil)
-            XCTAssertTrue(group.canBecomeKeyView)
-            XCTAssertTrue(window.makeFirstResponder(before))
-            XCTAssertFalse(group.isAccessibilityFocused())
+            logResponder("after orderFront")
+            XCTAssertTrue(group.canBecomeKeyView, responderState("group must be a key view"))
+            XCTAssertTrue(window.makeFirstResponder(before), responderState("focus before field"))
+            logResponder("after makeFirstResponder(before)")
+            XCTAssertFalse(group.isAccessibilityFocused(), responderState("before entering group"))
             window.selectNextKeyView(before)
-            XCTAssertTrue(window.firstResponder === group)
-            XCTAssertTrue(group.isAccessibilityFocused())
+            logResponder("after selectNextKeyView(before)")
+            XCTAssertTrue(window.firstResponder === group, responderState("Tab must enter the single checklist stop"))
+            XCTAssertTrue(group.isAccessibilityFocused(), responderState("entered checklist must report AX focus"))
             window.reportsKeyWindow = false
-            XCTAssertFalse(group.isAccessibilityFocused())
-            XCTAssertTrue(window.firstResponder === group)
+            XCTAssertFalse(group.isAccessibilityFocused(), responderState("non-key window must not report AX focus"))
+            XCTAssertTrue(
+                window.firstResponder === group, responderState("non-key window must retain checklist responder"))
             window.reportsKeyWindow = true
-            XCTAssertTrue((group.accessibilityFocusedUIElement as? NSView) === group)
+            XCTAssertTrue(
+                (group.accessibilityFocusedUIElement as? NSView) === group,
+                responderState("focused AX element must be the checklist group itself"))
             group.keyDown(with: event(48, in: window))
-            XCTAssertTrue(window.firstResponder === after.currentEditor())
-            XCTAssertFalse(group.isAccessibilityFocused())
-            XCTAssertNil(group.accessibilityFocusedUIElement)
+            XCTAssertTrue(
+                window.firstResponder === after.currentEditor(), responderState("Tab must leave for after field editor")
+            )
+            XCTAssertFalse(group.isAccessibilityFocused(), responderState("Tab departure must clear AX focus"))
+            XCTAssertNil(
+                group.accessibilityFocusedUIElement, responderState("Tab departure must clear focused AX element"))
             window.selectPreviousKeyView(after)
-            XCTAssertTrue(window.firstResponder === group)
+            XCTAssertTrue(window.firstResponder === group, responderState("Shift-Tab must re-enter checklist"))
             group.keyDown(with: event(48, in: window, flags: .shift))
-            XCTAssertTrue(window.firstResponder === before.currentEditor())
-            XCTAssertFalse(group.isAccessibilityFocused())
+            XCTAssertTrue(
+                window.firstResponder === before.currentEditor(),
+                responderState("Shift-Tab must leave for before field editor"))
+            XCTAssertFalse(group.isAccessibilityFocused(), responderState("Shift-Tab departure must clear AX focus"))
         }
 
         @MainActor
