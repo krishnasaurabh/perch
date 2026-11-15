@@ -224,6 +224,25 @@ final class YourDayTimelineTests: XCTestCase {
         XCTAssertNotNil(value.emptyDropTime(at: fixture.now, calendar: PlannerPreviewScenarios.calendar))
     }
 
+    func testIsolatedTimelineShotsDoNotRequestAnAbsentCaptureEditor() throws {
+        let root = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        let list = try String(contentsOf: root.appendingPathComponent("scripts/redesign_shots.list"), encoding: .utf8)
+        let shots = list.split(separator: "\n").filter { $0.hasPrefix("your-day-") }
+        XCTAssertGreaterThanOrEqual(shots.count, 8)
+        for shot in shots {
+            let words = shot.split(whereSeparator: \.isWhitespace)
+            let scenarioIndex = try XCTUnwrap(words.firstIndex(of: "--scenario"))
+            let targetIndex = try XCTUnwrap(words.firstIndex(of: "--open"))
+            XCTAssertTrue(words[targetIndex + 1].hasPrefix("your-day"))
+            let fixture = try PlannerPreviewScenarios.make(String(words[scenarioIndex + 1]))
+            // These windows seed their own draft and have no checklist capture field.
+            XCTAssertTrue(fixture.captureText.isEmpty, String(shot))
+        }
+        // The full Today preview must still exercise real capture-field insertion.
+        XCTAssertFalse(try PlannerPreviewScenarios.make("today-before").captureText.isEmpty)
+    }
+
     func testDSTDayBoundsAndWallTimeSnap() {
         var local = calendar; local.timeZone = TimeZone(identifier: "America/Los_Angeles")!
         let spring: DayKey = "2026-03-08"
