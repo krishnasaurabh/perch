@@ -343,7 +343,7 @@ final class NotchStrips {
 
     func contains(_ point: CGPoint, on screenID: CGDirectDisplayID) -> Bool? {
         guard let model, model.screenID == screenID, currentActivity != nil else { return nil }
-        return bounds.contains(point) ? true : (model.expanded ? nil : false)
+        return NotchLayout.contains(bounds, pointer: point) ? true : (model.expanded ? nil : false)
     }
 
     func setShelfVisible(_ visible: Bool) {
@@ -365,7 +365,7 @@ final class NotchStrips {
 
     func answer(_ action: Action, activity: PresentedNotchActivity) -> Bool {
         guard let store, let id = activity.stripID, currentActivity?.stripID == id else { return false }
-        let date = now()
+        let date = now(), originalPlanner = store.planner
         let success: Bool
         var acknowledgedChanges: [UUID] = []
         if action == .notNow || action == .keep && !id.hasPrefix("approval:") {
@@ -389,6 +389,8 @@ final class NotchStrips {
             success = Self.perform(action, taskID: activity.taskID, thoughtIDs: activity.thoughtIDs, in: store)
         }
         if success {
+            // A snooze changes remindAt, so acknowledge the occurrence shown before the command.
+            if case .reminder = activity.kind { model?.dismissPresentedActivity(in: originalPlanner) }
             for change in acknowledgedChanges { queue.answer("agent:\(change)", at: date) }
             queue.answer(id, at: date)
             oneOffs[id] = nil

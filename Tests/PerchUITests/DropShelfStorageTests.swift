@@ -4,6 +4,34 @@ import XCTest
 @testable import PerchUI
 
 final class DropShelfStorageTests: XCTestCase {
+    func testKeptPackagesAndFoldersMigrateAsSingleStableItems() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let fm = FileManager.default
+        let source = root.appendingPathComponent("Incoming")
+        let vault = root.appendingPathComponent("Clips")
+        let bytes = Data("Synthetic package contents".utf8)
+        var kept: [URL] = []
+        for name in ["Project.pages", "Reference folder"] {
+            let directory = source.appendingPathComponent(name, isDirectory: true)
+            try fm.createDirectory(at: directory, withIntermediateDirectories: true)
+            try bytes.write(to: directory.appendingPathComponent("Contents.txt"))
+            kept.append(try ClipVault.keepCopy(of: directory, in: vault))
+        }
+        let storage = ClipShelfFile(vault: vault)
+        let migrated = try storage.load()
+        XCTAssertEqual(
+            Set(migrated.map(\.content)), Set(kept.map { .file(URL(fileURLWithPath: $0.path, isDirectory: true)) }))
+        XCTAssertEqual(migrated.count, 2, "Each package or folder is one item, not its descendants")
+        XCTAssertEqual(try storage.load(), migrated, "Reload preserves every item and its identity")
+        ClipVault.sweep(vault, olderThan: .distantFuture, keeping: storage.retainedPaths(migrated))
+        for directory in kept {
+            XCTAssertEqual(try Data(contentsOf: directory.appendingPathComponent("Contents.txt")), bytes)
+        }
+        try storage.save([])
+        XCTAssertTrue(try storage.load().isEmpty, "Clearing must not resurrect migrated packages")
+    }
+
     func testKeptFilesNamedLikeShelfMetadataDoNotCollideWithTheIndex() throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: root) }
@@ -88,6 +116,38 @@ final class DropShelfStorageTests: XCTestCase {
         try storage.save([])
         XCTAssertTrue(try storage.load().isEmpty, "An existing manifest, including empty, is authoritative")
         XCTAssertTrue(FileManager.default.fileExists(atPath: storage.vault.appendingPathComponent("orphan.txt").path))
+    }
+
+    func testLinksAndColonTextKeepTheirDistinctRepresentationsAcrossReload() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let storage = ClipShelfFile(vault: root.appendingPathComponent("Clips"))
+        let link = URL(string: "https://example.com/design-board")!
+        let date = Date(timeIntervalSince1970: 1_800_000_000)
+        let items = [
+            ClipShelfFile.Item(content: .text("Note: buy milk"), date: date),
+            ClipShelfFile.Item(content: .text("TODO: fix login"), date: date),
+            ClipShelfFile.Item(content: .text(link.absoluteString), date: date),
+            ClipShelfFile.Item(content: .link(link), date: date),
+            ClipShelfFile.Item(content: .link(URL(string: "mailto:hello@example.com")!), date: date),
+        ]
+        try storage.save(items)
+        XCTAssertEqual(try storage.load(), items)
+    }
+
+    func testVersionOneTextDocumentsDecodeWithoutGuessingLinks() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let storage = ClipShelfFile(vault: root.appendingPathComponent("Clips"))
+        try FileManager.default.createDirectory(
+            at: storage.url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        let document =
+            #"{"version":1,"items":[{"id":"CC680BD3-4F74-4634-81E3-75D2B48AC37A","content":{"text":{"_0":"Note: buy milk"}},"date":0,"pinned":false}]}"#
+        try Data(document.utf8).write(to: storage.url)
+        let items = try storage.load()
+        XCTAssertEqual(items.map(\.content), [.text("Note: buy milk")])
+        try storage.save(items)
+        XCTAssertEqual(try storage.load(), items)
     }
 
     func testMalformedManifestIsNotReplacedWithAnEmptyShelf() throws {

@@ -19,7 +19,7 @@ struct DropShelf: View {
                 file: PlannerFile(url: root.appendingPathComponent("planner.json")), watching: false)
             let clips = ClipsService(store: store, monitoring: false)
             if !empty {
-                clips.add(.text("https://example.com/design-board"), source: "dropped")
+                clips.add(.link(URL(string: "https://example.com/design-board")!), source: "dropped")
                 let file = root.appendingPathComponent("release-notes.pdf")
                 if let context = CGContext(file as CFURL, mediaBox: nil, nil) {
                     context.beginPDFPage(nil); context.endPDFPage(); context.closePDF()

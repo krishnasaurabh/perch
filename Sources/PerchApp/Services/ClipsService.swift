@@ -21,7 +21,7 @@ extension NSMetadataQuery: ScreenshotQuerying {}
 @MainActor
 final class ClipsService: ObservableObject {
     struct Clip: Identifiable, Equatable {
-        enum Content: Equatable { case file(URL), text(String), image(Data) }
+        enum Content: Equatable { case file(URL), link(URL), text(String), image(Data) }
         var id = UUID()
         var content: Content
         var source: String  // captured, copied, dropped
@@ -39,6 +39,7 @@ final class ClipsService: ObservableObject {
         func localizedTitle(locale: Locale? = nil) -> String {
             switch content {
             case .file(let u): return u.lastPathComponent
+            case .link(let url): return String(url.absoluteString.prefix(60))
             case .text(let s): return String(s.prefix(60))
             case .image:
                 return source == "copied"
@@ -89,6 +90,7 @@ final class ClipsService: ObservableObject {
     private let scheduler: any AppScheduling
     private let pasteboard: any PasteboardAccess
     private let clipOpener: ClipOpener
+    private let dragEligibility: (() -> Bool)?
     private var lastClipError: PerchAppError?
     private var archiveReadable = true
     private var shelfSession = DropShelfSession()
@@ -153,13 +155,15 @@ final class ClipsService: ObservableObject {
             NSWorkspace.shared.open(url, configuration: NSWorkspace.OpenConfiguration()) { _, error in
                 completion(error)
             }
-        }
+        },
+        dragEligibility: (() -> Bool)? = nil
     ) {
         self.store = store
         self.now = now
         self.scheduler = scheduler
         self.pasteboard = pasteboard
         self.clipOpener = clipOpener
+        self.dragEligibility = dragEligibility
         self.queryFactory = queryFactory
         self.watcherFactory = watcherFactory
         self.folderEntries = folderEntries
@@ -235,6 +239,7 @@ final class ClipsService: ObservableObject {
                     let content: ClipShelfFile.Content
                     switch clip.content {
                     case .file(let url): content = .file(url)
+                    case .link(let url): content = .link(url)
                     case .text(let text): content = .text(text)
                     case .image(let data): content = .image(data)
                     }
@@ -250,6 +255,7 @@ final class ClipsService: ObservableObject {
     private static func content(_ value: ClipShelfFile.Content) -> Clip.Content {
         switch value {
         case .file(let url): return .file(url)
+        case .link(let url): return .link(url)
         case .text(let text): return .text(text)
         case .image(let data): return .image(data)
         }
@@ -262,8 +268,9 @@ final class ClipsService: ObservableObject {
         if dragging,
             let target = screens.values.first(where: {
                 !$0.fullScreen
-                    && ($0.geometry.notchRect.contains(point)
-                        || (model.screenID == $0.id && model.strips?.bounds.contains(point) == true))
+                    && (NotchLayout.contains($0.geometry.notchRect, pointer: point)
+                        || (model.screenID == $0.id
+                            && model.strips.map { NotchLayout.contains($0.bounds, pointer: point) } == true))
             })
         {
             if model.screenID != target.id {
@@ -278,12 +285,15 @@ final class ClipsService: ObservableObject {
     }
 
     func trackShelfPointer(at point: CGPoint, model: NotchModel) {
-        let inside = model.strips?.bounds.contains(point) == true || model.geometry?.notchRect.contains(point) == true
+        let inside =
+            model.strips.map { NotchLayout.contains($0.bounds, pointer: point) } == true
+            || model.geometry.map { NotchLayout.contains($0.notchRect, pointer: point) } == true
         updateShelf(dragging: isEligibleDrag, pointerInside: inside, model: model)
         if NSEvent.pressedMouseButtons & 1 == 0 { dragBaseline = NSPasteboard(name: .drag).changeCount }
     }
 
     private var isEligibleDrag: Bool {
+        if let dragEligibility { return dragEligibility() }
         let board = NSPasteboard(name: .drag)
         guard NSEvent.pressedMouseButtons & 1 != 0, board.changeCount != dragBaseline else { return false }
         return board.types?.contains { [.fileURL, .URL, .string, .png, .tiff].contains($0) } == true
@@ -300,7 +310,8 @@ final class ClipsService: ObservableObject {
     @discardableResult
     func acceptDrop(_ providers: [NSItemProvider]) -> Bool {
         let supported = providers.filter {
-            $0.hasItemConformingToTypeIdentifier("public.file-url") || $0.canLoadObject(ofClass: URL.self)
+            $0.hasItemConformingToTypeIdentifier("public.file-url")
+                || $0.hasItemConformingToTypeIdentifier("public.url")
                 || $0.hasItemConformingToTypeIdentifier("public.image") || $0.canLoadObject(ofClass: String.self)
         }
         if !supported.isEmpty, let model { updateShelf(dragging: true, pointerInside: true, model: model) }
@@ -309,9 +320,9 @@ final class ClipsService: ObservableObject {
                 _ = provider.loadObject(ofClass: URL.self) { [weak self] url, _ in
                     if let url { Task { @MainActor in self?.add(.file(url), source: "dropped") } }
                 }
-            } else if provider.canLoadObject(ofClass: URL.self) {
+            } else if provider.hasItemConformingToTypeIdentifier("public.url") {
                 _ = provider.loadObject(ofClass: URL.self) { [weak self] url, _ in
-                    if let url { Task { @MainActor in self?.add(.text(url.absoluteString), source: "dropped") } }
+                    if let url { Task { @MainActor in self?.add(.link(url), source: "dropped") } }
                 }
             } else if provider.hasItemConformingToTypeIdentifier("public.image") {
                 provider.loadDataRepresentation(forTypeIdentifier: "public.image") { [weak self] data, _ in
@@ -333,9 +344,8 @@ final class ClipsService: ObservableObject {
         case .file(let kept):
             let url = clip.origin.flatMap { FileManager.default.fileExists(atPath: $0.path) ? $0 : nil } ?? kept
             return NSItemProvider(object: url as NSURL)
-        case .text(let text):
-            if let url = URL(string: text), url.scheme != nil { return NSItemProvider(object: url as NSURL) }
-            return NSItemProvider(object: text as NSString)
+        case .link(let url): return NSItemProvider(object: url as NSURL)
+        case .text(let text): return NSItemProvider(object: text as NSString)
         case .image(let data):
             if let image = NSImage(data: data) { return NSItemProvider(object: image) }
             return NSItemProvider()
@@ -612,6 +622,7 @@ final class ClipsService: ObservableObject {
         let pb = pasteboard
         switch clip.content {
         case .file(let u): pb.replace(with: .file(u))
+        case .link(let url): pb.replace(with: .text(url.absoluteString))
         case .text(let s): pb.replace(with: .text(s))
         case .image(let d): pb.replace(with: .image(d))
         }

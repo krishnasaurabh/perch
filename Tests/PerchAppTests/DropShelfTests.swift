@@ -58,7 +58,7 @@ final class DropShelfTests: XCTestCase {
             }
         }
         XCTAssertEqual(original?.resolvingSymlinksInPath(), file.resolvingSymlinksInPath())
-        shelf.add(.text("https://example.com/design-board"), source: "dropped")
+        shelf.add(.link(URL(string: "https://example.com/design-board")!), source: "dropped")
         let link = try XCTUnwrap(shelf.clips.first)
         let dragged: URL? = await withCheckedContinuation { continuation in
             _ = shelf.dragProvider(for: link).loadObject(ofClass: URL.self) { url, _ in

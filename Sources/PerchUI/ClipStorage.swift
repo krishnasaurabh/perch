@@ -129,7 +129,7 @@ public enum ClipVault {
 /// an intentionally cleared shelf must never resurrect orphaned files on restart.
 public struct ClipShelfFile: Sendable {
     public enum Content: Codable, Equatable, Hashable, Sendable {
-        case file(URL), text(String), image(Data)
+        case file(URL), link(URL), text(String), image(Data)
     }
     public struct Item: Codable, Equatable, Identifiable, Sendable {
         public var id: UUID
@@ -163,14 +163,17 @@ public struct ClipShelfFile: Sendable {
         guard fm.fileExists(atPath: vault.path) else { return [] }
         let entries = try fm.contentsOfDirectory(
             at: vault.resolvingSymlinksInPath(),
-            includingPropertiesForKeys: [.isRegularFileKey, .contentModificationDateKey],
+            includingPropertiesForKeys: [.isRegularFileKey, .isDirectoryKey, .contentModificationDateKey],
             options: [])
         let migrated = try entries.compactMap { file -> Item? in
-            let values = try file.resourceValues(forKeys: [.isRegularFileKey, .contentModificationDateKey])
-            guard values.isRegularFile == true else { return nil }
+            let values = try file.resourceValues(forKeys: [
+                .isRegularFileKey, .isDirectoryKey, .contentModificationDateKey,
+            ])
+            guard values.isRegularFile == true || values.isDirectory == true else { return nil }
             // Preserve the configured parent spelling, including a symlinked data directory.
             return Item(
-                content: .file(vault.appendingPathComponent(file.lastPathComponent)),
+                content: .file(
+                    vault.appendingPathComponent(file.lastPathComponent, isDirectory: values.isDirectory == true)),
                 date: values.contentModificationDate ?? .distantPast)
         }.sorted {
             $0.date == $1.date ? Self.name($0) < Self.name($1) : $0.date > $1.date

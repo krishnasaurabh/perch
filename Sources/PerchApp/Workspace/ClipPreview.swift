@@ -44,6 +44,7 @@ struct ClipPreview: View {
         let text: String?
         switch content {
         case .text(let value): text = value
+        case .link(let url): text = url.absoluteString
         case .file: text = fileText
         case .image: text = nil
         }
