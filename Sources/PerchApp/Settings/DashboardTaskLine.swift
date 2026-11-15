@@ -12,7 +12,7 @@ struct DashboardTaskLine: View {
             if let p = store.engine.project(id: task.projectID) {
                 Text("#" + p.name).foregroundStyle(Color(hex: p.colorHex)).font(Theme.meta)
             }
-            if let agent = task.agentID, let name = AgentName.short(agent) {
+            if store.prefs.showAgentAttribution, let agent = task.agentID, let name = AgentName.short(agent) {
                 Text(AppL10n.format("Via %@", name)).font(Theme.meta).foregroundStyle(Theme.secondary).help(agent)
             }
             if task.focusedSeconds > 0 {
