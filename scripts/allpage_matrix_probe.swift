@@ -885,6 +885,70 @@ func mxInkRows(
     return rows
 }
 
+/// Explain failed sampling without changing either sampler's acceptance rules.
+@MainActor
+func mxContrastSamplingDiagnostic(
+    _ bitmap: NSBitmapImageRep, host: NSView, band: NSRect, near ink: NSColor, tolerance: CGFloat = 0.2
+) -> String {
+    let area = mxBand(band, host: host, bitmap: bitmap)
+    let reference = ink.usingColorSpace(.sRGB)
+    func number(_ value: CGFloat) -> String { String(format: "%.17g", Double(value)) }
+    func components(_ rgb: NSColor) -> String {
+        "(\(number(rgb.redComponent)),\(number(rgb.greenComponent)),\(number(rgb.blueComponent)))"
+    }
+    var missingPixels = 0
+    var conversionFailures = 0
+    var rawNonOpaque = 0
+    var rejectedAlpha = 0
+    var firstRawNonOpaque = "none"
+    var firstRejectedAlpha = "none"
+    var bestDistance = CGFloat.greatestFiniteMagnitude
+    var bestAnyAlphaDistance = CGFloat.greatestFiniteMagnitude
+    var closest = "none"
+    if area.x1 > area.x0, area.y1 > area.y0 {
+        for y in area.y0..<area.y1 {
+            for x in area.x0..<area.x1 {
+                guard let raw = bitmap.colorAt(x: x, y: y) else {
+                    missingPixels += 1
+                    continue
+                }
+                if raw.alphaComponent != 1 {
+                    rawNonOpaque += 1
+                    if firstRawNonOpaque == "none" {
+                        firstRawNonOpaque = "(x:\(x),y:\(y),alpha:\(number(raw.alphaComponent)))"
+                    }
+                }
+                guard let rgb = raw.usingColorSpace(.sRGB) else {
+                    conversionFailures += 1
+                    continue
+                }
+                if rgb.alphaComponent != 1 {
+                    rejectedAlpha += 1
+                    if firstRejectedAlpha == "none" {
+                        firstRejectedAlpha =
+                            "(x:\(x),y:\(y),rawAlpha:\(number(raw.alphaComponent)),alpha:\(number(rgb.alphaComponent)),rgb:\(components(rgb)))"
+                    }
+                }
+                guard let reference else { continue }
+                let distance =
+                    abs(rgb.redComponent - reference.redComponent) + abs(rgb.greenComponent - reference.greenComponent)
+                    + abs(rgb.blueComponent - reference.blueComponent)
+                bestAnyAlphaDistance = min(bestAnyAlphaDistance, distance)
+                if rgb.alphaComponent == 1, distance < bestDistance {
+                    bestDistance = distance
+                    closest = "(x:\(x),y:\(y),rgb:\(components(rgb)))"
+                }
+            }
+        }
+    }
+    return "missingPixels=\(missingPixels) conversionFailures=\(conversionFailures) "
+        + "rawNonOpaque=\(rawNonOpaque) firstRawNonOpaque=\(firstRawNonOpaque) "
+        + "rejectedAlpha=\(rejectedAlpha) firstRejectedAlpha=\(firstRejectedAlpha) "
+        + "reference=\(reference.map(components) ?? "unavailable") "
+        + "bestDistance=\(number(bestDistance)) tolerance=\(number(tolerance)) closest=\(closest) "
+        + "bestAnyAlphaDistance=\(number(bestAnyAlphaDistance))"
+}
+
 @MainActor
 func mxContrast(_ a: NSColor, _ b: NSColor) -> Double {
     func luminance(_ color: NSColor) -> Double {
@@ -2243,8 +2307,20 @@ final class AllPageMatrix {
                     && CGFloat(pixelBounds.x1 - pixelBounds.x0) >= 40 * mxScale(host, bitmap)
                     && CGFloat(pixelBounds.y1 - pixelBounds.y0) >= 6 * mxScale(host, bitmap),
                 "\(mode) text band is at least 40 by 6 pt and inside the bitmap", bandDiagnostic)
-            guard let background = mxDominant(bitmap, host: host, band: detailRect),
-                let ink = mxInkSample(bitmap, host: host, band: detailRect, near: bodyInk)
+            // Evaluate both helpers: optional binding would otherwise hide the ink result
+            // whenever dominance fails. Diagnose the original in-memory pixels, not a PNG
+            // decoder's potentially quantized or differently colour-managed representation.
+            let sampledBackground = mxDominant(bitmap, host: host, band: detailRect)
+            let sampledInk = mxInkSample(bitmap, host: host, band: detailRect, near: bodyInk)
+            let samplingDiagnostic =
+                "mode=\(mode) dominantNil=\(sampledBackground == nil) inkNil=\(sampledInk == nil) "
+                + mxContrastSamplingDiagnostic(bitmap, host: host, band: detailRect, near: bodyInk)
+                + " bitmapColorSpace=\(bitmap.colorSpace) bitsPerSample=\(bitmap.bitsPerSample) "
+                + "samplesPerPixel=\(bitmap.samplesPerPixel) hasAlpha=\(bitmap.hasAlpha) "
+                + "bitmapFormat=\(bitmap.bitmapFormat.rawValue) planar=\(bitmap.isPlanar) bytesPerRow=\(bitmap.bytesPerRow)"
+            report.record("contrast_\(mode)_sampling", samplingDiagnostic)
+            mxLog("contrast sampling: \(samplingDiagnostic)")
+            guard let background = sampledBackground, let ink = sampledInk
             else {
                 window.close()
                 throw MatrixFailure(label: "could not sample opaque rendered text at \(mode)")
