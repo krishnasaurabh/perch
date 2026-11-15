@@ -51,7 +51,7 @@ struct TasksCard: View {
                             ForEach(shown) { task in
                                 TaskRow(task: task, focus: $focus)
                                     .id(task.id)
-                                    .onDrag { NSItemProvider(object: task.id.uuidString as NSString) }
+                                    .onDrag { YourDayTaskDrag.provider(for: task.id) }
                                     .onDrop(of: [.plainText], isTargeted: nil) { items in
                                         reorder(items, before: task.id); return true
                                     }
@@ -315,7 +315,7 @@ struct TaskComposer: View {
                 .accessibilityHint(AppL10n.text(placeholder))
                 .accessibilityIdentifier("task-capture")
                 .onSubmit(add)
-                .background(CaptureTextUndo())
+                .background(CaptureTextUndo()).background(YourDayCaptureBridge(text: text, day: day))
             VoiceButton { spoken in
                 store.addTasks([spoken], on: day)
             }
