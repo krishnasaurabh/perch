@@ -453,6 +453,16 @@ final class DashboardProjectActionView: NSButton {
     }
 
     override func keyDown(with event: NSEvent) {
+        if event.keyCode == 49 {
+            // NSButton may activate even modified Space. Keep one deliberate
+            // activation path here and never forward Space to the superclass.
+            guard event.modifierFlags.intersection([.command, .control, .option, .shift]).isEmpty,
+                !event.isARepeat, event.window === window,
+                window?.isKeyWindow == true, window?.firstResponder === self, acceptsFirstResponder
+            else { return }
+            performClick(nil)
+            return
+        }
         if event.keyCode == 48,
             event.modifierFlags.intersection([.command, .control, .option]).isEmpty
         {
@@ -463,24 +473,11 @@ final class DashboardProjectActionView: NSButton {
             }
             return
         }
-        guard event.keyCode == 49,
-            event.modifierFlags.intersection([.command, .control, .option, .shift]).isEmpty
-        else {
-            super.keyDown(with: event)
-            return
-        }
-        guard !event.isARepeat, event.window === window,
-            window?.isKeyWindow == true, window?.firstResponder === self, acceptsFirstResponder
-        else { return }
-        performClick(nil)
+        super.keyDown(with: event)
     }
 
     override func keyUp(with event: NSEvent) {
-        if event.keyCode == 49,
-            event.modifierFlags.intersection([.command, .control, .option, .shift]).isEmpty
-        {
-            return
-        }
+        if event.keyCode == 49 { return }
         super.keyUp(with: event)
     }
 
