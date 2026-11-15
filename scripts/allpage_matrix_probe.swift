@@ -2186,7 +2186,6 @@ final class AllPageMatrix {
             let (window, host) = try matrixWindow(
                 "Matrix Contrast \(mode)", view, size: NSSize(width: 440, height: 220), appearance: appearance)
             await mxReady(1.4)
-            let root = try mxRoot("Matrix Contrast \(mode)")
             mxLog(
                 "contrast before reapply: requested=\(appearanceName.rawValue) object=\(appearance.name.rawValue) window=\(String(describing: window.appearance?.name.rawValue)) host=\(String(describing: host.appearance?.name.rawValue))"
             )
@@ -2217,19 +2216,33 @@ final class AllPageMatrix {
             try report.require(
                 effective == appearanceName.rawValue, "\(mode) window runs in the increased-contrast appearance",
                 "effective \(effective) name \(effectiveName) workspace \(systemIncreased)")
-            // The panel renders the reading's own detail when it has one (an unbundled process
-            // cannot get notification access), so measure the line that is actually drawn.
-            let reading = await SettingsPermissionAccess(services: fixture.services).read(.notifications)
-            let detail = reading.detail ?? PermissionFeature.notifications.detail
-            guard let detailNode = mxFind(root, name: detail) else {
-                mxDumpAX(root, "contrast-\(mode)")
-                window.close()
-                throw MatrixFailure(label: "no permission detail text at \(mode)")
-            }
             let bitmap = try mxBitmap(host)
             // Save the measured bitmap even if a band or contrast assertion below fails.
             try mxSave(bitmap, output.appendingPathComponent("contrast-\(mode).png"))
-            let detailRect = mxHostRect(mxFrame(detailNode), window: window, host: host)
+            // Reacquire the identified Text after the final appearance/layout pass. A name
+            // lookup can resolve a containing row, and an earlier snapshot can be stale.
+            await MatrixAX.refresh()
+            let root = try mxRoot("Matrix Contrast \(mode)")
+            mxDumpAX(root, "contrast-\(mode)")
+            let detailNode = try mxIdentified(root, "permission-detail.notifications")
+            let detailFrame = mxFrame(detailNode)
+            // The main-actor reader supplies AppKit screen coordinates. mxHostRect converts
+            // those to host space; mxBand/mxRow already flip unflipped hosts to bitmap rows.
+            let detailRect = mxHostRect(detailFrame, window: window, host: host)
+            let pixelBounds = mxBand(detailRect, host: host, bitmap: bitmap)
+            let bandDiagnostic =
+                "axFrame=\(detailFrame) hostBand=\(detailRect) pixelBounds=\(pixelBounds) "
+                + "hostBounds=\(host.bounds) flipped=\(host.isFlipped) bitmap=\(bitmap.pixelsWide)x\(bitmap.pixelsHigh)"
+            report.record("contrast_\(mode)_band", bandDiagnostic)
+            mxLog("contrast band: mode=\(mode) \(bandDiagnostic)")
+            try report.require(
+                detailRect.width >= 40 && detailRect.height >= 6
+                    && host.bounds.contains(detailRect)
+                    && pixelBounds.x0 >= 0 && pixelBounds.x1 <= bitmap.pixelsWide
+                    && pixelBounds.y0 >= 0 && pixelBounds.y1 <= bitmap.pixelsHigh
+                    && CGFloat(pixelBounds.x1 - pixelBounds.x0) >= 40 * mxScale(host, bitmap)
+                    && CGFloat(pixelBounds.y1 - pixelBounds.y0) >= 6 * mxScale(host, bitmap),
+                "\(mode) text band is at least 40 by 6 pt and inside the bitmap", bandDiagnostic)
             guard let background = mxDominant(bitmap, host: host, band: detailRect),
                 let ink = mxInkSample(bitmap, host: host, band: detailRect, near: bodyInk)
             else {
@@ -2243,7 +2256,8 @@ final class AllPageMatrix {
             ])
             report.record("contrast", rows)
             mxLog(
-                "contrast pixels: mode=\(mode) ink=\(mxHex(ink)) background=\(mxHex(background)) ratio=\(ratio)"
+                "contrast pixels: mode=\(mode) ink=\(mxHex(ink)) background=\(mxHex(background)) ratio=\(ratio) "
+                    + bandDiagnostic
             )
             try report.require(
                 ratio >= 4.5, "\(mode) renders body text above 4.5:1", "measured \(String(format: "%.2f", ratio))")

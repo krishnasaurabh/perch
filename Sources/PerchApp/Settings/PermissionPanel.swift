@@ -181,6 +181,7 @@ struct PermissionPanel: View {
             }
             Text(reading.detail ?? feature.detail).perchFont(.detail).foregroundStyle(Theme.ink2)
                 .fixedSize(horizontal: false, vertical: true)
+                .accessibilityIdentifier("permission-detail.\(feature.rawValue)")
             if reading.state == .restricted {
                 Text("This access is managed by macOS or your administrator. It may not be changeable here.")
                     .perchFont(.detail).foregroundStyle(Theme.ink2)
