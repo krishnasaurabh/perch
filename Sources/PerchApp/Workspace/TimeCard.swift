@@ -47,6 +47,16 @@ struct TimeCardPresentation {
     }
 
     static let suggestedMinutes = 25
+
+    /// Refresh only this display, never the engine. Scheduled idle cards need minute
+    /// updates too; paused cards and days with no scheduled blocks stay asleep.
+    static func refreshInterval(planner: Planner, day: DayKey) -> TimeInterval? {
+        if let focus = planner.focus, focus.state != .finished {
+            return focus.state == .running ? 1 : nil
+        }
+        return planner.tasks.contains { $0.day == day && !$0.done && $0.startAt != nil } ? 60 : nil
+    }
+
     var active: Bool { state == .running || state == .paused }
     var digits: String { active ? TimerText.clock(seconds) : String(minutes) }
     var completedSteps: Int { task?.steps.filter(\.done).count ?? 0 }
@@ -84,6 +94,21 @@ struct TimeCardPresentation {
             return AppL10n.format("%lld minutes left of %lld", totalSeconds / 60, minutes)
         }
         return AppL10n.format("%lld minutes %lld seconds left of %lld", totalSeconds / 60, totalSeconds % 60, minutes)
+    }
+}
+
+/// Long checklists share a bounded strip while the adjacent label keeps the exact count.
+struct TimeCardStepProgress {
+    static let maximumPips = 4
+    let fractions: [Double]
+    let stacked: Bool
+
+    init(completed: Int, total: Int) {
+        let total = max(0, total)
+        let count = min(total, Self.maximumPips)
+        let progress = total > 0 ? Double(min(total, max(0, completed))) / Double(total) : 0
+        fractions = (0..<count).map { min(1, max(0, progress * Double(count) - Double($0))) }
+        stacked = total > Self.maximumPips
     }
 }
 
@@ -137,7 +162,8 @@ struct TimeCard: View {
     @Environment(\.motionPolicy) private var motionPolicy
 
     var body: some View {
-        LocalClock(running: store.planner.focus?.state == .running) { now in
+        let interval = TimeCardPresentation.refreshInterval(planner: store.planner, day: store.today)
+        LocalClock(running: interval != nil, interval: interval ?? 1) { now in
             let presentation = TimeCardPresentation(planner: store.planner, day: store.today, now: now)
             Card(.blush) {
                 VStack(spacing: TimeCardMetrics.gap) {
@@ -185,16 +211,26 @@ struct TimeCard: View {
 
     @ViewBuilder private func detail(_ value: TimeCardPresentation) -> some View {
         if value.active && value.totalSteps > 0 {
-            HStack(spacing: TimeCardMetrics.smallGap) {
+            let progress = TimeCardStepProgress(completed: value.completedSteps, total: value.totalSteps)
+            let layout =
+                progress.stacked
+                ? AnyLayout(VStackLayout(spacing: TimeCardMetrics.smallGap))
+                : AnyLayout(HStackLayout(spacing: TimeCardMetrics.smallGap))
+            layout {
                 HStack(spacing: TimeCardMetrics.pipGap) {
-                    ForEach(0..<value.totalSteps, id: \.self) { index in
-                        Capsule().fill(index < value.completedSteps ? Theme.doneFill : Theme.edge(.blush))
+                    ForEach(progress.fractions.indices, id: \.self) { index in
+                        Capsule().fill(Theme.edge(.blush))
+                            .overlay(alignment: .leading) {
+                                Capsule().fill(Theme.doneFill)
+                                    .frame(width: TimeCardMetrics.pipWidth * progress.fractions[index])
+                            }
                             .frame(width: TimeCardMetrics.pipWidth, height: TimeCardMetrics.pipHeight)
                             .designMotion(.tickFill, value: value.completedSteps)
                     }
                 }.accessibilityHidden(true)
                 Text(AppL10n.format("%lld of %lld steps", value.completedSteps, value.totalSteps))
                     .perchFont(.detail).foregroundStyle(Theme.ink2)
+                    .fixedSize(horizontal: false, vertical: true)
             }
         } else if !value.active, let task = value.task {
             Text(task.title).perchFont(.button).multilineTextAlignment(.center)

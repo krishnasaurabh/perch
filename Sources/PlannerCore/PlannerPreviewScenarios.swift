@@ -98,6 +98,14 @@
             }
             if name == "strip-undo" { fixture.planner.tasks.removeAll { $0.id == id(2) } }
             if name == "today-paused" { fixture.planner.focus?.pause(at: now) }
+            if name == "today-running-many-steps" || name == "today-paused-many-steps" {
+                if let index = fixture.planner.tasks.firstIndex(where: { $0.id == fixture.planner.focus?.taskID }) {
+                    fixture.planner.tasks[index].steps = (0..<20).map {
+                        Subtask(id: id(1000 + $0), title: "Checklist item \($0 + 1)", done: $0 < 7)
+                    }
+                }
+                if name == "today-paused-many-steps" { fixture.planner.focus?.pause(at: now) }
+            }
             // Schedule fixtures use the independent block-start field, not reminders.
             if name.hasPrefix("today-") {
                 for index in fixture.planner.tasks.indices {

@@ -9,6 +9,7 @@ public enum AppLaunchConfiguration {
         public static let previewScenarioNames: Set<String> = [
             "empty", "three", "timer", "insights",
             "today-running", "today-before", "today-editing", "today-empty", "today-paused", "week-full",
+            "today-running-many-steps", "today-paused-many-steps",
             "notch-idle", "notch-running", "notch-paused", "notch-reminder", "notch-peek",
             "strip-heads-up", "strip-ended", "strip-agent", "strip-undo", "strip-data", "strip-drop",
             "window-review", "window-history", "window-projects", "window-welcome", "window-keys",

@@ -12,6 +12,8 @@ time-card-ready --scenario today-before --open workspace-today
 time-card-running --scenario today-running --open workspace-today
 time-card-paused --scenario today-paused --open workspace-today
 time-card-empty --scenario today-empty --open workspace-today
+time-card-running-many-steps --scenario today-running-many-steps --open workspace-today
+time-card-paused-many-steps --scenario today-paused-many-steps --open workspace-today
 # today-editing is available to the inline-editor target when that screen lands.
 today-fresh --scenario today-empty --open today
 week-full --scenario week-full --open week
