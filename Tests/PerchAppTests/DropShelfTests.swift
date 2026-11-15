@@ -77,6 +77,8 @@ final class DropShelfTests: XCTestCase {
         try FileManager.default.createDirectory(at: vault, withIntermediateDirectories: true)
         let saved = ClipShelfFile(vault: vault).url
         let original = Data("not valid shelf data".utf8)
+        try FileManager.default.createDirectory(
+            at: saved.deletingLastPathComponent(), withIntermediateDirectories: true)
         try original.write(to: saved)
         let store = PlannerStore(file: PlannerFile(url: root.appendingPathComponent("planner.json")), watching: false)
         let shelf = ClipsService(store: store, pasteboard: ShelfPasteboard(), monitoring: false)

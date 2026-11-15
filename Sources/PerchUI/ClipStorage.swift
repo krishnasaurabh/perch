@@ -143,7 +143,12 @@ public struct ClipShelfFile: Sendable {
     }
     private struct Document: Codable { var version = 1; var items: [Item] }
     public let vault: URL
-    public var url: URL { vault.appendingPathComponent("shelf.json") }
+    /// Keep the index outside the payload namespace. A dropped file may itself
+    /// be named shelf.json (or match the index basename) without being overwritten.
+    public var url: URL {
+        vault.deletingLastPathComponent().appendingPathComponent(".perch-shelf", isDirectory: true)
+            .appendingPathComponent(vault.lastPathComponent + ".json")
+    }
     public init(vault: URL) { self.vault = vault }
 
     public func load() throws -> [Item] {
@@ -157,10 +162,10 @@ public struct ClipShelfFile: Sendable {
         }
         guard fm.fileExists(atPath: vault.path) else { return [] }
         let entries = try fm.contentsOfDirectory(
-            at: vault, includingPropertiesForKeys: [.isRegularFileKey, .contentModificationDateKey],
-            options: [.skipsHiddenFiles])
-        let migrated = try entries.filter { $0.lastPathComponent != url.lastPathComponent }.compactMap {
-            file -> Item? in
+            at: vault.resolvingSymlinksInPath(),
+            includingPropertiesForKeys: [.isRegularFileKey, .contentModificationDateKey],
+            options: [])
+        let migrated = try entries.compactMap { file -> Item? in
             let values = try file.resourceValues(forKeys: [.isRegularFileKey, .contentModificationDateKey])
             guard values.isRegularFile == true else { return nil }
             // Preserve the configured parent spelling, including a symlinked data directory.
@@ -177,6 +182,7 @@ public struct ClipShelfFile: Sendable {
     public func save(_ items: [Item]) throws {
         let fm = FileManager.default
         try fm.createDirectory(at: vault, withIntermediateDirectories: true)
+        try fm.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
         let encoder = JSONEncoder(); encoder.outputFormatting = [.sortedKeys]
         try encoder.encode(Document(items: items)).write(to: url, options: .atomic)
     }
