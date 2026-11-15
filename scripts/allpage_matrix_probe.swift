@@ -1579,7 +1579,7 @@ final class AllPageMatrix {
         let view = WelcomeView(done: { opened += 1 })
             .environmentObject(fixture.store).environmentObject(fixture.services)
             .environment(\.colorScheme, .dark)
-        let (window, host) = try matrixWindow("Matrix Welcome", view, size: NSSize(width: 560, height: 900))
+        let (window, host) = try matrixWindow("Matrix Welcome", view, size: WelcomeView.windowSize)
         defer { window.close() }
         await mxReady(1.6)
         let root = try mxRoot("Matrix Welcome")
@@ -1587,29 +1587,24 @@ final class AllPageMatrix {
         try writeAX(root, output.appendingPathComponent("welcome-before.ax.json"))
 
         try report.require(
-            mxHas(root, AppL10n.text("Your plan, close at hand.")), "welcome renders its heading",
+            mxHas(root, AppL10n.text("A calmer way through a busy day")), "welcome renders its heading",
             "texts \(mxText(root).prefix(16))")
-        mxDumpAX(root, "welcome-permissions")
-        try mxSave(host, output.appendingPathComponent("welcome-permissions.png"))
-        // Every permission row must show the state the system actually holds: with no grant, the
-        // failure state is what the user sees, and the CTA must still work.
-        var states: [String: String] = [:]
-        let access = SettingsPermissionAccess(services: fixture.services)
-        for feature in PermissionFeature.allCases {
-            let reading = await access.read(feature)
-            states[feature.rawValue] = reading.state.rawValue
-            let row = try mxPermissionRow(root, feature: feature.rawValue)
-            try report.require(
-                mxHas(row, reading.state.title), "welcome shows \(feature.rawValue) as \(reading.state.title)",
-                "row texts \(mxText(row))")
+        for text in [
+            "Write it down", "Give it time", "Park the rest", "Nothing to allow yet",
+            "Calendar", "To show your meetings in Your day",
+            "Notifications", "For reminders when Perch is closed",
+            "Microphone", "Only if you choose to dictate", "Your tasks stay on this Mac.",
+        ] {
+            try report.require(mxHas(root, AppL10n.text(text)), "welcome presents \(text)")
         }
-        report.record("welcomePermissionStates", states)
-        let allowedRows = mxText(root).filter { $0 == PermissionState.allowed.title }.count
-        let allowedStates = states.values.filter { $0 == PermissionState.allowed.rawValue }.count
         try report.require(
-            allowedRows == allowedStates, "welcome never claims access the system did not grant",
-            "rows \(allowedRows) states \(allowedStates)")
-
+            !mxTree(root).contains { mxIdentifier($0)?.hasPrefix("permission-row.") == true },
+            "welcome has no permission request rows")
+        try report.require(
+            PermissionState.allCases.allSatisfy { !mxHas(root, $0.title) },
+            "welcome does not claim a live permission state")
+        mxDumpAX(root, "welcome-reasons")
+        try mxSave(host, output.appendingPathComponent("welcome-reasons.png"))
         // A keybinding registration failure is a real error surface: the view must re-read and
         // keep rendering instead of dropping the shortcut line.
         NotificationCenter.default.post(name: ShortcutStore.didFail, object: nil)
@@ -1619,12 +1614,12 @@ final class AllPageMatrix {
             mxHasContaining(root, display), "welcome keeps the shortcut line after a registration failure",
             "display \(display)")
         try report.require(
-            mxHas(root, AppL10n.text("Skip any permission. You can review it later in Settings.")),
-            "welcome keeps the skip promise in the failure state")
+            mxHas(root, AppL10n.text("Perch asks only when you first use something.")),
+            "welcome keeps the first-use promise in the failure state")
 
-        guard mxFind(root, name: AppL10n.text("Open workspace")) != nil else {
+        guard mxFind(root, name: AppL10n.text("Start with three things")) != nil else {
             mxDumpAX(root, "welcome")
-            throw MatrixFailure(label: "welcome has no Open workspace action")
+            throw MatrixFailure(label: "welcome has no Start with three things action")
         }
         // The production CTA owns the default-action Return shortcut. Drive that real key rather
         // than translating view-tree handles into system AX handles; a self-addressed AXPress on
@@ -1633,6 +1628,39 @@ final class AllPageMatrix {
         await mxReady(0.5)
         try report.require(opened == 1, "welcome opens the workspace without any permission")
         try mxSave(host, output.appendingPathComponent("welcome-failure-state.png"))
+        window.close()
+        try await welcomeSettingsPermissionStates(fixture)
+    }
+
+    /// The live-state checks formerly hosted in Welcome now exercise Settings' real panel.
+    /// This does not select, rename or otherwise change a Settings pane fixture.
+    func welcomeSettingsPermissionStates(_ fixture: MatrixFixture) async throws {
+        let view = PermissionPanel(services: fixture.services)
+        let (window, host) = try matrixWindow(
+            "Matrix Settings Permissions", view, size: NSSize(width: 620, height: 900))
+        defer { window.close() }
+        await mxReady(1.6)
+        let root = try mxRoot("Matrix Settings Permissions")
+        try mxSave(host, output.appendingPathComponent("settings-permission-states.png"))
+        // Every permission row must show the state the system actually holds: with no grant, the
+        // failure state is what the user sees, and the CTA must still work.
+        var states: [String: String] = [:]
+        let access = SettingsPermissionAccess(services: fixture.services)
+        for feature in PermissionFeature.allCases {
+            let reading = await access.read(feature)
+            states[feature.rawValue] = reading.state.rawValue
+            let row = try mxPermissionRow(root, feature: feature.rawValue)
+            try report.require(
+                mxHas(row, reading.state.title), "settings shows \(feature.rawValue) as \(reading.state.title)",
+                "row texts \(mxText(row))")
+        }
+        report.record("settingsPermissionStates", states)
+        let allowedRows = mxText(root).filter { $0 == PermissionState.allowed.title }.count
+        let allowedStates = states.values.filter { $0 == PermissionState.allowed.rawValue }.count
+        try report.require(
+            allowedRows == allowedStates, "settings never claims access the system did not grant",
+            "rows \(allowedRows) states \(allowedStates)")
+
     }
 
     // MARK: Details: historical and error states
