@@ -85,6 +85,22 @@ class WeekViewTests(unittest.TestCase):
         self.assertIn('displayedDays: days', row)
         self.assertNotIn('WeekColumnLayout.days(', row)
 
+    def test_native_keyboard_fixture_restores_task_only_before_neighbor_check(self):
+        source = (ROOT / "Tests/PerchAppTests/WeekInboxKeyboardTests.swift").read_text()
+        board = source.split('private static func redesignedBoard(', 1)[1].split(
+            'private static func tabTo(', 1)[0]
+        reset = 'store.send(.move(task.id, .day(future)))'
+        self.assertEqual(board.count(reset), 1, "A second same-day reset fails before Space/Add coverage")
+        self.assertLess(board.index(reset), board.index('let neighbor ='))
+        for assertion in [
+            'Option-Right from a checkbox pushes that exact row',
+            'Option-Right from a checkbox does not push the previously focused menu row',
+            'Space checks a future task and persists the change',
+            'Space reopens the same future task',
+            'Return in the coming-day field adds a task on that day',
+        ]:
+            self.assertIn(assertion, board)
+
     def test_chips_have_real_completion_and_menu_controls(self):
         source = (ROOT / "Sources/PerchApp/Workspace/WeekPage.swift").read_text()
         self.assertIn("WeekTaskPolicy.completionAction", source)

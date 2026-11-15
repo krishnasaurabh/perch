@@ -165,8 +165,6 @@
             try equal(
                 afterCheckboxPush.first { $0.id == task.id }?.day, future,
                 "Option-Right from a checkbox does not push the previously focused menu row")
-            // Return the task through the command so its visible future checkbox can be tested.
-            try notNil(store.send(.move(task.id, .day(future))))
             await settle()
             try await tabTo("week-check-\(task.id)", window: window)
             try await key(window, code: 49, characters: " ")
