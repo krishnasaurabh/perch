@@ -3937,6 +3937,23 @@
         }
       }
     },
+    "Dot under the housing for a waiting reminder": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dot under the housing for a waiting reminder"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Döt ündër thë höüsïng för à wàïtïng rëmïndër ·~⟧"
+          }
+        }
+      }
+    },
     "Dot-grid paper": {
       "extractionState": "manual",
       "localizations": {
@@ -4923,6 +4940,23 @@
         }
       }
     },
+    "Hide counts and times": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hide counts and times"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Hïdë cöünts ànd tïmës ·~⟧"
+          }
+        }
+      }
+    },
     "Hide task count": {
       "extractionState": "manual",
       "localizations": {
@@ -5038,6 +5072,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "⟦Hövër, cölör ·~⟧"
+          }
+        }
+      }
+    },
+    "Icon": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Icon"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Îcön ·~⟧"
           }
         }
       }
@@ -5586,6 +5637,23 @@
         }
       }
     },
+    "Left": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Left"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Lëft ·~⟧"
+          }
+        }
+      }
+    },
     "Left of the notch": {
       "extractionState": "manual",
       "localizations": {
@@ -5705,6 +5773,23 @@
         }
       }
     },
+    "Manual switch. Screen sharing is not detected automatically.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Manual switch. Screen sharing is not detected automatically."
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Mànüàl swïtch. Scrëën shàrïng ïs nöt dëtëctëd àütömàtïcàlly. ·~⟧"
+          }
+        }
+      }
+    },
     "Mark all done": {
       "extractionState": "manual",
       "localizations": {
@@ -5786,6 +5871,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "⟦Mëdïüm ·~⟧"
+          }
+        }
+      }
+    },
+    "Menu bar": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Menu bar"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Mënü bàr ·~⟧"
           }
         }
       }
@@ -6725,6 +6827,23 @@
         }
       }
     },
+    "One each side": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "One each side"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Önë ëàch sïdë ·~⟧"
+          }
+        }
+      }
+    },
     "One main button": {
       "extractionState": "manual",
       "localizations": {
@@ -7524,6 +7643,23 @@
         }
       }
     },
+    "Pills sit on the": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pills sit on the"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Pïlls sït ön thë ·~⟧"
+          }
+        }
+      }
+    },
     "Pin": {
       "extractionState": "manual",
       "localizations": {
@@ -7945,6 +8081,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "⟦Prïörïty ·~⟧"
+          }
+        }
+      }
+    },
+    "Progress line under the housing": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Progress line under the housing"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Prögrëss lïnë ündër thë höüsïng ·~⟧"
           }
         }
       }
@@ -9027,6 +9180,23 @@
         }
       }
     },
+    "Right": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Right"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Rïght ·~⟧"
+          }
+        }
+      }
+    },
     "Right of the notch": {
       "extractionState": "manual",
       "localizations": {
@@ -9486,6 +9656,23 @@
         }
       }
     },
+    "Show Perch in the menu bar as": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show Perch in the menu bar as"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Shöw Përch ïn thë mënü bàr às ·~⟧"
+          }
+        }
+      }
+    },
     "Show Perch on": {
       "extractionState": "manual",
       "localizations": {
@@ -9550,6 +9737,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "⟦Shöw pàrkëd thöüghts ·~⟧"
+          }
+        }
+      }
+    },
+    "Show the next block in its last 15 minutes": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show the next block in its last 15 minutes"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Shöw thë nëxt blöck ïn ïts làst 15 mïnütës ·~⟧"
           }
         }
       }
@@ -10387,6 +10591,23 @@
         }
       }
     },
+    "Tasks left": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tasks left"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Tàsks lëft ·~⟧"
+          }
+        }
+      }
+    },
     "Tasks left from yesterday": {
       "extractionState": "manual",
       "localizations": {
@@ -10417,6 +10638,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "⟦Tàsks wïth thëïr öwn tïmë büdgët üsë thàt ïnstëàd. ·~⟧"
+          }
+        }
+      }
+    },
+    "Tasks-left pill beside the notch": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tasks-left pill beside the notch"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Tàsks-lëft pïll bësïdë thë nötch ·~⟧"
           }
         }
       }
@@ -11135,6 +11373,23 @@
         }
       }
     },
+    "Time left": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Time left"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Tïmë lëft ·~⟧"
+          }
+        }
+      }
+    },
     "Time limit": {
       "extractionState": "manual",
       "localizations": {
@@ -11165,6 +11420,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "⟦Tïmë nöt rëcögnïzëd: %@. Try 18:15, 6:15 pm, 2026-12-01 18:15 ör ïn 15 mïnütës. ·~⟧"
+          }
+        }
+      }
+    },
+    "Time pill beside the notch": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Time pill beside the notch"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Tïmë pïll bësïdë thë nötch ·~⟧"
           }
         }
       }
@@ -12661,6 +12933,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "⟦lëft ·~⟧"
+          }
+        }
+      }
+    },
+    "macOS places the menu bar item itself, so it can never cover another icon.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "macOS places the menu bar item itself, so it can never cover another icon."
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦màcÖS plàcës thë mënü bàr ïtëm ïtsëlf, sö ït càn nëvër cövër ànöthër ïcön. ·~⟧"
           }
         }
       }
