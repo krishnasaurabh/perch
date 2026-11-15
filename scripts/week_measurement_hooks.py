@@ -17,9 +17,9 @@ EDITS = {
 BOARD_EDITS = {
     '.frame(width: layout.width(for: day))': '.frame(width: layout.width(for: day))\n                                .background(WeekMeasure(key: "board-column:\\(day.raw)"))',
     '.frame(width: layout.parkingWidth)': '.frame(width: layout.parkingWidth)\n                            .background(WeekMeasure(key: "board-parking"))',
-    # AppKit snapshots a Menu label; an NSView inside it is not attached to the
-    # window. Measure the real menu control around that unchanged label instead.
-    '.accessibilityIdentifier("week-menu-\\(task.id)")': '.accessibilityIdentifier("week-menu-\\(task.id)")\n                .background(WeekMeasure(key: "board-title:\\(task.id)"))',
+    # The visible title now sizes the row outside AppKit's flattened Menu label.
+    # Measure that live SwiftUI subtree, not the transparent popup overlay.
+    '.accessibilityHidden(true)\n                    .overlay {': '.accessibilityHidden(true)\n                    .background(WeekMeasure(key: "board-title:\\(task.id)"))\n                    .overlay {',
 }
 
 

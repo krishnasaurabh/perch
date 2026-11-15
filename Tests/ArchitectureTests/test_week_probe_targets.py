@@ -49,18 +49,36 @@ class WeekProbeTargetTests(unittest.TestCase):
                             with self.assertRaisesRegex(AssertionError, 'Missing production Week completion outlines'):
                                 week_checkbox_boxes(Image(rows), tokens)
 
-    def test_board_title_marker_measures_native_menu_not_its_detached_label(self):
+    def test_board_title_sizes_the_row_outside_the_native_menu_overlay(self):
         source = (ROOT / 'Sources/PerchApp/Workspace/WeekPage.swift').read_text()
         result = instrument(source)
         board, legacy = result.split('struct LegacyWeekPage: View {', 1)
-        self.assertIn('.accessibilityIdentifier("week-menu-\\(task.id)")\n'
-                      '                .background(WeekMeasure(key: "board-title:\\(task.id)"))', board)
+        self.assertIn('title\n                    .accessibilityHidden(true)\n'
+                      '                    .background(WeekMeasure(key: "board-title:\\(task.id)"))\n'
+                      '                    .overlay {\n                        GeometryReader { geometry in\n'
+                      '                            Menu {', board)
         title = board.split('private var title: some View {', 1)[1].split('private var details:', 1)[0]
         self.assertNotIn('WeekMeasure', title)
         self.assertIn('.lineLimit(2).fixedSize(horizontal: false, vertical: true)', title)
         self.assertNotIn('board-title:', legacy)
         self.assertEqual(board.count('WeekMeasure(key: "board-title:'), 1)
         self.assertIn('WeekMeasure(key: "title:', legacy)
+        menu = board.split('                        GeometryReader { geometry in\n', 1)[1].split(
+            '                    .draggable(TaskDragItem(taskID: task.id))', 1)[0]
+        self.assertIn('} label: {\n                                Color.clear.frame(', menu)
+        self.assertNotIn('\n                                title\n', menu)
+        self.assertIn('width: geometry.size.width, height: geometry.size.height', menu)
+        self.assertIn('.background(WeekMenuKeyboardAnchor(target: menuKeyboard))', menu)
+        self.assertIn('.onKeyPress(.space) { menuKeyboard.open() ? .handled : .ignored }', menu)
+        self.assertIn('.accessibilityLabel(AppL10n.format("Task actions: %@", task.title))', menu)
+        self.assertIn('.accessibilityIdentifier("week-menu-\\(task.id)")', menu)
+
+    def test_native_board_probe_keeps_strict_title_bounds_and_captures_failure_geometry(self):
+        probe = (ROOT / 'Tests/WorkspaceProbes/WeekBoardProbe.swift').read_text()
+        self.assertIn('title.height > 18 && title.height <= 42', probe)
+        self.assertIn('title.width <= layout.width(for: future)', probe)
+        self.assertLess(probe.index('try save(host,'), probe.index('require(title.height'))
+        self.assertIn('title-frame=\\(title)', probe)
 
     def test_capture_instrumentation_is_library_scoped_and_requires_exact_footer_hook(self):
         wrapper = (ROOT / 'scripts/check_capture_contrast.sh').read_text()

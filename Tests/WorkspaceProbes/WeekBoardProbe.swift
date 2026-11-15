@@ -47,9 +47,37 @@ func verifyWeekBoard(window: NSWindow, out: URL) async throws {
         let long = try XCTFreeUnwrap(
             store.planner.tasks.first { $0.title.hasPrefix("A deliberately") }, "two-line board fixture")
         let title = frame("board-title:\(long.id)", in: host)
+        report("Week board width=\(width) title-frame=\(title)")
+        try save(host, out.appendingPathComponent("week-board-\(Int(width + 28)).png"))
         require(title.height > 18 && title.height <= 42, "Board task title must wrap to at most two lines")
         require(title.width <= layout.width(for: future), "Board text cannot widen a day column")
-        try save(host, out.appendingPathComponent("week-board-\(Int(width + 28)).png"))
+        let titleMenus = nodes(host).filter {
+            attribute($0, "accessibilityIdentifier") as? String == "week-menu-\(long.id)"
+        }
+        require(!titleMenus.isEmpty, "Wrapped title must retain its accessible task menu")
+        let tracker = WeekMenuTracker()
+        tracker.start()
+        let point = host.convert(NSPoint(x: title.midX, y: title.midY), to: nil)
+        for type in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
+            let event = try XCTFreeUnwrap(
+                NSEvent.mouseEvent(
+                    with: type, location: point, modifierFlags: [],
+                    timestamp: ProcessInfo.processInfo.systemUptime,
+                    windowNumber: window.windowNumber, context: nil,
+                    eventNumber: 1, clickCount: 1, pressure: 1), "board title click")
+            window.sendEvent(event)
+        }
+        tracker.finishWaiting()
+        tracker.stop()
+        let menu = try XCTFreeUnwrap(tracker.menu, "wrapped title native menu")
+        let detailsIndex = try XCTFreeUnwrap(
+            menu.items.indices.first { menu.items[$0].title == "Details…" && menu.items[$0].isEnabled },
+            "wrapped title Details item")
+        model.detailsTaskID = nil
+        menu.performActionForItem(at: detailsIndex)
+        await settle()
+        require(model.detailsTaskID == long.id, "Wrapped title menu must open Details for its own task")
+        model.detailsTaskID = nil
     }
     // Exercise the production typed drop destination, then read the exact persisted result.
     let task = try XCTFreeUnwrap(store.planner.tasks.first { $0.day == today && !$0.done }, "board move fixture")

@@ -401,24 +401,33 @@ private struct WeekBoardTask: View {
             if past {
                 title
             } else {
-                Menu {
-                    actions
-                } label: {
-                    title
-                }
-                .menuStyle(.borderlessButton).menuIndicator(.hidden)
-                .background(WeekMenuKeyboardAnchor(target: menuKeyboard))
-                .focusable().focused($menuFocused).focusEffectDisabled()
-                .onKeyPress(.space) { menuKeyboard.open() ? .handled : .ignored }
-                .overlay(
-                    FocusRing(
-                        shape: RoundedRectangle(cornerRadius: Theme.Size.focusGap.value),
-                        focused: menuFocused, surface: surface)
-                )
-                .accessibilityLabel(AppL10n.format("Task actions: %@", task.title))
-                .accessibilityIdentifier("week-menu-\(task.id)")
-                .draggable(TaskDragItem(taskID: task.id))
-                .contextMenu { actions }
+                // AppKit flattens Menu labels into a single-line popup cell. Keep
+                // the two-line text in SwiftUI and let the native menu cover its
+                // bounds without participating in the row's size calculation.
+                title
+                    .accessibilityHidden(true)
+                    .overlay {
+                        GeometryReader { geometry in
+                            Menu {
+                                actions
+                            } label: {
+                                Color.clear.frame(width: geometry.size.width, height: geometry.size.height)
+                            }
+                            .menuStyle(.borderlessButton).menuIndicator(.hidden)
+                            .background(WeekMenuKeyboardAnchor(target: menuKeyboard))
+                            .focusable().focused($menuFocused).focusEffectDisabled()
+                            .onKeyPress(.space) { menuKeyboard.open() ? .handled : .ignored }
+                            .overlay(
+                                FocusRing(
+                                    shape: RoundedRectangle(cornerRadius: Theme.Size.focusGap.value),
+                                    focused: menuFocused, surface: surface)
+                            )
+                            .accessibilityLabel(AppL10n.format("Task actions: %@", task.title))
+                            .accessibilityIdentifier("week-menu-\(task.id)")
+                        }
+                    }
+                    .draggable(TaskDragItem(taskID: task.id))
+                    .contextMenu { actions }
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
