@@ -113,6 +113,12 @@ struct TasksCard: View {
                     .onChange(of: selectedStepID) { _, id in
                         ChecklistStepScroll.reveal(id) { scroll.scrollTo($0, anchor: $1) }
                     }
+                    .onChange(of: ids) { _, remaining in
+                        guard focus == .checklist, !foldSelected,
+                            let id = homeState.selectedTaskID, remaining.contains(id)
+                        else { return }
+                        scroll.scrollTo(selectedStepID ?? id, anchor: .center)
+                    }
                     .onChange(of: foldSelected) { _, selected in
                         if selected { scroll.scrollTo("today-fold") }
                     }

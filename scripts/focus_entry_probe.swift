@@ -651,6 +651,142 @@ func verifyChecklistKeys(store: PlannerStore, model: NotchModel, services: Servi
 }
 
 @MainActor
+func verifyDenseChecklistReveal(store: PlannerStore, model: NotchModel, services: Services, output: URL) async {
+    store.seedFixture { engine in
+        engine.planner.tasks = []; engine.planner.focus = nil
+    }
+    let tasks = store.apply { try $0.addTasks((1...24).map { "Inspect item \($0)" }, on: .day(store.today)) }!
+    let target = tasks[0]
+    let homeState = TodayHomeState()
+    let window = NSWindow(
+        contentRect: CGRect(x: 60, y: 100, width: 420, height: 510),
+        styleMask: [.titled], backing: .buffered, defer: false)
+    window.isReleasedWhenClosed = false
+    let root = NSHostingView(
+        rootView: TasksCard().environment(homeState).environmentObject(store)
+            .environmentObject(model).environmentObject(services).environment(\.accessibilityEnabled, true))
+    window.contentView = root; window.makeKeyAndOrderFront(nil); NSApp.activate(ignoringOtherApps: true)
+    await settle(); await wakeAX(); await settle()
+    let entered = await focusByTab("today-checklist", in: window, root: root, output: output)
+    require(entered, "dense reveal fixture enters the one checklist Tab stop")
+    guard let checklist = control("today-checklist", attribute: "accessibilityIdentifier", in: root),
+        let scrolling = views(root).compactMap({ $0 as? NSScrollView }).first(where: {
+            $0.accessibilityIdentifier() == "today-task-viewport"
+        })
+    else { require(false, "dense reveal fixture has its identified native viewport"); return }
+    @MainActor func viewportFrame() -> CGRect {
+        root.layoutSubtreeIfNeeded()
+        return window.convertToScreen(scrolling.contentView.convert(scrolling.contentView.bounds, to: nil))
+    }
+    @MainActor func requireTaskVisible(_ phase: String, includesRing: Bool = false) {
+        guard let title = control("task-row-\(target.id)", attribute: "accessibilityIdentifier", in: root),
+            let checkbox = control("task-complete-\(target.id)", attribute: "accessibilityIdentifier", in: root)
+        else { require(false, "\(phase): selected task remains rendered"); return }
+        let viewport = viewportFrame()
+        let titleBounds = frame(title), checkboxBounds = frame(checkbox)
+        // Single-line fixtures use the production 38pt row, not only its smaller text bounds.
+        let row = titleBounds.union(checkboxBounds).union(
+            CGRect(
+                x: checkboxBounds.minX, y: checkboxBounds.midY - Theme.Size.taskRowHeight.value / 2,
+                width: checkboxBounds.width, height: Theme.Size.taskRowHeight.value))
+        require(viewport.height > 0 && viewport.height <= 300, "\(phase): native viewport retains the 300pt cap")
+        require(titleBounds.height > 0 && checkboxBounds.height > 0 && viewport.contains(row), phase)
+        require(
+            homeState.selectedTaskID == target.id && isFocused(checklist),
+            "\(phase): same keyboard selection owns focus")
+        if includesRing {
+            let outset = Theme.Size.focusGap.value + Theme.Size.focusWidth.value
+            require(
+                row.minY - outset >= viewport.minY && row.maxY + outset <= viewport.maxY,
+                "\(phase): selected row's focus-ring height is inside the viewport")
+        }
+    }
+    requireTaskVisible("dense first row starts visible")
+    let before = try! store.file.load().tasks
+    key(" ", code: 49, in: window); await settle()
+    let completed = try! store.file.load().tasks
+    require(
+        TodayTaskNavigation.ordered(completed, currentID: nil).last?.id == target.id
+            && completed.first(where: { $0.id == target.id })?.done == true,
+        "dense completion persists the same task at displayed row 23")
+    require(
+        sameTaskContent(completed.filter { $0.id != target.id }, before.filter { $0.id != target.id }),
+        "dense completion preserves every other task")
+    requireTaskVisible("dense completion keeps the selected row visible", includesRing: true)
+    recordAccessibility(root, "dense-reveal-completed", into: output)
+    snapshot(root, "dense-reveal-completed", into: output)
+    // The next actual keyboard action must act on that same now-visible task.
+    key(" ", code: 49, in: window); await settle()
+    require(sameTaskContent(try! store.file.load().tasks, before), "dense next Space reopens exactly the visible task")
+    requireTaskVisible("dense reopen keeps the same task visible")
+    var expected = try! store.file.load().tasks
+    for index in 0..<12 {
+        sendKey(.keyDown, "\u{F701}", code: 125, in: window, modifiers: [.option])
+        sendKey(.keyUp, "\u{F701}", code: 125, in: window, modifiers: [.option]); await settle()
+        expected.swapAt(index, index + 1)
+        require(sameTaskContent(try! store.file.load().tasks, expected), "dense Option-Down persists one reorder")
+        requireTaskVisible("dense keyboard reorder keeps the same task visible")
+    }
+    sendKey(.keyDown, "\u{F700}", code: 126, in: window, modifiers: [.option])
+    sendKey(.keyUp, "\u{F700}", code: 126, in: window, modifiers: [.option]); await settle()
+    expected.swapAt(12, 11)
+    require(sameTaskContent(try! store.file.load().tasks, expected), "dense Option-Up persists the reverse reorder")
+    requireTaskVisible("dense reverse reorder keeps the same task visible")
+    // A tall expanded parent makes scrolling to the task instead of its selected step insufficient.
+    store.updateTask(target.id) { $0.steps = (1...15).map { Subtask(title: "Inspect detail \($0)") } }
+    await settle()
+    key("\u{F703}", code: 124, in: window); await settle()
+    key("\u{F703}", code: 124, in: window); await settle()
+    for _ in 1..<15 { key("\u{F701}", code: 125, in: window); await settle() }
+    let stepID = store.planner.tasks.first { $0.id == target.id }!.steps.last!.id
+    var expectedStepOrder = try! store.file.load().tasks
+    expectedStepOrder.swapAt(11, 12)
+    sendKey(.keyDown, "\u{F701}", code: 125, in: window, modifiers: [.option])
+    sendKey(.keyUp, "\u{F701}", code: 125, in: window, modifiers: [.option]); await settle()
+    require(
+        sameTaskContent(try! store.file.load().tasks, expectedStepOrder),
+        "dense selected-step Option-Down persists exactly one parent reorder")
+    guard let step = control("step-complete-\(stepID)", attribute: "accessibilityIdentifier", in: root) else {
+        require(false, "dense reordered step remains rendered"); return
+    }
+    let viewport = viewportFrame(), stepBounds = frame(step)
+    require(
+        stepBounds.height > 0 && viewport.contains(stepBounds),
+        "dense parent reorder reveals the selected step instead of its tall parent")
+    require(
+        homeState.selectedTaskID == target.id && isFocused(checklist), "dense step reorder preserves checklist focus")
+    var expectedSteps = try! store.file.load().tasks
+    let parentIndex = expectedSteps.firstIndex { $0.id == target.id }!
+    expectedSteps[parentIndex].steps[14].done = true
+    key(" ", code: 49, in: window); await settle()
+    require(
+        sameTaskContent(try! store.file.load().tasks, expectedSteps),
+        "dense next Space completes only the same visible step")
+    recordAccessibility(root, "dense-reveal-step-reordered", into: output)
+    snapshot(root, "dense-reveal-step-reordered", into: output)
+    window.makeFirstResponder(nil)
+    for _ in 0..<60 {
+        key("\t", code: 48, in: window); try? await Task.sleep(nanoseconds: 50_000_000)
+        if window.firstResponder is NSTextView { break }
+    }
+    guard let editor = window.firstResponder as? NSTextView, let document = scrolling.documentView else {
+        require(false, "dense reveal control reaches the capture editor"); return
+    }
+    await typeCaptureText("Keep this draft", in: window)
+    document.scroll(NSPoint(x: 0, y: document.isFlipped ? document.bounds.minY : document.bounds.maxY))
+    await settle()
+    let captureScrollOrigin = scrolling.contentView.bounds.origin
+    store.send(.complete(target.id)); await settle()
+    require(
+        window.firstResponder === editor && editor.string == "Keep this draft",
+        "external completion does not steal capture focus or change its draft")
+    require(
+        scrolling.contentView.bounds.origin == captureScrollOrigin,
+        "external completion does not reveal the inactive checklist selection")
+    window.orderOut(nil)
+}
+
+@MainActor
 func verifyCaptureUndoSubmission(store: PlannerStore, model: NotchModel, services: Services, output: URL) async {
     store.seedFixture { engine in
         engine.planner.tasks = []; engine.planner.focus = nil
@@ -1097,6 +1233,8 @@ MainActor.assumeIsolated {
             }
             print("Keyboard activation before task route: \(keyboardVerified)")
             await verifyChecklistKeys(store: store, model: delegate.model, services: delegate.services, output: output)
+            await verifyDenseChecklistReveal(
+                store: store, model: delegate.model, services: delegate.services, output: output)
             await verifyLastRowKeyboardUndo(
                 store: store, model: delegate.model, services: delegate.services, output: output)
             await verifyCaptureUndoSubmission(
