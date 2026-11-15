@@ -120,6 +120,23 @@
         }
       }
     },
+    "%@, %@ left": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@, %@ left"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦%@, %@ lëft ·~⟧"
+          }
+        }
+      }
+    },
     "%@, %@ priority": {
       "extractionState": "manual",
       "localizations": {

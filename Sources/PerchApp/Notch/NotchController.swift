@@ -173,7 +173,7 @@ final class NotchModel: ObservableObject {
 
     /// The side the closed notch shows a running timer on, or nil (no timer, or hidden): only then does it grow a pill.
     static func timerShowing(_ store: PlannerStore) -> NotchTimerPlacement? {
-        guard let f = store.planner.focus, f.state != .finished else { return nil }
+        guard store.prefs.notchTimePill, let f = store.planner.focus, f.state != .finished else { return nil }
         let side = store.prefs.notchTimerPlacement
         return side == .hidden ? nil : side
     }
@@ -240,6 +240,7 @@ final class NotchController {
     /// Drag pasteboard change count while no button is held; a different count with the button down means a drag.
     private var dragBaseline = NSPasteboard(name: .drag).changeCount
     private var openedForDrop = false
+    private var openedByHover = false
     private var hoverIntent = NotchHoverIntent()
 
     init(
@@ -318,10 +319,15 @@ final class NotchController {
         store.$planner.map(\.preferences.notchOpenTrigger).removeDuplicates().dropFirst().sink { [weak self] _ in
             self?.cancelHover()
             DispatchQueue.main.async {
-                guard let self, self.model.expanded, !self.model.pinned else { return }
-                switch NotchOpenLevel.hover(self.store.prefs.notchOpenTrigger) {
+                guard let self, self.openedByHover, self.model.expanded, !self.model.pinned else { return }
+                let level =
+                    self.slots[self.model.screenID].map { self.hoverLevel(at: NSEvent.mouseLocation, slot: $0) }
+                    ?? .closed
+                switch level {
                 case .closed: self.model.close()
-                case .peek: self.model.openPeek()
+                case .peek:
+                    if !self.model.peeking { self.model.close() }
+                    self.model.openPeek()
                 case .everything: self.model.open()
                 }
             }
@@ -498,7 +504,7 @@ final class NotchController {
 
     private func open(
         on id: CGDirectDisplayID, page: NotchPage? = nil, pinned: Bool = false, activate: Bool = false,
-        peek: Bool = false
+        peek: Bool = false, hover: Bool = false
     ) {
         guard let slot = slots[id] else { return }
         cancelHover()
@@ -509,6 +515,7 @@ final class NotchController {
             model.geometry = slot.state.geometry
         }
         slot.panel.orderFrontRegardless()
+        openedByHover = hover
         if peek { model.openPeek() } else { model.open(page: page, pinned: pinned) }
         if activate {
             NSApp.activate(ignoringOtherApps: true)
@@ -570,6 +577,7 @@ final class NotchController {
     /// Exactly the drawn outline: the open workspace (rounded corners and shoulders excluded), or the closed silhouette.
     private func isOnShape(_ p: NSPoint, _ slot: Slot) -> Bool {
         let active = model.screenID == slot.state.id
+        if isOnPill(p, slot) { return true }
         if active && model.expanded && model.peeking {
             let rect = peekFrame(slot)
             guard rect.contains(p) else { return false }
@@ -585,6 +593,24 @@ final class NotchController {
             closed: model.closed(in: store, screenID: slot.state.id))
     }
 
+    private func pillFrames(_ slot: Slot) -> [CGRect] {
+        let active = model.screenID == slot.state.id
+        guard slot.state.geometry.hasHardwareNotch, !(active && model.expanded),
+            !(active && model.displayedActivity != nil)
+        else { return [] }
+        let pills = model.pills(in: store, now: PreviewClock.date ?? Date())
+        return NotchPillLayout.frames(
+            pills: pills, housing: slot.state.geometry.notchRect, placement: store.prefs.notchTimerPlacement)
+    }
+
+    private func isOnPill(_ point: CGPoint, _ slot: Slot) -> Bool {
+        NotchPillLayout.contains(point, frames: pillFrames(slot))
+    }
+
+    private func hoverLevel(at point: CGPoint, slot: Slot) -> NotchOpenLevel {
+        NotchOpenLevel.hover(store.prefs.notchOpenTrigger, pill: isOnPill(point, slot))
+    }
+
     private func peekFrame(_ slot: Slot) -> CGRect {
         NotchPeekLayout.frame(
             workspace: slot.state.geometry.workspace, bandHeight: slot.state.geometry.notchSize.height)
@@ -593,10 +619,11 @@ final class NotchController {
     private func hoverRect(_ slot: Slot) -> NSRect {
         let active = model.screenID == slot.state.id
         if active && model.expanded && model.peeking { return peekFrame(slot) }
-        return slot.state.geometry.hover(
+        let housing = slot.state.geometry.hover(
             expanded: active && model.expanded, timer: timerShowing(),
             activity: active && model.displayedActivity != nil, closed: model.closed(in: store, screenID: slot.state.id)
         )
+        return pillFrames(slot).reduce(housing) { $0.union($1) }
     }
 
     // MARK: Pointer
@@ -635,6 +662,10 @@ final class NotchController {
 
         if e.type == .leftMouseDown {
             cancelHover()
+            if let id = slotUnderPointer(), let slot = slots[id], drawn(slot), isOnPill(p, slot) {
+                open(on: id, peek: true)
+                return
+            }
             let peekHousingClick =
                 model.peeking
                 && slots[model.screenID].map {
@@ -656,8 +687,9 @@ final class NotchController {
         if e.type == .leftMouseDragged { watchForDrop(at: p) }
 
         if !model.expanded {
-            guard NotchOpenLevel.hover(prefs.notchOpenTrigger) != .closed, e.type == .mouseMoved,
+            guard e.type == .mouseMoved,
                 let id = slotUnderPointer(), let slot = slots[id], drawn(slot),
+                hoverLevel(at: p, slot: slot) != .closed,
                 NotchLayout.contains(hoverRect(slot), pointer: p) && isOnShape(p, slot)
             else {
                 openWork?.cancel(); openWork = nil
@@ -674,14 +706,15 @@ final class NotchController {
                 let eligible =
                     self.slots[id].map {
                         !self.model.expanded && !self.model.pinned && !self.openedForDrop
-                            && NotchOpenLevel.hover(self.store.prefs.notchOpenTrigger) != .closed
+                            && self.hoverLevel(at: NSEvent.mouseLocation, slot: $0) != .closed
                             && !($0.state.fullScreen) && self.drawn($0)
                             && NSEvent.pressedMouseButtons == 0
                             && NotchLayout.contains(self.hoverRect($0), pointer: NSEvent.mouseLocation)
                             && self.isOnShape(NSEvent.mouseLocation, $0)
                     } ?? false
                 guard self.hoverIntent.consume(token, screen: id, eligible: eligible) else { return }
-                self.open(on: id, peek: NotchOpenLevel.hover(self.store.prefs.notchOpenTrigger) == .peek)
+                let level = self.slots[id].map { self.hoverLevel(at: NSEvent.mouseLocation, slot: $0) } ?? .closed
+                self.open(on: id, peek: level == .peek, hover: true)
             }
             return
         }

@@ -69,9 +69,20 @@ struct NotchRootView: View {
                         .offset(x: g.activityRect.minX - window.minX, y: window.maxY - g.activityRect.maxY)
                         .transition(.opacity)
                 } else {
-                    LocalClock(running: closed.needsClock(hasHardwareNotch: g.hasHardwareNotch)) { now in
+                    LocalClock(
+                        running: store.prefs.notchNextBlock || closed.needsClock(hasHardwareNotch: g.hasHardwareNotch)
+                    ) { now in
                         NotchClosedLayer(geometry: g, bounds: window, presentation: closed, now: now) {
                             model.activateClosed(in: store, on: screen)
+                        }
+                        if g.hasHardwareNotch {
+                            let pills = model.pills(in: store, now: now)
+                            NotchPills(
+                                pills: pills,
+                                frames: NotchPillLayout.frames(
+                                    pills: pills, housing: g.notchRect, placement: store.prefs.notchTimerPlacement),
+                                bounds: window
+                            ) { model.peek(on: screen) }
                         }
                     }
                     .designMotion(.hover, value: closed)
@@ -126,51 +137,31 @@ struct NotchRootView: View {
     }
 }
 
-/// Closed with a running timer: the notch stays hidden behind the hardware, and a black capsule beside it shows the
-/// time in dot-matrix digits. No icon, no accent, no border: one piece of information.
+/// Compatibility surface for timer-only callers; live side pills use the portable layout.
 struct TimerPillLayer: View {
     let geometry: NotchGeometry
     let side: NotchTimerPlacement
     let bounds: NSRect
-    // Preserve the outgoing value during a dismiss transition after the live store clears it.
     let focus: FocusSession?
 
     var body: some View {
-        let p = geometry.pill(side: side)
-        Capsule(style: .continuous).fill(Theme.notchBlack)
-            .overlay(digits(width: p.width, height: p.height))
-            .frame(width: p.width, height: p.height)
-            .offset(x: p.minX - bounds.minX, y: bounds.maxY - p.maxY)
-    }
-
-    @ViewBuilder private func digits(width: CGFloat, height: CGFloat) -> some View {
-        if let f = focus, f.state != .finished {
-            LocalClock(running: f.state == .running) { now in
-                let face = NotchTimerPresentation(seconds: f.remaining(at: now) ?? f.elapsed(at: now))
-                Group {
-                    if face.usesDotMatrix {
-                        DotMatrixText(
-                            text: face.text, dot: Self.dot(for: face.text, width: width - 16, height: height * 0.68),
-                            color: Color.white.opacity(f.state == .running ? 0.95 : 0.6), unlit: .clear)
-                    } else {
-                        Text(face.text).font(
-                            .system(size: ThemeTokens.TypeSize.body, weight: .semibold, design: .monospaced)
-                        )
-                        .foregroundStyle(Color.white.opacity(f.state == .running ? 0.95 : 0.6))
-                        .lineLimit(1).minimumScaleFactor(0.8)
-                    }
-                }
-                .accessibilityElement(children: .ignore)
-                .accessibilityLabel(
-                    AppL10n.format(
-                        "%@ timer, %@", AppL10n.text(f.state == .running ? "Running" : "Paused"), face.fullText)
-                )
-                .help(AppL10n.format("%@ %@", face.fullText, AppL10n.text(f.limit == nil ? "elapsed" : "remaining")))
+        let rect = geometry.pill(side: side)
+        if let focus, focus.state != .finished {
+            LocalClock(running: focus.state == .running) { now in
+                let face = NotchTimerPresentation(seconds: focus.remaining(at: now) ?? focus.elapsed(at: now))
+                NotchPillFace(text: face.text, showsDot: focus.state == .running, paused: focus.state == .paused)
+                    .frame(width: rect.width, height: rect.height)
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityLabel(
+                        AppL10n.format(
+                            "%@, %@ left", AppL10n.text(focus.state == .paused ? "Paused" : "Time set aside"),
+                            face.fullText)
+                    )
+                    .offset(x: rect.minX - bounds.minX, y: bounds.maxY - rect.maxY)
             }
         }
     }
 
-    /// Largest dot that fits the text in the capsule's inner box (glyphs are 3x5 dots; colons one dot wide).
     static func dot(for text: String, width: CGFloat, height: CGFloat) -> CGFloat {
         NotchTimerPresentation.dot(for: text, width: width, height: height)
     }

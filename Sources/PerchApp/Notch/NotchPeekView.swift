@@ -54,7 +54,9 @@ struct NotchPeekView: View {
         .frame(width: NotchPeekLayout.width)
         .environment(\.colorScheme, PreviewAppearance.scheme ?? scheme)
         .background(PeekAppearanceBridge { scheme = $0 }.allowsHitTesting(false))
-        .onChange(of: typing) { _, value in model.pinned = value }
+        .onChange(of: typing) { _, value in
+            if model.peeking && model.expanded { model.pinned = value }
+        }
         .onKeyPress("p", phases: .down) { key in
             guard key.modifiers == .command, peek.focus != nil else { return .ignored }
             model.togglePeekBlock(in: store)
@@ -139,7 +141,7 @@ struct NotchPeekView: View {
         HStack(spacing: NotchPeekLayout.gap) {
             Image(systemName: "plus").perchFont(.body).foregroundStyle(Theme.ink2).accessibilityHidden(true)
             PerchField("Add a task, or park a thought", text: $draft, focus: $typing) {
-                submit()
+                submit(park: NSEvent.modifierFlags.contains(.command))
             }
             .onKeyPress(.return, phases: .down) { key in
                 guard key.modifiers == .command else { return .ignored }

@@ -35,6 +35,23 @@
         }
       }
     },
+    "%@, %@ left": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@, %@ left"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦%@, %@ lëft ·~⟧"
+          }
+        }
+      }
+    },
     "%@, typed date": {
       "extractionState": "manual",
       "localizations": {
@@ -130,6 +147,23 @@
                 }
               }
             }
+          }
+        }
+      }
+    },
+    "%lld left": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld left"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦%lld lëft ·~⟧"
           }
         }
       }
@@ -1353,6 +1387,40 @@
         }
       }
     },
+    "Next %@": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Next %@"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Nëxt %@ ·~⟧"
+          }
+        }
+      }
+    },
+    "Next block": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Next block"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Nëxt blöck ·~⟧"
+          }
+        }
+      }
+    },
     "Next: ": {
       "extractionState": "manual",
       "localizations": {
@@ -1764,6 +1832,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "⟦Stàrt tïmë ön thë tàsk ·~⟧"
+          }
+        }
+      }
+    },
+    "Tasks left": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tasks left"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Tàsks lëft ·~⟧"
           }
         }
       }

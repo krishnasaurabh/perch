@@ -23,6 +23,13 @@ import SwiftUI
                     WorkspaceShellPreview.show(page: .week, narrow: true, app: $0)
                 },
                 "notch-peek": .peek,
+                "notch-pills-time": NotchPillsPreview.target("time"),
+                "notch-pills-tasks": NotchPillsPreview.target("tasks"),
+                "notch-pills-next": NotchPillsPreview.target("next"),
+                "notch-pills-paused": NotchPillsPreview.target("paused"),
+                "notch-pills-both": NotchPillsPreview.target("both"),
+                "notch-pills-left": NotchPillsPreview.target("left"),
+                "notch-pills-private": NotchPillsPreview.target("private"),
                 "notch-closed": .closedNotch(hardware: true),
                 "notch-flat": .closedNotch(hardware: false),
                 "notch-progress-off": .closedNotch(hardware: true, progress: false),
