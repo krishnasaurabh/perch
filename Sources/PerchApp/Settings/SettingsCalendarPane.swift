@@ -62,6 +62,7 @@ private struct SettingsCalendarContent: View {
                 refreshCalendar: { effects.refreshCalendar() },
                 enableMirroring: { await effects.enableMirroring() },
                 setTwoWay: { (enabled: Bool) -> Bool in effects.setTwoWay(enabled) },
+                readPhoneConsent: { await effects.readPhoneConsent() },
                 refreshReminders: { effects.refreshReminders() },
                 refreshMirroring: { effects.refreshMirroring() }))
     }
@@ -93,13 +94,21 @@ private struct SettingsCalendarContent: View {
         }
         .task {
             await permissions.refresh()
-            model.reflectExistingPhoneConsent(sync.twoWayEnabled)
+            await model.refreshPhoneConsent()
         }
+        .onChange(of: store.planner) { Task { await model.refreshPhoneConsent() } }
+        .onChange(of: sync.twoWayEnabled) { Task { await model.refreshPhoneConsent() } }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
-            Task { await permissions.refresh() }
+            Task {
+                await permissions.refresh()
+                await model.refreshPhoneConsent()
+            }
         }
         .onReceive(NotificationCenter.default.publisher(for: .EKEventStoreChanged)) { _ in
-            Task { await permissions.refresh() }
+            Task {
+                await permissions.refresh()
+                await model.refreshPhoneConsent()
+            }
         }
     }
 }
@@ -116,6 +125,8 @@ private struct CalendarSettingsEffects {
         services.remindersSync.setTwoWayEnabled(enabled)
         return services.remindersSync.lastError == nil && services.remindersSync.twoWayEnabled == enabled
     }
+
+    func readPhoneConsent() async -> Bool? { await services.remindersSync.refreshTwoWayConsent() }
 
     func refreshReminders() -> Void { services.reminders.refreshAuthorization() }
 
@@ -351,13 +362,15 @@ final class CalendarSettingsModel: ObservableObject {
     private let refreshCalendar: () -> Void
     private let enableMirroring: () async -> Bool
     private let setTwoWay: (Bool) -> Bool
+    private let readPhoneConsent: () async -> Bool?
     private let refreshReminders: () -> Void
     private let refreshMirroring: () -> Void
 
     init(
         store: PlannerStore, permissions: PermissionPanelModel,
         refreshCalendar: @escaping () -> Void = {}, enableMirroring: @escaping () async -> Bool = { false },
-        setTwoWay: @escaping (Bool) -> Bool = { _ in false }, refreshReminders: @escaping () -> Void = {},
+        setTwoWay: @escaping (Bool) -> Bool = { _ in false },
+        readPhoneConsent: @escaping () async -> Bool? = { nil }, refreshReminders: @escaping () -> Void = {},
         refreshMirroring: @escaping () -> Void = {}
     ) {
         self.store = store
@@ -365,13 +378,14 @@ final class CalendarSettingsModel: ObservableObject {
         self.refreshCalendar = refreshCalendar
         self.enableMirroring = enableMirroring
         self.setTwoWay = setTwoWay
+        self.readPhoneConsent = readPhoneConsent
         self.refreshReminders = refreshReminders
         self.refreshMirroring = refreshMirroring
     }
 
     @discardableResult
-    private func save(_ update: PreferenceUpdate) -> Bool {
-        let result: Bool? = store.performMutation(origin: .user) {
+    private func save(_ update: PreferenceUpdate, origin: PlannerCommandOrigin = .user) -> Bool {
+        let result: Bool? = store.performMutation(origin: origin) {
             try $0.updatePreference(update)
             return true
         }
@@ -456,13 +470,20 @@ final class CalendarSettingsModel: ObservableObject {
     func setPhoneEdits(_ value: PhoneEditPolicy) {
         let previous = store.prefs.phoneEdits
         guard setTwoWay(value == .bringBack) else { return }
-        if !save(.phoneEdits(value)) { _ = setTwoWay(previous == .bringBack) }
+        // Consent belongs to the Reminders ledger, not planner Undo/Redo.
+        if !save(.phoneEdits(value), origin: .background) { _ = setTwoWay(previous == .bringBack) }
+    }
+
+    /// Read durable consent after history or external changes; never infer consent from a preference.
+    func refreshPhoneConsent() async {
+        guard let enabled = await readPhoneConsent() else { return }
+        reflectExistingPhoneConsent(enabled)
     }
 
     /// Preserve a prior installation's explicit two-way consent when showing its new typed setting.
     func reflectExistingPhoneConsent(_ enabled: Bool) {
         let value: PhoneEditPolicy = enabled ? .bringBack : .ignore
-        if store.prefs.phoneEdits != value { _ = save(.phoneEdits(value)) }
+        if store.prefs.phoneEdits != value { _ = save(.phoneEdits(value), origin: .background) }
     }
 }
 

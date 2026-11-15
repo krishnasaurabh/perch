@@ -31,6 +31,7 @@ final class RemindersSync: ObservableObject {
         set { lifetimeState.state.scheduled = newValue }
     }
     private var running = false
+    private var consentReaders: [CheckedContinuation<Void, Never>] = []
     private var pending = false
     private var applyingCompletion = false
     private var pausedForHistory = false
@@ -95,6 +96,20 @@ final class RemindersSync: ObservableObject {
     }
 
     var hasAccess: Bool { source.hasAccess }
+
+    /// Refresh the Settings projection without granting consent or resuming a history-paused sync.
+    func refreshTwoWayConsent() async -> Bool? {
+        // Reconciliation owns the non-reentrant ledger lock across EventKit awaits.
+        while running { await withCheckedContinuation { consentReaders.append($0) } }
+        do {
+            let enabled = try reconciler.twoWayEnabled()
+            if twoWayEnabled != enabled { twoWayEnabled = enabled }
+            return enabled
+        } catch {
+            lastError = .access(error.localizedDescription)
+            return nil
+        }
+    }
 
     func requestAccess() async -> Bool {
         do {
@@ -245,5 +260,8 @@ final class RemindersSync: ObservableObject {
         } else if pending {
             pending = false; schedule(after: 2)
         }
+        let readers = consentReaders
+        consentReaders.removeAll()
+        for reader in readers { reader.resume() }
     }
 }
