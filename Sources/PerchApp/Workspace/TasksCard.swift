@@ -74,12 +74,10 @@ struct TasksCard: View {
                         if let id = value?.taskID { scroll.scrollTo(id) }
                     }
                 }
-                // Use viewport space, not the pinned capture row. Deletion keeps
-                // its existing strip/footer presentation below the composer.
+                // One stable local keyboard destination for every edit. Its
+                // contents consume viewport space without moving pinned capture.
                 .safeAreaInset(edge: .bottom, spacing: 8) {
-                    if store.canUndo, model.strips?.hasCompletionUndo == true {
-                        undoFooter(reviewOverdue: false)
-                    }
+                    footer.modifier(NotchUndoFooter())
                 }
             }
             .frame(minHeight: 0, maxHeight: WorkspaceLayout.contentHeight)
@@ -91,9 +89,7 @@ struct TasksCard: View {
             TaskComposer(day: .day(store.today), placeholder: "What would you like to do?", focus: $focus)
                 .fixedSize(horizontal: false, vertical: true)
                 .layoutPriority(1)
-            footer.modifier(NotchUndoFooter(focus: $focus, reviewingOverdue: $reviewingOverdue)).fixedSize(
-                horizontal: false, vertical: true
-            ).layoutPriority(1)
+            overdueFooter.fixedSize(horizontal: false, vertical: true).layoutPriority(1)
         }
         .card(.tasks)
         .onChange(of: finished.count, initial: true) { _, count in
@@ -120,9 +116,7 @@ struct TasksCard: View {
         }
     }
 
-    private var footer: some View { undoFooter(reviewOverdue: true) }
-
-    private func undoFooter(reviewOverdue: Bool) -> some View {
+    private var footer: some View {
         HStack(spacing: 8) {
             Button {
                 store.undo()
@@ -143,13 +137,16 @@ struct TasksCard: View {
             .accessibilityIdentifier("today-undo")
             .help("Undo the last edit, including task deletion (Command-Z)")
             Spacer(minLength: 0)
-            if reviewOverdue, !store.engine.overdue().isEmpty {
-                Button(AppL10n.format("Review overdue (%lld)", store.engine.overdue().count)) {
-                    reviewingOverdue = true
-                }
-                .buttonStyle(PillStyle())
-                .accessibilityIdentifier("today-review-overdue")
+        }
+    }
+
+    @ViewBuilder private var overdueFooter: some View {
+        if !store.engine.overdue().isEmpty {
+            Button(AppL10n.format("Review overdue (%lld)", store.engine.overdue().count)) {
+                reviewingOverdue = true
             }
+            .buttonStyle(PillStyle())
+            .accessibilityIdentifier("today-review-overdue")
         }
     }
 

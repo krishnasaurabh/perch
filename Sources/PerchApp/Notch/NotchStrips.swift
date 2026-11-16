@@ -32,17 +32,6 @@ final class NotchStrips {
     private(set) var currentActivity: PresentedNotchActivity?
     private(set) var hasCompletionUndo = false
     private(set) var bounds: CGRect = .zero
-    private(set) var undoFocus: FocusState<TodayFocus?>.Binding?
-    private var undoFocusID: UUID?
-
-    func registerUndoFocus(_ focus: FocusState<TodayFocus?>.Binding, id: UUID) {
-        guard undoFocusID != id else { return }
-        undoFocus = focus; undoFocusID = id; model?.objectWillChange.send()
-    }
-    func unregisterUndoFocus(id: UUID) {
-        guard undoFocusID == id else { return }
-        undoFocus = nil; undoFocusID = nil; model?.objectWillChange.send()
-    }
 
     static func install(store: PlannerStore, calendar: CalendarService, reminders: ReminderService, model: NotchModel) {
         model.strips = NotchStrips(store: store, calendar: calendar, reminders: reminders, model: model)
@@ -591,7 +580,7 @@ struct NotchStripContent: View {
                 HStack(spacing: NotchStripMetrics.gap) {
                     Text(activity.title).perchFont(.stripTitle)
                     Spacer(minLength: .zero)
-                    NotchUndoAction(activity: activity, action: { action(.undo) })
+                    NotchUndoAction(action: { action(.undo) })
                     Text("⌘Z").perchFont(.detail).foregroundStyle(Theme.ink2)
                 }
                 GeometryReader { proxy in
@@ -698,79 +687,51 @@ struct NotchStripContent: View {
     }
 }
 
-/// Registers the existing Undo keyboard destination, with completion/reopening
-/// mounted in the task viewport. Deletion keeps its six-second strip and fallback.
+/// Decorate Today's single viewport destination without remounting it as a
+/// deletion strip appears or expires. Geometry never determines keyboard ownership.
 struct NotchUndoFooter: ViewModifier {
-    let focus: FocusState<TodayFocus?>.Binding
-    @Binding var reviewingOverdue: Bool
-    @State private var registration = UUID()
     @EnvironmentObject private var store: PlannerStore
     @EnvironmentObject private var model: NotchModel
 
     func body(content: Content) -> some View {
-        VStack(spacing: .zero) {
-            if model.geometry == nil, let activity = model.strips?.currentActivity, activity.stripKind == .undo {
-                VStack(alignment: .leading, spacing: NotchStripMetrics.gap) {
-                    Text(activity.title).perchFont(.stripTitle).foregroundStyle(Theme.ink)
-                    content
-                    TimelineView(.periodic(from: .now, by: NotchStripMetrics.clockInterval)) { context in
-                        GeometryReader { proxy in
-                            Rectangle().fill(Theme.ink2)
-                            Rectangle().fill(Theme.brandText).frame(
-                                width: proxy.size.width * (model.strips?.fraction(at: context.date) ?? 0))
-                        }.frame(height: NotchStripMetrics.progressHeight).accessibilityHidden(true)
-                    }
-                }
-                .padding(NotchStripMetrics.gap).background(Theme.paper)
-                .transition(.opacity)
-            } else if !store.engine.overdue().isEmpty {
-                Button(AppL10n.format("Still waiting (%lld)", store.engine.overdue().count)) {
-                    reviewingOverdue = true
-                }
-                .buttonStyle(PillStyle()).accessibilityIdentifier("today-review-overdue")
+        VStack(alignment: .leading, spacing: NotchStripMetrics.gap) {
+            if let activity = inlineActivity {
+                Text(activity.title).perchFont(.stripTitle).foregroundStyle(Theme.ink)
             }
+            content
+            if inlineActivity != nil {
+                TimelineView(.periodic(from: .now, by: NotchStripMetrics.clockInterval)) { context in
+                    GeometryReader { proxy in
+                        Rectangle().fill(Theme.ink2)
+                        Rectangle().fill(Theme.brandText).frame(
+                            width: proxy.size.width * (model.strips?.fraction(at: context.date) ?? 0))
+                    }.frame(height: NotchStripMetrics.progressHeight).accessibilityHidden(true)
+                }
+            }
+        }
+        .padding(inlineActivity == nil ? .zero : NotchStripMetrics.gap)
+        .background {
+            if inlineActivity != nil { Theme.paper }
         }
         .onAppear {
             if model.strips == nil { model.strips = NotchStrips(store: store, model: model) }
-            model.strips?.registerUndoFocus(focus, id: registration)
         }
-        .onDisappear { model.strips?.unregisterUndoFocus(id: registration) }
+    }
+
+    private var inlineActivity: PresentedNotchActivity? {
+        guard model.geometry == nil, let activity = model.strips?.currentActivity, activity.stripKind == .undo else {
+            return nil
+        }
+        return activity
     }
 }
 
 private struct NotchUndoAction: View {
-    let activity: PresentedNotchActivity
     let action: () -> Void
-    @EnvironmentObject private var model: NotchModel
-    @EnvironmentObject private var store: PlannerStore
 
     var body: some View {
-        if let focus = model.strips?.undoFocus {
-            Button(AppL10n.text("Undo"), action: action)
-                .buttonStyle(NotchUndoStyle(focused: focus.wrappedValue == .undo))
-                .focusable(store.canUndo).focused(focus, equals: .undo).focusEffectDisabled()
-                .onKeyPress(.space, phases: [.down, .repeat, .up]) { press in
-                    guard focus.wrappedValue == .undo, store.canUndo, press.modifiers.isEmpty else { return .ignored }
-                    if press.phase == .down { action() }
-                    return .handled
-                }
-                .accessibilityIdentifier("today-undo")
-        } else {
-            NotchStripButton(title: AppL10n.text("Undo"), action: action).accessibilityIdentifier("notch.undo")
-        }
-    }
-}
-
-// TODO(Main, soft and quiet buttons): expose an external focus binding in PerchButton.
-private struct NotchUndoStyle: ButtonStyle {
-    let focused: Bool
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label.perchFont(.button).foregroundStyle(Theme.ink)
-            .padding(.horizontal, Theme.Size.buttonSidePadding.value)
-            .frame(minHeight: Theme.Size.stripButtonHeight.value)
-            .background(Theme.field, in: Capsule())
-            .overlay(FocusRing(shape: Capsule(), focused: focused, surface: .paper))
-            .perchControlFeedback(pressed: configuration.isPressed)
+        NotchStripButton(title: AppL10n.text("Undo"), action: action)
+            .accessibilityIdentifier("notch.undo")
     }
 }
 
