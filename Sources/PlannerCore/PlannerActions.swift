@@ -58,7 +58,7 @@ public enum PlannerAction {
     case calendarCompletion(String, Bool)
     case preferences(Preferences)
     case reminderLinks([UUID: String])
-    case deleteProject(UUID)
+    case createProject(String), renameProject(UUID, String), deleteProject(UUID)
     case suggest(UUID, priority: TaskPriority, projectID: UUID?)
     case lifecycle(PlannerLifecycle)
     /// Clears all local planner content and resets preferences to their defaults.
@@ -82,6 +82,7 @@ public enum PlannerLifecycle {
 public struct PlannerActionResult: Sendable {
     public var tasks: [PlanTask] = []
     public var thoughts: [ParkedThought] = []
+    public var projects: [TaskProject] = []
     public var focus: FocusSession?
     public var flag = false
     public init() {}
@@ -175,6 +176,8 @@ extension PlannerEngine {
                 _ = applyCarryMode()
             }
             if changedRetention || previousDay != today { _ = pruneFinishedTasks() }
+        case .createProject(let name): result.projects = [try createProject(name)]
+        case let .renameProject(id, name): result.projects = [try renameProject(id, to: name)]
         case .deleteProject(let id): try deleteProject(id)
         case .eraseLocalPlanner: eraseLocalPlanner()
         case .reminderLinks(let links):

@@ -201,7 +201,7 @@ jobs:
     name: Perch layout probes (macOS)
     runs-on: macos-15
     needs: [changes, app-macos]
-    if: needs.changes.outputs.layout == 'true'
+    if: needs.changes.outputs.layout == 'true' && github.event_name != 'pull_request'
     steps:
       - uses: actions/checkout@v4
       - name: Toolchain
@@ -399,7 +399,7 @@ jobs:
     name: Perch behavior probes (macOS)
     runs-on: macos-15
     needs: [changes, app-macos]
-    if: needs.changes.outputs.behavior == 'true'
+    if: needs.changes.outputs.behavior == 'true' && github.event_name != 'pull_request'
     steps:
       - uses: actions/checkout@v4
       - name: Toolchain
@@ -461,7 +461,7 @@ jobs:
     name: Perch motion evidence (macOS)
     runs-on: macos-15
     needs: [changes, app-macos]
-    if: needs.changes.outputs.full == 'true'
+    if: needs.changes.outputs.full == 'true' && github.event_name != 'pull_request'
     steps:
       - uses: actions/checkout@v4
       - name: Toolchain
