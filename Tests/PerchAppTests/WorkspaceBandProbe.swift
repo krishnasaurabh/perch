@@ -54,8 +54,8 @@ private final class WorkspaceNavigationProbe {
             try require(fixture.window.makeFirstResponder(fixture.destinations.before))
             await fixture.settle()
             try await fixture.key(48, "\t")
-            try fixture.assertFocused("workspace-page-home")
-            try fixture.assertFocusRing(.home)
+            try await fixture.assertFocused("workspace-page-home")
+            try await fixture.assertFocusRing(.home)
 
             // Clamped boundaries and both interior directions are deliberate.
             for (code, characters, expected) in [
@@ -66,33 +66,33 @@ private final class WorkspaceNavigationProbe {
             ] {
                 try await fixture.key(code, characters)
                 try fixture.assertSelection(expected)
-                try fixture.assertFocused("workspace-page-\(expected.rawValue)")
-                try fixture.assertFocusRing(expected)
+                try await fixture.assertFocused("workspace-page-\(expected.rawValue)")
+                try await fixture.assertFocusRing(expected)
                 try requireEqual(try fixture.pageFrames(), initial, "Selection and focus must not move any pill")
             }
 
             // There is one Tab stop for all two pages, followed by the real More menu.
             try await fixture.key(48, "\t")
-            try fixture.assertFocused("workspace-more")
-            try fixture.assertFocusRing(identifier: "workspace-more")
+            try await fixture.assertFocused("workspace-more")
+            try await fixture.assertFocusRing(identifier: "workspace-more")
             try await fixture.inspectMoreMenu(usingKeyboard: true, keysEnabled: false)
-            try fixture.assertFocused("workspace-more")
+            try await fixture.assertFocused("workspace-more")
             try requireEqual(fixture.model.page, .home, "Tab does not activate another page")
             try await fixture.key(48, "\t", modifiers: .shift)
-            try fixture.assertFocused("workspace-page-home")
-            try fixture.assertFocusRing(.home)
+            try await fixture.assertFocused("workspace-page-home")
+            try await fixture.assertFocusRing(.home)
             try await fixture.key(48, "\t", modifiers: .shift)
             try require(fixture.destinations.before.currentEditor() === fixture.window.firstResponder)
             try await fixture.key(48, "\t")
-            try fixture.assertFocused("workspace-page-home")
+            try await fixture.assertFocused("workspace-page-home")
             try await fixture.key(119, "\u{f72b}")
             try fixture.assertSelection(.week)
-            try fixture.assertFocused("workspace-page-week")
+            try await fixture.assertFocused("workspace-page-week")
             try await fixture.key(48, "\t")
-            try fixture.assertFocused("workspace-more")
+            try await fixture.assertFocused("workspace-more")
             try await fixture.key(48, "\t", modifiers: .shift)
-            try fixture.assertFocused("workspace-page-week")
-            try fixture.assertFocusRing(.week)
+            try await fixture.assertFocused("workspace-page-week")
+            try await fixture.assertFocusRing(.week)
 
             // Command-number shortcuts work regardless of the selected page.
             try await fixture.key(18, "1", modifiers: .command)
@@ -273,11 +273,57 @@ private final class WorkspaceNavigationFixture {
         return node
     }
 
-    func assertFocused(_ identifier: String) throws {
-        trace("expect focus \(identifier)")
-        try require(window.isKeyWindow)
-        let node = try control(identifier)
-        try require(try bool(node, "isAccessibilityFocused"), "Native focus must be \(identifier)")
+    func assertFocused(_ identifier: String) async throws {
+        // Activation and AX publication share one finite, monotonic deadline.
+        let timeout: TimeInterval = 3
+        let started = ProcessInfo.processInfo.systemUptime
+        let deadline = started + timeout
+        var appBecameActive = NSApp.isActive
+        report("Workspace focus wait target=\(identifier) deadline=\(timeout)s")
+        NSApp.activate(ignoringOtherApps: true)
+        do {
+            while !NSApp.isActive, ProcessInfo.processInfo.systemUptime < deadline {
+                await waitForFocusUpdate(until: deadline)
+            }
+            appBecameActive = appBecameActive || NSApp.isActive
+            try require(NSApp.isActive, "Probe app never became active before native focus check for \(identifier)")
+            trace("expect focus \(identifier)")
+            try require(window.isKeyWindow)
+            // Reacquire the node each time: SwiftUI can replace its AX object
+            // while publishing the new page's focus state.
+            while ProcessInfo.processInfo.systemUptime < deadline {
+                if try bool(control(identifier), "isAccessibilityFocused") { break }
+                await waitForFocusUpdate(until: deadline)
+            }
+            try require(NSApp.isActive, "Probe app lost activation during native focus check for \(identifier)")
+            let node = try control(identifier)
+            try require(try bool(node, "isAccessibilityFocused"), "Native focus must be \(identifier)")
+        } catch {
+            let focused = NSApp.windows.flatMap { nodes($0) }.filter {
+                (try? bool($0, "isAccessibilityFocused")) == true
+            }.map {
+                (attribute($0, "accessibilityIdentifier") as? String) ?? "<\(type(of: $0)): no identifier>"
+            }
+            let elapsed = ProcessInfo.processInfo.systemUptime - started
+            report(
+                "Workspace focus failure target=\(identifier) appActive=\(NSApp.isActive) "
+                    + "appBecameActive=\(appBecameActive) anyNodeFocused=\(!focused.isEmpty) "
+                    + "focusedIdentifiers=\(focused) elapsed=\(elapsed)s deadline=\(timeout)s "
+                    + "pid=\(ProcessInfo.processInfo.processIdentifier) windowNumber=\(window.windowNumber) "
+                    + "key=\(window.isKeyWindow)")
+            trace("focus wait failed \(identifier)")
+            throw error
+        }
+    }
+
+    private func waitForFocusUpdate(until deadline: TimeInterval) async {
+        let remaining = deadline - ProcessInfo.processInfo.systemUptime
+        guard remaining > 0 else { return }
+        // Yield the main actor even if the enclosing app task was cancelled.
+        await withCheckedContinuation { continuation in
+            DispatchQueue.main.asyncAfter(deadline: .now() + min(0.02, remaining)) { continuation.resume() }
+        }
+        window.contentView?.layoutSubtreeIfNeeded()
     }
 
     func assertSelection(_ page: NotchPage) throws {
@@ -320,12 +366,12 @@ private final class WorkspaceNavigationFixture {
         }
     }
 
-    func assertFocusRing(_ page: NotchPage) throws {
-        try assertFocusRing(identifier: "workspace-page-\(page.rawValue)")
+    func assertFocusRing(_ page: NotchPage) async throws {
+        try await assertFocusRing(identifier: "workspace-page-\(page.rawValue)")
     }
 
-    func assertFocusRing(identifier: String) throws {
-        try assertFocused(identifier)
+    func assertFocusRing(identifier: String) async throws {
+        try await assertFocused(identifier)
         let node = try control(identifier)
         let host = try unwrap(window.contentView)
         let target = host.convert(window.convertFromScreen(frame(node)), from: nil)
