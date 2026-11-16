@@ -106,16 +106,18 @@ struct MatrixElement { let names: [String] }
         tasks = (ROOT / "Sources/PerchApp/Workspace/TasksCard.swift").read_text()
         viewport = tasks.split('GeometryReader { viewport in', 1)[1].split('TaskComposer(day:', 1)[0]
         self.assertIn('.safeAreaInset(edge: .bottom, spacing: 8)', viewport)
-        self.assertIn('if store.canUndo, model.strips?.hasCompletionUndo == true', viewport)
+        self.assertIn('if completionUndoVisible {', viewport)
+        self.assertIn('store.canUndo && model.strips?.hasCompletionUndo == true', tasks)
         self.assertIn('undoFooter(reviewOverdue: false)', viewport)
-        self.assertIn('footer.modifier(NotchUndoFooter(focus: $focus, reviewingOverdue: $reviewingOverdue))', tasks)
+        self.assertIn('footer.modifier(NotchUndoFooter(showsUndo: !completionUndoVisible, reviewingOverdue: $reviewingOverdue))', tasks)
         footer = tasks.split('private func undoFooter(reviewOverdue: Bool) -> some View {', 1)[1].split('@ViewBuilder private var startFocus', 1)[0]
         for unchanged in ('Label("Undo", systemImage: "arrow.uturn.backward")',
                           '.accessibilityIdentifier("today-undo")', '.focused($focus, equals: .undo)',
                           'if press.phase == .down { store.undo() }'):
             self.assertIn(unchanged, footer)
         strips = (ROOT / "Sources/PerchApp/Notch/NotchStrips.swift").read_text()
-        self.assertIn('if model.geometry == nil, let activity = model.strips?.currentActivity, activity.stripKind == .undo', strips)
+        self.assertIn('guard model.geometry == nil, let activity = model.strips?.currentActivity, activity.stripKind == .undo', strips)
+        self.assertIn('if showsUndo {', strips)
         self.assertIn('} else if !store.engine.overdue().isEmpty', strips)
         self.assertIn('if reviewOverdue, !store.engine.overdue().isEmpty', footer)
 

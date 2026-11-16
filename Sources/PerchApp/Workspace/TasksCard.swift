@@ -11,6 +11,10 @@ struct TasksCard: View {
     @FocusState private var focus: TodayFocus?
     @State private var lastFocusedTask: UUID?
 
+    private var completionUndoVisible: Bool {
+        store.canUndo && model.strips?.hasCompletionUndo == true
+    }
+
     var body: some View {
         let all = store.engine.tasks(on: .day(store.today))
         let open = all.filter { !$0.done }, finished = all.filter(\.done)
@@ -77,7 +81,7 @@ struct TasksCard: View {
                 // Use viewport space, not the pinned capture row. Deletion keeps
                 // its existing strip/footer presentation below the composer.
                 .safeAreaInset(edge: .bottom, spacing: 8) {
-                    if store.canUndo, model.strips?.hasCompletionUndo == true {
+                    if completionUndoVisible {
                         undoFooter(reviewOverdue: false)
                     }
                 }
@@ -91,9 +95,10 @@ struct TasksCard: View {
             TaskComposer(day: .day(store.today), placeholder: "What would you like to do?", focus: $focus)
                 .fixedSize(horizontal: false, vertical: true)
                 .layoutPriority(1)
-            footer.modifier(NotchUndoFooter(focus: $focus, reviewingOverdue: $reviewingOverdue)).fixedSize(
-                horizontal: false, vertical: true
-            ).layoutPriority(1)
+            footer.modifier(NotchUndoFooter(showsUndo: !completionUndoVisible, reviewingOverdue: $reviewingOverdue))
+                .fixedSize(
+                    horizontal: false, vertical: true
+                ).layoutPriority(1)
         }
         .card(.tasks)
         .onChange(of: finished.count, initial: true) { _, count in
