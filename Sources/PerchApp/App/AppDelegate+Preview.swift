@@ -54,7 +54,11 @@ import SwiftUI
                 "settings/general-alternatives": .window("settings", open: SettingsGeneralPane.previewAlternatives),
                 "settings/notch": .window("settings") { SettingsWindow.preview(.notch, app: $0) },
                 "settings/notch-configured": .window("settings", open: SettingsNotchPreview.showConfigured),
-                "settings/calendar": .window("settings") { SettingsWindow.preview(.calendar, app: $0) },
+                "settings/calendar": .window("settings") { SettingsCalendarPreview.show(.standard, app: $0) },
+                "settings/calendar-denied": .window("settings") { SettingsCalendarPreview.show(.denied, app: $0) },
+                "settings/calendar-picker": .window("settings-calendar-picker") {
+                    SettingsCalendarPreview.show(.picker, app: $0)
+                },
                 "settings/agents": .window("settings") { SettingsWindow.preview(.agents, app: $0) },
                 "settings/agents-connected": .window("settings") { SettingsAgentsPane.previewConnected(app: $0) },
                 "settings/data": .window("settings") { SettingsWindow.preview(.data, app: $0) },

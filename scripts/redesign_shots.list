@@ -69,6 +69,8 @@ settings-general-alternatives --scenario empty --open settings/general-alternati
 settings-notch --scenario empty --open settings/notch
 settings-notch-configured --scenario empty --open settings/notch-configured
 settings-calendar --scenario empty --open settings/calendar
+settings-calendar-denied --scenario empty --open settings/calendar-denied
+settings-calendar-picker --scenario empty --open settings/calendar-picker
 settings-agents --scenario empty --open settings/agents
 settings-agents-connected --scenario empty --open settings/agents-connected
 settings-data --scenario empty --open settings/data

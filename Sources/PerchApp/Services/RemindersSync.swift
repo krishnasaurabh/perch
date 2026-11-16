@@ -281,5 +281,8 @@ final class RemindersSync: ObservableObject {
         } else if pending {
             pending = false; schedule(after: 2)
         }
+        let readers = consentReaders
+        consentReaders.removeAll()
+        for reader in readers { reader.resume() }
     }
 }
