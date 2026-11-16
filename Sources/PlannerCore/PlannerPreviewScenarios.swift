@@ -163,7 +163,27 @@
                         ParkedThought(id: id(220 + $0.offset), text: $0.element, createdAt: now)
                     }
             }
+            if name == "window-history" {
+                fixture.planner.focus = nil
+                for index in fixture.planner.tasks.indices where fixture.planner.tasks[index].done {
+                    let task = fixture.planner.tasks[index]
+                    if task.minutes != nil {
+                        fixture.planner.tasks[index].focusedSeconds = Double((task.minutes ?? 0) * 60)
+                    }
+                    if task.title == "Sort the receipts" { fixture.planner.tasks[index].agentID = "claude-code" }
+                    if task.title == "Email the landlord" { fixture.planner.tasks[index].carryCount = 1 }
+                }
+            }
             if name == "window-projects" { addProjects(to: &fixture) }
+            if name == "window-review" {
+                fixture.planner.focus = nil
+                for (index, title) in ["Research standing desks", "Back up photos", "Renew passport"].enumerated() {
+                    fixture.planner.tasks.append(
+                        PlanTask(
+                            id: id(950 + index), title: title, day: fixture.day,
+                            createdAt: fixture.now, carryCount: index + 2))
+                }
+            }
             return fixture
         }
 

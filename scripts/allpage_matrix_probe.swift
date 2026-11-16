@@ -964,6 +964,22 @@ func mxContrast(_ a: NSColor, _ b: NSColor) -> Double {
     return (max(first, second) + 0.05) / (min(first, second) + 0.05)
 }
 
+/// The contrast capture's opaque RGBA bytes are already sRGB codes. Reading them
+/// through colorAt applies the virtual display profile a second time.
+@MainActor
+func mxSRGBSample(_ bitmap: NSBitmapImageRep, x: Int, y: Int) -> NSColor? {
+    guard bitmap.bitsPerSample == 8, bitmap.samplesPerPixel == 4, bitmap.bitsPerPixel == 32,
+        bitmap.hasAlpha, !bitmap.isPlanar, bitmap.bitmapFormat.rawValue == 0,
+        bitmap.bytesPerRow >= bitmap.pixelsWide * bitmap.samplesPerPixel,
+        x >= 0, x < bitmap.pixelsWide, y >= 0, y < bitmap.pixelsHigh,
+        let data = bitmap.bitmapData
+    else { return nil }
+    let pixel = data + y * bitmap.bytesPerRow + x * bitmap.samplesPerPixel
+    return NSColor(
+        srgbRed: CGFloat(pixel[0]) / 255, green: CGFloat(pixel[1]) / 255,
+        blue: CGFloat(pixel[2]) / 255, alpha: CGFloat(pixel[3]) / 255)
+}
+
 /// Most common colour in a band: the rendered background behind real text.
 @MainActor
 func mxDominant(_ bitmap: NSBitmapImageRep, host: NSView, band: NSRect) -> NSColor? {
@@ -973,7 +989,7 @@ func mxDominant(_ bitmap: NSBitmapImageRep, host: NSView, band: NSRect) -> NSCol
     var colors: [String: NSColor] = [:]
     for y in area.y0..<area.y1 {
         for x in area.x0..<area.x1 {
-            guard let rgb = bitmap.colorAt(x: x, y: y)?.usingColorSpace(.sRGB) else { continue }
+            guard let rgb = mxSRGBSample(bitmap, x: x, y: y) else { return nil }
             // An unpainted band has no measurable backdrop. Never reinterpret its RGB
             // channels as black or select the foreground glyph as the background.
             guard rgb.alphaComponent == 1 else { return nil }
@@ -1000,7 +1016,7 @@ func mxInkSample(
     var bestDistance = CGFloat.greatestFiniteMagnitude
     for y in area.y0..<area.y1 {
         for x in area.x0..<area.x1 {
-            guard let rgb = bitmap.colorAt(x: x, y: y)?.usingColorSpace(.sRGB), rgb.alphaComponent == 1 else {
+            guard let rgb = mxSRGBSample(bitmap, x: x, y: y), rgb.alphaComponent == 1 else {
                 continue
             }
             let distance =
@@ -1139,7 +1155,8 @@ final class MatrixFixture {
         let day = store.today.adding(days: -daysAgo)
         try write { planner in
             for title in titles {
-                planner.tasks.append(PlanTask(title: title, day: day, done: false))
+                // History lists finished tasks only, so authored history rows are done.
+                planner.tasks.append(PlanTask(title: title, day: day, done: true))
             }
         }
         let seeded = store.planner.tasks.filter { $0.day == day && titles.contains($0.title) }
@@ -1766,11 +1783,13 @@ final class AllPageMatrix {
         }
         try report.require(true, "Tab reaches the dashboard tab controls")
 
-        // Every tab is exercised through the real segmented control.
+        // Every tab is exercised through the real segmented control. Your week reports
+        // Done each day / Kept going instead of a planned-versus-done comparison, and
+        // Projects renders cards with a New project card.
         let markers: [(DashboardView.Tab, String, String)] = [
-            (.history, "Matrix history task", AppL10n.text("Streak")),
-            (.yourWeek, AppL10n.text("Streak"), "Matrix history task"),
-            (.projects, AppL10n.text("No projects yet. Add #project to a new task."), "Matrix history task"),
+            (.history, "Matrix history task", AppL10n.text("Kept going")),
+            (.yourWeek, AppL10n.text("Kept going"), "Matrix history task"),
+            (.projects, AppL10n.text("New project"), "Matrix history task"),
         ]
         for (tab, marker, foreign) in markers {
             let wanted = AppL10n.text(tab.rawValue)
@@ -1814,23 +1833,62 @@ final class AllPageMatrix {
                 .environment(\.accessibilityEnabled, true)
                 .frame(width: 880, height: 560)
         }
-        let (window, _) = try matrixWindow(
+        let (window, projectHost) = try matrixWindow(
             "Matrix Dashboard Project", projectView, size: NSSize(width: 900, height: 620))
         defer { window.close() }
         await mxReady(1.4)
         try report.require(window.makeFirstResponder(destinations.before), "project fixture starts from a field")
 
-        let deleteLabel = AppL10n.text("Delete project")
-        _ = try await tabUntil(window, limit: 24, tag: "projectActionTraversal") { identity, _ in
-            identity == deleteLabel
+        // Project options: the card's visible control opens its own surface, and the
+        // Delete project control revealed there is what removes the project.
+        _ = try await tabUntil(window, limit: 24, tag: "projectOptionsTraversal") { identity, _ in
+            identity == AppL10n.text("Project options")
         }
-        try report.require(true, "Tab reaches the delete-project action")
+        try report.require(true, "Tab reaches the project options control")
         let taskCount = fixture.store.planner.tasks.count
+        let projectRoot = try mxRoot("Matrix Dashboard Project")
+        guard
+            let optionsControl = mxTree(projectRoot).first(where: {
+                mxRole($0) == "AXButton" && mxNames($0).contains(AppL10n.text("Project options"))
+            })
+        else { throw MatrixFailure(label: "no project options control on the card") }
         try await mxKey(window, 49, " ")
+        await mxReady(0.9)
+        @MainActor func views(_ view: NSView) -> [NSView] { [view] + view.subviews.flatMap(views) }
+        guard
+            let optionsWindow = NSApp.windows.first(where: {
+                $0 !== window && $0.isVisible && $0.contentView != nil
+                    && $0.contentView.map(views)?.contains(where: {
+                        ($0 as? NSButton)?.title == AppL10n.text("Delete project")
+                    }) == true
+            }), let optionsContent = optionsWindow.contentView,
+            let deleteControl = views(optionsContent).compactMap({ $0 as? NSButton }).first(where: {
+                $0.title == AppL10n.text("Delete project")
+            })
+        else { throw MatrixFailure(label: "the project options surface does not offer Delete project") }
+        try report.require(true, "the project options surface offers Delete project")
+        try report.require(deleteControl.isEnabled, "Delete project is enabled in the options surface")
+        try report.require(
+            mxTree(mxApp()).contains {
+                mxRole($0) == "AXButton" && mxNames($0).contains(AppL10n.text("Rename project"))
+                    && optionsWindow.frame.contains(
+                        MatrixAX.snapshot.topLeftFrames
+                            ? mxCocoaRect(mxFrame($0), primaryHeight: NSScreen.screens.first?.frame.maxY ?? 0)
+                            : mxFrame($0))
+            },
+            "the project options surface offers Rename project")
+        // The revealed control is clicked where a person sees it, with real mouse events.
+        guard
+            let deleteNode = mxTree(mxApp()).first(where: {
+                mxRole($0) == "AXButton" && mxNames($0).contains(AppL10n.text("Delete project"))
+            })
+        else { throw MatrixFailure(label: "no Delete project control in the options surface") }
+        try report.require(mxEnabled(deleteNode) != false, "Delete project is enabled for this project")
+        try mxClick(host: optionsContent, window: optionsWindow, screenRect: mxFrame(deleteNode))
         await mxReady(0.7)
         try report.require(
             !fixture.store.planner.projects.contains { $0.id == project.id },
-            "Space on the project action deletes that project")
+            "Delete project from the card's options deletes that project")
         try report.require(
             fixture.store.planner.tasks.count == taskCount, "deleting a project keeps its tasks",
             "tasks \(fixture.store.planner.tasks.count) vs \(taskCount)")
@@ -2410,12 +2468,49 @@ final class AllPageMatrix {
             let sampledInk = mxInkSample(bitmap, host: host, band: detailRect, near: bodyInk)
             let samplingDiagnostic =
                 "mode=\(mode) dominantNil=\(sampledBackground == nil) inkNil=\(sampledInk == nil) "
+                + "profileConvertedDiagnostic: "
                 + mxContrastSamplingDiagnostic(bitmap, host: host, band: detailRect, near: bodyInk)
                 + " bitmapColorSpace=\(bitmap.colorSpace) bitsPerSample=\(bitmap.bitsPerSample) "
                 + "samplesPerPixel=\(bitmap.samplesPerPixel) hasAlpha=\(bitmap.hasAlpha) "
                 + "bitmapFormat=\(bitmap.bitmapFormat.rawValue) planar=\(bitmap.isPlanar) bytesPerRow=\(bitmap.bytesPerRow)"
             report.record("contrast_\(mode)_sampling", samplingDiagnostic)
             mxLog("contrast sampling: \(samplingDiagnostic)")
+            // Temporary diagnostic: short facts survive hosted-log replay truncation.
+            do {
+                mxLog(
+                    "contrast sample: mode=\(mode) dominantNil=\(sampledBackground == nil) inkNil=\(sampledInk == nil)")
+                for (label, image) in [("captured", bitmap)] {
+                    mxLog("contrast profile: mode=\(mode) image=\(label) space=\(image.colorSpace)")
+                    mxLog(
+                        "contrast format: image=\(label) info=\(String(describing: image.cgImage?.bitmapInfo.rawValue)) bpp=\(image.bitsPerPixel)"
+                    )
+                    for (x, y) in [(29, 115), (293, 115)] {
+                        guard x < image.pixelsWide, y < image.pixelsHigh else { continue }
+                        var values = [Int](repeating: 0, count: image.samplesPerPixel)
+                        image.getPixel(&values, atX: x, y: y)
+                        mxLog("contrast sample: mode=\(mode) image=\(label) xy=\(x),\(y) samples=\(values)")
+                        if let rgb = image.colorAt(x: x, y: y)?.usingColorSpace(.sRGB) {
+                            let components = String(
+                                format: "%.9f,%.9f,%.9f,%.9f",
+                                Double(rgb.redComponent), Double(rgb.greenComponent),
+                                Double(rgb.blueComponent), Double(rgb.alphaComponent))
+                            mxLog("contrast sRGB: mode=\(mode) image=\(label) xy=\(x),\(y) rgba=\(components)")
+                        }
+                        if let rgb = mxSRGBSample(image, x: x, y: y) {
+                            let components = String(
+                                format: "%.9f,%.9f,%.9f,%.9f",
+                                Double(rgb.redComponent), Double(rgb.greenComponent),
+                                Double(rgb.blueComponent), Double(rgb.alphaComponent))
+                            mxLog("contrast raw sRGB: mode=\(mode) xy=\(x),\(y) rgba=\(components)")
+                        }
+                    }
+                }
+                if let background = sampledBackground, let ink = sampledInk {
+                    mxLog(
+                        "contrast measured: mode=\(mode) ink=\(mxHex(ink)) background=\(mxHex(background)) ratio=\(mxContrast(ink, background))"
+                    )
+                }
+            }
             guard let background = sampledBackground, let ink = sampledInk
             else {
                 window.close()

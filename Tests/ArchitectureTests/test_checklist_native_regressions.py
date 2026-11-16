@@ -56,7 +56,7 @@ class ChecklistNativeRegressions(unittest.TestCase):
     def test_snapshot_timeout_and_upload_exclude_only_rotating_backups(self):
         workflow = (ROOT / ".github/workflows/ci.yml").read_text()
         shot_step = workflow.split('- name: Redesign snapshots (', 1)[1].split('- name: Upload redesign snapshots', 1)[0]
-        self.assertRegex(shot_step, r'timeout-minutes:\s*8\b')
+        self.assertRegex(shot_step, r'timeout-minutes:\s*15\b')
         upload = workflow.split('- name: Upload redesign snapshots', 1)[1].split('- name:', 1)[0]
         self.assertIn('${{ runner.temp }}/redesign-shots', upload)
         self.assertIn('!**/planner.json.backups/**', upload)

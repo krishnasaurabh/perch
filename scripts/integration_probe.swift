@@ -98,6 +98,7 @@ func checkClosedNotch(store: PlannerStore, model: NotchModel, services: Services
     model.geometry = g
     store.updatePrefs { $0.notchOnMonitors = true }
     for name in ["idle", "left", "right", "hidden", "long", "running", "activity"] {
+        store.updatePrefs { $0.notchTimePill = name != "idle" && name != "hidden" && name != "activity" }
         _ = store.seedFixture { e in
             e.planner.tasks = []
             e.planner.focus = nil
@@ -430,7 +431,9 @@ struct MatrixFixture {
         planner.projects = [project]
         planner.tasks = [
             past,
-            PlanTask(title: "Matrix history beta", day: today.adding(days: -3)),
+            // History lists finished tasks only, so every authored history row is done.
+            PlanTask(title: "Matrix history beta", day: today.adding(days: -3), done: true),
+            PlanTask(title: "Matrix history gamma", day: today.adding(days: -2), done: true, agentID: "claude-code"),
             draft,
             PlanTask(title: "Matrix open project task", day: today, projectID: project.id),
             PlanTask(title: "Matrix future errand", day: today.adding(days: 2)),
@@ -821,6 +824,126 @@ func dashboardAXStaticText(_ root: NSView) throws -> Set<String> {
     return strings
 }
 
+/// Exact accessible names of the page's buttons, so a fixture names the control
+/// it focuses instead of inferring one from rendered pixels.
+@MainActor
+func dashboardAXButtonLabels(_ root: NSView) throws -> Set<String> {
+    func value(_ node: NSObject, _ name: String) -> Any? {
+        let selector = NSSelectorFromString(name)
+        return node.responds(to: selector) ? node.perform(selector)?.takeUnretainedValue() : nil
+    }
+    var pending: [NSObject] = [root]
+    pending.append(contentsOf: try dashboardAXScrollSamples(root))
+    var seen = Set<ObjectIdentifier>()
+    var names = Set<String>()
+    while let node = pending.popLast() {
+        guard seen.insert(ObjectIdentifier(node)).inserted else { continue }
+        guard seen.count <= 4096 else { throw NSError(domain: "DashboardAXTraversalLimit", code: 1) }
+        if value(node, "accessibilityRole") as? String == "AXButton" {
+            for name in ["accessibilityLabel", "accessibilityTitle", "accessibilityValue"] {
+                if let text = value(node, name) as? String, !text.isEmpty { names.insert(text) }
+            }
+        }
+        if let view = node as? NSView { pending.append(contentsOf: view.subviews) }
+        for name in ["accessibilityChildren", "accessibilityContents", "accessibilityChildrenInNavigationOrder"] {
+            pending.append(contentsOf: value(node, name) as? [NSObject] ?? [])
+        }
+    }
+    return names
+}
+
+/// The accessible name of whatever currently owns keyboard focus. A SwiftUI page
+/// publishes focus through its hosting view, so read the hosted focus element too.
+@MainActor
+func dashboardAXFocusedLabel(_ window: NSWindow) -> String {
+    func value(_ node: NSObject, _ name: String) -> Any? {
+        let selector = NSSelectorFromString(name)
+        return node.responds(to: selector) ? node.perform(selector)?.takeUnretainedValue() : nil
+    }
+    func name(_ node: NSObject) -> String? {
+        for attribute in ["accessibilityLabel", "accessibilityTitle", "accessibilityValue"] {
+            if let text = value(node, attribute) as? String, !text.isEmpty { return text }
+        }
+        return nil
+    }
+    guard let responder = window.firstResponder as? NSObject else { return "none" }
+    if let label = name(responder) { return label }
+    if let focused = value(responder, "accessibilityFocusedUIElement") as? NSObject, focused !== responder,
+        let label = name(focused)
+    {
+        return label
+    }
+    return "none"
+}
+
+/// The page's own native controls, resolved by accessibility identity so the
+/// fixture never guesses a control from painted pixels or a private class name.
+@MainActor
+enum MatrixControls {
+    /// The card's visible options control, found by its stable identifier.
+    static func projectOptions(in root: NSView) -> NSObject? {
+        let identifier = "project-options-"
+        return matrixAXNodes(root).first { node in
+            let role = matrixAXValue(node, "accessibilityRole") as? String
+            let id = matrixAXValue(node, "accessibilityIdentifier") as? String ?? ""
+            return role == "AXButton" && id.hasPrefix(identifier)
+                && (matrixAXValue(node, "accessibilityLabel") as? String)?.hasPrefix("Project options") == true
+        }
+    }
+
+    /// Every descendant accessor node, so a SwiftUI control is reachable without
+    /// guessing a private view class name.
+    static func matrixAXNodes(_ root: NSObject) -> [NSObject] {
+        var seen = Set<ObjectIdentifier>()
+        var nodes: [NSObject] = []
+        var pending: [NSObject] = [root]
+        while let node = pending.popLast() {
+            guard nodes.count < 4096, seen.insert(ObjectIdentifier(node)).inserted else { continue }
+            nodes.append(node)
+            for name in ["accessibilityChildren", "accessibilityContents", "accessibilityChildrenInNavigationOrder"] {
+                pending.append(contentsOf: matrixAXValue(node, name) as? [NSObject] ?? [])
+            }
+            if let view = node as? NSView { pending.append(contentsOf: view.subviews) }
+        }
+        return nodes
+    }
+
+    static func matrixAXValue(_ node: NSObject, _ name: String) -> Any? {
+        let selector = NSSelectorFromString(name)
+        return node.responds(to: selector) ? node.perform(selector)?.takeUnretainedValue() : nil
+    }
+
+    /// A SwiftUI control exposes its action through accessibility press; a native
+    /// control uses its own click path.
+    static func press(_ node: NSObject) -> Bool {
+        if let button = node as? NSButton {
+            guard button.isEnabled else { return false }
+            button.performClick(nil)
+            return true
+        }
+        let selector = NSSelectorFromString("accessibilityPerformPress")
+        guard node.responds(to: selector), let implementation = node.method(for: selector) else { return false }
+        typealias Press = @convention(c) (AnyObject, Selector) -> Bool
+        return unsafeBitCast(implementation, to: Press.self)(node, selector)
+    }
+
+    /// The options popover is an attached native window, not a second page.
+    static func popover(besides window: NSWindow) -> NSWindow? {
+        NSApp.windows.first {
+            $0 !== window && $0.isVisible && $0.contentView != nil && $0.attachedSheet == nil
+                && button(titled: "Delete project", in: $0) != nil
+        }
+    }
+
+    static func button(titled title: String, in window: NSWindow) -> NSButton? {
+        func descendants(_ view: NSView) -> [NSView] { [view] + view.subviews.flatMap(descendants) }
+        guard let content = window.contentView else { return nil }
+        return descendants(content).compactMap { $0 as? NSButton }.first {
+            $0.title == title || $0.accessibilityLabel() == title
+        }
+    }
+}
+
 /// Read-only, bounded snapshots. Native object identity is retained alongside
 /// public accessibility semantics; neither is inferred from a private class name.
 @MainActor
@@ -977,9 +1100,12 @@ func checkDashboardMatrix(_ fixture: MatrixFixture, output: URL) async throws {
     matrixRequire(
         window.firstResponder === DashboardKeyLoop.tabKeyView(in: window),
         "Tab enters the dashboard tab control", "firstResponder=\(String(describing: window.firstResponder))")
+    // Your week reports Done each day, Time set aside and Kept going — never a
+    // planned-versus-done comparison. History lists finished tasks only, and
+    // Projects are cards with a New project card.
     let tabs: [(DashboardView.Tab, String)] = [
-        (.yourWeek, "planned vs"), (.history, "matrix history beta"),
-        (.projects, "delete project"),
+        (.yourWeek, "done each day"), (.history, "matrix history beta"),
+        (.projects, "new project"),
     ]
     for (index, (tab, marker)) in tabs.enumerated() {
         if index > 0 {
@@ -1000,19 +1126,63 @@ func checkDashboardMatrix(_ fixture: MatrixFixture, output: URL) async throws {
             "selected tab=\(String(describing: DashboardWindow.selection?.tab))")
         matrixRequire(text.contains(marker), "dashboard \(tab.rawValue) tab renders its content", text)
         if tab == .history {
-            // Task lines: a typed search narrows the history list.
+            // Finished tasks only, four filters, and a typed search that narrows rows.
             await matrixKey(window, 48, "\t")
             try trace.record(window, phase: "behavior-history-tab")
             let editor = window.firstResponder as? NSTextView
             let field = editor?.delegate as? NSTextField
             matrixRequire(
-                field?.placeholderString == "Search history", "Tab moves from the tabs to the history search",
+                field?.placeholderString == "Find a finished task", "Tab moves from the tabs to the history search",
                 "firstResponder=\(String(describing: window.firstResponder))")
+            matrixRequire(
+                field?.accessibilityLabel() == "Find a finished task",
+                "the history search is labelled Find a finished task",
+                "label=\(String(describing: field?.accessibilityLabel()))")
             let unfiltered = try dashboardAXStaticText(host)
             try matrixObservationTrace(host, phase: "history-unfiltered", output: output, text: unfiltered)
             matrixRequire(
                 unfiltered.contains("Matrix history alpha") && unfiltered.contains("Matrix history beta"),
                 "history accessibility exposes both task titles before filtering", "\(unfiltered.sorted())")
+            matrixRequire(
+                !unfiltered.contains("Matrix open project task") && !unfiltered.contains("Matrix details draft"),
+                "history lists finished tasks only", "\(unfiltered.sorted())")
+            let filters = [
+                "Everything", "Carried over at least once", "Had time set aside", "Added by an agent",
+            ]
+            let buttons = try dashboardAXButtonLabels(host)
+            for filter in filters {
+                matrixRequire(buttons.contains(filter), "history exposes the \(filter) filter", "\(buttons.sorted())")
+            }
+            // Four Tab stops sit between the search field and the page's next control.
+            for filter in filters {
+                await matrixKey(window, 48, "\t")
+                matrixRequire(
+                    dashboardAXFocusedLabel(window) != "Find a finished task",
+                    "Tab leaves the history search for the \(filter) filter",
+                    "focused=\(dashboardAXFocusedLabel(window))")
+            }
+            await matrixKey(window, 49, " ")
+            await matrixSettle()
+            let focusedOnFilter = dashboardAXFocusedLabel(window)
+            let agentOnly = try dashboardAXStaticText(host)
+            try matrixObservationTrace(host, phase: "history-agent-filter", output: output, text: agentOnly)
+            matrixRequire(
+                agentOnly.contains("Matrix history gamma") && !agentOnly.contains("Matrix history alpha"),
+                "the Added by an agent filter narrows the finished list",
+                "focused=\(focusedOnFilter) texts=\(agentOnly.sorted())")
+            // Back to Everything, then back to the search field for the typed query.
+            for _ in 0..<3 { await matrixKey(window, 48, "\t", .shift) }
+            await matrixKey(window, 49, " ")
+            await matrixSettle()
+            let everything = try dashboardAXStaticText(host)
+            matrixRequire(
+                everything.contains("Matrix history alpha") && everything.contains("Matrix history gamma"),
+                "the Everything filter restores every finished task", "\(everything.sorted())")
+            for _ in 0..<1 { await matrixKey(window, 48, "\t", .shift) }
+            matrixRequire(
+                (window.firstResponder as? NSTextView)?.delegate as? NSTextField === field,
+                "Shift-Tab returns focus to the history search",
+                "firstResponder=\(String(describing: window.firstResponder))")
             await matrixType(window, "alpha")
             await matrixSettle()
             _ = try matrixText(host, name: "dashboard-history-search", output: output)
@@ -1034,13 +1204,39 @@ func checkDashboardMatrix(_ fixture: MatrixFixture, output: URL) async throws {
                 "Shift-Tab returns focus to the dashboard tabs")
         }
     }
-    // Project action: Tab to Delete project, Space deletes, Command-Z restores it.
+    // Project action: the card's visible options control opens the card's own
+    // Rename project / Delete project surface, and Delete removes the project.
+    // No hidden delete control stands in for the affordance a person sees.
     let before = fixture.store.planner
     await matrixKey(window, 48, "\t")
     try trace.record(window, phase: "behavior-project-tab")
+    matrixRequire(
+        dashboardAXFocusedLabel(window) == "Project options", "Tab focuses the visible project options control")
+    let options = MatrixControls.projectOptions(in: host)
+    matrixRequire(options != nil, "Tab reaches the project options control on the card")
+    guard let options else { return }
     await matrixKey(window, 49, " ")
-    try trace.record(window, phase: "behavior-project-space")
-    matrixRequire(fixture.store.planner.projects.isEmpty, "Space on Delete project deletes the project")
+    await matrixSettle()
+    try trace.record(window, phase: "behavior-project-options")
+    matrixRequire(
+        MatrixControls.button(titled: "Delete project", in: window) == nil,
+        "the card page never hosts a bare Delete project control")
+    guard let optionsWindow = MatrixControls.popover(besides: window),
+        let deleteControl = MatrixControls.button(titled: "Delete project", in: optionsWindow)
+    else {
+        matrixRequire(false, "the project options surface offers Delete project")
+        return
+    }
+    matrixRequire(true, "the project options surface offers Delete project")
+    matrixRequire(
+        try dashboardAXButtonLabels(optionsWindow.contentView ?? host).contains("Rename project"),
+        "the project options surface offers Rename project")
+    matrixRequire(deleteControl.isEnabled, "Delete project is enabled for this project")
+    deleteControl.performClick(nil)
+    await matrixSettle()
+    matrixRequire(
+        fixture.store.planner.projects.isEmpty, "Delete project from the card's options deletes the project",
+        "projects=\(fixture.store.planner.projects.map(\.name))")
     let deleted = try fixture.file.load()
     matrixRequire(
         deleted.projects.isEmpty && deleted.tasks.allSatisfy { $0.projectID == nil },

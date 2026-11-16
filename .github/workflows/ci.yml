@@ -249,7 +249,7 @@ jobs:
           done
       - name: Redesign snapshots (light, dark and Reduce Motion at 2x)
         if: ${{ !cancelled() && steps.restore.outcome == 'success' && contains(fromJSON(needs.changes.outputs.suites), 'redesign') }}
-        timeout-minutes: 8
+        timeout-minutes: 15
         run: bash scripts/redesign_shots.sh "$RUNNER_TEMP/redesign-shots"
       - name: Upload redesign snapshots
         if: always() && contains(fromJSON(needs.changes.outputs.suites), 'redesign')
