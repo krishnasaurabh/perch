@@ -2,7 +2,7 @@ import Combine
 import EventKit
 import Foundation
 import PerchUI
-import PlannerCore
+@testable import PlannerCore
 import XCTest
 @testable import PerchApp
 
@@ -30,11 +30,16 @@ final class CalendarRuntimeConsumerTests: XCTestCase {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: root) }
         let now = Date()
-        let store = PlannerStore(
-            file: PlannerFile(url: root.appendingPathComponent("planner.json")), now: { now }, watching: false)
-        let id = try XCTUnwrap(
-            store.send(.addTasks(["Original title"], day: nil, literal: true, agentID: nil))?.tasks.first?.id)
-        store.updateTask(id) { $0.remindAt = now.addingTimeInterval(-120) }
+        let file = PlannerFile(url: root.appendingPathComponent("planner.json"))
+        var saved = Planner()
+        let task = PlanTask(
+            title: "Original title", day: DayKey(now, resetHour: saved.preferences.resetHour),
+            remindAt: now.addingTimeInterval(-120))
+        saved.tasks = [task]
+        try file.save(saved)
+        let store = PlannerStore(file: file, now: { now }, watching: false)
+        let id = task.id
+        XCTAssertEqual(try store.file.load().tasks.first?.remindAt, task.remindAt)
         let service = CalendarService(store: store, source: RuntimeCalendar(start: now.addingTimeInterval(480)))
         let model = NotchModel()
         let driver = NotchTimelineDriver(store: store, calendar: service)

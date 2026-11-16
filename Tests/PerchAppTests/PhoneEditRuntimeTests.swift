@@ -81,8 +81,13 @@ final class PhoneEditRuntimeTests: XCTestCase {
             sync.setTwoWayEnabled(true)
             await sync.reconcileNow()
             let external = PlannerCommandPipeline(file: store.file)
+            let bytes = try Data(contentsOf: store.file.url)
+            let revision = PlannerFileRevision(url: store.file.url)
             _ = try external.perform(origin: .background) { try $0.updatePreference(.phoneEdits(.ignore)) }
+            XCTAssertEqual(try Data(contentsOf: store.file.url), bytes)
+            XCTAssertEqual(PlannerFileRevision(url: store.file.url), revision)
             store.reloadFromDisk(external: true)
+            XCTAssertEqual(store.prefs.phoneEdits, .ignore)
             self.edit(source, title: "Phone title")
             await sync.reconcileNow()
             XCTAssertEqual(try store.file.load().tasks[0].title, "Synthetic task")
@@ -92,8 +97,12 @@ final class PhoneEditRuntimeTests: XCTestCase {
             XCTAssertEqual(store.prefs.phoneEdits, .ignore, "Reading consent does not rewrite the runtime policy")
             XCTAssertTrue(ledger.ledger.twoWayEnabled, "The document restricts rather than manufactures consent")
             _ = try external.perform(origin: .background) { try $0.updatePreference(.phoneEdits(.bringBack)) }
+            XCTAssertEqual(try Data(contentsOf: store.file.url), bytes)
+            XCTAssertEqual(PlannerFileRevision(url: store.file.url), revision)
             store.reloadFromDisk(external: true)
+            XCTAssertEqual(store.prefs.phoneEdits, .bringBack)
             await sync.reconcileNow()
+            XCTAssertNil(sync.lastError)
             XCTAssertEqual(try store.file.load().tasks[0].title, "Phone title")
             XCTAssertTrue(sync.twoWayEnabled)
         }

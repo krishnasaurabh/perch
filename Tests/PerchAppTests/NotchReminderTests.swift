@@ -32,7 +32,15 @@ final class NotchReminderTests: XCTestCase {
             file: PlannerFile(url: root.appendingPathComponent("planner.json")), now: { time.now }, watching: false)
         let id = try XCTUnwrap(
             store.send(.addTasks(["Synthetic reminder"], day: nil, literal: true, agentID: nil))?.tasks.first?.id)
-        store.updateTask(id) { $0.remindAt = time.now.addingTimeInterval(-120) }
+        let due = time.now.addingTimeInterval(600)
+        let scheduled: Bool? = store.apply { commands in
+            try commands.updateTask(id) { $0.remindAt = due }
+            return true
+        }
+        XCTAssertEqual(scheduled, true)
+        XCTAssertNil(store.lastError)
+        XCTAssertEqual(try store.file.load().tasks.first?.remindAt, due)
+        time.now = due.addingTimeInterval(120)
         let owner = ReminderService(
             store: store, source: NotchNotificationSource(), clock: ClosurePlannerClock { time.now }, observing: false)
         await owner.reconcile()

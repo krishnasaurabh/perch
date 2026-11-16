@@ -71,6 +71,7 @@ final class PlannerStore: ObservableObject {
     private var epoch = 0
     private var reloadInFlight = false
     private var reloadAgain = false
+    private var reloadForced = false
     private var tickInFlight = false
     private var runtimeEnabled = false
     var focusFinished: (() -> Void)?
@@ -324,8 +325,10 @@ final class PlannerStore: ObservableObject {
         runtimeEnabled = true
         observer = PlannerDirectoryObserver(url: file.url) { [weak self] in self?.requestReload() }
         observe(DistributedNotificationCenter.default(), .init("app.perch.mac.plannerChanged")) {
-            $0.requestReload()
+            $0.requestReload(force: true)
         }
+        // Device-only preferences do not rewrite planner.json or change its file revision.
+        observe(.default, UserDefaults.didChangeNotification) { $0.requestReload(force: true) }
         for name in [Notification.Name.NSSystemClockDidChange, .NSSystemTimeZoneDidChange, .NSCalendarDayChanged] {
             observe(.default, name) { $0.clockChanged() }
         }
@@ -407,7 +410,8 @@ final class PlannerStore: ObservableObject {
     }
 
     /// Notification and vnode bursts share one bounded reload, never one main-thread decode per event.
-    func requestReload() {
+    func requestReload(force: Bool = false) {
+        reloadForced = reloadForced || force
         guard reloadWork == nil else { return }
         reloadWork = scheduler.schedule(after: 0.1) { [weak self] in
             guard let self else { return }
@@ -415,7 +419,9 @@ final class PlannerStore: ObservableObject {
             if self.reloadInFlight { self.reloadAgain = true; return }
             self.reloadInFlight = true
             let generation = self.epoch
-            self.runtimeIO.load(self.file, after: self.revision, force: self.loadNeedsRetry) {
+            let forced = self.reloadForced
+            self.reloadForced = false
+            self.runtimeIO.load(self.file, after: self.revision, force: forced || self.loadNeedsRetry) {
                 [weak self] revision, result in
                 guard let self else { return }
                 self.reloadInFlight = false
@@ -423,6 +429,7 @@ final class PlannerStore: ObservableObject {
                     self.revision = revision
                     if let result { self.acceptReload(result, external: true) }
                 } else {
+                    self.reloadForced = self.reloadForced || forced
                     self.reloadAgain = true
                 }
                 if self.reloadAgain {
@@ -468,10 +475,10 @@ final class PlannerStore: ObservableObject {
         scheduleBoundaries()
     }
 
-    /// Explicit refresh for import/diagnostic callers. Automatic observation uses background I/O.
+    /// Explicit refresh includes device preferences, even when planner.json is byte-identical.
+    /// Automatic vnode observation retains its metadata-only fast path.
     func reloadFromDisk(external: Bool) {
         let current = PlannerFileRevision(url: file.url)
-        guard current != revision || loadNeedsRetry else { return }
         revision = current
         epoch += 1
         acceptReload(Result { try file.avoidingLockWaits().load() }, external: external)
