@@ -125,6 +125,12 @@ public final class PlannerCommands {
         change(&draft)
         try execute(.editTask(id, TaskChanges(before: before, draft: draft)))
     }
+    @discardableResult public func createProject(_ name: String) throws -> TaskProject {
+        try execute(.createProject(name)).projects[0]
+    }
+    @discardableResult public func renameProject(_ id: UUID, to name: String) throws -> TaskProject {
+        try execute(.renameProject(id, name)).projects[0]
+    }
     public func deleteProject(_ id: UUID) throws {
         try execute(.deleteProject(id))
     }
@@ -273,9 +279,46 @@ public final class PlannerCommandPipeline {
 }
 
 extension PlannerEngine {
+    @discardableResult
+    mutating func createProject(_ rawName: String) throws -> TaskProject {
+        let name = try Self.validatedProjectName(rawName)
+        guard !planner.projects.contains(where: { $0.name.caseInsensitiveCompare(name) == .orderedSame }) else {
+            throw PlannerError(Self.duplicateProjectNameMessage)
+        }
+        let project = TaskProject(name: name)
+        planner.projects.append(project)
+        return project
+    }
+
+    @discardableResult
+    mutating func renameProject(_ id: UUID, to rawName: String) throws -> TaskProject {
+        guard let index = planner.projects.firstIndex(where: { $0.id == id }) else {
+            throw PlannerError("Project id not found.")
+        }
+        let name = try Self.validatedProjectName(rawName)
+        guard
+            !planner.projects.contains(where: {
+                $0.id != id && $0.name.caseInsensitiveCompare(name) == .orderedSame
+            })
+        else {
+            throw PlannerError(Self.duplicateProjectNameMessage)
+        }
+        planner.projects[index].name = name
+        return planner.projects[index]
+    }
+
     mutating func deleteProject(_ id: UUID) throws {
         guard planner.projects.contains(where: { $0.id == id }) else { throw PlannerError("Project id not found.") }
         planner.projects.removeAll { $0.id == id }
         for i in planner.tasks.indices where planner.tasks[i].projectID == id { planner.tasks[i].projectID = nil }
+    }
+
+    private static let duplicateProjectNameMessage = "A project with this name already exists."
+    private static let emptyProjectNameMessage = "Enter a project name."
+
+    private static func validatedProjectName(_ rawName: String) throws -> String {
+        let name = rawName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty else { throw PlannerError(Self.emptyProjectNameMessage) }
+        return name
     }
 }
