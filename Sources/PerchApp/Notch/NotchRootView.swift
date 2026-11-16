@@ -241,8 +241,8 @@ struct ActivityStrip: View {
             pill("Start focus", identifier: "notch.start") {
                 perform { try $0.startTimer(task: id, minutes: nil) }
             }
-            pill("Snooze 5 min", identifier: "notch.snooze") {
-                perform { try $0.snooze(id, minutes: 5) }
+            pill("In a bit", identifier: "notch.snooze") {
+                perform { try $0.snooze(id) }
             }
             pill("Done", identifier: "notch.done") {
                 perform { try $0.complete(id) }

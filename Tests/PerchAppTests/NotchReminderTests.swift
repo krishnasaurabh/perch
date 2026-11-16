@@ -24,6 +24,37 @@ private final class NotchReminderTime { var now = Date(timeIntervalSince1970: 1_
 
 final class NotchReminderTests: XCTestCase {
     @MainActor
+    func testPersistentPreferenceAloneClearsAndRestoresMissedProjection() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let time = NotchReminderTime()
+        let store = PlannerStore(
+            file: PlannerFile(url: root.appendingPathComponent("planner.json")), now: { time.now }, watching: false)
+        let id = try XCTUnwrap(
+            store.send(.addTasks(["Synthetic reminder"], day: nil, literal: true, agentID: nil))?.tasks.first?.id)
+        store.updateTask(id) { $0.remindAt = time.now.addingTimeInterval(-120) }
+        let owner = ReminderService(
+            store: store, source: NotchNotificationSource(), clock: ClosurePlannerClock { time.now }, observing: false)
+        await owner.reconcile()
+        let model = NotchModel()
+        let observer = NotchReminderObservation(store: store, reminders: owner, model: model, now: { time.now })
+        let visible = expectation(description: "Default retains unresolved reminder")
+        let first = model.$missedReminder.compactMap { $0 }.first().sink { _ in visible.fulfill() }
+        await fulfillment(of: [visible], timeout: 2)
+        let hidden = expectation(description: "Preference-only edit clears retained reminder")
+        let cleared = model.$missedReminder.first(where: { $0 == nil }).sink { _ in hidden.fulfill() }
+        XCTAssertNotNil(store.apply { try $0.updatePreference(.persistentReminders(false)) })
+        await fulfillment(of: [hidden], timeout: 2)
+        XCTAssertNil(model.missedReminder)
+        let restored = expectation(description: "Preference-only edit restores retained reminder")
+        let again = model.$missedReminder.compactMap { $0 }.first().sink { _ in restored.fulfill() }
+        XCTAssertNotNil(store.apply { try $0.updatePreference(.persistentReminders(true)) })
+        await fulfillment(of: [restored], timeout: 2)
+        XCTAssertEqual(model.missedReminder?.kind, .reminder(id))
+        withExtendedLifetime((observer, first, cleared, again)) {}
+    }
+
+    @MainActor
     func testMissedCardOutlivesTransientExpiryAndDismissesOnlyItsOccurrence() async throws {
         let now = Date(timeIntervalSince1970: 1_800_000_000)
         var task = PlanTask(title: "Synthetic reminder", day: "2027-01-15", remindAt: now.addingTimeInterval(-120))
