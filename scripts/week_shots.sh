@@ -252,7 +252,9 @@ func wakeAccessibility() async {
         }
         if ProcessInfo.processInfo.systemUptime >= deadline {
             trackingMenu?.cancelTracking()
-            require(false, "Context menu tracking timed out; observed items: \(seenTitles)")
+            let reason = trackingMenu == nil ? "Context menu never began tracking"
+                : "Context menu tracked but lacked Details…"
+            require(false, "\(reason); observed items: \(seenTitles)")
         }
     }
     func finishWaiting() {
@@ -266,7 +268,9 @@ func wakeAccessibility() async {
     let window = try XCTFreeUnwrap(host.window, "Week host window")
     require(titleRect.width > 4 && titleRect.height > 4 && host.bounds.contains(titleRect),
             "Context-menu title target must be visible")
-    let point = host.convert(NSPoint(x: titleRect.midX, y: titleRect.midY), to: nil)
+    let target = NSPoint(x: titleRect.midX, y: titleRect.midY)
+    let point = host.convert(target, to: nil)
+    report("Week context target=\(titleRect) hit=\(String(describing: host.hitTest(target))) key=\(window.isKeyWindow) active=\(NSApp.isActive)")
     let event = try XCTFreeUnwrap(NSEvent.mouseEvent(with: .rightMouseDown, location: point,
         modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
         windowNumber: window.windowNumber, context: nil, eventNumber: 1, clickCount: 1, pressure: 1),
@@ -597,7 +601,17 @@ from pathlib import Path
 import sys
 root = Path(sys.argv[1])
 entry = root / 'Sources/Perch/main.swift'
-source = entry.read_text() + "\n" + (Path(sys.argv[2]) / "Tests/WorkspaceProbes/WeekBoardProbe.swift").read_text()
+# The board measures SwiftUI title text, not the separate native popup overlay.
+# Use the same right-click context-menu path as the busy legacy view, rather
+# than left-clicking a point whose hit-tested view can be the enclosing clip.
+board = (Path(sys.argv[2]) / "Tests/WorkspaceProbes/WeekBoardProbe.swift").read_text()
+start_marker = '        let point = host.convert(NSPoint(x: title.midX, y: title.midY), to: nil)'
+end_marker = '        let detailsIndex = try XCTFreeUnwrap('
+assert board.count(start_marker) == board.count(end_marker) == 1, 'Week board menu probe changed'
+start, end = board.index(start_marker), board.index(end_marker)
+assert start < end and 'NSApp.postEvent(event, atStart: false)' in board[start:end]
+board = board[:start] + '        let menu = try contextMenu(in: host, titleRect: title)\n' + board[end:]
+source = entry.read_text() + "\n" + board
 start = source.index('@MainActor var measurements:')
 end = source.index('@MainActor func settle()', start)
 helper = source[start:end]
