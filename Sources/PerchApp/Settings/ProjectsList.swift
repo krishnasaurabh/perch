@@ -47,6 +47,7 @@ struct ProjectsList: View {
             noProject
             newProject
         }
+        .modifier(DashboardPaneDiagnostic(name: "Projects LazyVGrid", store: store))
         .accessibilityElement(children: .contain)
         .perchFont(.body)
         #if DEBUG || PERCH_TESTING
