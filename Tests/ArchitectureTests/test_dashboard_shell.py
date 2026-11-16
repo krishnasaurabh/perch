@@ -16,7 +16,7 @@ class DashboardShellTests(unittest.TestCase):
         self.assertNotIn("UpcomingList", source)
         self.assertNotIn(".pickerStyle(.segmented)", source)
         self.assertFalse((APP / "Settings/UpcomingList.swift").exists())
-        for name, legacy in (("YourWeek", "InsightsDashboard"),
+        for name, legacy in (("YourWeek", "YourWeekContent"),
                              ("History", "HistoryList"), ("Projects", "ProjectsList")):
             body = (APP / f"Settings/{name}View.swift").read_text()
             self.assertIn(f"struct {name}View: View", body)

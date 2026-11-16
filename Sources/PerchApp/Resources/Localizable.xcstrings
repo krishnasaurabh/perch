@@ -86,6 +86,40 @@
         }
       }
     },
+    "%@ to %@. %lld things done this week.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ to %@. %lld things done this week."
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦%@ tö %@. %lld thïngs dönë thïs wëëk. ·~⟧"
+          }
+        }
+      }
+    },
+    "%@ to %@. %lld things done, a quieter week than the last one.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ to %@. %lld things done, a quieter week than the last one."
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦%@ tö %@. %lld thïngs dönë, à qüïëtër wëëk thàn thë làst önë. ·~⟧"
+          }
+        }
+      }
+    },
     "%@%lld%@ vs the week before": {
       "extractionState": "manual",
       "localizations": {
@@ -171,6 +205,23 @@
         }
       }
     },
+    "%@: %lld done": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@: %lld done"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦%@: %lld dönë ·~⟧"
+          }
+        }
+      }
+    },
     "%@: %lld minutes focused": {
       "extractionState": "manual",
       "localizations": {
@@ -201,6 +252,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "⟦%@: %lld öf %lld dönë ·~⟧"
+          }
+        }
+      }
+    },
+    "%@: still to come": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@: still to come"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦%@: stïll tö cömë ·~⟧"
           }
         }
       }
@@ -849,6 +917,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "⟦%lld/%lld stëps ·~⟧"
+          }
+        }
+      }
+    },
+    "%lldh %lldm": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lldh %lldm"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦%lldh %lldm ·~⟧"
           }
         }
       }
@@ -1910,6 +1995,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "⟦Åddëd thröügh MCP by %@ ·~⟧"
+          }
+        }
+      }
+    },
+    "Added to next week: %@": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Added to next week: %@"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Åddëd tö nëxt wëëk: %@ ·~⟧"
           }
         }
       }
@@ -4532,6 +4634,23 @@
         }
       }
     },
+    "Done each day": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Done each day"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Dönë ëàch dày ·~⟧"
+          }
+        }
+      }
+    },
     "Done this week": {
       "extractionState": "manual",
       "localizations": {
@@ -6538,6 +6657,40 @@
         }
       }
     },
+    "Keep": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keep"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Këëp ·~⟧"
+          }
+        }
+      }
+    },
+    "Keep %@": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keep %@"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Këëp %@ ·~⟧"
+          }
+        }
+      }
+    },
     "Keep task": {
       "extractionState": "manual",
       "localizations": {
@@ -6551,6 +6704,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "⟦Këëp tàsk ·~⟧"
+          }
+        }
+      }
+    },
+    "Keep what matters, or let it go.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keep what matters, or let it go."
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Këëp whàt màttërs, ör lët ït gö. ·~⟧"
           }
         }
       }
@@ -6670,6 +6840,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "⟦Lëft öf thë nötch ·~⟧"
+          }
+        }
+      }
+    },
+    "Let go": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Let go"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Lët gö ·~⟧"
+          }
+        }
+      }
+    },
+    "Let go of %@": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Let go of %@"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Lët gö öf %@ ·~⟧"
           }
         }
       }
@@ -7371,6 +7575,23 @@
         }
       }
     },
+    "Next week: %@": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Next week: %@"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Nëxt wëëk: %@ ·~⟧"
+          }
+        }
+      }
+    },
     "No Reminders account is available on this Mac.": {
       "extractionState": "manual",
       "localizations": {
@@ -7758,6 +7979,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "⟦Nöthïng ëlsë ön thë càlëndàr tödày. ·~⟧"
+          }
+        }
+      }
+    },
+    "Nothing kept moving.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nothing kept moving."
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Nöthïng këpt mövïng. ·~⟧"
           }
         }
       }
@@ -8965,6 +9203,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "⟦Përsïmmön ·~⟧"
+          }
+        }
+      }
+    },
+    "Pick up to three things that matter most.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pick up to three things that matter most."
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Pïck üp tö thrëë thïngs thàt màttër möst. ·~⟧"
           }
         }
       }
@@ -11709,6 +11964,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "⟦Stëps nëëd dïstïnct ïds ànd nön-ëmpty tïtlës. ·~⟧"
+          }
+        }
+      }
+    },
+    "Still waiting": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Still waiting"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Stïll wàïtïng ·~⟧"
           }
         }
       }
@@ -14688,6 +14960,23 @@
         }
       }
     },
+    "in a row with something done. A day off doesn't reset it.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "in a row with something done. A day off doesn't reset it."
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦ïn à röw wïth sömëthïng dönë. Å dày öff döësn't rësët ït. ·~⟧"
+          }
+        }
+      }
+    },
     "left": {
       "extractionState": "manual",
       "localizations": {
@@ -14854,6 +15143,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "⟦sàmë às thë wëëk bëförë ·~⟧"
+          }
+        }
+      }
+    },
+    "spent inside blocks this week": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "spent inside blocks this week"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦spënt ïnsïdë blöcks thïs wëëk ·~⟧"
           }
         }
       }

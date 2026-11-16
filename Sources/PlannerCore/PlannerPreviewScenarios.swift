@@ -116,6 +116,15 @@
                 addWeek(to: &fixture)
             }
             if name == "window-projects" { addProjects(to: &fixture) }
+            if name == "window-review" {
+                fixture.planner.focus = nil
+                for (index, title) in ["Research standing desks", "Back up photos", "Renew passport"].enumerated() {
+                    fixture.planner.tasks.append(
+                        PlanTask(
+                            id: id(950 + index), title: title, day: fixture.day,
+                            createdAt: fixture.now, carryCount: index + 2))
+                }
+            }
             return fixture
         }
 

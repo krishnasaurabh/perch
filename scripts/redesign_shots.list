@@ -24,6 +24,7 @@ your-week --scenario window-review --open your-week
 history --scenario window-history --open history
 projects --scenario window-projects --open projects
 your-week-empty --scenario empty --open your-week
+your-week-carried --scenario window-review --open your-week
 history-empty --scenario empty --open history
 projects-empty --scenario empty --open projects
 surfaces --scenario empty --open surfaces
