@@ -12,10 +12,12 @@ cp "$ROOT/Package.swift" "$PROBE/"
 cp -R "$ROOT/Sources" "$PROBE/"
 cp -R "$ROOT/Tests" "$PROBE/"
 cp "$ROOT/scripts/focus_entry_probe.swift" "$PROBE/Sources/Perch/main.swift"
+cp "$ROOT/scripts/scheduled_time_card_fixture.swift" "$PROBE/Sources/Perch/"
 git -C "$ROOT" rev-parse HEAD > "$OUT/source-sha.txt"
 swift build -Xswiftc -DPERCH_TESTING -Xswiftc -enable-testing --package-path "$PROBE" -c release --product Perch
 python3 - "$PROBE/.build/release/Perch" "$OUT" <<'PY'
 import json, os, pathlib, subprocess, sys
+from datetime import datetime
 binary, output = sys.argv[1:]
 data = pathlib.Path(output) / 'planner.json'
 data.write_text(json.dumps({'preferences': {'welcomeCompleted': True,
@@ -34,6 +36,19 @@ menu = json.loads((root / 'context-menu-trace.json').read_text())
 assert menu['mechanism'] == result['taskActivation'] and not menu['timedOut']
 assert any('Set time aside' in titles for titles in menu['menus'])
 assert {row['defaultMinutes'] for row in result['metrics']} == {25, 40}
+assert {row['startedMinutes'] for row in result['metrics']} == {25}
+# Empty time-card activation deliberately starts 25 minutes even when the configurable
+# Command-Return default differs. Completion leaves a finished session and exact ledger time.
+live = json.loads((root / 'live-focus-completed.json').read_text())
+assert live['focus']['state'] == 'finished' and live['focus']['limit'] == 1500
+assert live['focus'].get('taskID') is None
+assert abs(sum((datetime.fromisoformat(segment['end']) - datetime.fromisoformat(segment['start'])).total_seconds() for segment in live['focusSegments']) - 1500) < 0.001
+scheduled = json.loads((root / 'scheduled-focus-completed.json').read_text())
+assert scheduled['focus']['state'] == 'finished' and scheduled['focus']['limit'] == 1020
+assert scheduled['focus']['taskID'] == scheduled['tasks'][0]['id']
+assert len(scheduled['focusSegments']) == 1
+assert scheduled['focusSegments'][0]['taskID'] == scheduled['tasks'][0]['id']
+assert abs((datetime.fromisoformat(scheduled['focusSegments'][0]['end']) - datetime.fromisoformat(scheduled['focusSegments'][0]['start'])).total_seconds() - 1020) < 0.001
 # Read the real persisted snapshot before deletion, not a reconstruction from view state.
 saved = json.loads((root / 'linked-focus.json').read_text())
 assert saved['focus']['state'] == 'running' and saved['focus']['limit'] == 720

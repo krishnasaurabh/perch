@@ -62,6 +62,7 @@ class TodayInteractionTests(unittest.TestCase):
         self.assertIn('requiredPress("time-card-primary", byIdentifier: true)', driver)
         self.assertIn("requiredTimerStartPress()", driver)
         self.assertIn('press("Start", byIdentifier: false)', driver)
+        self.assertIn('self.requiredPress("time-card-primary", byIdentifier: true)', driver)
         self.assertIn("completeActiveBlockAtControlledEnd()", driver)
         self.assertNotIn('requiredPress("End focus session")', driver)
         self.assertIn("PlannerCommandPipeline", driver)
@@ -109,6 +110,34 @@ class TodayInteractionTests(unittest.TestCase):
         result = qualify(dict(marker, settled_state=dict(completed_tasks=1, completed_target=False)), "a" * 40)
         self.assertFalse(result["qualified"])
         self.assertIn("tick-target-not-observed", result["reasons"])
+
+    def test_focus_entry_probe_covers_redesigned_time_card_routes_and_persistence(self):
+        source = (ROOT / "scripts/focus_entry_probe.swift").read_text()
+        wrapper = (ROOT / "scripts/check_focus_entry.sh").read_text()
+        for identifier in ("time-card-primary", "time-card-add-five", "time-card-ring"):
+            self.assertIn(f'"{identifier}"', source)
+        self.assertIn('"Set time aside"', source)
+        self.assertIn('"Start it now"', source)
+        self.assertIn("store.planner.focus?.limit == 1_500", source)
+        self.assertIn("completeActiveBlockAtControlledEnd", source)
+        self.assertIn("PlannerCommandPipeline", source)
+        self.assertIn("pipeline.execute(.tick, origin: .background)", source)
+        self.assertNotIn('press("End focus session"', source)
+        self.assertNotIn('control("Start focus", in: live)', source)
+        self.assertIn("verifyScheduledTimeCard", source)
+        for artifact in ("live-focus-completed.json", "scheduled-focus-completed.json"):
+            self.assertIn(artifact, source)
+            self.assertIn(artifact, wrapper)
+        self.assertIn("{row['startedMinutes'] for row in result['metrics']} == {25}", wrapper)
+
+    def test_compact_geometry_tracks_time_card_primary_in_both_states(self):
+        source = (ROOT / "scripts/compact_home_probe.swift").read_text()
+        wrapper = (ROOT / "scripts/check_compact_home.sh").read_text()
+        self.assertIn('controlFrame("time-card-primary", attribute: "accessibilityIdentifier", in: root)', source)
+        self.assertIn('running ? "Pause" : "Set time aside"', source)
+        self.assertIn('"timeCardPrimary"', source)
+        self.assertNotIn('controlFrame("Start focus"', source)
+        self.assertIn("actual[name]['timeCardPrimary'] != 'missing'", wrapper)
 
     def test_keyboard_probe_reads_native_boolean_focus(self):
         source = (ROOT / "scripts/focus_entry_probe.swift").read_text()

@@ -13,7 +13,7 @@ struct HomePage: View {
                     TasksCard().frame(width: columns.checklist).frame(maxHeight: .infinity)
                     VStack(spacing: HomeLayout.gap) {
                         // TIME CARD SLOT: replace this call only when TimeCard lands.
-                        FocusCard().frame(maxHeight: .infinity)
+                        TimeCard().frame(maxHeight: .infinity)
                         // PARKING LOT SLOT: replace this call only when ParkingLotCard lands.
                         NotepadCard().frame(height: HomeLayout.parkingHeight)
                     }

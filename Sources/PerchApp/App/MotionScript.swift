@@ -255,9 +255,13 @@
             /// The negative-control switch bypasses the compatibility route and still fails closed.
             private func requiredTimerStartPress() -> String {
                 if ProcessInfo.processInfo.environment["PERCH_MOTION_MISSING_CONTROL"] == "time-card-primary" {
-                    return requiredPress("time-card-primary", byIdentifier: true)
+                    return self.requiredPress("time-card-primary", byIdentifier: true)
                 }
-                if let via = press("time-card-primary", byIdentifier: true) { return via }
+                if let root = visiblePanelView(),
+                    find("time-card-primary", in: root, depth: 0, byIdentifier: true) != nil
+                {
+                    return self.requiredPress("time-card-primary", byIdentifier: true)
+                }
                 if let via = press("Start", byIdentifier: false) { return via }
                 return "FAILED:missing-control:time-card-primary"
             }

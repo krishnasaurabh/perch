@@ -141,6 +141,9 @@ struct TasksCard: View {
                 }
             }
             .frame(minHeight: 0, maxHeight: WorkspaceLayout.contentHeight)
+            // Keep the bounded scroller in a flexible slot so header changes consume slack,
+            // rather than resizing a centered card and moving capture with it.
+            .frame(maxHeight: .infinity, alignment: .top)
             Spacer(minLength: .zero).layoutPriority(-1)
             if store.canUndo || !store.engine.bringOverCandidates().isEmpty {
                 footer.fixedSize(horizontal: false, vertical: true).layoutPriority(1)
