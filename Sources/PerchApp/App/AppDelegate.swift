@@ -11,6 +11,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     var notch: NotchController!
     private(set) var menuBarItem: MenuBarItem?
     var statusItem: NSStatusItem? { menuBarItem?.statusItem }
+    private var cancellables = Set<AnyCancellable>()
 
     func applicationDidFinishLaunching(_ n: Notification) {
         #if DEBUG || PERCH_TESTING
