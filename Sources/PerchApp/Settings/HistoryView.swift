@@ -59,9 +59,11 @@ struct DashboardPaneRoot<Content: View>: View {
 
     var body: some View {
         content
-            .environment(\.self, environment)
             .environmentObject(store)
             .environment(\.accessibilityEnabled, true)
+            // Whole-environment forwarding must be outermost, so it cannot
+            // overwrite the explicit store and semantic activation above.
+            .environment(\.self, environment)
             // The outer dashboard owns scrolling. Measure the ideal document
             // height at its actual width, including wrapped/enlarged text.
             .fixedSize(horizontal: false, vertical: true)
