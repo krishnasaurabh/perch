@@ -1,4 +1,5 @@
 import AppKit
+import ApplicationServices
 @testable import PlannerCore
 #if canImport(PerchApp)
     @testable import PerchApp
@@ -11,6 +12,18 @@ import SwiftUI
 func require(_ condition: @autoclosure () -> Bool, _ message: String) {
     if !condition() { fputs("FAIL: \(message)\n", stderr); exit(1) }
     print("PASS: \(message)")
+}
+
+func wakeAX() async {
+    await Task.detached {
+        let app = AXUIElementCreateApplication(getpid())
+        var result: CFTypeRef?
+        _ = AXUIElementCopyAttributeValue(app, kAXWindowsAttribute as CFString, &result)
+        for window in (result as? [AXUIElement]) ?? [] {
+            var children: CFTypeRef?
+            _ = AXUIElementCopyAttributeValue(window, kAXChildrenAttribute as CFString, &children)
+        }
+    }.value
 }
 
 @MainActor
@@ -262,36 +275,128 @@ func checkDeletionRedo() throws {
 }
 
 @MainActor
-func checkNotepadView(_ store: PlannerStore) async throws {
+func checkParkingLotView(_ store: PlannerStore) async throws {
     let window = NSWindow(
-        contentRect: NSRect(x: 0, y: 0, width: 320, height: 220), styleMask: [.titled], backing: .buffered, defer: false
+        contentRect: NSRect(x: 0, y: 0, width: 480, height: 500), styleMask: [.titled], backing: .buffered, defer: false
     )
     window.isReleasedWhenClosed = false
-    window.contentView = NSHostingView(rootView: NotepadCard(day: store.today).environmentObject(store))
+    defer { window.close() }
+    window.contentView = NSHostingView(rootView: ParkingLotCard().environmentObject(store))
     window.makeKeyAndOrderFront(nil)
-    try await Task.sleep(nanoseconds: 100_000_000)
-    @MainActor func editor(_ view: NSView) -> NSTextView? {
-        if let text = view as? NSTextView { return text }
-        return view.subviews.compactMap(editor).first
+    NSApp.activate(ignoringOtherApps: true)
+
+    @MainActor func settle() async throws {
+        try await Task.sleep(nanoseconds: 180_000_000)
+        window.contentView?.layoutSubtreeIfNeeded()
     }
-    let textView = editor(window.contentView!)
-    require(textView != nil, "real notepad NSTextView is mounted")
-    let tv = textView!
-    tv.string = "Native editor draft"
-    tv.didChangeText()
-    require(
-        store.text(for: .notepad(store.today)) == "Native editor draft",
-        "native text-change delegate sends the draft to the store immediately")
-    tv.delegate?.textDidEndEditing?(Notification(name: NSText.didEndEditingNotification, object: tv))
-    let saved = try store.file.load()
-    require(saved.notes.first?.text == "Native editor draft", "native blur delegate flushes notepad")
-    tv.string = "Removed view draft"
-    tv.didChangeText()
+    @MainActor func fields(_ view: NSView) -> [NSTextField] {
+        if let field = view as? NSTextField, field.isEditable { return [field] }
+        return view.subviews.flatMap(fields)
+    }
+    @MainActor func capture(_ text: String) async throws {
+        let candidates = fields(window.contentView!)
+        require(candidates.count == 1, "parking card mounts exactly one native input")
+        let field = candidates[0]
+        require(window.makeFirstResponder(field), "parking input accepts native keyboard focus")
+        try await settle()
+        let editor = field.currentEditor() as? NSTextView
+        require(editor != nil && window.firstResponder === editor, "real parking NSTextView is mounted and focused")
+        let tv = editor!
+        let before = try store.file.load()
+        tv.string = text
+        tv.didChangeText()
+        try await settle()
+        require(field.stringValue == text, "native text-change updates the parking input")
+        let typed = try store.file.load()
+        require(typed == before, "typing alone does not save a thought or create a task")
+        for type in [NSEvent.EventType.keyDown, .keyUp] {
+            let event = NSEvent.keyEvent(
+                with: type, location: .zero, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                windowNumber: window.windowNumber, context: nil, characters: "\r", charactersIgnoringModifiers: "\r",
+                isARepeat: false, keyCode: 36)!
+            window.sendEvent(event)
+        }
+        try await settle()
+        let saved = try store.file.load()
+        require(
+            saved.parkedThoughts.count == before.parkedThoughts.count + 1 && saved.parkedThoughts.last?.text == text,
+            "native Return submits the literal thought to persisted storage")
+        require(saved.tasks == before.tasks, "parking a thought does not create a task")
+        require(field.stringValue.isEmpty, "successful native Return clears the field")
+    }
+
+    try await settle()
+    require(window.isKeyWindow, "parking probe establishes a key window")
+    try await capture("Native thought tomorrow at 9 for 20 min")
+    let submitted = try store.file.load()
+    require(window.makeFirstResponder(nil), "parking input can blur")
+    try await settle()
+    let blurred = try store.file.load()
+    require(blurred == submitted, "blur preserves the submitted thought")
+    try await capture("Thought saved before removing the view")
+    let beforeRemoval = try store.file.load()
     window.contentView = nil
-    try await Task.sleep(nanoseconds: 100_000_000)
-    let closed = try store.file.load()
-    require(closed.notes.first?.text == "Removed view draft", "removing the notepad view flushes its final edit")
-    window.close()
+    try await settle()
+    let removed = try store.file.load()
+    require(removed == beforeRemoval, "removing the parking card preserves both submitted thoughts")
+
+    // Exercise the actual review button, not the entry model's promotion helper.
+    let thought = beforeRemoval.parkedThoughts.last!
+    window.contentView = NSHostingView(
+        rootView: ParkedThoughtsView().environmentObject(store).environment(\.accessibilityEnabled, true))
+    window.makeKeyAndOrderFront(nil)
+    NSApp.activate(ignoringOtherApps: true)
+    try await settle()
+    await wakeAX()
+    try await settle()
+    @MainActor func attribute(_ node: NSObject, _ name: String) -> Any? {
+        let selector = NSSelectorFromString(name)
+        return node.responds(to: selector) ? node.perform(selector)?.takeUnretainedValue() : nil
+    }
+    @MainActor func nodes(_ root: NSObject) -> [NSObject] {
+        var seen = Set<ObjectIdentifier>()
+        @MainActor func walk(_ node: NSObject) -> [NSObject] {
+            guard seen.insert(ObjectIdentifier(node)).inserted else { return [] }
+            var children = ["accessibilityChildren", "accessibilityContents", "accessibilityChildrenInNavigationOrder"]
+                .flatMap { (attribute(node, $0) as? [NSObject]) ?? [] }
+            if let view = node as? NSView { children += view.subviews }
+            if let window = node as? NSWindow, let content = window.contentView { children.append(content) }
+            return [node] + children.flatMap(walk)
+        }
+        return walk(root)
+    }
+    var seenIdentifiers = Set<String>()
+    let buttons = nodes(window).filter {
+        guard let identifier = attribute($0, "accessibilityIdentifier") as? String,
+            identifier == "parking-promote-\(thought.id.uuidString)",
+            attribute($0, "accessibilityRole") as? String == "AXButton"
+        else { return false }
+        return seenIdentifiers.insert(identifier).inserted
+    }
+    require(buttons.count == 1, "saved thought exposes exactly one native promotion button (found \(buttons.count))")
+    let button = buttons[0]
+    let press = NSSelectorFromString("accessibilityPerformPress")
+    require(button.responds(to: press), "promotion button supports native press")
+    typealias Press = @convention(c) (AnyObject, Selector) -> Bool
+    require(
+        unsafeBitCast(button.method(for: press), to: Press.self)(button, press),
+        "native promotion button accepts press")
+    try await settle()
+    let promoted = try store.file.load()
+    require(!promoted.parkedThoughts.contains { $0.id == thought.id }, "promotion removes only the saved thought")
+    require(
+        promoted.parkedThoughts == beforeRemoval.parkedThoughts.filter { $0.id != thought.id },
+        "promotion preserves every other parked thought")
+    let tasks = promoted.tasks.filter { $0.parkedFrom == thought.id }
+    require(
+        tasks.count == 1 && tasks[0].title == thought.text && tasks[0].day == store.today,
+        "native promotion creates one literal task for today")
+    require(promoted.focus == beforeRemoval.focus, "promotion does not start or change a block")
+    store.undo()
+    let undone = try store.file.load()
+    require(
+        undone.parkedThoughts == beforeRemoval.parkedThoughts && undone.tasks == beforeRemoval.tasks,
+        "Undo restores the thought and removes only its promoted task")
 }
 
 /// The deletion action now lives in the real strip, not a permanent Today row.
@@ -378,7 +483,7 @@ app.setActivationPolicy(.accessory)
 Task { @MainActor in
     do {
         let store = try checkStore()
-        try await checkNotepadView(store)
+        try await checkParkingLotView(store)
         try checkDeletionRedo()
         try await checkDeletionStrip()
         print("Undo app probe passed")

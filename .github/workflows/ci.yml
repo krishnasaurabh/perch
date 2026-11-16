@@ -256,7 +256,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: redesign-shots
-          path: ${{ runner.temp }}/redesign-shots
+          path: |
+            ${{ runner.temp }}/redesign-shots
+            !**/planner.json.backups/**
           if-no-files-found: error
       - name: Home cards legibility (exact timer value, default and dot-matrix faces, heavy notepad)
         if: ${{ !cancelled() && steps.restore.outcome == 'success' && contains(fromJSON(needs.changes.outputs.suites), 'homecards') }}
