@@ -558,6 +558,10 @@ private struct TasksContinuationObserver: NSViewRepresentable {
     }
     static func dismantleNSView(_ view: Marker, coordinator: ()) { view.detach() }
 
+    // The marker only discovers its enclosing scroller; the fade is drawn there.
+    // Never let AppKit's default representable sizing affect the task/capture layout.
+    func sizeThatFits(_ proposal: ProposedViewSize, nsView: Marker, context: Context) -> CGSize? { .zero }
+
     final class Marker: NSView {
         private weak var scroll: NSScrollView?
         private let fade = OverflowFadeView(frame: .zero)
