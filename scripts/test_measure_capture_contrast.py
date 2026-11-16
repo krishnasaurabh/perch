@@ -1,11 +1,15 @@
 """Synthetic fixtures for measure_capture_contrast.py: 1x and 2x snapshots must measure the same way."""
+import contextlib
+import io
+import json
 import struct
 import tempfile
 import unittest
 import zlib
 from pathlib import Path
 
-from measure_capture_contrast import measure, measure_week, mini_fills, over_black, ratio
+from measure_capture_contrast import (main, measure, measure_week, mini_fills, over_black, ratio,
+                                      board_tokens, measure_week_board)
 
 SHELL = (0, 0, 0)
 
@@ -80,12 +84,105 @@ def week(scale, ink):
     return rows
 
 
+def week_field(scale, fill, ink, height=32):
+    """A single composer on a black shell, with no unrelated token-coloured pixels."""
+    rows: list[list[tuple[int, ...]]] = [[SHELL] * (120 * scale) for _ in range(60 * scale)]
+    for y in range(20 * scale, (20 + height) * scale):
+        for x in range(20 * scale, 90 * scale):
+            rows[y][x] = fill
+    for y in range(27 * scale, 35 * scale):
+        for x in range(26 * scale, 46 * scale):
+            rows[y][x] = ink
+    return rows
+
+
 class WeekTests(unittest.TestCase):
-    def measure(self, rows):
+    def measure(self, rows, scheme="dark"):
         with tempfile.TemporaryDirectory() as d:
             p = Path(d) / "notch-1-open.png"
             write_png(p, rows)
-            return measure_week(p)
+            return measure_week(p, scheme)
+
+    def test_appearance_fill_tokens_and_legacy_fills(self):
+        self.assertEqual(mini_fills()["control"], mini_fills("dark")["control"])
+        for scheme, control in (("dark", (0x24,) * 3), ("light", (0x9D, 0xAD, 0xA1))):
+            with self.subTest(scheme=scheme):
+                self.assertEqual(mini_fills(scheme),
+                                 {"control": control, "tile": (40,) * 3, "today": (32,) * 3})
+        with self.assertRaisesRegex(AssertionError, "Unknown Week appearance"):
+            mini_fills("invalid")
+
+    def test_both_schemes_and_fill_sets_pass_and_reject_low_contrast(self):
+        for scheme in ("dark", "light"):
+            for name, fill in mini_fills(scheme).items():
+                for scale in (1, 2):
+                    high = (0x09, 0x0C, 0x0A) if scheme == "light" and name == "control" else (0xF5,) * 3
+                    for ink, passes in ((high, True), ((0x75,) * 3, False)):
+                        with self.subTest(scheme=scheme, fill=name, scale=scale, passes=passes):
+                            height = 32 if name == "control" else 22
+                            r = self.measure(week_field(scale, fill, ink, height), scheme)
+                            self.assertEqual(r["scheme"], scheme)
+                            self.assertEqual(r["scale"], scale)
+                            self.assertEqual(len(r["fields"]), 1)
+                            f = r["fields"][0]
+                            self.assertEqual(f["over"], name)
+                            self.assertEqual(f["field_xyxy"], [20 * scale, 20 * scale, 90 * scale, (20 + height) * scale])
+                            self.assertEqual(f["background_rgb"], "#%02X%02X%02X" % fill)
+                            self.assertEqual(f["ratio"], round(ratio(ink, fill), 3))
+                            self.assertEqual(f["ratio"] >= 4.5, passes)
+
+    def test_same_lightest_frequent_ink_rule_in_both_schemes(self):
+        for scheme in ("dark", "light"):
+            with self.subTest(scheme=scheme):
+                fill = mini_fills(scheme)["control"]
+                low = (0x75,) * 3
+                rows = week_field(1, fill, low)
+                # A repeated darker colour must not replace the lightest frequent ink in light mode.
+                for x in range(26, 36):
+                    rows[28][x] = (0x09, 0x0C, 0x0A)
+                # Four brighter specks must not qualify as frequent ink in either mode.
+                for x in range(26, 30):
+                    rows[29][x] = (0xFF,) * 3
+                f = self.measure(rows, scheme)["fields"][0]
+                self.assertEqual(f["ink_rgb"], "#757575")
+                self.assertEqual(f["ratio"], round(ratio(low, fill), 3))
+                self.assertLess(f["ratio"], 4.5)
+
+    def test_cli_gates_both_schemes_and_retains_dark_alias(self):
+        with tempfile.TemporaryDirectory() as d:
+            paths = {scheme: Path(d) / ("week-" + scheme) for scheme in ("dark", "light")}
+            high = {"dark": (0xF5,) * 3, "light": (0x09, 0x0C, 0x0A)}
+            for path in paths.values():
+                path.mkdir()
+
+            def render(scheme, ink):
+                write_png(paths[scheme] / "notch-1-open.png", week_field(1, mini_fills(scheme)["control"], ink))
+
+            def run(args):
+                output = io.StringIO()
+                with contextlib.redirect_stdout(output):
+                    status = main(args)
+                return status, json.loads(output.getvalue())
+
+            args = ["--week-dark", str(paths["dark"]), "--week-light", str(paths["light"])]
+            for scheme in paths:
+                render(scheme, high[scheme])
+            status, report = run(args)
+            self.assertEqual(status, 0)
+            self.assertEqual(report["failures"], [])
+            self.assertEqual({r["scheme"] for r in report["results"].values()}, {"dark", "light"})
+            status, report = run(["--week", str(paths["dark"])])
+            self.assertEqual(status, 0)
+            self.assertEqual(report["results"]["week-dark"]["scheme"], "dark")
+            for scheme in paths:
+                with self.subTest(low_contrast=scheme):
+                    render(scheme, (0x75,) * 3)
+                    status, report = run(args)
+                    self.assertEqual(status, 1)
+                    self.assertEqual(len(report["failures"]), 1)
+                    self.assertIn("week-" + scheme, report["failures"][0])
+                    self.assertIn("< 4.5:1", report["failures"][0])
+                    render(scheme, high[scheme])
 
     def test_system_placeholder_grey_fails(self):
         # AppKit's placeholder grey as rendered on the dark tile before the fix (#858585 on #292929, 3.94:1).
@@ -177,6 +274,94 @@ class WeekTests(unittest.TestCase):
         # Theme.secondary dark (white 62 %) over the field.
         r = self.measure(week(2, (0xAE, 0xAE, 0xAE)))
         self.assertGreaterEqual(r["fields"][0]["ratio"], 4.5)
+
+
+class WeekBoardTests(unittest.TestCase):
+    def fixture(self, directory, scheme, scale=1, inks=None):
+        """Two native footer frames over paper, with no input rectangles."""
+        tokens = board_tokens(scheme)
+        rows = [[tokens['paper']] * (220 * scale) for _ in range(80 * scale)]
+        manifest = []
+        for index, left in enumerate((20, 120)):
+            ink = (inks or [tokens['brandText']] * 2)[index]
+            if ink is not None:
+                for y in range(40 * scale, 48 * scale):
+                    for x in range(left * scale, (left + 40) * scale):
+                        rows[y][x] = ink
+            manifest.append({'image': 'notch-1-open.png', 'day': f'2026-11-{14+index}',
+                             'xywh': [left, 30, 70, 28], 'canvas': [220, 80]})
+        path = directory / 'notch-1-open.png'
+        write_png(path, rows)
+        (directory / 'week-footers.json').write_text(json.dumps(manifest))
+        return path, manifest
+
+    def test_both_board_appearances_and_scales_measure_each_footer(self):
+        for scheme in ('light', 'dark'):
+            for scale in (1, 2):
+                with self.subTest(scheme=scheme, scale=scale), tempfile.TemporaryDirectory() as tmp:
+                    path, _ = self.fixture(Path(tmp), scheme, scale)
+                    result = measure_week_board(path, scheme)
+                    self.assertEqual(result['scale'], scale)
+                    self.assertEqual(result['scheme'], scheme)
+                    self.assertEqual(len(result['fields']), 2)
+                    for field in result['fields']:
+                        tokens = board_tokens(scheme)
+                        self.assertEqual(field['over'], 'paper')
+                        self.assertEqual(field['ratio'], round(ratio(tokens['brandText'], tokens['paper']), 3))
+                        self.assertGreaterEqual(field['ratio'], 4.5)
+        with self.assertRaisesRegex(AssertionError, 'Unknown Week appearance'):
+            board_tokens('invalid')
+
+    def test_every_board_footer_is_gated_in_both_appearances(self):
+        for scheme in ('light', 'dark'):
+            for scale in (1, 2):
+                for low_index in (0, 1):
+                    with self.subTest(scheme=scheme, scale=scale, low_index=low_index), tempfile.TemporaryDirectory() as tmp:
+                        inks = [board_tokens(scheme)['brandText']] * 2
+                        # Deliberately below the shared text threshold.
+                        inks[low_index] = (190,) * 3 if scheme == 'light' else (100,) * 3
+                        self.fixture(Path(tmp), scheme, scale, inks)
+                        output = io.StringIO()
+                        with contextlib.redirect_stdout(output):
+                            status = main(['--week-board', '--week-' + scheme, tmp])
+                        report = json.loads(output.getvalue())
+                        self.assertEqual(status, 1)
+                        self.assertEqual(len(report['failures']), 1)
+                        self.assertIn('< 4.5:1', report['failures'][0])
+                        self.assertLess(report['results'][Path(tmp).name]['fields'][low_index]['ratio'], 4.5)
+
+    def test_board_sampling_fails_closed_for_missing_blank_or_invalid_frames(self):
+        for scheme in ('light', 'dark'):
+            for scale in (1, 2):
+                for broken in ('missing', 'empty', 'wrong-image', 'duplicate', 'clipped', 'scale', 'blank', 'wrong-surface'):
+                    with self.subTest(scheme=scheme, scale=scale, broken=broken), tempfile.TemporaryDirectory() as tmp:
+                        directory = Path(tmp)
+                        inks = [board_tokens(scheme)['brandText'], None] if broken == 'blank' else None
+                        path, manifest = self.fixture(directory, scheme, scale, inks)
+                        sidecar = directory / 'week-footers.json'
+                        if broken == 'missing': sidecar.unlink()
+                        elif broken == 'empty': sidecar.write_text('[]')
+                        elif broken == 'wrong-surface':
+                            write_png(path, [[(0, 0, 0)] * (220 * scale) for _ in range(80 * scale)])
+                        else:
+                            if broken == 'wrong-image':
+                                for row in manifest: row['image'] = 'absent.png'
+                            elif broken == 'duplicate': manifest.append(manifest[0])
+                            elif broken == 'clipped': manifest[1]['xywh'] = [200, 30, 70, 28]
+                            elif broken == 'scale': manifest[1]['canvas'] = [1, 1]
+                            sidecar.write_text(json.dumps(manifest))
+                        with self.assertRaises(AssertionError):
+                            measure_week_board(path, scheme)
+
+    def test_board_requires_appearance_correct_surface_not_legacy_control(self):
+        for scheme in ('light', 'dark'):
+            with self.subTest(scheme=scheme), tempfile.TemporaryDirectory() as tmp:
+                path, _ = self.fixture(Path(tmp), scheme)
+                with self.assertRaisesRegex(AssertionError, 'paper surface missing'):
+                    measure_week_board(path, 'dark' if scheme == 'light' else 'light')
+                # The old MiniComposer detector must not silently pass a board.
+                with self.assertRaisesRegex(AssertionError, 'no Week composer'):
+                    measure_week(path, scheme)
 
 
 if __name__ == "__main__":
