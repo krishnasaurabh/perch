@@ -1075,7 +1075,8 @@ final class MatrixFixture {
         let day = store.today.adding(days: -daysAgo)
         try write { planner in
             for title in titles {
-                planner.tasks.append(PlanTask(title: title, day: day, done: false))
+                // History lists finished tasks only, so authored history rows are done.
+                planner.tasks.append(PlanTask(title: title, day: day, done: true))
             }
         }
         let seeded = store.planner.tasks.filter { $0.day == day && titles.contains($0.title) }
@@ -1561,11 +1562,13 @@ final class AllPageMatrix {
         }
         try report.require(true, "Tab reaches the dashboard tab controls")
 
-        // Every tab is exercised through the real segmented control.
+        // Every tab is exercised through the real segmented control. Your week reports
+        // Done each day / Kept going instead of a planned-versus-done comparison, and
+        // Projects renders cards with a New project card.
         let markers: [(DashboardView.Tab, String, String)] = [
-            (.history, "Matrix history task", AppL10n.text("Streak")),
-            (.yourWeek, AppL10n.text("Streak"), "Matrix history task"),
-            (.projects, AppL10n.text("No projects yet. Add #project to a new task."), "Matrix history task"),
+            (.history, "Matrix history task", AppL10n.text("Kept going")),
+            (.yourWeek, AppL10n.text("Kept going"), "Matrix history task"),
+            (.projects, AppL10n.text("New project"), "Matrix history task"),
         ]
         for (tab, marker, foreign) in markers {
             let wanted = AppL10n.text(tab.rawValue)
@@ -1609,23 +1612,58 @@ final class AllPageMatrix {
                 .environment(\.accessibilityEnabled, true)
                 .frame(width: 880, height: 560)
         }
-        let (window, _) = try matrixWindow(
+        let (window, projectHost) = try matrixWindow(
             "Matrix Dashboard Project", projectView, size: NSSize(width: 900, height: 620))
         defer { window.close() }
         await mxReady(1.4)
         try report.require(window.makeFirstResponder(destinations.before), "project fixture starts from a field")
 
-        let deleteLabel = AppL10n.text("Delete project")
-        _ = try await tabUntil(window, limit: 24, tag: "projectActionTraversal") { identity, _ in
-            identity == deleteLabel
+        // Project options: the card's visible control opens its own surface, and the
+        // Delete project control revealed there is what removes the project.
+        _ = try await tabUntil(window, limit: 24, tag: "projectOptionsTraversal") { identity, _ in
+            identity == AppL10n.text("Project options")
         }
-        try report.require(true, "Tab reaches the delete-project action")
+        try report.require(true, "Tab reaches the project options control")
         let taskCount = fixture.store.planner.tasks.count
-        try await mxKey(window, 49, " ")
+        let projectRoot = try mxRoot("Matrix Dashboard Project")
+        guard
+            let optionsControl = mxTree(projectRoot).first(where: {
+                mxRole($0) == "AXButton" && mxNames($0).contains(AppL10n.text("Project options"))
+            })
+        else { throw MatrixFailure(label: "no project options control on the card") }
+        try mxClick(host: projectHost, window: window, screenRect: mxFrame(optionsControl))
+        await mxReady(0.9)
+        func views(_ view: NSView) -> [NSView] { [view] + view.subviews.flatMap(views) }
+        guard
+            let optionsWindow = NSApp.windows.first(where: {
+                $0 !== window && $0.isVisible && $0.contentView != nil
+                    && $0.contentView.map(views)?.contains(where: {
+                        ($0 as? NSButton)?.title == AppL10n.text("Delete project")
+                    }) == true
+            }), let optionsContent = optionsWindow.contentView,
+            let deleteControl = views(optionsContent).compactMap({ $0 as? NSButton }).first(where: {
+                $0.title == AppL10n.text("Delete project")
+            })
+        else { throw MatrixFailure(label: "the project options surface does not offer Delete project") }
+        try report.require(true, "the project options surface offers Delete project")
+        try report.require(deleteControl.isEnabled, "Delete project is enabled in the options surface")
+        try report.require(
+            views(optionsContent).compactMap { $0 as? NSButton }.contains(where: {
+                $0.title == AppL10n.text("Rename project")
+            }) || mxHas(projectRoot, AppL10n.text("Rename project")),
+            "the project options surface offers Rename project")
+        // The revealed control is clicked where a person sees it, with real mouse events.
+        guard
+            let deleteNode = mxTree(mxApp()).first(where: {
+                mxRole($0) == "AXButton" && mxNames($0).contains(AppL10n.text("Delete project"))
+            })
+        else { throw MatrixFailure(label: "no Delete project control in the options surface") }
+        try report.require(mxEnabled(deleteNode) != false, "Delete project is enabled for this project")
+        try mxClick(host: optionsContent, window: optionsWindow, screenRect: mxFrame(deleteNode))
         await mxReady(0.7)
         try report.require(
             !fixture.store.planner.projects.contains { $0.id == project.id },
-            "Space on the project action deletes that project")
+            "Delete project from the card's options deletes that project")
         try report.require(
             fixture.store.planner.tasks.count == taskCount, "deleting a project keeps its tasks",
             "tasks \(fixture.store.planner.tasks.count) vs \(taskCount)")
