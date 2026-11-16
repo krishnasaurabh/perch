@@ -28,7 +28,7 @@ class DashboardShellTests(unittest.TestCase):
         shots = (ROOT / "scripts/redesign_shots.list").read_text()
         for target, tab in (("your-week", "yourWeek"), ("history", "history"), ("projects", "projects")):
             self.assertIn(f'"{target}": .window("dashboard")', source)
-            self.assertIn(f"tab: .{tab}", source)
+            self.assertIn(f"tab: .{tab}", source + "".join((APP / f"Settings/{name}View.swift").read_text() for name in ("YourWeek", "History", "Projects")))
             self.assertIn(f"{target}-empty --scenario empty --open {target}", shots)
 
     def test_menu_and_keyboard_bridge_use_the_shared_window(self):

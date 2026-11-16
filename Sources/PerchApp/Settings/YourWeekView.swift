@@ -7,7 +7,11 @@ struct YourWeekView: View {
         let value = YourWeekModel(engine: store.engine)
         let calendar = store.engine.calendar
         let start = value.weekStart.date(calendar: calendar).formatted(.dateTime.month(.abbreviated).day())
-        let end = value.weekEnd.date(calendar: calendar).formatted(.dateTime.day())
+        let endDate = value.weekEnd.date(calendar: calendar)
+        let sameMonth = calendar.isDate(
+            value.weekStart.date(calendar: calendar), equalTo: endDate, toGranularity: .month)
+        let end =
+            sameMonth ? endDate.formatted(.dateTime.day()) : endDate.formatted(.dateTime.month(.abbreviated).day())
         if value.done < value.previousDone {
             return AppL10n.format(
                 "%@ to %@. %lld things done, a quieter week than the last one.", start, end, value.done)
@@ -21,19 +25,22 @@ struct YourWeekView: View {
 /// The shared dashboard supplies the sheet, title, subtitle and scrolling boundary.
 struct YourWeekContent: View {
     @EnvironmentObject private var store: PlannerStore
+    @Environment(\.dynamicTypeSize) private var textSize
     @State private var drafts = ["", "", ""]
     @State private var added: [Int: UUID] = [:]
     @State private var kept = Set<UUID>()
     @FocusState private var draftFocus: Int?
 
     private var model: YourWeekModel { YourWeekModel(engine: store.engine) }
-    private let prompts = ["First thing", "Second thing", "Third thing"]
+    private var prompts: [String] {
+        [AppL10n.text("First thing"), AppL10n.text("Second thing"), AppL10n.text("Third thing")]
+    }
 
     var body: some View {
         let value = model
         let waiting = value.stillWaiting.filter { !kept.contains($0.id) }
         VStack(alignment: .leading, spacing: Theme.Size.cardGap.value) {
-            ReviewColumns(weights: [1.5, 1, 1]) {
+            ReviewColumns(weights: [1.5, 1, 1], stacked: textSize.isAccessibilitySize) {
                 Card(.mint) {
                     VStack(alignment: .leading, spacing: SurfaceMetrics.gap) {
                         Text("Done each day").perchFont(.stripTitle)
@@ -47,7 +54,7 @@ struct YourWeekContent: View {
                     "Kept going", value: AppL10n.format("%lld days", value.keptGoing),
                     detail: AppL10n.text("in a row with something done. A day off doesn't reset it."), surface: .butter)
             }
-            ReviewColumns(weights: [1.5, 1]) {
+            ReviewColumns(weights: [1.5, 1], stacked: textSize.isAccessibilitySize) {
                 Card(.apricot) {
                     VStack(alignment: .leading, spacing: SurfaceMetrics.gap) {
                         Text("Still waiting").perchFont(.stripTitle)
@@ -75,6 +82,10 @@ struct YourWeekContent: View {
             }
         }
         .perchFont(.body)
+        .onChange(of: value.nextWeekStart) { _, _ in
+            added = [:]
+            kept = []
+        }
     }
 
     private func metric(_ title: String, value: String, detail: String, surface: PerchSurface) -> some View {
@@ -189,7 +200,7 @@ struct YourWeekBars: View {
                         : AppL10n.format("%@: %lld done", day.day.raw, day.done))
             }
         }
-        .frame(height: ReviewMetrics.chartHeight, alignment: .bottom)
+        .frame(minHeight: ReviewMetrics.chartHeight, alignment: .bottom)
     }
 
     static func barHeight(done: Int, maximum: Int, future: Bool) -> CGFloat {
@@ -207,25 +218,45 @@ private enum ReviewMetrics {
 /// Weighted columns measure each child once. Intrinsic height grows with wrapping and text size.
 struct ReviewColumns: Layout {
     let weights: [CGFloat]
+    var stacked = false
     var gap: CGFloat = SurfaceMetrics.fieldRadius
 
-    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+    struct Cache {
+        var width: CGFloat = .zero
+        var vertical = false
+        var sizes: [CGSize] = []
+    }
+    func makeCache(subviews: Subviews) -> Cache { Cache() }
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout Cache) -> CGSize {
         let width = proposal.width ?? Theme.Size.todayWidth.value
-        let widths = columnWidths(width: width, count: subviews.count)
+        cache.width = width
+        cache.vertical = stacked || width < Theme.Size.stripMaxWidth.value + Theme.Size.cardPadding.value * 6
+        let widths =
+            cache.vertical
+            ? Array(repeating: width, count: subviews.count) : columnWidths(width: width, count: subviews.count)
+        cache.sizes = zip(subviews, widths).map { view, width in
+            let size = view.sizeThatFits(ProposedViewSize(width: width, height: nil))
+            return CGSize(width: width, height: size.height)
+        }
         let height =
-            zip(subviews, widths).map { $0.sizeThatFits(ProposedViewSize(width: $1, height: nil)).height }.max()
-            ?? .zero
+            cache.vertical
+            ? cache.sizes.reduce(0) { $0 + $1.height } + gap * CGFloat(max(0, subviews.count - 1))
+            : cache.sizes.map(\.height).max() ?? .zero
         return CGSize(width: width, height: height)
     }
 
-    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
-        let widths = columnWidths(width: bounds.width, count: subviews.count)
-        var x = bounds.minX
-        for (view, width) in zip(subviews, widths) {
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout Cache) {
+        if cache.width != bounds.width || cache.sizes.count != subviews.count {
+            _ = sizeThatFits(
+                proposal: ProposedViewSize(width: bounds.width, height: nil), subviews: subviews, cache: &cache)
+        }
+        var origin = bounds.origin
+        for (view, size) in zip(subviews, cache.sizes) {
             view.place(
-                at: CGPoint(x: x, y: bounds.minY), anchor: .topLeading,
-                proposal: ProposedViewSize(width: width, height: bounds.height))
-            x += width + gap
+                at: origin, anchor: .topLeading,
+                proposal: ProposedViewSize(width: size.width, height: cache.vertical ? size.height : bounds.height))
+            if cache.vertical { origin.y += size.height + gap } else { origin.x += size.width + gap }
         }
     }
 

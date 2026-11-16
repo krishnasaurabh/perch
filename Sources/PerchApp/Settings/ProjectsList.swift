@@ -129,6 +129,7 @@ private struct ProjectNewButton: View {
                 .contentShape(RoundedRectangle(cornerRadius: Theme.Size.cardRadius.value))
         }
         .buttonStyle(.plain)
+        .focusable()
         .focused($focused)
         .focusEffectDisabled()
         .overlay {

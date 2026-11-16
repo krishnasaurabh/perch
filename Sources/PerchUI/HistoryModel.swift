@@ -14,6 +14,12 @@ public struct HistoryModel: Sendable {
     public let weekDone: Int
     public let weekActiveDays: Int
 
+    /// The limit is planned time, not evidence that a block was actually spent.
+    public static func recordedBlockMinutes(_ task: PlanTask) -> Int? {
+        guard task.focusedSeconds.isFinite, task.focusedSeconds > 0 else { return nil }
+        return Int(task.focusedSeconds / 60)
+    }
+
     public init(engine: PlannerEngine, query: String = "", filter: Filter = .everything, locale: Locale = .current) {
         let week = YourWeekModel(engine: engine)
         weekDone = week.done

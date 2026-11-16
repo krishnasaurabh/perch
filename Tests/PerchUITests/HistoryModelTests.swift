@@ -62,6 +62,15 @@ final class HistoryModelTests: XCTestCase {
         XCTAssertTrue(HistoryModel(engine: source, query: "missing").groups.isEmpty)
     }
 
+    func testBlockDetailUsesRecordedMinutesRatherThanThePlannedLimit() {
+        var task = PlanTask(title: "Short block", day: "2026-11-13", done: true, minutes: 60)
+        XCTAssertNil(HistoryModel.recordedBlockMinutes(task))
+        task.focusedSeconds = 5 * 60
+        XCTAssertEqual(HistoryModel.recordedBlockMinutes(task), 5)
+        task.focusedSeconds = 20
+        XCTAssertEqual(HistoryModel.recordedBlockMinutes(task), 0)
+    }
+
     func testActualCompletionDayAndLegacyDayAreBothRetained() {
         let completion = DayKey("2026-11-13").date(calendar: calendar).addingTimeInterval(3600)
         let source = engine([

@@ -508,6 +508,23 @@
         }
       }
     },
+    "%lld min set aside": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld min set aside"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦%lld mïn sët àsïdë ·~⟧"
+          }
+        }
+      }
+    },
     "%lld month repeat": {
       "extractionState": "manual",
       "localizations": {
@@ -5722,6 +5739,23 @@
         }
       }
     },
+    "First thing": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "First thing"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Fïrst thïng ·~⟧"
+          }
+        }
+      }
+    },
     "Fix the date first.": {
       "extractionState": "manual",
       "localizations": {
@@ -7112,6 +7146,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "⟦Lëft öf thë nötch ·~⟧"
+          }
+        }
+      }
+    },
+    "Less than 1 min in a block": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Less than 1 min in a block"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Lëss thàn 1 mïn ïn à blöck ·~⟧"
           }
         }
       }
@@ -11526,6 +11577,23 @@
         }
       }
     },
+    "Second thing": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Second thing"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Sëcönd thïng ·~⟧"
+          }
+        }
+      }
+    },
     "Section": {
       "extractionState": "manual",
       "localizations": {
@@ -13460,6 +13528,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "⟦Thërë ïs nö tàsk ëdït tö ündö. ·~⟧"
+          }
+        }
+      }
+    },
+    "Third thing": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Third thing"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Thïrd thïng ·~⟧"
           }
         }
       }

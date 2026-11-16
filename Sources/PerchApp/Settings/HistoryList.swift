@@ -5,6 +5,7 @@ import SwiftUI
 
 struct HistoryList: View {
     @EnvironmentObject private var store: PlannerStore
+    @Environment(\.dynamicTypeSize) private var textSize
     @State private var query = ""
     @State private var filter: HistoryModel.Filter = .everything
     @State private var expanded: [DayKey: Bool] = [:]
@@ -15,7 +16,7 @@ struct HistoryList: View {
 
     var body: some View {
         let history = HistoryModel(engine: store.engine, query: query, filter: filter)
-        ReviewColumns(weights: [1.6, 1]) {
+        ReviewColumns(weights: [1.6, 1], stacked: textSize.isAccessibilitySize) {
             Card(.paper) {
                 VStack(alignment: .leading, spacing: Theme.Size.cardGap.value) {
                     if history.groups.isEmpty && history.undated.isEmpty {
@@ -44,7 +45,12 @@ struct HistoryList: View {
                 Card(.paper) {
                     VStack(alignment: .leading, spacing: SurfaceMetrics.gap / 2) {
                         DashboardHistorySearch(query: $query)
-                            .frame(height: Theme.Size.buttonHeight.value)
+                            .frame(
+                                height: max(
+                                    Theme.Size.buttonHeight.value,
+                                    DesignTokens.TypeRole.body.spec.scaledSize(for: textSize.tokenScale)
+                                        + Theme.Size.cardPadding.value)
+                            )
                             .padding(.bottom, SurfaceMetrics.compactGap)
                         ForEach(HistoryModel.Filter.allCases, id: \.self) { item in
                             HistoryFilterButton(title: Self.title(item), selected: filter == item) {
@@ -115,12 +121,15 @@ struct HistoryList: View {
             Text(task.title).fixedSize(horizontal: false, vertical: true)
             Spacer(minLength: SurfaceMetrics.gap)
             VStack(alignment: .trailing, spacing: Theme.Size.checkboxStroke.value) {
-                if let minutes = task.minutes {
-                    Text(AppL10n.format("%lld min in a block", minutes))
-                } else if task.focusedSeconds > 0 {
-                    Text(AppL10n.format("%lld min in a block", Int(task.focusedSeconds / 60)))
+                if let minutes = HistoryModel.recordedBlockMinutes(task) {
+                    Text(
+                        minutes == 0
+                            ? AppL10n.text("Less than 1 min in a block")
+                            : AppL10n.format("%lld min in a block", minutes))
+                } else if task.startAt != nil, let minutes = task.minutes {
+                    Text(AppL10n.format("%lld min set aside", minutes))
                 }
-                if let agent = AgentName.short(task.agentID) {
+                if store.prefs.showAgentAttribution, let id = task.agentID, let agent = AgentName.short(id) {
                     Text(AppL10n.format("Added by %@", agent))
                 }
             }
@@ -159,6 +168,7 @@ private struct HistoryFilterButton: View {
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .focusable()
         .focused($focused)
         .focusEffectDisabled()
         .overlay(
@@ -182,6 +192,7 @@ private struct HistoryFilterButton: View {
 /// key-view links instead of being swallowed by the SwiftUI field editor.
 struct DashboardHistorySearch: NSViewRepresentable {
     @Binding var query: String
+    @Environment(\.dynamicTypeSize) private var textSize
 
     func makeNSView(context: Context) -> DashboardSearchField {
         let field = DashboardSearchField()
@@ -204,6 +215,10 @@ struct DashboardHistorySearch: NSViewRepresentable {
     }
 
     func updateNSView(_ field: DashboardSearchField, context: Context) {
+        let pointSize = DesignTokens.TypeRole.body.spec.scaledSize(for: textSize.tokenScale)
+        field.font =
+            NSFont(name: DesignTokens.FontResource.postScriptName(for: .medium), size: pointSize)
+            ?? .systemFont(ofSize: pointSize)
         field.onChange = { query = $0 }
         if field.stringValue != query { field.stringValue = query }
     }
