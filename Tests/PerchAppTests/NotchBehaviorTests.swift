@@ -7,6 +7,101 @@ import XCTest
 
 final class NotchBehaviorTests: XCTestCase {
     @MainActor
+    func testPeekPaintedHousingIncludesScreenTopAndExcludesCorners() async throws {
+        let geometry = NotchGeometry(
+            screen: NotchLayout.Screen(
+                frame: CGRect(x: 0, y: 0, width: 1512, height: 982),
+                visibleFrame: CGRect(x: 0, y: 0, width: 1512, height: 948),
+                safeAreaTop: 34, auxiliaryLeftWidth: 661, auxiliaryRightWidth: 661))
+        let rect = NotchPeekLayout.frame(workspace: geometry.workspace, bandHeight: geometry.notchSize.height)
+        let local = try XCTUnwrap(NotchPeekLayout.localPoint(CGPoint(x: rect.midX, y: rect.maxY), in: rect))
+        let path = geometry.outline(expanded: true).path(in: CGRect(origin: .zero, size: rect.size))
+        XCTAssertTrue(path.contains(local))
+        XCTAssertFalse(path.contains(CGPoint(x: 1, y: rect.height - 1)))
+    }
+
+    @MainActor
+    func testSavedPillAndFlatPrivacyUpdatesReachTheirPresentations() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let file = PlannerFile(url: root.appendingPathComponent("planner.json"))
+        let now = PlannerPreviewScenarios.referenceDate
+        let store = PlannerStore(file: file, now: { now }, watching: false)
+        let task = try XCTUnwrap(store.addTasks(["Synthetic pill task"], on: .day(store.today), literal: true)?.first)
+        store.apply { try $0.setStart(task.id, at: now.addingTimeInterval(600)) }
+        store.apply { try $0.startTimer(task: nil, minutes: 45) }
+        for update in [
+            PreferenceUpdate.notchTimePill(true), .notchTaskCount(true), .notchNextBlock(true),
+            .notchTimerPlacement(.split), .hideCountsAndTimes(false),
+        ] {
+            store.apply { try $0.updatePreference(update) }
+        }
+        let model = NotchModel()
+        XCTAssertEqual(model.pills(in: store, now: now).map(\.kind), [.time, .tasks, .nextBlock])
+        XCTAssertTrue(model.pills(in: store, now: now).allSatisfy { !$0.text.isEmpty })
+        store.apply { try $0.updatePreference(.hideCountsAndTimes(true)) }
+        XCTAssertTrue(
+            model.pills(in: store, now: now).allSatisfy {
+                $0.text.isEmpty && !$0.accessibilityLabel.contains(where: \.isNumber)
+            })
+        var flat = NotchFlatTabPresentation(
+            closed: model.closed(in: store, screenID: 0, now: now), hideValues: store.prefs.hideCountsAndTimes, now: now
+        )
+        XCTAssertEqual(flat.text, "")
+        let relaunched = PlannerStore(file: file, now: { now }, watching: false)
+        XCTAssertTrue(relaunched.prefs.hideCountsAndTimes)
+        XCTAssertEqual(relaunched.prefs.notchTimerPlacement, .split)
+        XCTAssertTrue(model.pills(in: relaunched, now: now).allSatisfy { $0.text.isEmpty })
+        store.apply { try $0.updatePreference(.hideCountsAndTimes(false)) }
+        flat = NotchFlatTabPresentation(
+            closed: model.closed(in: store, screenID: 0, now: now), hideValues: store.prefs.hideCountsAndTimes, now: now
+        )
+        XCTAssertFalse(flat.text.isEmpty)
+        store.apply { try $0.updatePreference(.notchTimePill(false)) }
+        XCTAssertEqual(model.pills(in: store, now: now).map(\.kind), [.tasks, .nextBlock])
+    }
+
+    @MainActor
+    func testPeekPromotesToWorkspaceAndCloseClearsItsLevel() async {
+        let model = NotchModel()
+        model.openPeek()
+        XCTAssertTrue(model.expanded)
+        XCTAssertTrue(model.peeking)
+        XCTAssertFalse(model.pinned)
+        model.open(pinned: true)
+        XCTAssertFalse(model.peeking)
+        XCTAssertTrue(model.pinned)
+        model.openPeek()
+        XCTAssertFalse(model.peeking, "Hover must not downgrade an explicit workspace")
+        model.close()
+        XCTAssertFalse(model.expanded)
+        XCTAssertFalse(model.peeking)
+    }
+
+    @MainActor
+    func testPeekCaptureAndBlockActionsPersistAndUndo() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = PlannerStore(file: PlannerFile(url: root.appendingPathComponent("planner.json")), watching: false)
+        let model = NotchModel()
+        XCTAssertTrue(model.submitPeek("A task", in: store))
+        let task = try XCTUnwrap(store.planner.tasks.first)
+        XCTAssertEqual(task.day, store.today)
+        XCTAssertTrue(model.submitPeek("/ A thought", in: store))
+        XCTAssertTrue(model.submitPeek("Another thought", park: true, in: store))
+        XCTAssertFalse(model.submitPeek(" / ", in: store))
+        XCTAssertEqual(try store.file.load().parkedThoughts.map(\.text), ["A thought", "Another thought"])
+        store.undo()
+        XCTAssertEqual(try store.file.load().parkedThoughts.map(\.text), ["A thought"])
+        model.togglePeekBlock(in: store)
+        XCTAssertEqual(try store.file.load().focus?.taskID, task.id)
+        model.togglePeekBlock(in: store)
+        XCTAssertEqual(try store.file.load().focus?.state, .paused)
+        model.togglePeekBlock(in: store)
+        XCTAssertEqual(try store.file.load().focus?.state, .running)
+    }
+
+    @MainActor
     func testFailedReminderActionStaysVisibleAndSuccessfulRetryDismisses() async throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: root) }
