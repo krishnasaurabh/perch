@@ -35,6 +35,23 @@
         }
       }
     },
+    "%@ left": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ left"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦%@ lëft ·~⟧"
+          }
+        }
+      }
+    },
     "%@ priority": {
       "extractionState": "manual",
       "localizations": {
@@ -133,6 +150,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "⟦%@%lld%@ vs thë wëëk bëförë ·~⟧"
+          }
+        }
+      }
+    },
+    "%@, %@ left": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@, %@ left"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦%@, %@ lëft ·~⟧"
           }
         }
       }
@@ -603,6 +637,40 @@
                 }
               }
             }
+          }
+        }
+      }
+    },
+    "%lld more today": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld more today"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦%lld mörë tödày ·~⟧"
+          }
+        }
+      }
+    },
+    "%lld of %lld steps": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld of %lld steps"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦%lld öf %lld stëps ·~⟧"
           }
         }
       }
@@ -3763,6 +3831,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "⟦Clïck à prömpt tö cöpy ït ànd pàstë ït ïntö Clàüdë. Îts ëdïts àppëàr ïn thë nötch ïmmëdïàtëly; ⌘Z rëvërts thëm. ·~⟧"
+          }
+        }
+      }
+    },
+    "Click or ⌥N for everything": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Click or ⌥N for everything"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Clïck ör ⌥N för ëvërythïng ·~⟧"
           }
         }
       }
@@ -8438,6 +8523,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "⟦Nöthïng plànnëd àhëàd. Ådd “tömörröw” ör à dày tö à tàsk. ·~⟧"
+          }
+        }
+      }
+    },
+    "Nothing planned yet": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nothing planned yet"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Nöthïng plànnëd yët ·~⟧"
           }
         }
       }
@@ -14620,6 +14722,23 @@
         }
       }
     },
+    "Until %@": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Until %@"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Üntïl %@ ·~⟧"
+          }
+        }
+      }
+    },
     "Up to this hour, Perch still counts it as the previous day, so a late night stays on today's list.": {
       "extractionState": "manual",
       "localizations": {
@@ -15670,6 +15789,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "⟦mövës ït bàck öüt ·~⟧"
+          }
+        }
+      }
+    },
+    "next step": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "next step"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦nëxt stëp ·~⟧"
           }
         }
       }
