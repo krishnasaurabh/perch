@@ -229,7 +229,7 @@ struct ReviewColumns: Layout {
     func makeCache(subviews: Subviews) -> Cache { Cache() }
 
     func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout Cache) -> CGSize {
-        let width = proposal.width ?? Theme.Size.todayWidth.value
+        let width: CGFloat = proposal.width ?? CGFloat(Theme.Size.todayWidth.value)
         cache.width = width
         cache.vertical = stacked || width < Theme.Size.stripMaxWidth.value + Theme.Size.cardPadding.value * 6
         let widths =
