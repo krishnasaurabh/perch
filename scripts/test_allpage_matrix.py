@@ -202,9 +202,32 @@ struct NSColor {
     let redComponent, greenComponent, blueComponent, alphaComponent: CGFloat
     func usingColorSpace(_ space: Space) -> NSColor? { self }
 }
+extension NSColor {
+    init(srgbRed: CGFloat, green: CGFloat, blue: CGFloat, alpha: CGFloat) {
+        self.init(redComponent: srgbRed, greenComponent: green, blueComponent: blue, alphaComponent: alpha)
+    }
+}
 struct NSView {}
-struct NSBitmapImageRep {
+final class NSBitmapImageRep {
+    struct Format { let rawValue: UInt = 0 }
     let pixels: [NSColor]
+    let bitsPerSample = 8, samplesPerPixel = 4, bitsPerPixel = 32
+    let hasAlpha = true, isPlanar = false, bitmapFormat = Format()
+    let pixelsHigh = 1
+    var pixelsWide: Int { pixels.count }
+    var bytesPerRow: Int { pixelsWide * samplesPerPixel }
+    private let storage: UnsafeMutablePointer<UInt8>
+    var bitmapData: UnsafeMutablePointer<UInt8>? { storage }
+    init(pixels: [NSColor]) {
+        self.pixels = pixels
+        let bytes = pixels.flatMap { pixel in
+            [pixel.redComponent, pixel.greenComponent, pixel.blueComponent, pixel.alphaComponent]
+                .map { UInt8(($0 * 255).rounded()) }
+        }
+        storage = .allocate(capacity: max(1, bytes.count))
+        for (index, byte) in bytes.enumerated() { storage[index] = byte }
+    }
+    deinit { storage.deallocate() }
     func colorAt(x: Int, y: Int) -> NSColor? { pixels[x] }
 }
 func mxBand(_ band: NSRect, host: NSView, bitmap: NSBitmapImageRep)
