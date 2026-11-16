@@ -98,6 +98,7 @@ func checkClosedNotch(store: PlannerStore, model: NotchModel, services: Services
     model.geometry = g
     store.updatePrefs { $0.notchOnMonitors = true }
     for name in ["idle", "left", "right", "hidden", "long", "running", "activity"] {
+        store.updatePrefs { $0.notchTimePill = name != "idle" && name != "hidden" && name != "activity" }
         _ = store.seedFixture { e in
             e.planner.tasks = []
             e.planner.focus = nil
