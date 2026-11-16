@@ -16,6 +16,9 @@ struct HistoryList: View {
 
     var body: some View {
         let history = HistoryModel(engine: store.engine, query: query, filter: filter)
+        let _ = NSLog(
+            "History diagnostic render: query=%@ rows=%ld", query,
+            history.groups.reduce(history.undated.count) { $0 + $1.tasks.count })
         ReviewColumns(weights: [1.6, 1], stacked: textSize.isAccessibilitySize) {
             Card(.paper) {
                 VStack(alignment: .leading, spacing: Theme.Size.cardGap.value) {
@@ -211,7 +214,13 @@ struct DashboardHistorySearch: NSViewRepresentable {
         field.font =
             NSFont(name: DesignTokens.FontResource.postScriptName(for: .medium), size: pointSize)
             ?? .systemFont(ofSize: pointSize)
-        field.onChange = { query = $0 }
+        field.onChange = {
+            NSLog("History diagnostic binding: query=%@", $0)
+            query = $0
+        }
+        NSLog(
+            "History diagnostic update: query=%@ value=%@ selfDelegate=%@", query, field.stringValue,
+            String(field.delegate === field))
         if field.stringValue != query { field.stringValue = query }
     }
 }
@@ -260,7 +269,10 @@ final class DashboardSearchField: NSTextField, NSTextFieldDelegate {
         if let window { DashboardKeyLoop.install(in: window) }
     }
 
-    func controlTextDidChange(_ notification: Notification) { onChange?(stringValue) }
+    func controlTextDidChange(_ notification: Notification) {
+        NSLog("History diagnostic delegate: value=%@", stringValue)
+        onChange?(stringValue)
+    }
 
     func control(_ control: NSControl, textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
         guard control === self, let window else { return false }
