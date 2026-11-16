@@ -44,6 +44,8 @@ public struct TaskChanges {
 public enum PlannerAction {
     case addTasks([String], day: DayRef?, literal: Bool, agentID: String?)
     case complete(UUID), reopen(UUID), rename(UUID, String), delete(UUID)
+    /// Week completion is bound to the day the person actually saw.
+    case setScheduledCompletion(UUID, expectedDay: DayKey, completed: Bool)
     case move(UUID, DayRef), reorder(UUID, before: UUID?)
     case setStart(UUID, Date?)
     case parkThought(String), removeThought(UUID), reorderThought(UUID, before: UUID?), emptyParkingLot
@@ -123,6 +125,8 @@ extension PlannerEngine {
             result.tasks = try addTasks(titles, on: day, literal: literal, agentID: agentID)
         case .complete(let id): result.tasks = [try complete(id)]
         case .reopen(let id): result.tasks = [try reopen(id)]
+        case let .setScheduledCompletion(id, expectedDay, completed):
+            result.tasks = [try setScheduledCompletion(id, expectedDay: expectedDay, completed: completed)]
         case let .rename(id, title): result.tasks = [try rename(id, on: .day(today), to: title)]
         case .delete(let id): result.tasks = [try delete(id, on: .day(today))]
         case let .move(id, day): result.tasks = [try move(id, from: .day(today), to: day)]

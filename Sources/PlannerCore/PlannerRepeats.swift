@@ -66,7 +66,13 @@ extension PlannerEngine {
 
     func nextRepeatDay(for task: PlanTask) -> DayKey? {
         guard let rule = task.repeatRule, let day = task.day else { return nil }
-        if rule.fromCompletion { return rule.next(after: day, completed: today, calendar: calendar) }
+        if rule.fromCompletion {
+            let next = rule.next(after: day, completed: today, calendar: calendar)
+            // Early completion can put the next cadence day on or before this occurrence.
+            // Keep the completion anchor, but advance past the occupied planned day so
+            // materialization cannot silently discard the only unfinished successor.
+            return next > day ? next : rule.nextScheduled(after: day, starting: today, calendar: calendar)
+        }
         guard let anchor = repeatAnchor(for: task) else { return nil }
         return rule.nextScheduled(after: day, starting: anchor, calendar: calendar)
     }

@@ -206,6 +206,10 @@ public struct PlannerEngine {
                 "Already completed: %@.", arguments: [planner.tasks[i].title],
                 message: "Already completed: \(planner.tasks[i].title).")
         }
+        return finishTask(at: i)
+    }
+
+    private mutating func finishTask(at i: Int) -> PlanTask {
         // Stop the timer first so its focus time lands on the task before we copy it.
         if planner.focus?.taskID == planner.tasks[i].id, planner.focus?.state != .finished { _ = stopTimer() }
         preserveRepeatAnchor(of: planner.tasks[i].id)
@@ -228,6 +232,20 @@ public struct PlannerEngine {
                 "This task is still open: %@.", arguments: [planner.tasks[i].title],
                 message: "This task is still open: \(planner.tasks[i].title).")
         }
+        planner.tasks[i].done = false
+        planner.tasks[i].completedAt = nil
+        return planner.tasks[i]
+    }
+
+    /// Date-bound Week intent, revalidated by the command pipeline against its locked snapshot.
+    /// Repeated checkbox delivery is harmless; legacy completion methods retain their guards.
+    mutating func setScheduledCompletion(_ id: UUID, expectedDay: DayKey, completed: Bool) throws -> PlanTask {
+        let i = try index(of: id)
+        guard planner.tasks[i].day == expectedDay, expectedDay >= today else {
+            throw PlannerError("This task's day changed. Open its current day and try again.")
+        }
+        guard planner.tasks[i].done != completed else { return planner.tasks[i] }
+        if completed { return finishTask(at: i) }
         planner.tasks[i].done = false
         planner.tasks[i].completedAt = nil
         return planner.tasks[i]

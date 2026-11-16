@@ -57,6 +57,31 @@ private final class ReminderFixture {
 
 final class ReminderServiceTests: XCTestCase {
     @MainActor
+    func testNotifyWhenClosedPreferenceAloneCancelsAndRearmsThroughSubscription() async throws {
+        let f = ReminderFixture(); defer { f.clean() }; _ = f.task()
+        let service = ReminderService(
+            store: f.store, source: f.source, clock: ClosurePlannerClock { f.time.now }, observing: true)
+        await service.reconcile()
+        let original = f.source.pending
+        XCTAssertEqual(original.count, 1)
+        let removed = expectation(description: "Preference-only edit cancels OS requests")
+        let token = service.$lastError.dropFirst().first(where: { _ in f.source.pending.isEmpty })
+            .sink { _ in removed.fulfill() }
+        XCTAssertNotNil(f.store.apply { try $0.updatePreference(.notifyWhenClosed(false)) })
+        await fulfillment(of: [removed], timeout: 2)
+        XCTAssertTrue(f.source.pending.isEmpty)
+        XCTAssertNotNil(f.store.planner.tasks.first?.remindAt)
+        let scheduled = expectation(description: "Opting back in re-arms the same future occurrence")
+        let restored = service.$lastError.dropFirst().first(where: { _ in !f.source.pending.isEmpty })
+            .sink { _ in scheduled.fulfill() }
+        XCTAssertNotNil(f.store.apply { try $0.updatePreference(.notifyWhenClosed(true)) })
+        await fulfillment(of: [scheduled], timeout: 2)
+        XCTAssertEqual(f.source.pending, original)
+        XCTAssertEqual(f.source.immediatePosts, 0)
+        withExtendedLifetime((token, restored)) {}
+    }
+
+    @MainActor
     func testSchedulingSurvivesServiceRelaunchWithoutDuplicates() async throws {
         let f = ReminderFixture(); defer { f.clean() }; _ = f.task()
         await f.service.reconcile()

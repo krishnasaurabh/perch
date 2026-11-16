@@ -82,7 +82,7 @@ final class NotchPresentationTests: XCTestCase {
                 XCTAssertNil(missed)
                 XCTAssertNotNil(NotchActivityTimeline(planner: planner).showing(at: now))
             } else {
-                XCTAssertNil(NotchActivityTimeline(planner: planner).showing(at: now))
+                XCTAssertEqual(NotchActivityTimeline(planner: planner).showing(at: now)?.taskID, task.id)
                 XCTAssertEqual(missed?.id, task.id)
                 XCTAssertTrue(plan.requests.isEmpty, "A persistent indication must not replay the OS alert")
             }

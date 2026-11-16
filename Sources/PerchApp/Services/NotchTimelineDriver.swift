@@ -31,6 +31,17 @@ final class NotchTimelineDriver {
     /// Called after every pass with the visible timeline activity ID and the next wake (`--dump-activity`).
     var onPass: ((String?, Date?) -> Void)?
 
+    private struct Inputs: Equatable {
+        let reminders: [Activity]
+        let showMeetings: Bool
+        let headsUp: HeadsUpInterval
+        init(_ planner: Planner) {
+            reminders = NotchActivityTimeline.triggers(planner: planner)
+            showMeetings = planner.preferences.showCalendarMeetings
+            headsUp = planner.preferences.meetingHeadsUp
+        }
+    }
+
     init(store: PlannerStore, calendar: CalendarService) {
         self.store = store; self.calendar = calendar
     }
@@ -40,8 +51,7 @@ final class NotchTimelineDriver {
         model.$activity.sink { [weak self] new in self?.activityChanged(to: new) }.store(in: &cancellables)
         // The running focus timer rewrites the planner every second; only reminder changes matter here.
         // `@Published` emits before storing, so hop the run loop and let the pass read the stored values.
-        let alarms = store.$planner.map { NotchActivityTimeline.triggers(planner: $0) }.removeDuplicates().map { _ in ()
-        }
+        let alarms = store.$planner.map { Inputs($0) }.removeDuplicates().map { _ in () }
         alarms.merge(with: calendar.$events.removeDuplicates().map { _ in () })
             .receive(on: DispatchQueue.main)
             .sink { [weak self] in self?.refresh() }.store(in: &cancellables)
@@ -92,6 +102,18 @@ final class NotchTimelineDriver {
     private func present(_ current: Activity?, in model: NotchModel, now: Date) {
         defer { lastShowing = current?.id }
         let ours = presented.map { model.activity?.id == $0.uiID } ?? false
+        if ours, let current, presented?.timelineID == current.id, var ui = model.activity {
+            presentedActivity = current
+            if let refreshed = card(for: current, now: now),
+                ui.title != refreshed.title || ui.subtitle != refreshed.subtitle
+            {
+                // A retained occurrence can be edited long after its original due instant.
+                // Preserve its UI identity and do not replace an unrelated one-off activity.
+                ui.title = refreshed.title; ui.subtitle = refreshed.subtitle
+                model.show(ui)
+            }
+            return
+        }
         guard current?.id != lastShowing || model.activity == nil else { return }
         if let current {
             if ours, presented?.timelineID == current.id { return }
@@ -118,7 +140,7 @@ final class NotchTimelineDriver {
     /// The strip's subtitle as of `now`: an event countdown stays current while it shows.
     func subtitle(for ui: PresentedNotchActivity, now: Date) -> String {
         guard let a = presentedActivity, presented?.uiID == ui.id, a.kind == .eventSoon else { return ui.subtitle }
-        return Self.countdown(to: a.date.addingTimeInterval(NotchActivityTimeline.eventLead), now: now)
+        return Self.countdown(to: a.end, now: now)
     }
 
     static func countdown(to start: Date, now: Date) -> String {
@@ -131,7 +153,7 @@ final class NotchTimelineDriver {
             guard let id = a.taskID else { return nil }
             return PresentedNotchActivity(kind: .reminder(id), title: a.title, subtitle: body(for: a))
         case .eventSoon:
-            let start = a.date.addingTimeInterval(NotchActivityTimeline.eventLead)
+            let start = a.end
             return PresentedNotchActivity(
                 kind: .eventSoon(a.id), title: a.title, subtitle: Self.countdown(to: start, now: now))
         case .eventNow:

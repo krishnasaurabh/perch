@@ -392,13 +392,19 @@ print("settings checkbox selector controls passed")
         source = (ROOT / "scripts/allpage_matrix_probe.swift").read_text()
         settings = source.split("func settingsFailurePaths()", 1)[1].split("// MARK: Dashboard", 1)[0]
         for variable, title, expected in (
-                ("autoSortEnabled", "Auto-sort new tasks", "AISorter.isSupported"),
-                ("phoneAlertEnabled", "Alert on iPhone and Apple Watch too", "fixture.store.prefs.remindersSync")):
+                ("autoSortEnabled", "Auto-sort new tasks", "AISorter.isSupported"),):
             call = rf'let {variable} = try mxSettingsCheckboxEnabled\(\s*root, name: AppL10n.text\("{title}"\)\)'
             self.assertRegex(settings, call)
             self.assertIn(f"{variable} == {expected}", settings)
+        for title in ("Ignore", "Bring back"):
+            for enabled in ("false", "true"):
+                self.assertIn(f'name: "{title}", expectedEnabled: {enabled}', settings)
+        self.assertNotIn('AppL10n.text("Alert on iPhone and Apple Watch too")', settings)
         self.assertNotIn("mxFind(", settings)
-        self.assertNotIn("mxEnabled(", settings)
+        selector = settings.split("func calendarSegment(", 1)[1].split("// Reading", 1)[0]
+        self.assertIn("groups.count == 1", selector)
+        self.assertIn("matches.count == 1", selector)
+        self.assertIn("enabled == expectedEnabled", selector)
 
     def test_every_keyboard_assertion_is_mandatory(self):
         for index in range(19):

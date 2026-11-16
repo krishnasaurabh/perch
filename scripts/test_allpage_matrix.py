@@ -116,6 +116,81 @@ class AllPageMatrixProbeTests(unittest.TestCase):
         self.assertIn('"ink": mxHex(ink), "background": mxHex(background)', section)
         self.assertIn('"ratio": lowRatio, "ink": mxHex(lowSample)', section)
 
+    def test_contrast_diagnostics_distinguish_opacity_conversion_and_ink_failure(self):
+        diagnostic = self.source.split("@MainActor\nfunc mxContrastSamplingDiagnostic(", 1)[1].split(
+            "@MainActor\nfunc mxContrast(", 1)[0]
+        diagnostic = "@MainActor\nfunc mxContrastSamplingDiagnostic(" + diagnostic
+        support = '''import Foundation
+struct NSColor {
+    enum Space { case sRGB }
+    let redComponent, greenComponent, blueComponent: CGFloat
+    var alphaComponent: CGFloat = 1
+    var convertedAlpha: CGFloat? = nil
+    var convertible = true
+    func usingColorSpace(_ space: Space) -> NSColor? {
+        guard convertible else { return nil }
+        var result = self
+        result.alphaComponent = convertedAlpha ?? alphaComponent
+        return result
+    }
+}
+struct NSView {}
+struct NSBitmapImageRep {
+    let pixels: [NSColor?]
+    func colorAt(x: Int, y: Int) -> NSColor? { pixels[x] }
+}
+func mxBand(_ band: NSRect, host: NSView, bitmap: NSBitmapImageRep)
+    -> (x0: Int, x1: Int, y0: Int, y1: Int) { (0, bitmap.pixels.count, 0, 1) }
+func color(_ value: CGFloat, alpha: CGFloat = 1, convertedAlpha: CGFloat? = nil,
+           convertible: Bool = true) -> NSColor {
+    NSColor(redComponent: value, greenComponent: value, blueComponent: value,
+            alphaComponent: alpha, convertedAlpha: convertedAlpha, convertible: convertible)
+}
+'''
+        checks = '''
+@MainActor
+func check(_ pixels: [NSColor?], near ink: NSColor = color(0), fields: [String]) {
+    let result = mxContrastSamplingDiagnostic(
+        NSBitmapImageRep(pixels: pixels), host: NSView(), band: .zero, near: ink)
+    for field in fields { precondition(result.contains(field), "missing \\(field) in \\(result)") }
+}
+check([color(1), color(0)], fields: ["rawNonOpaque=0", "rejectedAlpha=0", "bestDistance=0 "])
+check([color(0, alpha: 0.5), color(0, alpha: 0.25), color(1)], fields: [
+    "rawNonOpaque=2", "rejectedAlpha=2", "firstRawNonOpaque=(x:0,y:0,alpha:0.5)",
+    "firstRejectedAlpha=(x:0,y:0,rawAlpha:0.5,alpha:0.5,rgb:(0,0,0))", "bestDistance=3 ",
+    "bestAnyAlphaDistance=0"])
+check([color(0, convertedAlpha: CGFloat(1).nextDown), color(1)], fields: [
+    "rawNonOpaque=0", "rejectedAlpha=1", "rawAlpha:1,alpha:0.99999999999999989", "bestDistance=3 "])
+check([color(1), color(0.75)], fields: ["bestDistance=2.25 ", "tolerance=0.2", "closest=(x:1,y:0,"])
+check([nil, color(0, convertible: false), color(1)], fields: [
+    "missingPixels=1", "conversionFailures=1", "bestDistance=3 "])
+check([color(0)], near: color(0, convertible: false), fields: ["reference=unavailable", "closest=none"])
+check([], fields: ["missingPixels=0", "conversionFailures=0", "firstRejectedAlpha=none", "closest=none"])
+print("Contrast diagnostics positive and failure controls passed")
+'''
+        swift = shutil.which("swiftc")
+        if swift is None:
+            self.fail("Swift is required to verify contrast diagnostics")
+        with tempfile.TemporaryDirectory() as directory:
+            source = pathlib.Path(directory) / "main.swift"
+            binary = pathlib.Path(directory) / "diagnostic"
+            source.write_text(support + diagnostic + checks)
+            built = subprocess.run([swift, "-swift-version", "6", str(source), "-o", str(binary)],
+                                   capture_output=True, text=True)
+            self.assertEqual(built.returncode, 0, built.stderr)
+            ran = subprocess.run([str(binary)], capture_output=True, text=True)
+            self.assertEqual(ran.returncode, 0, ran.stderr)
+            self.assertIn("Contrast diagnostics positive and failure controls passed", ran.stdout)
+        section = self.source.split("func contrastStates()", 1)[1].split("func mxHex(", 1)[0]
+        guard = section.index("guard let background = sampledBackground, let ink = sampledInk")
+        for before in ("let sampledBackground = mxDominant", "let sampledInk = mxInkSample",
+                       "mxContrastSamplingDiagnostic(bitmap,", 'mxLog("contrast sampling:'):
+            self.assertLess(section.index(before), guard)
+        for field in ("dominantNil=", "inkNil=", "bitmapColorSpace=", "bitsPerSample=",
+                      "samplesPerPixel=", "hasAlpha=", "bitmapFormat=", "planar=", "bytesPerRow="):
+            self.assertIn(field, section)
+        self.assertIn('throw MatrixFailure(label: "could not sample opaque rendered text at \\(mode)")', section)
+
     def test_contrast_samplers_reject_transparency_and_detect_low_contrast(self):
         # Exercise the exact Swift sampler bodies with a tiny in-memory bitmap adapter.
         # This is an algorithm control, not a substitute for native rendering on macOS.

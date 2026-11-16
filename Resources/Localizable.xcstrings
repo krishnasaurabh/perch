@@ -1,6 +1,23 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "\"In a bit\" means": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "\"In a bit\" means"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦\"În à bït\" mëàns ·~⟧"
+          }
+        }
+      }
+    },
     "%@ and multi-day events stay in Calendar.": {
       "extractionState": "manual",
       "localizations": {
@@ -654,6 +671,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "⟦%lld mörë tödày ·~⟧"
+          }
+        }
+      }
+    },
+    "%lld of %lld": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld of %lld"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦%lld öf %lld ·~⟧"
           }
         }
       }
@@ -2679,6 +2713,23 @@
         }
       }
     },
+    "Any time": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Any time"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Åny tïmë ·~⟧"
+          }
+        }
+      }
+    },
     "Anything an agent does shows up in the notch and can be undone with ⌘Z.": {
       "extractionState": "manual",
       "localizations": {
@@ -3121,6 +3172,23 @@
         }
       }
     },
+    "Bring back": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bring back"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Brïng bàck ·~⟧"
+          }
+        }
+      }
+    },
     "Built-in display": {
       "extractionState": "manual",
       "localizations": {
@@ -3202,6 +3270,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "⟦Càlëndàr ànd rëmïndërs ·~⟧"
+          }
+        }
+      }
+    },
+    "Calendars shown": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Calendars shown"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Càlëndàrs shöwn ·~⟧"
           }
         }
       }
@@ -3291,6 +3376,23 @@
         }
       }
     },
+    "Carried to today": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Carried to today"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Càrrïëd tö tödày ·~⟧"
+          }
+        }
+      }
+    },
     "Carry over": {
       "extractionState": "manual",
       "localizations": {
@@ -3321,6 +3423,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "⟦Chàngë ·~⟧"
+          }
+        }
+      }
+    },
+    "Change calendars shown": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Change calendars shown"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Chàngë càlëndàrs shöwn ·~⟧"
           }
         }
       }
@@ -5076,6 +5195,23 @@
         }
       }
     },
+    "Drag one onto a day": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Drag one onto a day"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Dràg önë öntö à dày ·~⟧"
+          }
+        }
+      }
+    },
     "Drag the block to move its time.": {
       "extractionState": "manual",
       "localizations": {
@@ -5161,6 +5297,40 @@
         }
       }
     },
+    "EEEd": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "EEEd"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦ËËËd ·~⟧"
+          }
+        }
+      }
+    },
+    "Earlier days": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Earlier days"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Ëàrlïër dàys ·~⟧"
+          }
+        }
+      }
+    },
     "Earlier days are read-only. Your history and focus time stay unchanged.": {
       "extractionState": "manual",
       "localizations": {
@@ -5242,6 +5412,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "⟦Ëdïts ànd dëlëtïöns öf lïnkëd tàsks càn chàngë böth Përch ànd ïts Rëmïndërs lïst. Ünrëlàtëd rëmïndërs àrë ïgnörëd. Thïs ïs ëxpërïmëntàl; këëp à bàcküp. Cönflïcts stöp sync. Rëàl-àccöünt ànd cröss-dëvïcë bëhàvïör ïs nöt yët vërïfïëd. ·~⟧"
+          }
+        }
+      }
+    },
+    "Edits and deletions to linked tasks can change both Perch and its Reminders list. Conflicting edits stop sync.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Edits and deletions to linked tasks can change both Perch and its Reminders list. Conflicting edits stop sync."
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Ëdïts ànd dëlëtïöns tö lïnkëd tàsks càn chàngë böth Përch ànd ïts Rëmïndërs lïst. Cönflïctïng ëdïts stöp sync. ·~⟧"
+          }
+        }
+      }
+    },
+    "Edits made on your phone": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Edits made on your phone"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Ëdïts màdë ön yöür phönë ·~⟧"
           }
         }
       }
@@ -5718,6 +5922,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "⟦Ëxtënd by 1 tö 720 mïnütës. ·~⟧"
+          }
+        }
+      }
+    },
+    "Family": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Family"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Fàmïly ·~⟧"
           }
         }
       }
@@ -6300,6 +6521,23 @@
         }
       }
     },
+    "Heads-up before a meeting": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Heads-up before a meeting"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Hëàds-üp bëförë à mëëtïng ·~⟧"
+          }
+        }
+      }
+    },
     "Heads-up before it ends": {
       "extractionState": "manual",
       "localizations": {
@@ -6432,6 +6670,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "⟦Höldïng stëàdy ·~⟧"
+          }
+        }
+      }
+    },
+    "Home": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Home"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Hömë ·~⟧"
           }
         }
       }
@@ -6619,6 +6874,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "⟦Împört ·~⟧"
+          }
+        }
+      }
+    },
+    "In a bit": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "In a bit"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦În à bït ·~⟧"
           }
         }
       }
@@ -7082,6 +7354,23 @@
         }
       }
     },
+    "Keep a reminder up until I answer": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keep a reminder up until I answer"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Këëp à rëmïndër üp üntïl Î ànswër ·~⟧"
+          }
+        }
+      }
+    },
     "Keep task": {
       "extractionState": "manual",
       "localizations": {
@@ -7367,6 +7656,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "⟦Löw ·~⟧"
+          }
+        }
+      }
+    },
+    "Make a task: %@": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Make a task: %@"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Màkë à tàsk: %@ ·~⟧"
           }
         }
       }
@@ -7690,6 +7996,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "⟦Mïrrörïng pàüsës ïf àccëss ïs dënïëd ör rëvökëd. Phönë ànd Wàtch àlërts àlsö dëpënd ön yöür Rëmïndërs àccöünt ànd dëvïcë sëttïngs. ·~⟧"
+          }
+        }
+      }
+    },
+    "Mirroring sends tasks to your phone and watch. Completions for today's tasks come back even with Ignore. Bring back also syncs edits and deletions.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mirroring sends tasks to your phone and watch. Completions for today's tasks come back even with Ignore. Bring back also syncs edits and deletions."
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Mïrrörïng sënds tàsks tö yöür phönë ànd wàtch. Cömplëtïöns för tödày's tàsks cömë bàck ëvën wïth Îgnörë. Brïng bàck àlsö syncs ëdïts ànd dëlëtïöns. ·~⟧"
           }
         }
       }
@@ -8068,6 +8391,23 @@
         }
       }
     },
+    "No calendars are available.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No calendars are available."
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Nö càlëndàrs àrë àvàïlàblë. ·~⟧"
+          }
+        }
+      }
+    },
     "No date": {
       "extractionState": "manual",
       "localizations": {
@@ -8081,6 +8421,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "⟦Nö dàtë ·~⟧"
+          }
+        }
+      }
+    },
+    "No day yet": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No day yet"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Nö dày yët ·~⟧"
           }
         }
       }
@@ -8544,6 +8901,23 @@
         }
       }
     },
+    "Nothing planned. A good day to keep clear.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nothing planned. A good day to keep clear."
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Nöthïng plànnëd. Å gööd dày tö këëp clëàr. ·~⟧"
+          }
+        }
+      }
+    },
     "Nothing to allow yet": {
       "extractionState": "manual",
       "localizations": {
@@ -8625,6 +8999,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "⟦Nötïfïcàtïöns ·~⟧"
+          }
+        }
+      }
+    },
+    "Notify me when Perch is closed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Notify me when Perch is closed"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Nötïfy më whën Përch ïs clösëd ·~⟧"
           }
         }
       }
@@ -9203,6 +9594,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "⟦Ör üsë Tërmïnàl ·~⟧"
+          }
+        }
+      }
+    },
+    "Other": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Other"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Öthër ·~⟧"
           }
         }
       }
@@ -10380,6 +10788,23 @@
         }
       }
     },
+    "Push a task a day": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Push a task a day"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Püsh à tàsk à dày ·~⟧"
+          }
+        }
+      }
+    },
     "Put code review, a walk and laundry on my Perch list for today": {
       "extractionState": "manual",
       "localizations": {
@@ -10631,6 +11056,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "⟦Rëmïndër wàïtïng. Öpën Tödày ·~⟧"
+          }
+        }
+      }
+    },
+    "Reminders": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reminders"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Rëmïndërs ·~⟧"
           }
         }
       }
@@ -11645,6 +12087,23 @@
         }
       }
     },
+    "Scroll across seven days · Drag to reschedule · Check today and coming days": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Scroll across seven days · Drag to reschedule · Check today and coming days"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Scröll àcröss sëvën dàys · Dràg tö rëschëdülë · Chëck tödày ànd cömïng dàys ·~⟧"
+          }
+        }
+      }
+    },
     "Scroll across seven days · Drag to reschedule · Only today’s tasks can be checked": {
       "extractionState": "manual",
       "localizations": {
@@ -12049,6 +12508,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "⟦Shöw mëëtïngs ·~⟧"
+          }
+        }
+      }
+    },
+    "Show meetings in Your day": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show meetings in Your day"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Shöw mëëtïngs ïn Yöür dày ·~⟧"
           }
         }
       }
@@ -12767,6 +13243,23 @@
         }
       }
     },
+    "System Settings…": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "System Settings…"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Systëm Sëttïngs… ·~⟧"
+          }
+        }
+      }
+    },
     "System language": {
       "extractionState": "manual",
       "localizations": {
@@ -13328,6 +13821,23 @@
         }
       }
     },
+    "The phone edit preference could not be saved. Retry in Settings.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The phone edit preference could not be saved. Retry in Settings."
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Thë phönë ëdït prëfërëncë cöüld nöt bë sàvëd. Rëtry ïn Sëttïngs. ·~⟧"
+          }
+        }
+      }
+    },
     "The reminder alarm does not match its due time and Perch alert setting.": {
       "extractionState": "manual",
       "localizations": {
@@ -13783,6 +14293,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "⟦Thïs tàsk wàs rëmövëd. ·~⟧"
+          }
+        }
+      }
+    },
+    "This task's day changed. Open its current day and try again.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This task's day changed. Open its current day and try again."
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Thïs tàsk's dày chàngëd. Öpën ïts cürrënt dày ànd try àgàïn. ·~⟧"
           }
         }
       }
@@ -15126,6 +15653,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "⟦Wïth nö dày chösën, ït rëpëàts ön thë tàsk's wëëkdày. ·~⟧"
+          }
+        }
+      }
+    },
+    "Work": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Work"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Wörk ·~⟧"
           }
         }
       }

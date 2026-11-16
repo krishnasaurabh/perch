@@ -26,6 +26,54 @@ public enum WeekColumnLayout {
         return formatter.string(from: day.date(calendar: calendar))
     }
 
+    public static func timeLabel(_ time: Date, calendar: Calendar, locale: Locale = .current) -> String {
+        let formatter = DateFormatter()
+        formatter.locale = locale
+        formatter.calendar = calendar
+        formatter.timeZone = calendar.timeZone
+        formatter.setLocalizedDateFormatFromTemplate("jm")
+        return formatter.string(from: time)
+    }
+
+    // Week-specific spacing is derived from the foundation scale.
+    public static let gap = DesignTokens.Size.cardPadding.value / 2
+    public static let columnPadding = DesignTokens.Size.sheetPadding.value - DesignTokens.Size.focusGap.value
+    public static let horizontalPadding =
+        DesignTokens.Size.cardPadding.value - DesignTokens.Size.stepCheckboxRadius.value
+    public static let columnGap = horizontalPadding
+    public static let columnRadius = DesignTokens.Size.cardRadius.value - DesignTokens.Size.focusGap.value
+    public static let minimumColumnHeight = 316.0
+
+    public struct Columns: Equatable, Sendable {
+        public let days: [DayKey]
+        public let backingDays: [DayKey]
+        public let today: DayKey
+        public let parkingWidth: Double
+        public let omittedPastDays: Int
+        public let needsHorizontalScroll: Bool
+        public var gap: Double { WeekColumnLayout.gap }
+        public func width(for day: DayKey) -> Double {
+            parkingWidth * (day == today ? 1.7 : day < today ? 0.85 : 1)
+        }
+    }
+
+    /// Available is the sheet's content width, after its outer padding.
+    /// The full date backing is retained so keyboard navigation can reveal omitted days.
+    public static func columns(
+        days: [DayKey], today: DayKey, available: Double, revealedPastDays: Int = 0
+    ) -> Columns {
+        let initial = WorkspaceLayout.weekColumns(days: days, today: today, available: available)
+        let omitted = max(0, initial.omittedPastDays - max(0, revealedPastDays))
+        return Columns(
+            days: Array(days.dropFirst(omitted)), backingDays: days, today: today,
+            parkingWidth: initial.parkingWidth, omittedPastDays: omitted,
+            needsHorizontalScroll: initial.needsHorizontalScroll)
+    }
+
+    public static func windowWidth(screenWidth: Double) -> Double {
+        min(DesignTokens.Size.weekWidth.value, max(0, screenWidth - 2 * WorkspaceLayout.screenSideMargin))
+    }
+
     /// Scroll rather than squeeze the text or reduce its font size. Inbox is a
     /// separate view and never consumes one of the seven calendar columns.
     public static func columnWidth(available: Double) -> Double {
