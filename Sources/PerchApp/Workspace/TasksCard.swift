@@ -82,7 +82,11 @@ struct TasksCard: View {
                     }
                 }
             }
-            .frame(minHeight: 0, maxHeight: WorkspaceLayout.contentHeight).accessibilityIdentifier(
+            .frame(minHeight: 0, maxHeight: WorkspaceLayout.contentHeight)
+            // Keep the bounded scroller in a flexible slot so header changes consume slack,
+            // rather than resizing a centered card and moving capture with it.
+            .frame(maxHeight: .infinity, alignment: .top)
+            .accessibilityIdentifier(
                 "today-task-viewport")
             TaskComposer(day: .day(store.today), placeholder: "What would you like to do?", focus: $focus)
                 .fixedSize(horizontal: false, vertical: true)

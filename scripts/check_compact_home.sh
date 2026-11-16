@@ -68,7 +68,8 @@ expected = {f'width-{w}-{state}' for w in (820, 620) for state in ('resting', 'r
 assert set(actual) == set(reference) == expected
 for name in sorted(expected):
     assert actual[name] == reference[name], (name, actual[name], reference[name])
-    print(f'PASS: {name}: capture, Start focus and viewport bounds identical with/without cue')
+    assert actual[name]['timeCardPrimary'] != 'missing'
+    print(f'PASS: {name}: capture, time-card primary and viewport bounds identical with/without cue')
 (root / 'geometry-comparison.json').write_text(json.dumps({'verified': sorted(expected),
     'comparison': 'real AX bounds, identical view with cue attachment removed'}, indent=2))
 PY

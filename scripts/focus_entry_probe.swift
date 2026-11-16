@@ -180,6 +180,27 @@ func press(_ label: String, in root: NSView) {
     guard let node = control(label, in: root) else { require(false, "button exists: \(label)"); return }
     press(node, label)
 }
+
+/// The redesigned time card has no Stop control. Complete the current block through the
+/// production command pipeline and engine tick, with only the probe clock controlled.
+@MainActor
+func completeActiveBlockAtControlledEnd(_ store: PlannerStore) -> Bool {
+    guard let focus = store.planner.focus, focus.state == .running, let limit = focus.limit,
+        let resumedAt = focus.resumedAt
+    else { return false }
+    let end = resumedAt.addingTimeInterval(max(0, limit - focus.banked) + 1)
+    let pipeline = PlannerCommandPipeline(
+        file: store.file.avoidingLockWaits(), clock: ClosurePlannerClock { end })
+    do {
+        let result = try pipeline.execute(.tick, origin: .background)
+        guard result.value.flag else { return false }
+        store.reloadFromDisk(external: false)
+        return store.planner.focus?.state == .finished
+    } catch {
+        return false
+    }
+}
+
 @MainActor
 func frame(_ node: NSObject) -> CGRect {
     guard node.responds(to: NSSelectorFromString("accessibilityFrame")),
@@ -715,6 +736,80 @@ func verifyRowCustomActions(store: PlannerStore, model: NotchModel, services: Se
     window.orderOut(nil)
 }
 
+/// A direct WorkspaceView host gets the production page-aware size. Mirrors WorkspaceView.bandHeight for
+/// `notchHeight: 0`: the presented menu-bar height, else the system status-bar thickness.
+@MainActor func workspaceHostMenuBarHeight(_ model: NotchModel) -> CGFloat {
+    let measured = model.geometry?.workspacePresentation?.menuBarHeight ?? 0
+    return measured > 0 ? measured : NSStatusBar.system.thickness
+}
+
+@MainActor func workspaceHostHeight(_ model: NotchModel) -> CGFloat {
+    WorkspaceLayout.preferredSize(page: model.page.workspacePage, menuBarHeight: workspaceHostMenuBarHeight(model))
+        .height
+}
+
+@MainActor
+func verifyScheduledTimeCard(store: PlannerStore, model: NotchModel, services: Services, output: URL) async {
+    // Match LocalClock's live wall clock, with a captured store clock for exact engine accounting.
+    let fixture = ScheduledTimeCardProbeFixture(displayNow: Date())
+    let scheduledStore = PlannerStore(file: store.file, now: { fixture.storeNow }, watching: false)
+    scheduledStore.seedFixture { engine in
+        engine.planner.tasks = []
+        engine.planner.focus = nil
+        engine.planner.focusSegments = []
+        engine.planner.preferences.hiddenWorkspaceCards = ["notepad"]
+        let task = try engine.addTasks(["Prepare the launch checklist"], on: .day(engine.today), literal: true)[0]
+        let index = engine.planner.tasks.firstIndex { $0.id == task.id }!
+        engine.planner.tasks[index].startAt = fixture.scheduledStart
+        engine.planner.tasks[index].minutes = 12
+    }
+    let scheduled = scheduledStore.planner.tasks[0]
+    let window = NSWindow(
+        contentRect: CGRect(x: 30, y: 100, width: 820, height: workspaceHostHeight(model)), styleMask: [.titled],
+        backing: .buffered, defer: false)
+    window.isReleasedWhenClosed = false
+    let root = NSHostingView(
+        rootView: WorkspaceView(notchHeight: 0)
+            .environmentObject(scheduledStore).environmentObject(model).environmentObject(services)
+            .environment(\.colorScheme, .dark).background(Color.black))
+    window.contentView = root
+    window.makeKeyAndOrderFront(nil); NSApp.activate(ignoringOtherApps: true)
+    await settle(); await wakeAX(); await settle()
+    guard let primary = control("time-card-primary", attribute: "accessibilityIdentifier", in: root)
+    else { require(false, "scheduled time card exposes its primary control"); return }
+    require(
+        attr(primary, "accessibilityLabel") as? String == "Start it now",
+        "scheduled time card offers Start it now")
+    snapshot(root, "scheduled-time-card-ready", into: output)
+    press(primary, "time-card-primary Start it now")
+    await settle()
+    require(
+        scheduledStore.planner.focus?.state == .running && scheduledStore.planner.focus?.taskID == scheduled.id
+            && scheduledStore.planner.focus?.limit == 720,
+        "Start it now uses the scheduled task and its 12-minute estimate")
+    guard let addFive = control("time-card-add-five", attribute: "accessibilityIdentifier", in: root)
+    else { require(false, "running scheduled time card exposes +5"); return }
+    press(addFive, "time-card-add-five")
+    await settle()
+    let extended = try! scheduledStore.file.load()
+    require(
+        scheduledStore.planner.focus?.limit == 1_020 && extended.focus?.limit == 1_020,
+        "+5 persists five additional minutes on the same scheduled block")
+    snapshot(root, "scheduled-time-card-running", into: output)
+    require(
+        completeActiveBlockAtControlledEnd(scheduledStore),
+        "scheduled block completes through controlled-clock engine tick")
+    let persisted = try! scheduledStore.file.load()
+    require(
+        persisted.focus?.state == .finished && persisted.focus?.taskID == scheduled.id
+            && persisted.focusSegments.count == 1 && persisted.focusSegments[0].taskID == scheduled.id
+            && abs(persisted.focusSegments[0].seconds - 1_020) < 0.001,
+        "scheduled block persists its finished identity and exact 17-minute segment")
+    try! Data(contentsOf: scheduledStore.file.url).write(
+        to: output.appendingPathComponent("scheduled-focus-completed.json"))
+    window.orderOut(nil)
+}
+
 MainActor.assumeIsolated {
     require(
         UserDefaults.standard.integer(forKey: "AppleKeyboardUIMode") == 3,
@@ -751,37 +846,75 @@ MainActor.assumeIsolated {
             NotificationCenter.default.post(name: .perchOpenWorkspace, object: NotchPage.home)
             await settle(); await wakeAX(); await settle()
             guard let live = NSApp.keyWindow?.contentView else { require(false, "live Today exists"); return }
-            require(control("Start focus", in: live) != nil, "production Today exposes Start focus")
+            guard
+                let livePrimary = control(
+                    "time-card-primary", attribute: "accessibilityIdentifier", in: live)
+            else { require(false, "production Today exposes the time-card primary control"); return }
+            require(
+                attr(livePrimary, "accessibilityLabel") as? String == "Set time aside",
+                "production empty time card offers Set time aside")
             snapshot(live, "live-empty-today", into: output)
-            press("Start focus", in: live)
+            press(livePrimary, "time-card-primary")
             await settle()
             require(
                 store.planner.focus?.state == .running && store.planner.focus?.taskID == nil,
-                "production button starts task-less focus")
+                "production time card starts a task-less block")
+            require(store.planner.focus?.limit == 1_500, "production empty block is deliberately 25 minutes")
+            guard
+                let runningPrimary = control(
+                    "time-card-primary", attribute: "accessibilityIdentifier", in: live)
+            else { require(false, "production running time-card primary exists"); return }
             require(
-                store.planner.focus?.limit == Double(store.prefs.defaultFocusMinutes * 60),
-                "production default duration")
+                attr(runningPrimary, "accessibilityLabel") as? String == "Pause"
+                    && control("time-card-add-five", attribute: "accessibilityIdentifier", in: live) != nil
+                    && control("time-card-ring", attribute: "accessibilityIdentifier", in: live) != nil,
+                "production running time-card controls and ring are visible")
             require(
-                control("Pause", in: live) != nil && control("End focus session", in: live) != nil,
-                "production timer controls visible")
-            require(control("Start focus", in: live) == nil, "production entry hidden during focus")
+                control("End focus session", in: live) == nil,
+                "production time card does not invent a Stop control")
             snapshot(live, "live-running-today", into: output)
-            press("End focus session", in: live)
+            press(runningPrimary, "time-card-primary Pause")
+            await settle()
+            require(store.planner.focus?.state == .paused, "production time-card primary pauses")
+            guard
+                let pausedPrimary = control(
+                    "time-card-primary", attribute: "accessibilityIdentifier", in: live)
+            else { require(false, "production paused time-card primary exists"); return }
+            require(
+                attr(pausedPrimary, "accessibilityLabel") as? String == "Continue",
+                "production paused time card offers Continue")
+            press(pausedPrimary, "time-card-primary Continue")
+            await settle()
+            require(store.planner.focus?.state == .running, "production time-card primary resumes")
+            require(
+                completeActiveBlockAtControlledEnd(store),
+                "production block ends through controlled-clock engine completion")
             await settle()
             require(
-                store.planner.focus == nil && control("Start focus", in: live) != nil, "production stop restores entry")
+                control("time-card-primary", attribute: "accessibilityIdentifier", in: live).map {
+                    attr($0, "accessibilityLabel") as? String == "Set time aside"
+                } == true,
+                "production completed block restores the empty time-card action")
+            let livePersisted = try! store.file.load()
+            require(
+                livePersisted.focus?.state == .finished && livePersisted.focus?.taskID == nil
+                    && livePersisted.focus?.limit == 1_500
+                    && abs(livePersisted.focusSegments.reduce(0) { $0 + $1.seconds } - 1_500) < 0.001,
+                "production block completion persists finished state and exactly 25 focused minutes")
+            try! Data(contentsOf: store.file.url).write(
+                to: output.appendingPathComponent("live-focus-completed.json"))
             delegate.model.close()
             await settle()
 
             // Widths are test-only proposals to the real WorkspaceView; no product sizing is changed.
             for (name, width) in [("normal", CGFloat(820)), ("compact", CGFloat(620))] {
                 store.seedFixture { e in
-                    e.planner.tasks = []; e.planner.focus = nil
+                    e.planner.tasks = []; e.planner.focus = nil; e.planner.focusSegments = []
                     e.planner.preferences.defaultFocusMinutes = name == "normal" ? 25 : 40
                     e.planner.preferences.hiddenWorkspaceCards = ["notepad"]
                 }
                 let window = NSWindow(
-                    contentRect: CGRect(x: 30, y: 100, width: width, height: 351),
+                    contentRect: CGRect(x: 30, y: 100, width: width, height: workspaceHostHeight(delegate.model)),
                     styleMask: [.titled], backing: .buffered, defer: false)
                 window.isReleasedWhenClosed = false
                 let root = NSHostingView(
@@ -792,18 +925,22 @@ MainActor.assumeIsolated {
                 window.makeKeyAndOrderFront(nil); NSApp.activate(ignoringOtherApps: true)
                 await settle(); await wakeAX(); await settle()
                 require(nodes(root).count > 10, "\(name): live AX tree populated before absence assertions")
-                let entry = control("Start focus", in: root)!
+                guard let entry = control("time-card-primary", attribute: "accessibilityIdentifier", in: root)
+                else { require(false, "\(name): time-card primary exists"); return }
                 require(
-                    attr(entry, "accessibilityRole") as? String == "AXButton", "\(name): entry has button role and name"
-                )
+                    attr(entry, "accessibilityRole") as? String == "AXButton",
+                    "\(name): time-card primary has button role")
                 require(
-                    attr(entry, "accessibilityIdentifier") as? String == "today-start-focus",
-                    "\(name): stable entry identifier")
+                    attr(entry, "accessibilityLabel") as? String == "Set time aside",
+                    "\(name): unscheduled tasks retain the empty time-card action")
+                require(
+                    attr(entry, "accessibilityIdentifier") as? String == "time-card-primary",
+                    "\(name): stable time-card primary identifier")
                 let capture = control("Add a task", in: root)!
                 let initialCapture = frame(capture)
                 require(
                     initialCapture.width > 100 && initialCapture.height > 10, "\(name): capture has a visible viewport")
-                require(!frame(entry).intersects(initialCapture), "\(name): entry does not overlap capture")
+                require(!frame(entry).intersects(initialCapture), "\(name): time card does not overlap capture")
                 snapshot(root, "\(name)-empty", into: output)
                 let added = store.apply {
                     try $0.addTasks(
@@ -818,56 +955,70 @@ MainActor.assumeIsolated {
                 snapshot(root, "\(name)-populated", into: output)
                 let taskIDs = store.planner.tasks.map(\.id)
                 let taskMinutes = store.planner.tasks.map(\.minutes)
-                let start = control("Start focus", in: root)!
-                press(start, "Start focus")
-                let startedAt = store.planner.focus?.startedAt
-                // A rapid second press of the stale node must not replace the one running session.
-                press(start, "Start focus repeated")
-                require(store.planner.focus?.startedAt == startedAt, "\(name): repeated press keeps one session")
+                guard let start = control("time-card-primary", attribute: "accessibilityIdentifier", in: root)
+                else { require(false, "\(name): time-card start exists"); return }
+                press(start, "time-card-primary Set time aside")
                 await settle()
+                let startedAt = store.planner.focus?.startedAt
                 require(
                     store.planner.focus?.state == .running && store.planner.focus?.taskID == nil,
                     "\(name): task-less running state")
+                require(store.planner.focus?.limit == 1_500, "\(name): empty time card always starts 25 minutes")
+                guard let pause = control("time-card-primary", attribute: "accessibilityIdentifier", in: root)
+                else { require(false, "\(name): running primary remains at the same identifier"); return }
                 require(
-                    store.planner.focus?.limit == Double(store.prefs.defaultFocusMinutes * 60),
-                    "\(name): configured default duration")
-                require(control("Start focus", in: root) == nil, "\(name): entry absent while running")
-                require(
-                    control("Pause", in: root) != nil && control("End focus session", in: root) != nil,
-                    "\(name): Pause and Stop visible")
+                    attr(pause, "accessibilityLabel") as? String == "Pause"
+                        && control("time-card-add-five", attribute: "accessibilityIdentifier", in: root) != nil
+                        && control("time-card-ring", attribute: "accessibilityIdentifier", in: root) != nil
+                        && control("End focus session", in: root) == nil,
+                    "\(name): Pause, +5 and ring replace the empty state without a Stop control")
                 require(
                     nodes(root).contains {
                         (attr($0, "accessibilityValue") as? String ?? attr($0, "accessibilityLabel") as? String ?? "")
                             .contains(":")
                     }, "\(name): timer text is exposed")
                 snapshot(root, "\(name)-running", into: output)
-                press("Pause", in: root); await settle()
+                press(pause, "time-card-primary Pause"); await settle()
                 require(
                     store.planner.focus?.state == .paused && store.planner.focus?.startedAt == startedAt,
-                    "\(name): Pause keeps session")
+                    "\(name): Pause keeps the same session")
+                guard
+                    let continueButton = control(
+                        "time-card-primary", attribute: "accessibilityIdentifier", in: root)
+                else { require(false, "\(name): paused primary remains accessible"); return }
                 require(
-                    control("Continue", in: root) != nil && control("Start focus", in: root) == nil,
-                    "\(name): Continue replaces Pause, entry stays hidden")
+                    attr(continueButton, "accessibilityLabel") as? String == "Continue",
+                    "\(name): Continue replaces Pause at the stable identifier")
                 snapshot(root, "\(name)-paused", into: output)
-                press("Continue", in: root); await settle()
+                press(continueButton, "time-card-primary Continue"); await settle()
                 require(
                     store.planner.focus?.state == .running && store.planner.focus?.startedAt == startedAt,
                     "\(name): Continue resumes same session")
-                press("End focus session", in: root); await settle()
                 require(
-                    store.planner.focus == nil && control("Start focus", in: root) != nil,
-                    "\(name): Stop restores entry")
+                    completeActiveBlockAtControlledEnd(store),
+                    "\(name): controlled clock completes the block through the existing engine")
+                await settle()
+                let persistedCompletion = try! store.file.load()
+                require(
+                    persistedCompletion.focus?.state == .finished
+                        && abs(persistedCompletion.focusSegments.reduce(0) { $0 + $1.seconds } - 1_500) < 0.001,
+                    "\(name): completion persists finished state and exactly 25 focused minutes")
+                require(
+                    control("time-card-primary", attribute: "accessibilityIdentifier", in: root).map {
+                        attr($0, "accessibilityLabel") as? String == "Set time aside"
+                    } == true,
+                    "\(name): completed block restores Set time aside")
                 require(
                     store.planner.tasks.map(\.id) == taskIDs && store.planner.tasks.map(\.minutes) == taskMinutes,
                     "\(name): task-less lifecycle preserves task identity and estimates")
-                require(frame(capture) == initialCapture, "\(name): stop restores pinned capture geometry")
-                snapshot(root, "\(name)-stopped", into: output)
+                require(frame(capture) == initialCapture, "\(name): completion restores pinned capture geometry")
+                snapshot(root, "\(name)-completed", into: output)
                 // Keyboard navigation uses real AppKit key dispatch. No AX press or model fallback.
                 window.makeFirstResponder(nil)
                 for _ in 0..<35 {
                     key("\t", code: 48, in: window)
                     try? await Task.sleep(nanoseconds: 50_000_000)
-                    if let focus = control("Start focus", in: root),
+                    if let focus = control("time-card-primary", attribute: "accessibilityIdentifier", in: root),
                         isFocused(focus)
                     {
                         key(" ", code: 49, in: window); await settle()
@@ -875,7 +1026,12 @@ MainActor.assumeIsolated {
                         break
                     }
                 }
-                if store.planner.focus != nil { press("End focus session", in: root); await settle() }
+                if store.planner.focus?.state == .running {
+                    require(
+                        completeActiveBlockAtControlledEnd(store),
+                        "\(name): keyboard-started block also completes through the engine")
+                    await settle()
+                }
                 window.makeFirstResponder(nil)
                 var rowKeyboardReached = false
                 var keyboardTrace: [[String: Any]] = []
@@ -1003,14 +1159,19 @@ MainActor.assumeIsolated {
                 let pinned = frame(control("Add a task", in: root)!)
                 scrolling?.documentView?.scroll(NSPoint(x: 0, y: 1000)); await settle()
                 require(frame(control("Add a task", in: root)!) == pinned, "\(name): scroll leaves capture pinned")
-                require(control("Start focus", in: root) != nil, "\(name): scroll leaves entry visible")
+                require(
+                    control("time-card-primary", attribute: "accessibilityIdentifier", in: root) != nil,
+                    "\(name): scroll leaves time-card primary visible")
                 snapshot(root, "\(name)-dense-scrolled", into: output)
                 metrics.append([
                     "width": width, "name": name, "capture": NSStringFromRect(initialCapture),
                     "axNodes": nodes(root).count, "defaultMinutes": store.prefs.defaultFocusMinutes,
+                    "startedMinutes": Int((persistedCompletion.focus?.limit ?? 0) / 60),
                 ])
                 window.orderOut(nil)
             }
+            await verifyScheduledTimeCard(
+                store: store, model: delegate.model, services: delegate.services, output: output)
             print("Keyboard activation before task route: \(keyboardVerified)")
             await verifyLastRowKeyboardUndo(
                 store: store, model: delegate.model, services: delegate.services, output: output)

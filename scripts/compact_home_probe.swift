@@ -53,6 +53,18 @@ func wakeAX() async {
         }
     }.value
 }
+
+/// A direct WorkspaceView host gets the production page-aware size. Mirrors WorkspaceView.bandHeight for
+/// `notchHeight: 0`: the presented menu-bar height, else the system status-bar thickness.
+@MainActor func workspaceHostMenuBarHeight(_ model: NotchModel) -> CGFloat {
+    let measured = model.geometry?.workspacePresentation?.menuBarHeight ?? 0
+    return measured > 0 ? measured : NSStatusBar.system.thickness
+}
+
+@MainActor func workspaceHostHeight(_ model: NotchModel) -> CGFloat {
+    WorkspaceLayout.preferredSize(page: model.page.workspacePage, menuBarHeight: workspaceHostMenuBarHeight(model))
+        .height
+}
 @MainActor
 func attribute(_ node: NSObject, _ name: String) -> Any? {
     let selector = NSSelectorFromString(name)
@@ -195,8 +207,15 @@ func matchesLabel(_ node: NSObject, _ label: String) -> Bool {
 }
 
 @MainActor
-func controlFrame(_ label: String, in root: NSView) -> CGRect? {
-    guard let node = axNodes(root).first(where: { matchesLabel($0, label) }),
+func controlFrame(
+    _ label: String, attribute attributeName: String = "accessibilityLabel", in root: NSView
+) -> CGRect? {
+    guard
+        let node = axNodes(root).first(where: {
+            attributeName == "accessibilityLabel"
+                ? matchesLabel($0, label)
+                : axString(attribute($0, attributeName)) == label
+        }),
         let frame = accessibilityFrame(node)
     else { return nil }
     return frame
@@ -650,8 +669,9 @@ MainActor.assumeIsolated {
                             if running { _ = try e.startTimer(task: nil, minutes: 45) }
                         }
                         let name = "width-\(Int(width))-\(running ? "running" : "resting")"
+                        let height = workspaceHostHeight(delegate.model)
                         let window = NSWindow(
-                            contentRect: CGRect(x: 30, y: 100, width: width, height: 351),
+                            contentRect: CGRect(x: 30, y: 100, width: width, height: height),
                             styleMask: [.titled], backing: .buffered, defer: false)
                         window.isReleasedWhenClosed = false
                         let root = NSHostingView(
@@ -668,8 +688,13 @@ MainActor.assumeIsolated {
                         guard let capture = controlFrame("Add a task", in: root) else {
                             require(false, "\(name): capture bounds exist"); window.orderOut(nil); continue
                         }
-                        let entry = controlFrame("Start focus", in: root)
-                        require(running ? entry == nil : entry != nil, "\(name): expected Start focus visibility")
+                        let entry = controlFrame("time-card-primary", attribute: "accessibilityIdentifier", in: root)
+                        let entryLabel = axNodes(root).first {
+                            axString(attribute($0, "accessibilityIdentifier")) == "time-card-primary"
+                        }.map { axString(attribute($0, "accessibilityLabel")) }
+                        require(
+                            entry != nil && entryLabel == (running ? "Pause" : "Set time aside"),
+                            "\(name): time-card primary matches the resting or running state")
                         @MainActor func fade() -> NSView? {
                             taskViewport(in: root).flatMap { list in
                                 descendants(list).first { $0.identifier?.rawValue == "today-continuation-fade" }
@@ -702,10 +727,10 @@ MainActor.assumeIsolated {
                         require(
                             document.frame.height > list.contentSize.height, "\(name): multiline dense rows overflow")
                         require(controlFrame("Add a task", in: root) == capture, "\(name): dense capture unchanged")
-                        let denseEntry = controlFrame("Start focus", in: root)
+                        let denseEntry = controlFrame(
+                            "time-card-primary", attribute: "accessibilityIdentifier", in: root)
                         require(
-                            running ? denseEntry == nil : denseEntry != nil,
-                            "\(name): dense Start focus visibility unchanged")
+                            denseEntry == entry, "\(name): dense content leaves time-card primary geometry unchanged")
                         require(document.frame.height / 24 > 40, "\(name): rendered rows occupy multiple lines")
                         if !geometryOnly {
                             guard let cue = fade() else {
@@ -730,12 +755,13 @@ MainActor.assumeIsolated {
                         if !geometryOnly { require(fade()?.isHidden == true, "\(name): fade absent at scroll end") }
                         require(controlFrame("Add a task", in: root) == capture, "\(name): scroll capture unchanged")
                         require(
-                            controlFrame("Start focus", in: root) == denseEntry, "\(name): scroll Start focus unchanged"
-                        )
+                            controlFrame("time-card-primary", attribute: "accessibilityIdentifier", in: root)
+                                == denseEntry,
+                            "\(name): scrolling leaves time-card primary geometry unchanged")
                         snapshot(root, name + "-end", into: output)
                         metrics.append([
                             "scenario": name, "capture": NSStringFromRect(capture),
-                            "startFocus": denseEntry.map(NSStringFromRect) ?? "absent",
+                            "timeCardPrimary": denseEntry.map(NSStringFromRect) ?? "missing",
                             "taskViewport": NSStringFromRect(list.convert(list.bounds, to: nil)),
                         ])
                         // Shrinking content must also clear the cue without any user scroll.
