@@ -35,11 +35,13 @@ final class DashboardPaneHostingTests: XCTestCase {
                     XCTAssertEqual(search.stringValue, "alpha")
                 }
                 window.close()
-                WindowHost.windows.removeValue(forKey: "dashboard")
+                XCTAssertNil(WindowHost.windows["dashboard"], "Close retires this window identity synchronously")
                 // A deferred layout/paint callback must not rebuild a closed window's loop.
                 window.initialFirstResponder = nil
                 DashboardKeyLoop.install(in: window)
                 XCTAssertNil(window.initialFirstResponder)
+                try await Task.sleep(nanoseconds: 100_000_000)
+                XCTAssertNil(window.contentView, "Detach the hosted graph before the owning window is released")
             }
             // Release the production window before mounting the next section.
             try await Task.sleep(nanoseconds: 100_000_000)

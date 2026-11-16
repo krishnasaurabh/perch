@@ -147,9 +147,19 @@ struct DashboardPaneActionTarget: NSViewRepresentable {
         view.pressChanged = pressChanged
         if !enabled, view.window?.firstResponder === view { view.window?.makeFirstResponder(nil) }
     }
+
+    static func dismantleNSView(_ view: DashboardPaneActionView, coordinator: ()) {
+        view.active = false
+        view.onAction = {}
+        view.focusChanged = { _ in }
+        view.pressChanged = { _ in }
+        if view.window?.firstResponder === view { view.window?.makeFirstResponder(nil) }
+        view.nextKeyView = nil
+    }
 }
 
 final class DashboardPaneActionView: NSControl {
+    var active = true
     var selected: Bool?
     var onAction: () -> Void = {}
     var focusChanged: (Bool) -> Void = { _ in }
@@ -163,11 +173,11 @@ final class DashboardPaneActionView: NSControl {
     }
     required init?(coder: NSCoder) { nil }
 
-    override var acceptsFirstResponder: Bool { isEnabled && !isHiddenOrHasHiddenAncestor }
+    override var acceptsFirstResponder: Bool { active && isEnabled && !isHiddenOrHasHiddenAncestor }
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         DispatchQueue.main.async { [weak self] in
-            guard let self, let window = self.window else { return }
+            guard let self, self.active, let window = self.window else { return }
             DashboardKeyLoop.install(in: window)
         }
     }
@@ -184,7 +194,7 @@ final class DashboardPaneActionView: NSControl {
     }
     private func updateFocusPaint() {
         DispatchQueue.main.async { [weak self] in
-            guard let self else { return }
+            guard let self, self.active else { return }
             self.focusChanged(self.isAccessibilityFocused())
         }
     }
