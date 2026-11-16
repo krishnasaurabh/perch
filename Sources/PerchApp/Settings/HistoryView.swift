@@ -42,7 +42,7 @@ struct DashboardPane<Content: View>: NSViewControllerRepresentable {
         _ proposal: ProposedViewSize, nsViewController: NSHostingController<DashboardPaneRoot<Content>>,
         context: Context
     ) -> CGSize? {
-        let width = proposal.width ?? Theme.Size.todayWidth.value
+        let width: CGFloat = proposal.width ?? CGFloat(Theme.Size.todayWidth.value)
         let size = nsViewController.sizeThatFits(in: CGSize(width: width, height: .greatestFiniteMagnitude))
         return CGSize(width: width, height: size.height)
     }
