@@ -11,12 +11,17 @@ struct ProjectCardModel {
     let surface: DesignTokens.Surface
     var progress: Double { open + done == 0 ? 0 : Double(done) / Double(open + done) }
 
-    init(project: TaskProject, tasks: [PlanTask]) {
-        let tasks = tasks.filter { $0.projectID == project.id }
-        open = tasks.filter { !$0.done }.count
-        done = tasks.filter(\.done).count
-        next = tasks.first { !$0.done }
+    init(project: TaskProject, tasks: [PlanTask], today: DayKey) {
+        let openTasks = Self.openTasks(tasks, projectID: project.id, today: today)
+        open = openTasks.count
+        done = tasks.filter { $0.projectID == project.id && $0.done }.count
+        next = openTasks.first
         surface = [DesignTokens.Surface.butter, .blush, .mint, .apricot][Int(project.id.uuid.15) % 4]
+    }
+
+    /// Past days keep their records; only inbox, today and future instances are open here.
+    static func openTasks(_ tasks: [PlanTask], projectID: UUID?, today: DayKey) -> [PlanTask] {
+        tasks.filter { !$0.done && $0.projectID == projectID && ($0.day == nil || $0.day! >= today) }
     }
 }
 
@@ -56,7 +61,8 @@ struct ProjectsList: View {
                 Text("No project").perchFont(.stripTitle)
                 Text(
                     AppL10n.format(
-                        "%lld open tasks", store.planner.tasks.filter { !$0.done && $0.projectID == nil }.count)
+                        "%lld open tasks",
+                        ProjectCardModel.openTasks(store.planner.tasks, projectID: nil, today: store.today).count)
                 )
                 .perchFont(.detail).foregroundStyle(Theme.ink2)
                 Spacer(minLength: Theme.Size.buttonHeight.value)
@@ -169,7 +175,7 @@ private struct ProjectReviewCard: View {
     static var contentHeight: CGFloat { cardHeight - Theme.Size.cardPadding.value * 2 }
 
     var body: some View {
-        let value = ProjectCardModel(project: project, tasks: store.planner.tasks)
+        let value = ProjectCardModel(project: project, tasks: store.planner.tasks, today: store.today)
         Card(value.surface) {
             VStack(alignment: .leading, spacing: SurfaceMetrics.compactGap) {
                 HStack(alignment: .top, spacing: SurfaceMetrics.gap) {
