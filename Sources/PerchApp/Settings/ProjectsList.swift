@@ -18,7 +18,7 @@ struct ProjectsList: View {
                         Text(AppL10n.format("%lld open · %lld done", open.count, tasks.filter(\.done).count))
                             .foregroundStyle(Theme.secondary)
                         Spacer()
-                        ProjectDeleteButton {
+                        DashboardProjectDeleteButton {
                             store.apply { try $0.deleteProject(p.id) }
                         }
                     }

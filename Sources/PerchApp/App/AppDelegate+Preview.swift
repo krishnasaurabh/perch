@@ -43,7 +43,7 @@ import SwiftUI
                 "settings/agents-connected": .window("settings") { SettingsAgentsPane.previewConnected(app: $0) },
                 "settings/data": .window("settings") { SettingsWindow.preview(.data, app: $0) },
                 "keys": .window("keys") { KeysWindow.show(store: $0.store) },
-                "your-week": .window("dashboard") { DashboardWindow.show(store: $0.store, tab: .insights) },
+                "your-week": .window("dashboard") { DashboardWindow.show(store: $0.store, tab: .yourWeek) },
                 "history": .window("dashboard") { DashboardWindow.show(store: $0.store, tab: .history) },
                 "projects": .window("dashboard") { DashboardWindow.show(store: $0.store, tab: .projects) },
                 "surfaces": .window("surface-preview") { _ in SurfacePreview.show(focused: false) },

@@ -499,14 +499,95 @@ func matrixSettingsFocused(_ host: NSView, pane: SettingsView.Pane) -> Bool {
         children += (node as? NSView)?.subviews ?? []
         return children.contains(where: visit)
     }
-    for owner in [NSApp as NSObject, host.window as NSObject?].compactMap({ $0 }) {
+    // Reading SwiftUI's child tree can publish its pending semantic focus. Read
+    // the focused owner again afterward, never infer focus from the selected pane.
+    let childFocused = visit(host)
+    for owner in [NSApp as NSObject, host.window as NSObject?, host, host.window?.firstResponder].compactMap({ $0 }) {
         if let focused = value(owner, "accessibilityFocusedUIElement") as? NSObject,
             value(focused, "accessibilityIdentifier") as? String == wanted
         {
             return true
         }
     }
-    return visit(host)
+    return childFocused
+}
+
+/// Read-only diagnostics: retain native geometry and public AX values even when
+/// the assertion's current sampler cannot reach a hosted SwiftUI subtree.
+@MainActor
+func matrixObservationTrace(_ host: NSView, phase: String, output: URL, text: Set<String>? = nil) throws {
+    func value(_ node: NSObject, _ name: String) -> Any? {
+        let selector = NSSelectorFromString(name)
+        return node.responds(to: selector) ? node.perform(selector)?.takeUnretainedValue() : nil
+    }
+    func focused(_ node: NSObject) -> String {
+        let selector = NSSelectorFromString("isAccessibilityFocused")
+        guard node.responds(to: selector), let implementation = node.method(for: selector) else { return "unavailable" }
+        typealias Getter = @convention(c) (AnyObject, Selector) -> Bool
+        return String(unsafeBitCast(implementation, to: Getter.self)(node, selector))
+    }
+    func describe(_ node: NSObject?) -> String {
+        guard let node else { return "nil" }
+        return "\(type(of: node))@\(ObjectIdentifier(node)) id=\(value(node, "accessibilityIdentifier") ?? "nil")"
+    }
+    var pending: [NSObject] = [host]
+    if text != nil { pending.append(contentsOf: try dashboardAXScrollSamples(host)) }
+    var owners: [String] = []
+    for owner in [NSApp as NSObject, host.window as NSObject?, host, host.window?.firstResponder].compactMap({ $0 }) {
+        let element = value(owner, "accessibilityFocusedUIElement") as? NSObject
+        owners.append("\(describe(owner)) focused=\(describe(element))")
+        if let element { pending.append(element) }
+    }
+    if let first = host.window?.firstResponder { pending.append(first) }
+    var seen = Set<ObjectIdentifier>()
+    var rows: [[String: String]] = []
+    while let node = pending.popLast() {
+        guard seen.insert(ObjectIdentifier(node)).inserted else { continue }
+        guard seen.count <= 4096 else { throw NSError(domain: "MatrixObservationTraversalLimit", code: 1) }
+        var row = ["object": describe(node), "isAccessibilityFocused": focused(node)]
+        for name in [
+            "accessibilityRole", "accessibilityIdentifier", "accessibilityLabel", "accessibilityValue",
+            "accessibilityTitle",
+        ] {
+            row[name] = value(node, name).map { String(describing: $0) } ?? "unavailable"
+        }
+        // CGRect is a struct return, not an object-returning perform selector.
+        let frameSelector = NSSelectorFromString("accessibilityFrame")
+        if node.responds(to: frameSelector), let frame = node.value(forKey: "accessibilityFrame") as? NSValue {
+            row["accessibilityFrame"] = NSStringFromRect(frame.rectValue)
+        }
+        if let view = node as? NSView {
+            row["frame"] = NSStringFromRect(view.frame)
+            row["bounds"] = NSStringFromRect(view.bounds)
+            row["canBecomeKeyView"] = String(view.canBecomeKeyView)
+            row["hidden"] = String(view.isHiddenOrHasHiddenAncestor)
+            pending.append(contentsOf: view.subviews)
+        }
+        for name in [
+            "accessibilityChildren", "accessibilityContents", "accessibilityChildrenInNavigationOrder",
+            "accessibilityVisibleChildren", "accessibilityRows",
+        ] {
+            let children = value(node, name) as? [NSObject] ?? []
+            row[name + "Count"] = String(children.count)
+            pending.append(contentsOf: children)
+        }
+        rows.append(row)
+    }
+    let snapshot: [String: Any] = [
+        "phase": phase, "pageHeight": host.bounds.height,
+        "firstResponder": describe(host.window?.firstResponder), "focusOwners": owners,
+        "text": text?.sorted() ?? [], "nodes": rows,
+    ]
+    try JSONSerialization.data(withJSONObject: snapshot, options: [.prettyPrinted, .sortedKeys])
+        .write(to: output.appendingPathComponent("observation-\(phase).json"), options: .atomic)
+    // Unbuffered: failing probes must retain the measured state before exit(1).
+    let lines =
+        [
+            "observation \(phase): pageHeight=\(host.bounds.height) firstResponder=\(describe(host.window?.firstResponder)) text=\(text?.sorted() ?? [])"
+        ]
+        + owners.map { "observation \(phase): owner \($0)" }
+        + rows.map { "observation \(phase): \($0)" }
+    FileHandle.standardError.write(Data((lines.joined(separator: "\n") + "\n").utf8))
 }
 
 /// Read the named native segment group's value and require one matching selected child.
@@ -561,6 +642,9 @@ func checkSettingsMatrix(_ fixture: MatrixFixture, output: URL) async throws {
     for (index, (pane, marker)) in markers.enumerated() {
         if index > 0 { await matrixKey(window, 125, "\u{f701}") }
         let text = try matrixText(host, name: "settings-\(pane.rawValue)", output: output)
+        if !matrixSettingsFocused(host, pane: pane) {
+            try matrixObservationTrace(host, phase: "settings-\(pane.rawValue)", output: output)
+        }
         matrixRequire(
             navigation.pane == pane && matrixSettingsFocused(host, pane: pane),
             "settings Down arrow selects the \(pane.rawValue) pane",
@@ -671,9 +755,207 @@ func checkSettingsFailure(
     }
 }
 
+/// SwiftUI may omit painted scroll content from accessibilityChildren while
+/// still exposing it through public accessibilityHitTest. Sample only the live
+/// document's visible bounds, not fixture titles, model data or OCR guesses.
+@MainActor
+func dashboardAXScrollSamples(_ root: NSView) throws -> [NSObject] {
+    guard let window = root.window else { throw NSError(domain: "DashboardAXMissingWindow", code: 1) }
+    var nodes: [NSObject] = []
+    var seen = Set<ObjectIdentifier>()
+    var samples = 0
+    for scroll in matrixViews(root).compactMap({ $0 as? NSScrollView }) {
+        guard !scroll.isHiddenOrHasHiddenAncestor, let document = scroll.documentView else { continue }
+        let visible = document.visibleRect.intersection(document.bounds)
+        guard !visible.isEmpty else { continue }
+        let columns = max(1, Int(ceil(visible.width / 12)))
+        let rows = max(1, Int(ceil(visible.height / 12)))
+        guard samples + columns * rows <= 8192 else {
+            throw NSError(domain: "DashboardAXSamplingLimit", code: 1)
+        }
+        samples += columns * rows
+        for row in 0..<rows {
+            for column in 0..<columns {
+                let point = NSPoint(
+                    x: visible.minX + visible.width * (CGFloat(column) + 0.5) / CGFloat(columns),
+                    y: visible.minY + visible.height * (CGFloat(row) + 0.5) / CGFloat(rows))
+                let screenPoint = window.convertPoint(toScreen: document.convert(point, to: nil))
+                for owner in [root, scroll] {
+                    if let node = owner.accessibilityHitTest(screenPoint) as? NSObject,
+                        seen.insert(ObjectIdentifier(node)).inserted
+                    {
+                        nodes.append(node)
+                    }
+                }
+            }
+        }
+    }
+    return nodes
+}
+
+/// Exact static text from public accessibility nodes, never OCR or prefix matches.
+/// Include both child traversal and the scroll content's public hit-test roots.
+@MainActor
+func dashboardAXStaticText(_ root: NSView) throws -> Set<String> {
+    func value(_ node: NSObject, _ name: String) -> Any? {
+        let selector = NSSelectorFromString(name)
+        return node.responds(to: selector) ? node.perform(selector)?.takeUnretainedValue() : nil
+    }
+    var pending: [NSObject] = [root]
+    pending.append(contentsOf: try dashboardAXScrollSamples(root))
+    var seen = Set<ObjectIdentifier>()
+    var strings = Set<String>()
+    while let node = pending.popLast() {
+        guard seen.insert(ObjectIdentifier(node)).inserted else { continue }
+        guard seen.count <= 4096 else { throw NSError(domain: "DashboardAXTraversalLimit", code: 1) }
+        if value(node, "accessibilityRole") as? String == "AXStaticText" {
+            for name in ["accessibilityLabel", "accessibilityValue", "accessibilityTitle"] {
+                if let text = value(node, name) as? String { strings.insert(text) }
+            }
+        }
+        if let view = node as? NSView { pending.append(contentsOf: view.subviews) }
+        for name in ["accessibilityChildren", "accessibilityContents", "accessibilityChildrenInNavigationOrder"] {
+            pending.append(contentsOf: value(node, name) as? [NSObject] ?? [])
+        }
+    }
+    return strings
+}
+
+/// Read-only, bounded snapshots. Native object identity is retained alongside
+/// public accessibility semantics; neither is inferred from a private class name.
+@MainActor
+struct DashboardFocusTrace {
+    let output: URL
+
+    private func identity(_ object: AnyObject?) -> String {
+        guard let object else { return "nil" }
+        return "\(type(of: object))@\(ObjectIdentifier(object))"
+    }
+
+    private func attribute(_ object: NSObject, _ name: String) -> Any? {
+        let selector = NSSelectorFromString(name)
+        return object.responds(to: selector) ? object.perform(selector)?.takeUnretainedValue() : nil
+    }
+
+    private func focused(_ object: NSObject) -> Bool? {
+        let selector = NSSelectorFromString("isAccessibilityFocused")
+        guard object.responds(to: selector), let implementation = object.method(for: selector) else { return nil }
+        typealias Getter = @convention(c) (AnyObject, Selector) -> Bool
+        return unsafeBitCast(implementation, to: Getter.self)(object, selector)
+    }
+
+    func record(_ window: NSWindow, phase: String) throws {
+        let tabs = DashboardKeyLoop.tabKeyView(in: window)
+        let first = window.firstResponder
+        var seen = Set<ObjectIdentifier>()
+        var nodes: [NSObject] = []
+        func walk(_ node: NSObject, depth: Int) {
+            guard depth < 24, nodes.count < 256, seen.insert(ObjectIdentifier(node)).inserted else { return }
+            nodes.append(node)
+            if let view = node as? NSView {
+                for child in view.subviews { walk(child, depth: depth + 1) }
+            }
+            for name in ["accessibilityChildren", "accessibilityContents", "accessibilityChildrenInNavigationOrder"] {
+                for child in attribute(node, name) as? [NSObject] ?? [] { walk(child, depth: depth + 1) }
+            }
+        }
+        // Discover normal roots first so detached focus nodes cannot mask their ancestry.
+        if let root = window.contentView { walk(root, depth: 0) }
+        var focusOwners: [[String: String]] = []
+        let owners: [NSObject] = [NSApp, window, window.contentView, first].compactMap { $0 }
+        for owner in owners {
+            if let node = attribute(owner, "accessibilityFocusedUIElement") as? NSObject {
+                focusOwners.append(["owner": identity(owner), "focusedElement": identity(node)])
+                walk(node, depth: 0)
+            }
+        }
+        if let first { walk(first, depth: 0) }
+        if let tabs { walk(tabs, depth: 0) }
+        var chain: [String] = []
+        var keySeen = Set<ObjectIdentifier>()
+        var next = window.contentView?.nextKeyView
+        while let view = next, chain.count < 64, keySeen.insert(ObjectIdentifier(view)).inserted {
+            chain.append(identity(view))
+            walk(view, depth: 0)
+            next = view.nextKeyView
+        }
+        let rows: [[String: Any]] = nodes.map { node in
+            var row: [String: Any] = ["object": identity(node)]
+            for name in [
+                "accessibilityRole", "accessibilityIdentifier", "accessibilityLabel",
+                "accessibilityTitle", "accessibilityValue",
+            ] {
+                row[name] = attribute(node, name).map { String(describing: $0) } ?? "unavailable"
+            }
+            row["accessibilityParent"] = identity(attribute(node, "accessibilityParent") as? NSObject)
+            row["isAccessibilityFocused"] = focused(node).map { String($0) } ?? "unavailable"
+            if let view = node as? NSView {
+                row["superview"] = identity(view.superview)
+                row["canBecomeKeyView"] = view.canBecomeKeyView
+                row["nextKeyView"] = identity(view.nextKeyView)
+                row["previousKeyView"] = identity(view.previousKeyView)
+                row["nextValidKeyView"] = identity(view.nextValidKeyView)
+            }
+            return row
+        }
+        var validChain: [String] = []
+        var validSeen = Set<ObjectIdentifier>()
+        var validNext = tabs
+        while let view = validNext, validChain.count < 64, validSeen.insert(ObjectIdentifier(view)).inserted {
+            validChain.append(identity(view))
+            validNext = view.nextValidKeyView
+        }
+        let snapshot: [String: Any] = [
+            "phase": phase, "firstResponder": identity(first), "tabKeyView": identity(tabs),
+            "firstResponderLabel": first.flatMap { attribute($0, "accessibilityLabel") as? String } ?? "unavailable",
+            "firstResponderIdentifier": first.flatMap { attribute($0, "accessibilityIdentifier") as? String }
+                ?? "unavailable",
+            "tabNextValidKeyViewChain": validChain,
+            "selectedTab": DashboardWindow.selection?.tab.rawValue ?? "unavailable",
+            "sameTabObject": first != nil && first === tabs,
+            "initialFirstResponder": identity(window.initialFirstResponder),
+            "contentView": identity(window.contentView), "keyChain": chain,
+            "focusOwners": focusOwners, "nodes": rows,
+        ]
+        try JSONSerialization.data(withJSONObject: snapshot, options: [.prettyPrinted, .sortedKeys])
+            .write(to: output.appendingPathComponent("dashboard-focus-\(phase).json"), options: .atomic)
+        print("dashboard focus \(phase): first=\(identity(first)) tabs=\(identity(tabs)) same=\(first === tabs)")
+        print(
+            "dashboard focus \(phase): label=\(snapshot["firstResponderLabel"] ?? "unavailable") "
+                + "identifier=\(snapshot["firstResponderIdentifier"] ?? "unavailable")")
+        print("dashboard focus \(phase): tabs nextValidKeyView chain=\(validChain)")
+        print("dashboard focus \(phase): content nextKeyView chain=\(chain)")
+        for row in rows {
+            print("dashboard focus \(phase): \(row)")
+        }
+    }
+}
+
+/// Use a disposable production window so these four diagnostic Tabs cannot
+/// prime focus or change the starting position of the mandatory interaction walk.
+@MainActor
+func traceDashboardTraversal(_ fixture: MatrixFixture, output: URL) async throws {
+    DashboardWindow.show(store: fixture.store, tab: .yourWeek)
+    guard let window = WindowHost.windows["dashboard"] else { return }
+    defer { window.close() }
+    await matrixSettle(1.0)
+    let trace = DashboardFocusTrace(output: output)
+    let reset = window.makeFirstResponder(window)
+    print("dashboard focus diagnostic reset accepted=\(reset)")
+    try trace.record(window, phase: "reset")
+    for index in 1...4 {
+        await matrixKey(window, 48, "\t")
+        try trace.record(window, phase: "tab-\(index)")
+    }
+}
+
 @MainActor
 func checkDashboardMatrix(_ fixture: MatrixFixture, output: URL) async throws {
-    DashboardWindow.show(store: fixture.store, tab: .upcoming)
+    try await traceDashboardTraversal(fixture, output: output)
+    // Let WindowHost retire the diagnostic window before creating the tested one.
+    await matrixSettle()
+    let trace = DashboardFocusTrace(output: output)
+    DashboardWindow.show(store: fixture.store, tab: .yourWeek)
     guard let window = WindowHost.windows["dashboard"], let host = window.contentView else {
         matrixRequire(false, "dashboard window opens")
         return
@@ -681,48 +963,83 @@ func checkDashboardMatrix(_ fixture: MatrixFixture, output: URL) async throws {
     defer { window.close() }
     await matrixSettle(1.0)
     matrixRequire(window.isKeyWindow, "dashboard window owns the key window")
-    let picker = matrixViews(host).compactMap { $0 as? NSSegmentedControl }.first {
-        $0.segmentCount == DashboardView.Tab.allCases.count
-    }
-    matrixRequire(picker != nil, "dashboard exposes its native tab control")
+    matrixRequire(NSApp.isFullKeyboardAccessEnabled, "dashboard has effective full keyboard access")
+    let picker = DashboardKeyLoop.tabKeyView(in: window)
+    matrixRequire(picker != nil, "dashboard exposes its selected tab key view")
     guard let picker else { return }
     matrixRequire(window.makeFirstResponder(picker), "dashboard tab control accepts keyboard focus")
+    // Enter through AppKit's Tab loop too: assigning a SwiftUI key proxy is not
+    // evidence that the selected button has acquired its SwiftUI focus state.
+    matrixRequire(window.makeFirstResponder(window), "dashboard fixture can reset its first responder")
+    try trace.record(window, phase: "behavior-reset")
+    await matrixKey(window, 48, "\t")
+    try trace.record(window, phase: "behavior-first-tab")
+    matrixRequire(
+        window.firstResponder === DashboardKeyLoop.tabKeyView(in: window),
+        "Tab enters the dashboard tab control", "firstResponder=\(String(describing: window.firstResponder))")
     let tabs: [(DashboardView.Tab, String)] = [
-        (.upcoming, "matrix future errand"), (.history, "matrix history beta"), (.insights, "planned vs"),
+        (.yourWeek, "planned vs"), (.history, "matrix history beta"),
         (.projects, "delete project"),
     ]
     for (index, (tab, marker)) in tabs.enumerated() {
         if index > 0 {
             await matrixKey(window, 124, "\u{f703}")
+            try trace.record(window, phase: "behavior-arrow-\(index)")
+            matrixRequire(
+                DashboardWindow.selection?.tab == tab, "dashboard arrow selects the \(tab.rawValue) tab",
+                "selected tab=\(String(describing: DashboardWindow.selection?.tab)); "
+                    + "firstResponder=\(String(describing: window.firstResponder))")
+            // Arrows select immediately. Space must activate the newly selected
+            // button, not a stale button from the preceding section.
             await matrixKey(window, 49, " ")
+            try trace.record(window, phase: "behavior-space-\(index)")
         }
         let text = try matrixText(host, name: "dashboard-\(tab.rawValue)", output: output)
         matrixRequire(
-            picker.selectedSegment == index, "dashboard keyboard selects the \(tab.rawValue) tab",
-            "selectedSegment=\(picker.selectedSegment)")
+            DashboardWindow.selection?.tab == tab, "dashboard keyboard selects the \(tab.rawValue) tab",
+            "selected tab=\(String(describing: DashboardWindow.selection?.tab))")
         matrixRequire(text.contains(marker), "dashboard \(tab.rawValue) tab renders its content", text)
         if tab == .history {
             // Task lines: a typed search narrows the history list.
             await matrixKey(window, 48, "\t")
+            try trace.record(window, phase: "behavior-history-tab")
             let editor = window.firstResponder as? NSTextView
             let field = editor?.delegate as? NSTextField
             matrixRequire(
                 field?.placeholderString == "Search history", "Tab moves from the tabs to the history search",
                 "firstResponder=\(String(describing: window.firstResponder))")
+            let unfiltered = try dashboardAXStaticText(host)
+            try matrixObservationTrace(host, phase: "history-unfiltered", output: output, text: unfiltered)
+            matrixRequire(
+                unfiltered.contains("Matrix history alpha") && unfiltered.contains("Matrix history beta"),
+                "history accessibility exposes both task titles before filtering", "\(unfiltered.sorted())")
             await matrixType(window, "alpha")
             await matrixSettle()
-            let filtered = try matrixText(host, name: "dashboard-history-search", output: output)
+            _ = try matrixText(host, name: "dashboard-history-search", output: output)
             matrixRequire(
-                filtered.contains("matrix history alpha") && !filtered.contains("matrix history beta"),
-                "typed history search filters the task lines", filtered)
+                field?.accessibilityValue() as? String == "alpha",
+                "typed history search updates the field accessibility value",
+                "value=\(String(describing: field?.accessibilityValue()))")
+            let filtered = try dashboardAXStaticText(host)
+            try matrixObservationTrace(host, phase: "history-filtered", output: output, text: filtered)
+            try JSONSerialization.data(withJSONObject: filtered.sorted(), options: [.prettyPrinted, .sortedKeys])
+                .write(to: output.appendingPathComponent("dashboard-history-search.ax.json"), options: .atomic)
+            matrixRequire(
+                filtered.contains("Matrix history alpha") && !filtered.contains("Matrix history beta"),
+                "typed history search filters the task lines", "\(filtered.sorted())")
             await matrixKey(window, 48, "\t", .shift)
-            matrixRequire(window.firstResponder === picker, "Shift-Tab returns focus to the dashboard tabs")
+            try trace.record(window, phase: "behavior-history-backtab")
+            matrixRequire(
+                window.firstResponder === DashboardKeyLoop.tabKeyView(in: window),
+                "Shift-Tab returns focus to the dashboard tabs")
         }
     }
     // Project action: Tab to Delete project, Space deletes, Command-Z restores it.
     let before = fixture.store.planner
     await matrixKey(window, 48, "\t")
+    try trace.record(window, phase: "behavior-project-tab")
     await matrixKey(window, 49, " ")
+    try trace.record(window, phase: "behavior-project-space")
     matrixRequire(fixture.store.planner.projects.isEmpty, "Space on Delete project deletes the project")
     let deleted = try fixture.file.load()
     matrixRequire(

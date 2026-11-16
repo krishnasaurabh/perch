@@ -1234,6 +1234,23 @@
         }
       }
     },
+    "A look at what you did this week.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A look at what you did this week."
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Å löök àt whàt yöü dïd thïs wëëk. ·~⟧"
+          }
+        }
+      }
+    },
     "A mirrored reminder has unsupported fields. It was preserved; remove its recurrence or extra alarms before syncing.": {
       "extractionState": "manual",
       "localizations": {
@@ -5144,6 +5161,23 @@
         }
       }
     },
+    "Everything you finished, day by day.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Everything you finished, day by day."
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Ëvërythïng yöü fïnïshëd, dày by dày. ·~⟧"
+          }
+        }
+      }
+    },
     "Expanded": {
       "extractionState": "manual",
       "localizations": {
@@ -5718,6 +5752,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "⟦Gïvë më 20 mïnütës öf föcüs tïmë ïn Përch ·~⟧"
+          }
+        }
+      }
+    },
+    "Group the tasks that belong together.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Group the tasks that belong together."
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Gröüp thë tàsks thàt bëlöng tögëthër. ·~⟧"
           }
         }
       }
@@ -10774,6 +10825,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "⟦Sëàrch hïstöry ·~⟧"
+          }
+        }
+      }
+    },
+    "Section": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Section"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Sëctïön ·~⟧"
           }
         }
       }
