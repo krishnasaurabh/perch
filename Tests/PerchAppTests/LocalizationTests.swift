@@ -119,7 +119,7 @@ final class LocalizationTests: XCTestCase {
             "Only this text and date will be saved. Dates, tags and commands inside the text will not be interpreted.",
             "Title", "Time limit", "Scheduled day", "Reminder", "Deadline", "Steps",
             "Streak", "Done this week", "Focus this week", "All time",
-            "Snooze 5 min", "+5 min", "Open line", "No plans",
+            "In a bit", "+5 min", "Open line", "No plans",
             "Requesting…", "Allow", "Finished days show up here.", "No matches. Change the search text.",
             "This week", "Week", "Uncheck task", "Check off task", "Reopen", "Complete",
             "Pause", "Continue", "History", "Unsaved changes", "Task details", "Unpin", "Pin",

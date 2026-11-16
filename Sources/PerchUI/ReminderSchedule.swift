@@ -51,6 +51,9 @@ public enum ReminderSchedule {
         planner: Planner, now: Date, calendar: Calendar = .current,
         pending: [ScheduledReminder], delivered: Set<String>, records: [String: ReminderRecord], authorized: Bool
     ) -> Plan {
+        // Accepted OS requests outlive the process. Opting out must remove them now,
+        // not just suppress foreground presentation; the notch remains independent.
+        let scheduling = authorized && planner.preferences.notifyWhenClosed
         let engine = PlannerEngine(planner: planner, now: { now }, calendar: calendar)
         let end = engine.today.adding(days: horizonDays, calendar: calendar)
             .start(resetHour: planner.preferences.resetHour, calendar: calendar)
@@ -72,14 +75,14 @@ public enum ReminderSchedule {
             if let state = history[request.id]?.state, state == .delivered || state == .missed { continue }
             if request.date <= now {
                 // Give an already accepted request time to leave the OS pending queue. Never replay it.
-                if authorized, queued[request.id] != nil,
+                if scheduling, queued[request.id] != nil,
                     now.timeIntervalSince(request.date) < deliveryGrace
                 {
                     wanted.append(request)
                 } else {
                     history[request.id] = ReminderRecord(date: request.date, state: .missed)
                 }
-            } else if authorized && request.date < end {
+            } else if scheduling && request.date < end {
                 wanted.append(request)
             }
         }
