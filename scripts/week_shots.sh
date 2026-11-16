@@ -238,6 +238,7 @@ func wakeAccessibility() async {
     @objc private func beganTracking(_ notification: Notification) {
         trackingMenu = notification.object as? NSMenu
         report("Week menu began tracking")
+        report("Week menu publisher=\(String(describing: trackingMenu)) currentEvent=\(String(describing: NSApp.currentEvent?.type))")
     }
     @objc private func tick() {
         if let candidate = trackingMenu {

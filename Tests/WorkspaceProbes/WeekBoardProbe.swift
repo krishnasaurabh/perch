@@ -55,9 +55,26 @@ func verifyWeekBoard(window: NSWindow, out: URL) async throws {
             attribute($0, "accessibilityIdentifier") as? String == "week-menu-\(long.id)"
         }
         require(!titleMenus.isEmpty, "Wrapped title must retain its accessible task menu")
+        let point = host.convert(NSPoint(x: title.midX, y: title.midY), to: nil)
+        let hit = host.hitTest(host.convert(point, from: nil))
+        report(
+            "Week board pointer target=\(point) hit=\(String(describing: hit)) "
+                + "key=\(window.isKeyWindow) currentEvent=\(String(describing: NSApp.currentEvent?.type))")
+        let monitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .leftMouseUp]) { event in
+            MainActor.assumeIsolated {
+                if event.windowNumber == window.windowNumber {
+                    report("Week board pointer delivered type=\(event.type) location=\(event.locationInWindow)")
+                }
+            }
+            return event
+        }
+        defer { if let monitor { NSEvent.removeMonitor(monitor) } }
         let tracker = WeekMenuTracker()
         tracker.start()
-        let point = host.convert(NSPoint(x: title.midX, y: title.midY), to: nil)
+        defer { tracker.stop() }
+        // Queue both halves before yielding: a native popup can consume mouse-up
+        // inside its mouse-down tracking loop. Let NSApplication dispatch the click
+        // with currentEvent set, rather than calling the window from this Task.
         for type in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
             let event = try XCTFreeUnwrap(
                 NSEvent.mouseEvent(
@@ -65,10 +82,10 @@ func verifyWeekBoard(window: NSWindow, out: URL) async throws {
                     timestamp: ProcessInfo.processInfo.systemUptime,
                     windowNumber: window.windowNumber, context: nil,
                     eventNumber: 1, clickCount: 1, pressure: 1), "board title click")
-            window.sendEvent(event)
+            NSApp.postEvent(event, atStart: false)
         }
+        await settle()
         tracker.finishWaiting()
-        tracker.stop()
         let menu = try XCTFreeUnwrap(tracker.menu, "wrapped title native menu")
         let detailsIndex = try XCTFreeUnwrap(
             menu.items.indices.first { menu.items[$0].title == "Details…" && menu.items[$0].isEnabled },
