@@ -6198,6 +6198,23 @@
         }
       }
     },
+    "In a bit": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "In a bit"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦În à bït ·~⟧"
+          }
+        }
+      }
+    },
     "Inbox": {
       "extractionState": "manual",
       "localizations": {
@@ -12508,6 +12525,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "⟦Thë ön-dëvïcë mödël ïsn't rëàdy yët. Try àgàïn shörtly. ·~⟧"
+          }
+        }
+      }
+    },
+    "The phone edit preference could not be saved. Retry in Settings.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The phone edit preference could not be saved. Retry in Settings."
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Thë phönë ëdït prëfërëncë cöüld nöt bë sàvëd. Rëtry ïn Sëttïngs. ·~⟧"
           }
         }
       }

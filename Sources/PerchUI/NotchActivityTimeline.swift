@@ -22,13 +22,19 @@ public struct NotchActivity: Equatable, Identifiable, Sendable {
     public var id: String
     public var taskID: UUID?
     public var fileURL: URL?
+    /// A configured heads-up ends at the meeting; a retained reminder ends only when answered.
+    public var expiresAt: Date?
 
-    public init(kind: Kind, title: String, date: Date, id: String, taskID: UUID? = nil, fileURL: URL? = nil) {
+    public init(
+        kind: Kind, title: String, date: Date, id: String, taskID: UUID? = nil, fileURL: URL? = nil,
+        expiresAt: Date? = nil
+    ) {
         self.kind = kind; self.title = title; self.date = date; self.id = id
-        self.taskID = taskID; self.fileURL = fileURL
+        self.taskID = taskID; self.fileURL = fileURL; self.expiresAt = expiresAt
     }
 
     public var duration: TimeInterval {
+        if let expiresAt { return expiresAt.timeIntervalSince(date) }
         switch kind {
         case .reminder: return NotchActivityTimeline.reminderDuration
         case .eventSoon: return NotchActivityTimeline.eventLead
@@ -85,13 +91,17 @@ public struct NotchActivityTimeline: Equatable, Sendable {
             guard !task.done, task.day != nil, let date = task.remindAt else { return nil }
             return NotchActivity(
                 kind: .reminder, title: task.title, date: date,
-                id: identity(.reminder, source: task.id.uuidString, date: date), taskID: task.id)
+                id: identity(.reminder, source: task.id.uuidString, date: date), taskID: task.id,
+                expiresAt: planner.preferences.persistentReminders ? .distantFuture : nil)
         }
-        for event in events where !event.isAllDay {
-            activities.append(
-                NotchActivity(
-                    kind: .eventSoon, title: event.title, date: event.start.addingTimeInterval(-eventLead),
-                    id: identity(.eventSoon, source: event.id, date: event.start)))
+        let lead = TimeInterval(planner.preferences.meetingHeadsUp.rawValue * 60)
+        for event in events where planner.preferences.showCalendarMeetings && !event.isAllDay {
+            if lead > 0 {
+                activities.append(
+                    NotchActivity(
+                        kind: .eventSoon, title: event.title, date: event.start.addingTimeInterval(-lead),
+                        id: identity(.eventSoon, source: event.id, date: event.start), expiresAt: event.start))
+            }
             activities.append(
                 NotchActivity(
                     kind: .eventNow, title: event.title, date: event.start,
@@ -118,7 +128,7 @@ public struct NotchActivityTimeline: Equatable, Sendable {
     public func nextChange(after date: Date, dismissed: Set<String> = []) -> Date? {
         let current = showing(at: date, dismissed: dismissed)
         let boundaries = Set(activities.filter { !dismissed.contains($0.id) }.flatMap { [$0.date, $0.end] })
-        return boundaries.filter { $0 > date }.sorted().first {
+        return boundaries.filter { $0 > date && $0 < .distantFuture }.sorted().first {
             showing(at: $0, dismissed: dismissed) != current
         }
     }

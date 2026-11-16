@@ -312,7 +312,7 @@ extension CalendarService {
     func yourDayMeetings(day: DayKey, calendar: Calendar, hiddenIDs: Set<String>, completedIDs: Set<String>)
         -> [YourDayTimeline.Meeting]
     {
-        guard hasAccess else { return [] }
+        guard hasAccess, showsMeetings else { return [] }
         let selected = source.calendars().filter { !hiddenIDs.contains($0.calendarIdentifier) }
         guard !selected.isEmpty else { return [] }
         let first = day.date(calendar: calendar)

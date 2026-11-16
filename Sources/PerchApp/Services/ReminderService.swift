@@ -50,12 +50,14 @@ final class ReminderService: NSObject, UNUserNotificationCenterDelegate {
         let reminders: [NotchActivity]
         let repeats: [RepeatSource]
         let resetHour: Int
+        let notifyWhenClosed: Bool
         init(_ planner: Planner) {
             reminders = NotchActivityTimeline.triggers(planner: planner)
             repeats = planner.tasks.filter { $0.repeatRule != nil }.map {
                 RepeatSource(id: $0.id, day: $0.day, anchor: $0.repeatAnchor, rule: $0.repeatRule, done: $0.done)
             }
             resetHour = planner.preferences.resetHour
+            notifyWhenClosed = planner.preferences.notifyWhenClosed
         }
     }
 
