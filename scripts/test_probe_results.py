@@ -544,8 +544,14 @@ print("settings checkbox selector controls passed")
         self.assertIn("ProjectDeleteTarget", projects)
         self.assertNotIn("PillStyle(focus:", projects)
         self.assertNotIn(".onKeyPress(", projects)
-        self.assertIn("PerchButton(kind: .quiet, size: .small, surface: value.surface, "
-                      "action: { options.toggle() }) {", projects)
+        self.assertIn('.dashboardPaneAction(', projects)
+        self.assertIn('AppL10n.text("Project options"), identifier: "project-options-\\(project.id.uuidString)"',
+                      projects)
+        self.assertIn('action: { options.toggle() }', projects)
+        pane = (ROOT / "Sources/PerchApp/Settings/HistoryView.swift").read_text()
+        self.assertIn('final class DashboardPaneActionView: NSControl', pane)
+        self.assertIn('setAccessibilityRole(.button)', pane)
+        self.assertIn('view.onAction = action', pane)
         self.assertIn(".popover(isPresented: $options)", projects)
         self.assertIn("ProjectDeleteButton { delete() }", projects)
         self.assertIn("struct DashboardProjectDeleteButton: View", shell)
@@ -557,8 +563,8 @@ print("settings checkbox selector controls passed")
         self.assertIn("final class DashboardProjectActionView: NSButton", shell)
         self.assertIn("override var acceptsFirstResponder: Bool { isEnabled && !isHiddenOrHasHiddenAncestor }",
                       shell)
-        # The shared pill style registers focus on the actual button, which is how
-        # the visible options control that opens the popover takes a Tab stop.
+        # The shared pill style still registers Clips focus on the real button;
+        # Dashboard page actions instead use their explicit native owner above.
         self.assertIn(".focusable(enabled)\n                    .focused(externalFocus)", style)
         self.assertRegex(clips, r"\.focusable\(enabled\)\s*\.focused\(\$copyFocused\)")
         self.assertIn("focused: copyFocused", clips)

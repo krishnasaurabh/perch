@@ -84,8 +84,9 @@ struct ProjectsList: View {
                     PerchField("Project name", text: $newName, focus: $newNameFocused, onSubmit: create)
                     if let error { Text(error).perchFont(.detail).foregroundStyle(Theme.ink2) }
                     Spacer(minLength: .zero)
-                    PerchButton("Add project", action: create)
-                    PerchButton("Not now", kind: .quiet) {
+                    DashboardPaneButton(
+                        "Add project", identifier: "project-create", kind: .main, size: .regular, action: create)
+                    DashboardPaneButton("Not now", identifier: "project-cancel-create", size: .regular) {
                         creating = false; error = nil
                     }
                 }
@@ -128,34 +129,23 @@ struct ProjectsList: View {
 
 private struct ProjectNewButton: View {
     let action: () -> Void
-    @FocusState private var focused: Bool
 
     var body: some View {
-        Button(action: action) {
-            Text("New project").perchFont(.button).foregroundStyle(Theme.brandText)
-                .frame(maxWidth: .infinity, minHeight: ProjectReviewCard.cardHeight)
-                .contentShape(RoundedRectangle(cornerRadius: Theme.Size.cardRadius.value))
-        }
-        .buttonStyle(.plain)
-        .focusable()
-        .focused($focused)
-        .focusEffectDisabled()
-        .overlay {
-            RoundedRectangle(cornerRadius: Theme.Size.cardRadius.value)
-                .strokeBorder(
-                    Theme.ink2,
-                    style: StrokeStyle(
-                        lineWidth: Theme.Size.cardEdge.value,
-                        dash: [SurfaceMetrics.gap / 2])
-                )
-                .allowsHitTesting(false)
-        }
-        .overlay(
-            FocusRing(
-                shape: RoundedRectangle(cornerRadius: Theme.Size.cardRadius.value),
-                focused: focused, surface: .sheet)
-        )
-        .accessibilityIdentifier("project-new")
+        Text("New project").perchFont(.button).foregroundStyle(Theme.brandText)
+            .frame(maxWidth: .infinity, minHeight: ProjectReviewCard.cardHeight)
+            .overlay {
+                RoundedRectangle(cornerRadius: Theme.Size.cardRadius.value)
+                    .strokeBorder(
+                        Theme.ink2,
+                        style: StrokeStyle(
+                            lineWidth: Theme.Size.cardEdge.value,
+                            dash: [SurfaceMetrics.gap / 2])
+                    )
+                    .allowsHitTesting(false)
+            }
+            .dashboardPaneAction(
+                AppL10n.text("New project"), identifier: "project-new",
+                radius: Theme.Size.cardRadius.value, surface: .sheet, action: action)
     }
 }
 
@@ -186,21 +176,26 @@ private struct ProjectReviewCard: View {
                         Text(project.name).perchFont(.stripTitle).fixedSize(horizontal: false, vertical: true)
                     }
                     Spacer(minLength: .zero)
-                    PerchButton(kind: .quiet, size: .small, surface: value.surface, action: { options.toggle() }) {
-                        Image(systemName: "ellipsis").perchFont(.body)
-                    }
-                    .accessibilityLabel(AppL10n.text("Project options"))
-                    .accessibilityIdentifier("project-options-\(project.id.uuidString)")
-                    .popover(isPresented: $options) {
-                        VStack(alignment: .leading, spacing: SurfaceMetrics.gap) {
-                            PerchButton("Rename project", kind: .quiet) {
-                                beginRename(); options = false
+                    Image(systemName: "ellipsis").perchFont(.body)
+                        .foregroundStyle(Theme.ink2)
+                        .padding(.horizontal, Theme.Size.buttonSidePadding.value)
+                        .padding(.vertical, Theme.Size.stepCheckboxRadius.value)
+                        .frame(minWidth: Theme.Size.minimumTarget.value, minHeight: Theme.Size.smallButtonHeight.value)
+                        .dashboardPaneAction(
+                            AppL10n.text("Project options"), identifier: "project-options-\(project.id.uuidString)",
+                            radius: Theme.Size.smallButtonHeight.value / 2, surface: value.surface,
+                            action: { options.toggle() }
+                        )
+                        .popover(isPresented: $options) {
+                            VStack(alignment: .leading, spacing: SurfaceMetrics.gap) {
+                                PerchButton("Rename project", kind: .quiet) {
+                                    beginRename(); options = false
+                                }
+                                ProjectDeleteButton { delete() }
                             }
-                            ProjectDeleteButton { delete() }
+                            .padding(Theme.Size.cardPadding.value)
+                            .background(Theme.paper)
                         }
-                        .padding(Theme.Size.cardPadding.value)
-                        .background(Theme.paper)
-                    }
                 }
                 Text(AppL10n.format("%lld open, %lld done", value.open, value.done))
                     .perchFont(.detail).foregroundStyle(Theme.ink2)
@@ -216,8 +211,12 @@ private struct ProjectReviewCard: View {
                 Spacer(minLength: Theme.Size.minimumTarget.value)
                 if renaming {
                     if let error { Text(error).perchFont(.detail).foregroundStyle(Theme.ink2) }
-                    PerchButton("Save name", size: .small, surface: value.surface, action: rename)
-                    PerchButton("Not now", kind: .quiet, size: .small, surface: value.surface) { renaming = false }
+                    DashboardPaneButton(
+                        "Save name", identifier: "project-save-name", kind: .main, surface: value.surface,
+                        action: rename)
+                    DashboardPaneButton("Not now", identifier: "project-cancel-name", surface: value.surface) {
+                        renaming = false
+                    }
                 } else {
                     Text("Next").perchFont(.detailStrong).foregroundStyle(Theme.ink2)
                     Text(value.next?.title ?? AppL10n.text("Nothing waiting in this project."))

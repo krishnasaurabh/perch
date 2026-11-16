@@ -6,6 +6,50 @@ import XCTest
 
 @MainActor
 final class DashboardPaneHostingTests: XCTestCase {
+    func testClosingAnEditingHistoryWindowAllowsAFreshProjectsWindow() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = PlannerStore(
+            file: PlannerFile(url: directory.appendingPathComponent("planner.json")), watching: false)
+        let previousPolicy = NSApplication.shared.activationPolicy()
+        NSApp.setActivationPolicy(.regular)
+        defer {
+            WindowHost.windows["dashboard"]?.close()
+            NSApp.setActivationPolicy(previousPolicy)
+        }
+        _ = store.send(.createProject("Window lifecycle fixture"))
+        for tab in [DashboardView.Tab.history, .projects, .history, .projects] {
+            DashboardWindow.show(store: store, tab: tab)
+            do {
+                let window = try XCTUnwrap(WindowHost.windows["dashboard"])
+                window.contentView?.layoutSubtreeIfNeeded()
+                try await Task.sleep(nanoseconds: 100_000_000)
+                if tab == .history {
+                    let search = try XCTUnwrap(
+                        Self.views(try XCTUnwrap(window.contentView))
+                            .compactMap { $0 as? DashboardSearchField }.first)
+                    XCTAssertTrue(window.makeFirstResponder(search))
+                    let editor = try XCTUnwrap(search.currentEditor() as? NSTextView)
+                    editor.insertText("alpha", replacementRange: NSRange(location: 0, length: 0))
+                    try await Task.sleep(nanoseconds: 100_000_000)
+                    XCTAssertEqual(search.stringValue, "alpha")
+                }
+                window.close()
+                XCTAssertNil(WindowHost.windows["dashboard"], "Close retires this window identity synchronously")
+                // A deferred layout/paint callback must not rebuild a closed window's loop.
+                window.initialFirstResponder = nil
+                DashboardKeyLoop.install(in: window)
+                XCTAssertNil(window.initialFirstResponder)
+                try await Task.sleep(nanoseconds: 100_000_000)
+                XCTAssertNil(window.contentView, "Detach the hosted graph before the owning window is released")
+            }
+            // Release the production window before mounting the next section.
+            try await Task.sleep(nanoseconds: 100_000_000)
+        }
+    }
+
+    private static func views(_ view: NSView) -> [NSView] { [view] + view.subviews.flatMap(views) }
+
     func testRootUpdatesKeepListStateAndForwardStoreAndEnvironment() async throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: directory) }
