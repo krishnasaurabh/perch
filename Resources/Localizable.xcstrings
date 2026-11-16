@@ -6793,6 +6793,23 @@
         }
       }
     },
+    "In a bit": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "In a bit"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦În à bït ·~⟧"
+          }
+        }
+      }
+    },
     "Inbox": {
       "extractionState": "manual",
       "localizations": {
