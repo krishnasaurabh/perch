@@ -18,6 +18,7 @@ final class NotchStrips {
     private let agentFloor: Date
     private var subscriptions = Set<AnyCancellable>()
     private var wake: Timer?
+    private(set) var nextWake: Date?
     private var queue = NotchStripQueue()
     private var cards: [String: PresentedNotchActivity] = [:]
     private var oneOffs: [String: (NotchStripQueue.Item, PresentedNotchActivity)] = [:]
@@ -241,7 +242,7 @@ final class NotchStrips {
                 }
             }
         }
-        for event in calendar?.events ?? [] where !event.allDay && planner.preferences.meetingHeadsUp != .off {
+        for event in calendar?.events ?? [] where planner.preferences.showCalendarMeetings && !event.allDay {
             let begins = event.start.addingTimeInterval(-Double(planner.preferences.meetingHeadsUp.rawValue * 60))
             let ends = event.start.addingTimeInterval(NotchActivityTimeline.lateGrace)
             guard ends > date else { continue }
@@ -315,6 +316,7 @@ final class NotchStrips {
         visibleID = current?.id
         if model.activity != current { model.showStrip(current) }
         let next = (boundaries + [queue.nextChange].compactMap { $0 }).filter { $0 > date }.min()
+        nextWake = next
         if let next, PreviewClock.date == nil {
             let timer = Timer(fire: next, interval: 0, repeats: false) { [weak self] _ in
                 Task { @MainActor in self?.refresh() }
