@@ -40,8 +40,8 @@ final class DashboardPaneHostingTests: XCTestCase {
         XCTAssertEqual(report.textSize, .accessibility3)
         XCTAssertTrue(report.accessibilityEnabled)
 
-        let wide = controller.sizeThatFits(in: CGSize(width: 640, height: .greatestFiniteMagnitude))
-        let narrow = controller.sizeThatFits(in: CGSize(width: 240, height: .greatestFiniteMagnitude))
+        let wide = controller.sizeThatFits(in: CGSize(width: 640, height: CGFloat.greatestFiniteMagnitude))
+        let narrow = controller.sizeThatFits(in: CGSize(width: 240, height: CGFloat.greatestFiniteMagnitude))
         XCTAssertEqual(wide.width, 640, accuracy: 1)
         XCTAssertEqual(narrow.width, 240, accuracy: 1)
         XCTAssertGreaterThan(narrow.height, wide.height, "The scroll document must grow when its text wraps")
