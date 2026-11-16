@@ -69,6 +69,8 @@ struct TasksCard: View {
                         .motion(Motion.row, value: ids)
                         .background(TasksContinuationObserver())
                     }
+                    // Identify only the scroller, not the sibling Undo inset.
+                    .accessibilityIdentifier("today-task-viewport")
                     .scrollIndicators(.automatic)
                     .onChange(of: focus) { _, value in
                         if let id = value?.taskID { scroll.scrollTo(id) }
@@ -84,8 +86,6 @@ struct TasksCard: View {
             // Keep the bounded scroller in a flexible slot so header changes consume slack,
             // rather than resizing a centered card and moving capture with it.
             .frame(maxHeight: .infinity, alignment: .top)
-            .accessibilityIdentifier(
-                "today-task-viewport")
             TaskComposer(day: .day(store.today), placeholder: "What would you like to do?", focus: $focus)
                 .fixedSize(horizontal: false, vertical: true)
                 .layoutPriority(1)
