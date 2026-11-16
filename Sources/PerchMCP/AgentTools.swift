@@ -165,7 +165,10 @@ public struct AgentTools {
             required: ["task"]),
         tool(
             "snooze_reminder", "Schedule another reminder for a task after a short delay.",
-            ["task": taskRef, "minutes": int("Delay in minutes; omitted means 5.", range: 1...1440)], required: ["task"]
+            [
+                "task": taskRef,
+                "minutes": int("Delay in minutes; omit to use the configured snooze interval.", range: 1...1440),
+            ], required: ["task"]
         ),
         tool(
             "start_timer",
@@ -429,7 +432,7 @@ public struct AgentTools {
             let t = try edit { try $0.update(try task(), on: try day("date"), ed) }
             return "Updated.\n" + detail(t, try read())
         case "snooze_reminder":
-            let t = try edit { try $0.snooze(try task(), minutes: minutes(in: 1...1440) ?? 5) }
+            let t = try edit { try $0.snooze(try task(), minutes: minutes(in: 1...1440)) }
             return "Snoozed \(t.title) until \(hm(t.remindAt!))."
         case "start_timer":
             if a["task"] != nil, a["minutes"] != nil, !commands.planner.preferences.agentsCanEditTasks {

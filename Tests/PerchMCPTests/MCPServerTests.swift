@@ -112,7 +112,7 @@ final class MCPServerTests: XCTestCase {
         XCTAssertNil(try file.load().tasks.first?.minutes)
         let (_, defaultError) = call("snooze_reminder", ["task": "bounds probe"])
         XCTAssertFalse(defaultError)
-        XCTAssertEqual(try file.load().tasks.first?.remindAt, Fixture.now.addingTimeInterval(5 * 60))
+        XCTAssertEqual(try file.load().tasks.first?.remindAt, Fixture.now.addingTimeInterval(10 * 60))
         for value: JSON in [1, 1440, "1440"] {
             // Restore today's schedule after a full-day snooze.
             let task = try XCTUnwrap(file.load().tasks.first)
