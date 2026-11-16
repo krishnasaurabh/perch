@@ -27,6 +27,7 @@ final class NotchReminderObservation {
             .sink { [weak store, weak reminders, weak model] in
                 guard let store, let reminders, let model else { return }
                 model.refreshMissedReminder(planner: store.planner, records: reminders.records, now: now())
+                model.strips?.refresh()
             }
     }
 }

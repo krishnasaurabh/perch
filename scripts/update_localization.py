@@ -14,6 +14,9 @@ REMINDERS = ROOT / "Sources/PerchReminders"
 UI_CATALOG = UI / "Resources/Localizable.xcstrings"
 APP_CATALOG = APP / "Resources/Localizable.xcstrings"
 BUNDLED_CATALOG = ROOT / "Resources/Localizable.xcstrings"
+# Retain the established reminder label while the live strip uses a duration label.
+# Older presentation callers can still resolve this key through AppL10n.
+APP_COMPATIBILITY_KEYS = {"In a bit"}
 
 L10N = re.compile(r'(?:PerchL10n|AppL10n)\.(?:text|format)\(\s*"((?:\\.|[^"\\])*)"')
 STATIC_UI = re.compile(
@@ -78,7 +81,7 @@ def collect(pattern, paths):
 
 def human_app_strings():
     paths = list(APP.rglob('*.swift'))
-    found = collect(L10N, paths)
+    found = APP_COMPATIBILITY_KEYS | collect(L10N, paths)
     found |= collect(STATIC_UI, paths)
     found |= collect(HELPER_ARGUMENT, paths)
     found |= collect(PRESENTATION_HELPER, paths)

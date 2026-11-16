@@ -1,7 +1,7 @@
 import Combine
 import Foundation
 import PerchUI
-import PlannerCore
+@testable import PlannerCore
 import UserNotifications
 import XCTest
 @testable import PerchApp
@@ -23,6 +23,69 @@ private final class NotchNotificationSource: NotificationAccess {
 private final class NotchReminderTime { var now = Date(timeIntervalSince1970: 1_800_000_000) }
 
 final class NotchReminderTests: XCTestCase {
+    @MainActor
+    func testStripStartAcknowledgesOnlyTheAnsweredClosedReminder() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        let file = PlannerFile(
+            url: root.appendingPathComponent("planner.json"), preferences: MemoryPlannerPreferences())
+        let day = PlannerEngine(planner: Planner(), now: { now }).today
+        let first = PlanTask(title: "Call the bank", day: day, remindAt: now.addingTimeInterval(-2))
+        let second = PlanTask(title: "Book the appointment", day: day, remindAt: now.addingTimeInterval(-1))
+        try file.mutate { $0.tasks = [first, second] }
+        let store = PlannerStore(file: file, now: { now }, watching: false)
+        let model = NotchModel(); model.screenID = 1
+        let strips = NotchStrips(store: store, model: model, now: { now }); model.strips = strips
+        model.closedReminderIDs = [first.id, second.id]
+        let activity = try XCTUnwrap(strips.currentActivity)
+        XCTAssertEqual(activity.taskID, first.id)
+        var invalid = activity; invalid.taskID = UUID()
+        XCTAssertFalse(strips.answer(.start, activity: invalid), "A failed answer must keep the waiting indicator")
+        XCTAssertEqual(model.closedReminderIDs, [first.id, second.id])
+        XCTAssertTrue(strips.answer(.start, activity: activity))
+        XCTAssertEqual(store.planner.focus?.taskID, first.id)
+        XCTAssertEqual(store.planner.focus?.state, .running)
+        XCTAssertFalse(try XCTUnwrap(store.planner.tasks.first { $0.id == first.id }).done)
+        XCTAssertEqual(store.planner.tasks.first { $0.id == first.id }?.remindAt, first.remindAt)
+        XCTAssertEqual(model.closedReminderIDs, [second.id], "Starting a block answers just that reminder")
+        XCTAssertEqual(strips.currentActivity?.taskID, second.id)
+        XCTAssertTrue(model.closed(in: store, screenID: 1, now: now).reminder)
+        XCTAssertTrue(strips.answer(.notToday, activity: try XCTUnwrap(strips.currentActivity)))
+        strips.refresh()
+        XCTAssertTrue(model.closedReminderIDs.isEmpty)
+        XCTAssertNil(strips.currentActivity)
+        XCTAssertFalse(model.closed(in: store, screenID: 1, now: now).reminder)
+        let request = ScheduledReminder(task: first)
+        model.refreshMissedReminder(
+            planner: store.planner, records: [request.id: .init(date: request.date, state: .missed)], now: now)
+        XCTAssertNil(model.missedReminder, "Delivery reconciliation cannot resurrect the answered occurrence")
+    }
+
+    @MainActor
+    func testStripSnoozeAcknowledgesTheOldOccurrenceNotItsNewDueTime() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let time = NotchReminderTime()
+        let file = PlannerFile(
+            url: root.appendingPathComponent("planner.json"), preferences: MemoryPlannerPreferences())
+        let day = PlannerEngine(planner: Planner(), now: { time.now }).today
+        try file.mutate {
+            $0.tasks = [PlanTask(title: "Call the bank", day: day, remindAt: time.now)]
+        }
+        let store = PlannerStore(file: file, now: { time.now }, watching: false)
+        let model = NotchModel()
+        let strips = NotchStrips(store: store, model: model, now: { time.now }); model.strips = strips
+        XCTAssertTrue(strips.answer(.snooze, activity: try XCTUnwrap(strips.currentActivity)))
+        XCTAssertTrue(model.closedReminderIDs.isEmpty)
+        let task = try XCTUnwrap(store.planner.tasks.first)
+        let request = ScheduledReminder(task: task)
+        time.now = request.date.addingTimeInterval(120)
+        model.refreshMissedReminder(
+            planner: store.planner, records: [request.id: .init(date: request.date, state: .missed)], now: time.now)
+        XCTAssertEqual(model.missedReminder?.kind, .reminder(task.id), "The snoozed occurrence is still answerable")
+    }
+
     @MainActor
     func testPersistentPreferenceAloneClearsAndRestoresMissedProjection() async throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)

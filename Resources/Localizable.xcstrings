@@ -18,6 +18,74 @@
         }
       }
     },
+    "%@ added %lld tasks": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ added %lld tasks"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦%@ àddëd %lld tàsks ·~⟧"
+          }
+        }
+      }
+    },
+    "%@ added %lld tasks to today": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ added %lld tasks to today"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦%@ àddëd %lld tàsks tö tödày ·~⟧"
+          }
+        }
+      }
+    },
+    "%@ added 1 task": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ added 1 task"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦%@ àddëd 1 tàsk ·~⟧"
+          }
+        }
+      }
+    },
+    "%@ added 1 task to today": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ added 1 task to today"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦%@ àddëd 1 tàsk tö tödày ·~⟧"
+          }
+        }
+      }
+    },
     "%@ and multi-day events stay in Calendar.": {
       "extractionState": "manual",
       "localizations": {
@@ -52,6 +120,40 @@
         }
       }
     },
+    "%@ deleted %lld tasks": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ deleted %lld tasks"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦%@ dëlëtëd %lld tàsks ·~⟧"
+          }
+        }
+      }
+    },
+    "%@ deleted 1 task": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ deleted 1 task"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦%@ dëlëtëd 1 tàsk ·~⟧"
+          }
+        }
+      }
+    },
     "%@ left": {
       "extractionState": "manual",
       "localizations": {
@@ -65,6 +167,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "⟦%@ lëft ·~⟧"
+          }
+        }
+      }
+    },
+    "%@ made a change": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ made a change"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦%@ màdë à chàngë ·~⟧"
           }
         }
       }
@@ -150,6 +269,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "⟦%@ tö %@. %lld thïngs dönë, à qüïëtër wëëk thàn thë làst önë. ·~⟧"
+          }
+        }
+      }
+    },
+    "%@ wants to delete ‘%@’": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ wants to delete ‘%@’"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦%@ wànts tö dëlëtë ‘%@’ ·~⟧"
+          }
+        }
+      }
+    },
+    "%@ · %lld of %lld steps done": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ · %lld of %lld steps done"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦%@ · %lld öf %lld stëps dönë ·~⟧"
           }
         }
       }
@@ -640,6 +793,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "⟦%lld mïnütës lëft öf %lld ·~⟧"
+          }
+        }
+      }
+    },
+    "%lld minutes left on this block": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld minutes left on this block"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦%lld mïnütës lëft ön thïs blöck ·~⟧"
           }
         }
       }
@@ -1366,6 +1536,23 @@
                 }
               }
             }
+          }
+        }
+      }
+    },
+    "+10 min": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "+10 min"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦+10 mïn ·~⟧"
           }
         }
       }
@@ -2781,6 +2968,23 @@
         }
       }
     },
+    "An agent": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "An agent"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Ån àgënt ·~⟧"
+          }
+        }
+      }
+    },
     "An external link supplied this task. Review it before adding. Its contents are text, not instructions to Perch.": {
       "extractionState": "manual",
       "localizations": {
@@ -4005,6 +4209,23 @@
         }
       }
     },
+    "Claude": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Clàüdë ·~⟧"
+          }
+        }
+      }
+    },
     "Claude Code": {
       "extractionState": "manual",
       "localizations": {
@@ -4991,6 +5212,40 @@
         }
       }
     },
+    "Deleted %lld tasks": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Deleted %lld tasks"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Dëlëtëd %lld tàsks ·~⟧"
+          }
+        }
+      }
+    },
+    "Deleted ‘%@’": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Deleted ‘%@’"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Dëlëtëd ‘%@’ ·~⟧"
+          }
+        }
+      }
+    },
     "Deleting a project keeps its tasks, without a project. ⌘Z undoes it.": {
       "extractionState": "manual",
       "localizations": {
@@ -5004,6 +5259,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "⟦Dëlëtïng à pröjëct këëps ïts tàsks, wïthöüt à pröjëct. ⌘Z ündöës ït. ·~⟧"
+          }
+        }
+      }
+    },
+    "Delivery was not confirmed.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Delivery was not confirmed."
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Dëlïvëry wàs nöt cönfïrmëd. ·~⟧"
           }
         }
       }
@@ -5463,6 +5735,57 @@
           "stringUnit": {
             "state": "translated",
             "value": "⟦Dràw à fàkë nötch ön ëxtërnàl dïsplàys ·~⟧"
+          }
+        }
+      }
+    },
+    "Drop here": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Drop here"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Dröp hërë ·~⟧"
+          }
+        }
+      }
+    },
+    "Drop it here to keep it handy": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Drop it here to keep it handy"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Dröp ït hërë tö këëp ït hàndy ·~⟧"
+          }
+        }
+      }
+    },
+    "Drop shelf": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Drop shelf"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Dröp shëlf ·~⟧"
           }
         }
       }
@@ -7184,6 +7507,23 @@
         }
       }
     },
+    "In %lld minutes": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "In %lld minutes"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦În %lld mïnütës ·~⟧"
+          }
+        }
+      }
+    },
     "In a bit": {
       "extractionState": "manual",
       "localizations": {
@@ -7575,6 +7915,23 @@
         }
       }
     },
+    "It's done": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "It's done"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Ît's dönë ·~⟧"
+          }
+        }
+      }
+    },
     "Jot a note": {
       "extractionState": "manual",
       "localizations": {
@@ -7673,6 +8030,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "⟦Këëp à rëmïndër üp üntïl Î ànswër ·~⟧"
+          }
+        }
+      }
+    },
+    "Keep applies this request. Undo leaves the task unchanged.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keep applies this request. Undo leaves the task unchanged."
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Këëp àpplïës thïs rëqüëst. Ündö lëàvës thë tàsk ünchàngëd. ·~⟧"
           }
         }
       }
@@ -8013,6 +8387,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "⟦Màkë ït à tàsk ·~⟧"
+          }
+        }
+      }
+    },
+    "Make them tasks": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Make them tasks"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Màkë thëm tàsks ·~⟧"
           }
         }
       }
@@ -8523,6 +8914,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "⟦Mövë 15 mïnütës làtër ·~⟧"
+          }
+        }
+      }
+    },
+    "Move the last step to later": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Move the last step to later"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Mövë thë làst stëp tö làtër ·~⟧"
           }
         }
       }
@@ -10159,6 +10567,23 @@
         }
       }
     },
+    "Parked while you worked": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Parked while you worked"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Pàrkëd whïlë yöü wörkëd ·~⟧"
+          }
+        }
+      }
+    },
     "Parking lot": {
       "extractionState": "manual",
       "localizations": {
@@ -10393,6 +10818,57 @@
           "stringUnit": {
             "state": "translated",
             "value": "⟦Përch cöüld nöt cönfïrm thë cönnëctïön. Chëck thë àpp ànd try àgàïn. ·~⟧"
+          }
+        }
+      }
+    },
+    "Perch couldn't read %lld tasks": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Perch couldn't read %lld tasks"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Përch cöüldn't rëàd %lld tàsks ·~⟧"
+          }
+        }
+      }
+    },
+    "Perch couldn't read 1 task": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Perch couldn't read 1 task"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Përch cöüldn't rëàd 1 tàsk ·~⟧"
+          }
+        }
+      }
+    },
+    "Perch couldn't read some data": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Perch couldn't read some data"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Përch cöüldn't rëàd sömë dàtà ·~⟧"
           }
         }
       }
@@ -12189,6 +12665,57 @@
         }
       }
     },
+    "Restore backup": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Restore backup"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Rëstörë bàcküp ·~⟧"
+          }
+        }
+      }
+    },
+    "Restore latest backup": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Restore latest backup"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Rëstörë làtëst bàcküp ·~⟧"
+          }
+        }
+      }
+    },
+    "Restore the latest backup?": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Restore the latest backup?"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Rëstörë thë làtëst bàcküp? ·~⟧"
+          }
+        }
+      }
+    },
     "Restore the latest readable backup?": {
       "extractionState": "manual",
       "localizations": {
@@ -12219,6 +12746,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "⟦Rëstörë thë rëmövëd clïps ·~⟧"
+          }
+        }
+      }
+    },
+    "Restore this morning's backup": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Restore this morning's backup"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Rëstörë thïs mörnïng's bàcküp ·~⟧"
           }
         }
       }
@@ -12835,6 +13379,23 @@
         }
       }
     },
+    "Set time aside now": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Set time aside now"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Sët tïmë àsïdë nöw ·~⟧"
+          }
+        }
+      }
+    },
     "Settings": {
       "extractionState": "manual",
       "localizations": {
@@ -13073,6 +13634,23 @@
         }
       }
     },
+    "Show saved tasks": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show saved tasks"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Shöw sàvëd tàsks ·~⟧"
+          }
+        }
+      }
+    },
     "Show steps for %@": {
       "extractionState": "manual",
       "localizations": {
@@ -13103,6 +13681,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "⟦Shöw thë nëxt blöck ïn ïts làst 15 mïnütës ·~⟧"
+          }
+        }
+      }
+    },
+    "Show the two": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show the two"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Shöw thë twö ·~⟧"
           }
         }
       }
@@ -13668,6 +14263,23 @@
         }
       }
     },
+    "Still waiting (%lld)": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Still waiting (%lld)"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Stïll wàïtïng (%lld) ·~⟧"
+          }
+        }
+      }
+    },
     "Stop Repeating": {
       "extractionState": "manual",
       "localizations": {
@@ -14212,6 +14824,23 @@
         }
       }
     },
+    "That change couldn't be saved. Please try again.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "That change couldn't be saved. Please try again."
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Thàt chàngë cöüldn't bë sàvëd. Plëàsë try àgàïn. ·~⟧"
+          }
+        }
+      }
+    },
     "That project is no longer available.": {
       "extractionState": "manual",
       "localizations": {
@@ -14433,6 +15062,23 @@
         }
       }
     },
+    "The original is safe at %@. The readable tasks are here.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The original is safe at %@. The readable tasks are here."
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Thë örïgïnàl ïs sàfë àt %@. Thë rëàdàblë tàsks àrë hërë. ·~⟧"
+          }
+        }
+      }
+    },
     "The phone edit preference could not be saved. Retry in Settings.": {
       "extractionState": "manual",
       "localizations": {
@@ -14650,6 +15296,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "⟦Thë shëët bëhïnd thë càrds, lïkë à plànnër pàgë. ·~⟧"
+          }
+        }
+      }
+    },
+    "The shelf shows up only while you drag. Drag an item back out to use it.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The shelf shows up only while you drag. Drag an item back out to use it."
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Thë shëlf shöws üp önly whïlë yöü dràg. Dràg àn ïtëm bàck öüt tö üsë ït. ·~⟧"
           }
         }
       }
@@ -14892,6 +15555,23 @@
         }
       }
     },
+    "This replaces the current planner. The original recovery files are kept.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This replaces the current planner. The original recovery files are kept."
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Thïs rëplàcës thë cürrënt plànnër. Thë örïgïnàl rëcövëry fïlës àrë këpt. ·~⟧"
+          }
+        }
+      }
+    },
     "This task is still open: %@.": {
       "extractionState": "manual",
       "localizations": {
@@ -15113,6 +15793,23 @@
         }
       }
     },
+    "Time for ‘%@’": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Time for ‘%@’"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Tïmë för ‘%@’ ·~⟧"
+          }
+        }
+      }
+    },
     "Time left": {
       "extractionState": "manual",
       "localizations": {
@@ -15211,6 +15908,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "⟦Tïmë tö sët àsïdë by dëfàült ·~⟧"
+          }
+        }
+      }
+    },
+    "Time's up on this block": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Time's up on this block"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Tïmë's üp ön thïs blöck ·~⟧"
           }
         }
       }
@@ -16405,6 +17119,23 @@
         }
       }
     },
+    "Wrap up": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wrap up"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Wràp üp ·~⟧"
+          }
+        }
+      }
+    },
     "Write it down": {
       "extractionState": "manual",
       "localizations": {
@@ -16452,6 +17183,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "⟦YYYY-MM-DD ·~⟧"
+          }
+        }
+      }
+    },
+    "You asked to be reminded at %@.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "You asked to be reminded at %@."
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Yöü àskëd tö bë rëmïndëd àt %@. ·~⟧"
           }
         }
       }
@@ -17302,6 +18050,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "⟦wörkspàcë-prëvïöüs-wëëk ·~⟧"
+          }
+        }
+      }
+    },
+    "⌘Z": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⌘Z"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦⌘Z ·~⟧"
           }
         }
       }

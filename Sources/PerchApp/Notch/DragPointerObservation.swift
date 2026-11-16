@@ -43,9 +43,8 @@ final class DragPointerObservation {
         work = scheduler.schedule(after: Self.interval) { [weak self] in
             guard let self else { return }
             self.work = nil
-            guard self.pressed(), self.deadline.map({ self.now() < $0 }) == true else {
-                self.stop(); return
-            }
+            guard self.deadline.map({ self.now() < $0 }) == true else { self.stop(); return }
+            guard self.pressed() else { self.sample(); self.stop(); return }
             self.samples += 1
             self.sample()
             self.schedule()

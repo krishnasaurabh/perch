@@ -45,7 +45,11 @@ class ChecklistRecoveryAndScrollTests(unittest.TestCase):
 
     def test_dismissed_task_remains_recoverable_through_the_rendered_predicates(self):
         source = CARD.read_text()
-        footer = re.search(r"if ([^\n]+) \{\s*footer\.fixedSize", source).group(1)
+        strips = (ROOT / "Sources/PerchApp/Notch/NotchStrips.swift").read_text()
+        footer_match = re.search(r"else if ([^\n]+) \{\s*// The shared footer", strips)
+        assert footer_match is not None, "Shared Undo footer must retain a visibility predicate"
+        footer = footer_match.group(1)
+        self.assertIn('footer.modifier(NotchUndoFooter(', source)
         button = re.search(r'if ([^\n]+) \{\s*Button\("Bring over"\)', source).group(1)
         review = source.split("private struct OverdueReview:", 1)[1]
         candidates = re.search(r"let tasks = ([^\n]+)", review).group(1)
@@ -83,7 +87,10 @@ require(guarded.carryForward([original.id], to: today).isEmpty, "Ordinary carry 
 // Undo is deliberately unavailable: the footer must survive persisted dismissals after a restart too.
 let store = Store(engine: engine, canUndo: false)
 require(FOOTER, "Dismissed task must keep the footer visible")
-require(BUTTON, "Dismissed task must keep Bring over visible")
+let reviewOverdue = true
+let buttonVisible: Bool
+if BUTTON { buttonVisible = true } else { buttonVisible = false }
+require(buttonVisible, "Dismissed task must keep Bring over visible")
 let tasks = CANDIDATES
 require(tasks.map(\.id) == [original.id], "Review must list the promised recovery candidate")
 try pipeline.perform(origin: .user) { commands in ACTION }

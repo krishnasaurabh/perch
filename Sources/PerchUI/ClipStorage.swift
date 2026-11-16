@@ -125,6 +125,86 @@ public enum ClipVault {
     }
 }
 
+/// Durable shelf entries. Old vault copies migrate only when no manifest exists;
+/// an intentionally cleared shelf must never resurrect orphaned files on restart.
+public struct ClipShelfFile: Sendable {
+    public enum Content: Codable, Equatable, Hashable, Sendable {
+        case file(URL), link(URL), text(String), image(Data)
+    }
+    public struct Item: Codable, Equatable, Identifiable, Sendable {
+        public var id: UUID
+        public var content: Content
+        public var date: Date
+        public var pinned: Bool
+        public var origin: URL?
+        public init(id: UUID = UUID(), content: Content, date: Date, pinned: Bool = false, origin: URL? = nil) {
+            self.id = id; self.content = content; self.date = date; self.pinned = pinned; self.origin = origin
+        }
+    }
+    private struct Document: Codable { var version = 1; var items: [Item] }
+    public let vault: URL
+    /// Keep the index outside the payload namespace. A dropped file may itself
+    /// be named shelf.json (or match the index basename) without being overwritten.
+    public var url: URL {
+        vault.deletingLastPathComponent().appendingPathComponent(".perch-shelf", isDirectory: true)
+            .appendingPathComponent(vault.lastPathComponent + ".json")
+    }
+    public init(vault: URL) { self.vault = vault }
+
+    public func load() throws -> [Item] {
+        let fm = FileManager.default
+        if fm.fileExists(atPath: url.path) {
+            let document = try JSONDecoder().decode(Document.self, from: Data(contentsOf: url))
+            guard document.version == 1, Set(document.items.map(\.id)).count == document.items.count else {
+                throw PlannerError("The drop shelf couldn't be read. Its saved file is unchanged.")
+            }
+            return document.items
+        }
+        guard fm.fileExists(atPath: vault.path) else { return [] }
+        let entries = try fm.contentsOfDirectory(
+            at: vault.resolvingSymlinksInPath(),
+            includingPropertiesForKeys: [.isRegularFileKey, .isDirectoryKey, .contentModificationDateKey],
+            options: [])
+        let migrated = try entries.compactMap { file -> Item? in
+            let values = try file.resourceValues(forKeys: [
+                .isRegularFileKey, .isDirectoryKey, .contentModificationDateKey,
+            ])
+            guard values.isRegularFile == true || values.isDirectory == true else { return nil }
+            // Preserve the configured parent spelling, including a symlinked data directory.
+            return Item(
+                content: .file(
+                    vault.appendingPathComponent(file.lastPathComponent, isDirectory: values.isDirectory == true)),
+                date: values.contentModificationDate ?? .distantPast)
+        }.sorted {
+            $0.date == $1.date ? Self.name($0) < Self.name($1) : $0.date > $1.date
+        }
+        try save(migrated)
+        return migrated
+    }
+
+    public func save(_ items: [Item]) throws {
+        let fm = FileManager.default
+        try fm.createDirectory(at: vault, withIntermediateDirectories: true)
+        try fm.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        let encoder = JSONEncoder(); encoder.outputFormatting = [.sortedKeys]
+        try encoder.encode(Document(items: items)).write(to: url, options: .atomic)
+    }
+
+    public func retainedPaths(_ items: [Item]) -> Set<String> {
+        Set(
+            [url.path]
+                + items.compactMap { item in
+                    if case .file(let file) = item.content { return file.path }
+                    return nil
+                })
+    }
+
+    private static func name(_ item: Item) -> String {
+        if case .file(let file) = item.content { return file.lastPathComponent }
+        return item.id.uuidString
+    }
+}
+
 /// "Let go" with a short undo window. Holds the most recent batch; a new let-go makes the previous one final.
 public struct LetGoLedger<Item: Identifiable> {
     public init() {}

@@ -27,7 +27,7 @@ final class Services: ObservableObject {
     func attach(model: NotchModel) {
         self.model = model
         clips.model = model
-        timeline.start(model: model)
+        NotchStrips.install(store: store, calendar: calendar, reminders: reminders, model: model)
     }
 
     func focusFinished() {

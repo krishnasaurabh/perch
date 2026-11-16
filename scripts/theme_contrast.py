@@ -67,7 +67,7 @@ def source_rows():
     assert '.strokeBorder(Theme.cardStroke)' in week
     assert '.strokeBorder(Theme.inputStroke, lineWidth: 1)' in week
     clips = (ROOT / 'Sources/PerchApp/Workspace/ClipsPage.swift').read_text()
-    assert '.stroke(Theme.rope,' in clips
+    assert 'Theme.ink2, style: StrokeStyle(' in clips and 'Theme.apricot' in clips
     rows = []
     def add(mode, label, foreground, background, minimum):
         ratio = contrast(foreground, background)

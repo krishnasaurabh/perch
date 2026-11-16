@@ -56,12 +56,13 @@ final class NotchModel: ObservableObject {
     }
     @Published var page: NotchPage = .home
     @Published var activity: PresentedNotchActivity?
+    var strips: NotchStrips?
     @Published var closedReminderIDs = Set<UUID>()
     @Published private(set) var missedReminder: PresentedNotchActivity?
     private var missedTask: PlanTask?
     private var dismissedReminders = Set<String>()
     /// Transient activities take priority; unresolved reminders remain available afterward.
-    var displayedActivity: PresentedNotchActivity? { activity ?? missedReminder }
+    var displayedActivity: PresentedNotchActivity? { strips.map { $0.currentActivity } ?? (activity ?? missedReminder) }
     /// The screen whose notch is open or showing activity.
     @Published var screenID: CGDirectDisplayID = 0
     /// Geometry of the active screen.
@@ -120,6 +121,7 @@ final class NotchModel: ObservableObject {
     }
 
     func show(_ a: PresentedNotchActivity, for seconds: Double? = nil) {
+        if let strips, a.stripID == nil { strips.enqueueLegacy(a, timeout: seconds); return }
         if case .reminder(let id) = a.kind { closedReminderIDs.insert(id) }
         activityWork?.cancel()
         activityWork = nil
@@ -302,9 +304,11 @@ final class NotchController {
         model.$peeking.removeDuplicates().sink { [weak self] _ in
             DispatchQueue.main.async { self?.updateMouseRouting() }
         }.store(in: &cancellables)
-        model.$activity.merge(with: model.$missedReminder)
-            .sink { [weak self] _ in DispatchQueue.main.async { self?.updateMouseRouting() } }
-            .store(in: &cancellables)
+        model.$activity.merge(
+            with: model.$missedReminder, model.objectWillChange.map { [weak model] _ in model?.activity }
+        )
+        .sink { [weak self] _ in DispatchQueue.main.async { self?.updateMouseRouting() } }
+        .store(in: &cancellables)
         // A count toggle, completion, timer change or day rollover can remove a capsule
         // beneath a stationary pointer. Re-route after publication stores the incoming value.
         model.$taskCountSuppressed.sink { [weak self] _ in
@@ -353,7 +357,9 @@ final class NotchController {
             }
         }
 
-        store.focusFinished = { [weak services] in services?.focusFinished() }
+        store.focusFinished = { [weak self] in
+            if let self { NotchStrips.blockFinished(store: self.store, model: self.model, services: self.services) }
+        }
 
         #if DEBUG || PERCH_TESTING
             // `--dump-layout <path>`: write every screen's live frames as JSON (CI artifact, real-Mac checks).
@@ -577,6 +583,7 @@ final class NotchController {
     /// Exactly the drawn outline: the open workspace (rounded corners and shoulders excluded), or the closed silhouette.
     private func isOnShape(_ p: NSPoint, _ slot: Slot) -> Bool {
         let active = model.screenID == slot.state.id
+        if let hit = model.strips?.contains(p, on: slot.state.id) { return hit }
         if isOnPill(p, slot) { return true }
         if active && model.expanded && model.peeking {
             let rect = peekFrame(slot)
@@ -636,6 +643,7 @@ final class NotchController {
 
     /// A file, link or text dragged onto a notch opens that screen's workspace on Clips, ready for the drop.
     private func watchForDrop(at p: NSPoint) {
+        if services.clips.routeShelfDrag(at: p, model: model, screens: slots.mapValues { $0.state }) { return }
         let pb = NSPasteboard(name: .drag)
         guard NSEvent.pressedMouseButtons & 1 != 0 else { dragBaseline = pb.changeCount; return }
         guard pb.changeCount != dragBaseline, !(model.expanded && openedForDrop),
@@ -650,6 +658,7 @@ final class NotchController {
     }
 
     private func handle(_ e: NSEvent) {
+        services.clips.trackShelfPointer(at: NSEvent.mouseLocation, model: model)
         if e.type == .leftMouseUp {
             dragObservation.stop()
             trackPointer()

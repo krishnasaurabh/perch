@@ -139,15 +139,24 @@ struct TasksCard: View {
                         if foldSelected { scroll.scrollTo("today-fold") }
                     }
                 }
+                // Use viewport space, not the pinned capture row. Deletion keeps
+                // its existing strip/footer presentation outside the viewport.
+                .safeAreaInset(edge: .bottom, spacing: 8) {
+                    if store.canUndo, model.strips?.hasCompletionUndo == true {
+                        undoFooter(reviewOverdue: false)
+                    }
+                }
             }
             .frame(minHeight: 0, maxHeight: WorkspaceLayout.contentHeight)
             // Keep the bounded scroller in a flexible slot so header changes consume slack,
             // rather than resizing a centered card and moving capture with it.
             .frame(maxHeight: .infinity, alignment: .top)
+            // The observer publishes today-task-viewport on the native scroller,
+            // not this container, which would override the checklist group identity.
             Spacer(minLength: .zero).layoutPriority(-1)
-            if store.canUndo || !store.engine.bringOverCandidates().isEmpty {
-                footer.fixedSize(horizontal: false, vertical: true).layoutPriority(1)
-            }
+            footer.modifier(NotchUndoFooter(focus: $focus, reviewingOverdue: $reviewingOverdue)).fixedSize(
+                horizontal: false, vertical: true
+            ).layoutPriority(1)
             TaskComposer(
                 day: .day(store.today), placeholder: "Add a task. Tab makes it a step.", focus: $focus,
                 homeState: homeState, initialStep: preview == .stepEntry,
@@ -195,26 +204,36 @@ struct TasksCard: View {
             ? AppL10n.format("%lld to do", tasks.count) : AppL10n.format("%lld of %lld done", done, tasks.count)
     }
 
-    private var footer: some View {
+    private var showsFooterUndo: Bool {
+        store.canUndo && model.strips?.hasCompletionUndo != true
+            && (model.geometry == nil || model.strips?.currentActivity?.stripKind != .undo)
+    }
+
+    private var footer: some View { undoFooter(reviewOverdue: true) }
+
+    private func undoFooter(reviewOverdue: Bool) -> some View {
         HStack(spacing: Theme.Size.cardPadding.value / 2) {
-            Button {
-                store.undo()
-            } label: {
-                Label("Undo", systemImage: "arrow.uturn.backward")
+            if !reviewOverdue || showsFooterUndo {
+                Button {
+                    store.undo()
+                } label: {
+                    Label("Undo", systemImage: "arrow.uturn.backward")
+                }
+                .buttonStyle(.plain).perchFont(.detailStrong).foregroundStyle(Theme.secondary)
+                .frame(minHeight: Theme.Size.minimumTarget.value)
+                .disabled(!store.canUndo).focusable(store.canUndo).focused($focus, equals: .undo)
+                .onKeyPress(.space, phases: [.down, .repeat, .up]) { press in
+                    guard focus == .undo, store.canUndo, press.modifiers.isEmpty else { return .ignored }
+                    if press.phase == .down { store.undo() }
+                    return .handled
+                }
+                .focusEffectDisabled()
+                .overlay(FocusRing(shape: Capsule(), focused: focus == .undo, surface: .paper))
+                .accessibilityIdentifier("today-undo")
+                .help("Undo the last edit, including task deletion (Command-Z)")
             }
-            .buttonStyle(.plain).perchFont(.detailStrong).foregroundStyle(Theme.secondary)
-            .frame(minHeight: Theme.Size.minimumTarget.value)
-            .disabled(!store.canUndo).focusable(store.canUndo).focused($focus, equals: .undo)
-            .onKeyPress(.space, phases: [.down, .repeat, .up]) { press in
-                guard focus == .undo, store.canUndo, press.modifiers.isEmpty else { return .ignored }
-                if press.phase == .down { store.undo() }
-                return .handled
-            }
-            .focusEffectDisabled()
-            .overlay(FocusRing(shape: Capsule(), focused: focus == .undo, surface: .paper))
-            .accessibilityIdentifier("today-undo")
             Spacer(minLength: .zero)
-            if !store.engine.bringOverCandidates().isEmpty {
+            if reviewOverdue, !store.engine.bringOverCandidates().isEmpty {
                 Button("Bring over") { reviewingOverdue = true }
                     .buttonStyle(.plain).perchFont(.detailStrong).foregroundStyle(Theme.secondary)
                     .frame(minHeight: Theme.Size.minimumTarget.value)
