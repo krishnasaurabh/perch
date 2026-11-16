@@ -14,8 +14,8 @@ PROJECTS = ROOT / "Sources/PerchApp/Settings/ProjectsList.swift"
 
 
 def delete_control(source):
-    return source.split("struct DashboardProjectDeleteButton: View", 1)[1].split(
-        "private struct DashboardProjectActionTarget", 1)[0]
+    return source.split("private struct ProjectDeleteButton: View", 1)[1].split(
+        "private struct ProjectDeleteTarget", 1)[0]
 
 
 def action_class(source):
@@ -23,18 +23,18 @@ def action_class(source):
 
 
 def update_view(source):
-    body = source.split("private struct DashboardProjectActionTarget", 1)[1]
-    return body.split("/// A transparent native action", 1)[0]
+    body = source.split("private struct ProjectDeleteTarget", 1)[1]
+    return body.split("#if DEBUG", 1)[0]
 
 
 class DashboardProjectActionArchitectureTests(unittest.TestCase):
     def test_project_action_has_one_native_target_and_no_swiftui_focus_proxy(self):
         shell = SHELL.read_text()
-        control = delete_control(shell)
+        control = delete_control(PROJECTS.read_text())
         # The paint carries no focus and no second copy of the action; both belong
         # to the single transparent NSButton the representable mounts.
         self.assertIn("Text(AppL10n.text(\"Delete project\"))", control)
-        self.assertIn("DashboardProjectActionTarget(", control)
+        self.assertIn("ProjectDeleteTarget(", control)
         self.assertNotIn(".focusable(", control)
         self.assertNotIn("@FocusState", control)
         self.assertNotIn("Button(", control)
@@ -52,11 +52,11 @@ class DashboardProjectActionArchitectureTests(unittest.TestCase):
     def test_only_the_paint_is_accessibility_hidden(self):
         shell = SHELL.read_text()
         # One hidden paint keeps the native button as the sole accessible element.
-        self.assertEqual(shell.count(".accessibilityHidden(true)"), 1)
-        control = delete_control(shell)
+        self.assertEqual(PROJECTS.read_text().count(".accessibilityHidden(true)"), 1)
+        control = delete_control(PROJECTS.read_text())
         self.assertIn(".accessibilityHidden(true)", control)
         self.assertLess(control.index(".accessibilityHidden(true)"),
-                        control.index("DashboardProjectActionTarget("))
+                        control.index("ProjectDeleteTarget("))
         self.assertIn("setAccessibilityIdentifier(\"dashboard-project-delete\")", action_class(shell))
 
     def test_disabled_or_hidden_actions_never_become_first_responder(self):
@@ -65,7 +65,7 @@ class DashboardProjectActionArchitectureTests(unittest.TestCase):
         self.assertIn("override var acceptsFirstResponder: Bool "
                       "{ isEnabled && !isHiddenOrHasHiddenAncestor }", body)
         self.assertIn("guard acceptsFirstResponder, super.becomeFirstResponder() else { return false }", body)
-        target = update_view(shell)
+        target = update_view(PROJECTS.read_text())
         self.assertIn("view.isEnabled = enabled", target)
         # Losing enablement while focused must drop the responder, not keep a
         # key-convertible button that can no longer act.
@@ -119,7 +119,7 @@ class DashboardProjectActionArchitectureTests(unittest.TestCase):
         # The card's visible options control opens the popover; the popover carries
         # the native action; the action runs the store's own delete transaction.
         self.assertIn(".popover(isPresented: $options)", projects)
-        self.assertIn("DashboardProjectDeleteButton { delete() }", projects)
+        self.assertIn("ProjectDeleteButton { delete() }", projects)
         self.assertIn("options = false\n        store.apply { try $0.deleteProject(project.id) }", projects)
         # Only the projects tab links the native actions into the key loop.
         self.assertIn("host.selectionState?.tab == .projects", shell)

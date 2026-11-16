@@ -535,17 +535,17 @@ print("settings checkbox selector controls passed")
         # Projects reach deletion through the card's visible options control and the
         # popover action it reveals. That action is a concrete native target, so the
         # card itself carries no SwiftUI Space handler and no retired delete button.
-        self.assertNotRegex(projects, r"(?<!Dashboard)ProjectDeleteButton")
+        self.assertIn("ProjectDeleteTarget", projects)
         self.assertNotIn("PillStyle(focus:", projects)
         self.assertNotIn(".onKeyPress(", projects)
         self.assertIn("PerchButton(kind: .quiet, size: .small, surface: value.surface, "
                       "action: { options.toggle() }) {", projects)
         self.assertIn(".popover(isPresented: $options)", projects)
-        self.assertIn("DashboardProjectDeleteButton { delete() }", projects)
+        self.assertIn("ProjectDeleteButton { delete() }", projects)
         self.assertIn("struct DashboardProjectDeleteButton: View", shell)
-        control = shell.split("struct DashboardProjectDeleteButton: View", 1)[1].split(
-            "private struct DashboardProjectActionTarget", 1)[0]
-        self.assertIn("DashboardProjectActionTarget(", control)
+        control = projects.split("private struct ProjectDeleteButton: View", 1)[1].split(
+            "private struct ProjectDeleteTarget", 1)[0]
+        self.assertIn("ProjectDeleteTarget(", control)
         self.assertNotIn(".focusable(", control)
         self.assertNotIn("@FocusState", control)
         self.assertIn("final class DashboardProjectActionView: NSButton", shell)
