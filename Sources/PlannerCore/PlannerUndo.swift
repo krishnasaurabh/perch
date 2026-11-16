@@ -142,10 +142,13 @@ public struct PlannerEdit {
                 changes.append { planner in
                     guard planner.projects.first(where: { $0.id == id }) == new else { return }
                     planner.projects.removeAll { $0.id == id }
-                    if let old { planner.projects.append(old) }
+                    if let old, let index = before.projects.firstIndex(where: { $0.id == id }) {
+                        planner.projects.insert(old, at: min(index, planner.projects.count))
+                    }
                 }
             }
         }
+        order(\.projects, before: before.projects, after: after.projects)
         field(\.preferences.resetHour, before: before, after: after)
         field(\.preferences.carryMode, before: before, after: after)
         field(\.preferences.defaultFocusMinutes, before: before, after: after)
