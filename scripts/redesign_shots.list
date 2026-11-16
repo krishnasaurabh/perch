@@ -46,8 +46,9 @@ week-full --scenario week-full --open week
 your-week --scenario window-review --open your-week
 history --scenario window-history --open history
 projects --scenario window-projects --open projects
-system --scenario empty --open gallery
-motion --scenario timer --open gallery
+your-week-empty --scenario empty --open your-week
+history-empty --scenario empty --open history
+projects-empty --scenario empty --open projects
 surfaces --scenario empty --open surfaces
 surfaces-focused --scenario empty --open surfaces-focused
 keys --scenario empty --open keys
@@ -61,6 +62,8 @@ notch-flat-idle --scenario notch-idle --open notch-flat
 notch-flat-running --scenario notch-running --open notch-flat
 notch-flat-paused --scenario notch-paused --open notch-flat
 notch-flat-reminder --scenario notch-reminder --open notch-flat
+system --scenario empty --open gallery
+motion --scenario timer --open gallery
 settings-general --scenario empty --open settings/general
 settings-general-alternatives --scenario empty --open settings/general-alternatives
 settings-notch --scenario empty --open settings/notch
