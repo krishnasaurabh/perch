@@ -2416,6 +2416,72 @@ final class AllPageMatrix {
                 + "bitmapFormat=\(bitmap.bitmapFormat.rawValue) planar=\(bitmap.isPlanar) bytesPerRow=\(bitmap.bytesPerRow)"
             report.record("contrast_\(mode)_sampling", samplingDiagnostic)
             mxLog("contrast sampling: \(samplingDiagnostic)")
+            // Temporary diagnostic: compare the sampler's interpretation with the saved
+            // representation at the same coordinates, without changing either sampler.
+            do {
+                func components(_ color: NSColor?) -> String {
+                    guard let color else { return "unavailable" }
+                    let values = color.cgColor.components?.map { String(format: "%.17g", Double($0)) } ?? []
+                    return
+                        "space=\(color.colorSpace) cgSpace=\(String(describing: color.cgColor.colorSpace?.name)) components=\(values)"
+                }
+                func samples(_ image: NSBitmapImageRep, x: Int, y: Int) -> String {
+                    guard x >= 0, x < image.pixelsWide, y >= 0, y < image.pixelsHigh else { return "outside" }
+                    var values = [Int](repeating: 0, count: image.samplesPerPixel)
+                    image.getPixel(&values, atX: x, y: y)
+                    return String(describing: values)
+                }
+                func metadata(_ image: NSBitmapImageRep?) -> String {
+                    guard let image else { return "unavailable" }
+                    let cgImage = image.cgImage
+                    return
+                        "colorSpace=\(image.colorSpace) cgColorSpace=\(String(describing: cgImage?.colorSpace?.name)) "
+                        + "bitmapInfo=\(String(describing: cgImage?.bitmapInfo.rawValue)) bitsPerPixel=\(image.bitsPerPixel) "
+                        + "bitsPerComponent=\(String(describing: cgImage?.bitsPerComponent)) bitmapFormat=\(image.bitmapFormat.rawValue) "
+                        + "samplesPerPixel=\(image.samplesPerPixel) bytesPerRow=\(image.bytesPerRow) planar=\(image.isPlanar)"
+                }
+                let png = (try? Data(contentsOf: output.appendingPathComponent("contrast-\(mode).png")))
+                    .flatMap { NSBitmapImageRep(data: $0) }
+                mxLog(
+                    "contrast conversion metadata: mode=\(mode) captured={\(metadata(bitmap))} png={\(metadata(png))}")
+                for (x, y) in [(29, 115), (293, 115)] {
+                    let raw = bitmap.colorAt(x: x, y: y)
+                    let decoded = png?.colorAt(x: x, y: y)
+                    mxLog(
+                        "contrast conversion coordinate: mode=\(mode) x=\(x) y=\(y) rawSamples=\(samples(bitmap, x: x, y: y)) "
+                            + "raw={\(components(raw))} sRGB={\(components(raw?.usingColorSpace(.sRGB)))} "
+                            + "pngSamples=\(png.map { samples($0, x: x, y: y) } ?? "unavailable") "
+                            + "pngRaw={\(components(decoded))} pngSRGB={\(components(decoded?.usingColorSpace(.sRGB)))}"
+                    )
+                }
+                var rawCounts: [String: Int] = [:]
+                var convertedCounts: [String: Int] = [:]
+                var pngCounts: [String: Int] = [:]
+                for y in pixelBounds.y0..<pixelBounds.y1 {
+                    for x in pixelBounds.x0..<pixelBounds.x1 {
+                        rawCounts[samples(bitmap, x: x, y: y), default: 0] += 1
+                        convertedCounts[
+                            components(bitmap.colorAt(x: x, y: y)?.usingColorSpace(.sRGB)), default: 0] += 1
+                        pngCounts[png.map { samples($0, x: x, y: y) } ?? "unavailable", default: 0] += 1
+                    }
+                }
+                for (representation, counts) in [("raw", rawCounts), ("sRGB", convertedCounts), ("png", pngCounts)] {
+                    mxLog(
+                        "contrast conversion census: mode=\(mode) representation=\(representation) distinct=\(counts.count)"
+                    )
+                    for key in counts.keys.sorted() {
+                        mxLog(
+                            "contrast conversion colour: mode=\(mode) representation=\(representation) value=\(key) count=\(counts[key]!)"
+                        )
+                    }
+                }
+                appearance.performAsCurrentDrawingAppearance {
+                    for (name, color) in [("ink2", Theme.ink2), ("ink3", Theme.ink3)] {
+                        let resolved = NSColor(color).usingColorSpace(.sRGB)
+                        mxLog("contrast conversion token: mode=\(mode) name=\(name) resolved={\(components(resolved))}")
+                    }
+                }
+            }
             guard let background = sampledBackground, let ink = sampledInk
             else {
                 window.close()
