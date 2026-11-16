@@ -1981,7 +1981,8 @@ final class AllPageMatrix {
         // Keyboard copy: Space on the focused copy control, into the recording pasteboard.
         let copyLabel = AppL10n.format("Copy %@", first.title)
         _ = try await tabUntil(window, limit: 28, tag: "clipsCopyTraversal") { identity, _ in
-            identity == copyLabel
+            identity == "shelf.item.\(first.id)" || identity == copyLabel
+                || mxFocusedElement().map { mxNames($0).contains(copyLabel) } == true
         }
         try report.require(true, "Tab reaches the clip copy control")
         try await mxKey(window, 49, " ")

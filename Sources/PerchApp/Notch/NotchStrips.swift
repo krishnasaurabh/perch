@@ -29,6 +29,7 @@ final class NotchStrips {
     private var updating = false
     private var visibleID: UUID?
     private(set) var currentActivity: PresentedNotchActivity?
+    private(set) var hasCompletionUndo = false
     private(set) var bounds: CGRect = .zero
     private(set) var undoFocus: FocusState<TodayFocus?>.Binding?
     private var undoFocusID: UUID?
@@ -88,8 +89,16 @@ final class NotchStrips {
         if origin == .user || before.agentActions.sequence != after.agentActions.sequence {
             oneOffs = oneOffs.filter { $0.value.0.kind != .undo }
         }
+        if before.agentActions.sequence != after.agentActions.sequence { hasCompletionUndo = false }
         guard origin == .user, before.agentActions.sequence == after.agentActions.sequence else { return }
         let removed = before.tasks.filter { old in !after.tasks.contains { $0.id == old.id } }
+        if before != after {
+            hasCompletionUndo =
+                removed.isEmpty
+                && before.tasks.contains { old in
+                    after.tasks.contains { $0.id == old.id && $0.done != old.done }
+                }
+        }
         guard !removed.isEmpty else { return }
         let id = "undo:\(UUID())", date = now()
         let title =
@@ -687,8 +696,8 @@ struct NotchStripContent: View {
     }
 }
 
-/// Keeps the existing non-text Undo keyboard destination, but only inside the
-/// six-second strip. The ordinary footer no longer reserves a permanent row.
+/// Registers the existing Undo keyboard destination, with completion/reopening
+/// mounted in the task viewport. Deletion keeps its six-second strip and fallback.
 struct NotchUndoFooter: ViewModifier {
     let focus: FocusState<TodayFocus?>.Binding
     @Binding var reviewingOverdue: Bool

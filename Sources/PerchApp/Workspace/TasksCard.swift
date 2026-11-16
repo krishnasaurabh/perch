@@ -74,6 +74,13 @@ struct TasksCard: View {
                         if let id = value?.taskID { scroll.scrollTo(id) }
                     }
                 }
+                // Use viewport space, not the pinned capture row. Deletion keeps
+                // its existing strip/footer presentation below the composer.
+                .safeAreaInset(edge: .bottom, spacing: 8) {
+                    if store.canUndo, model.strips?.hasCompletionUndo == true {
+                        undoFooter(reviewOverdue: false)
+                    }
+                }
             }
             .frame(minHeight: 0, maxHeight: WorkspaceLayout.contentHeight).accessibilityIdentifier(
                 "today-task-viewport")
@@ -109,7 +116,9 @@ struct TasksCard: View {
         }
     }
 
-    private var footer: some View {
+    private var footer: some View { undoFooter(reviewOverdue: true) }
+
+    private func undoFooter(reviewOverdue: Bool) -> some View {
         HStack(spacing: 8) {
             Button {
                 store.undo()
@@ -130,7 +139,7 @@ struct TasksCard: View {
             .accessibilityIdentifier("today-undo")
             .help("Undo the last edit, including task deletion (Command-Z)")
             Spacer(minLength: 0)
-            if !store.engine.overdue().isEmpty {
+            if reviewOverdue, !store.engine.overdue().isEmpty {
                 Button(AppL10n.format("Review overdue (%lld)", store.engine.overdue().count)) {
                     reviewingOverdue = true
                 }

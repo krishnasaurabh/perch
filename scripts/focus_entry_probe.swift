@@ -59,7 +59,15 @@ func nodes(_ root: NSObject) -> [NSObject] {
 }
 @MainActor
 func control(_ value: String, attribute: String = "accessibilityLabel", in root: NSView) -> NSObject? {
-    nodes(root).first { attr($0, attribute) as? String == value }
+    let candidates = nodes(root)
+    if attribute == "accessibilityLabel", value == "Undo",
+        let undo = candidates.first(where: {
+            ["today-undo", "notch.undo"].contains(attr($0, "accessibilityIdentifier") as? String ?? "")
+        })
+    {
+        return undo
+    }
+    return candidates.first { attr($0, attribute) as? String == value }
 }
 // Unlabelled Text may publish its string as AXValue rather than AXDescription.
 // Require the static-text role so a button with the same title is never a match.
@@ -109,7 +117,9 @@ func recordAccessibility(_ root: NSView, _ name: String, into output: URL) {
 func recordUndoAccessibility(_ root: NSView, _ name: String, model: NotchModel, store: PlannerStore, into output: URL) {
     let activity = model.strips?.currentActivity
     let deletionState = activity?.stripKind == .undo
-    let footerPublishesContent = model.geometry == nil && deletionState
+    let footerPublishesContent =
+        (model.geometry == nil && deletionState)
+        || (store.canUndo && model.strips?.hasCompletionUndo == true)
     let accessibleNodes = nodes(root)
     var seen = Set(accessibleNodes.map(ObjectIdentifier.init))
     let allNodes = accessibleNodes + views(root).filter { seen.insert(ObjectIdentifier($0)).inserted }

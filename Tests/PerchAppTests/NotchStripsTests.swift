@@ -7,6 +7,68 @@ import XCTest
 
 final class NotchStripsTests: XCTestCase {
     @MainActor
+    func testCompletionAndReopeningOfferExistingFooterWithoutCreatingAStrip() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let file = PlannerFile(
+            url: root.appendingPathComponent("planner.json"), preferences: MemoryPlannerPreferences())
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        let day = PlannerEngine(planner: Planner(), now: { now }).today
+        let task = PlanTask(title: "Finish the checklist", day: day)
+        try file.mutate { $0.tasks = [task] }
+        let store = PlannerStore(file: file, now: { now }, watching: false)
+        let model = NotchModel()
+        model.geometry = NotchGeometry(
+            screen: .init(
+                frame: CGRect(x: 0, y: 0, width: 1440, height: 900),
+                visibleFrame: CGRect(x: 0, y: 0, width: 1440, height: 866), safeAreaTop: 34,
+                auxiliaryLeftWidth: 620, auxiliaryRightWidth: 620, isBuiltIn: true))
+        let strips = NotchStrips(store: store, model: model)
+        model.strips = strips
+        XCTAssertFalse(strips.hasCompletionUndo)
+        for action in [PlannerAction.complete(task.id), .reopen(task.id)] {
+            _ = try XCTUnwrap(store.send(action))
+            strips.refresh()
+            XCTAssertTrue(store.canUndo)
+            XCTAssertTrue(strips.hasCompletionUndo)
+            XCTAssertNil(strips.currentActivity, "Completion/reopening must not create a strip")
+        }
+        store.undo()
+        XCTAssertTrue(try file.load().tasks[0].done, "Existing Undo restores reopening")
+        XCTAssertNotNil(model.geometry)
+        XCTAssertNotEqual(store.planner.focus?.state, .running)
+        _ = try XCTUnwrap(store.send(.delete(task.id)))
+        strips.refresh()
+        XCTAssertFalse(strips.hasCompletionUndo, "Deletion must keep its own existing presentation")
+        let deletion = try XCTUnwrap(strips.currentActivity)
+        XCTAssertEqual(deletion.stripKind, .undo)
+        XCTAssertTrue(strips.answer(.undo, activity: deletion))
+        XCTAssertEqual(try file.load().tasks.first?.id, task.id)
+    }
+
+    @MainActor
+    func testCompletionFooterSurvivesBackgroundButNotANewerUserEdit() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = PlannerStore(
+            file: PlannerFile(
+                url: root.appendingPathComponent("planner.json"), preferences: MemoryPlannerPreferences()),
+            watching: false)
+        let model = NotchModel()
+        let strips = NotchStrips(store: store, model: model)
+        model.strips = strips
+        let task = try XCTUnwrap(store.addTasks(["Review notes"], on: .day(store.today), literal: true)?.first)
+        XCTAssertFalse(strips.hasCompletionUndo, "Unrelated edits must not mount the completion footer")
+        _ = try XCTUnwrap(store.send(.complete(task.id)))
+        XCTAssertTrue(strips.hasCompletionUndo)
+        store.performMutation(origin: .background) { try $0.updateTask(task.id) { $0.minutes = 25 } }
+        XCTAssertTrue(strips.hasCompletionUndo, "Background publications must not remove reachable Undo")
+        _ = try XCTUnwrap(store.send(.rename(task.id, "Review the notes")))
+        XCTAssertFalse(strips.hasCompletionUndo)
+        XCTAssertTrue(store.canUndo)
+    }
+
+    @MainActor
     func testReminderChoicesPersistAndSnoozeUsesTheStoredMinutes() async throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: root) }
