@@ -275,9 +275,9 @@ struct WorkspaceView: View {
         guard enabled else { return }
         moreAnchor.show(
             keysAvailable: WorkspaceWindowRegistry.keys != nil,
-            yourWeek: { WorkspaceWindowRegistry.showDashboard(store: store, tab: .insights) },
-            history: { WorkspaceWindowRegistry.showDashboard(store: store, tab: .history) },
-            projects: { WorkspaceWindowRegistry.showDashboard(store: store, tab: .projects) },
+            yourWeek: { DashboardWindow.show(store: store, tab: .yourWeek) },
+            history: { DashboardWindow.show(store: store, tab: .history) },
+            projects: { DashboardWindow.show(store: store, tab: .projects) },
             settings: { SettingsWindow.show(store: store, services: services) },
             keys: { _ = WorkspaceWindowRegistry.openKeys(store: store) })
     }

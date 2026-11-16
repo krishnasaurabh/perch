@@ -49,6 +49,22 @@
             return fixture
         }
 
+        /// Standalone-block variants keep unrelated tasks unless an empty checklist is requested.
+        @discardableResult
+        public static func installTasklessBlock(
+            _ source: Fixture, in file: PlannerFile, stopwatch: Bool, empty: Bool
+        ) throws -> Fixture {
+            var fixture = source
+            if empty { fixture.planner.tasks = [] }
+            var focus = fixture.planner.focus ?? FocusSession(taskID: nil, limit: 25 * 60, now: fixture.now)
+            focus.taskID = nil
+            focus.limit = stopwatch ? nil : 25 * 60
+            focus.banked = 75
+            fixture.planner.focus = focus
+            try file.mutate { $0 = fixture.planner }
+            return fixture
+        }
+
         public static func make(_ name: String) throws -> Fixture {
             guard names.contains(name) else { throw PlannerError("Unknown preview scenario: \(name)") }
             let now: Date
