@@ -59,7 +59,15 @@ func nodes(_ root: NSObject) -> [NSObject] {
 }
 @MainActor
 func control(_ value: String, attribute: String = "accessibilityLabel", in root: NSView) -> NSObject? {
-    nodes(root).first { attr($0, attribute) as? String == value }
+    let candidates = nodes(root)
+    if attribute == "accessibilityLabel", value == "Undo",
+        let undo = candidates.first(where: {
+            ["today-undo", "notch.undo"].contains(attr($0, "accessibilityIdentifier") as? String ?? "")
+        })
+    {
+        return undo
+    }
+    return candidates.first { attr($0, attribute) as? String == value }
 }
 // Unlabelled Text may publish its string as AXValue rather than AXDescription.
 // Require the static-text role so a button with the same title is never a match.
@@ -103,6 +111,60 @@ func recordAccessibility(_ root: NSView, _ name: String, into output: URL) {
     }
     try! JSONSerialization.data(withJSONObject: tree, options: [.prettyPrinted, .sortedKeys]).write(
         to: output.appendingPathComponent(name + "-ax.json"))
+}
+// Read-only diagnostics captured before the first completion Undo assertion can exit.
+@MainActor
+func recordUndoAccessibility(_ root: NSView, _ name: String, model: NotchModel, store: PlannerStore, into output: URL) {
+    let activity = model.strips?.currentActivity
+    let deletionState = activity?.stripKind == .undo
+    let footerPublishesContent =
+        (model.geometry == nil && deletionState)
+        || (store.canUndo && model.strips?.hasCompletionUndo == true)
+    let accessibleNodes = nodes(root)
+    var seen = Set(accessibleNodes.map(ObjectIdentifier.init))
+    let allNodes = accessibleNodes + views(root).filter { seen.insert(ObjectIdentifier($0)).inserted }
+    let tree: [[String: Any]] = allNodes.map { node in
+        // Like focus, this getter returns BOOL and must not go through attr/perform.
+        let selector = NSSelectorFromString("isAccessibilityElement")
+        var isElement: Any = NSNull()
+        if node.responds(to: selector), let impl = node.method(for: selector) {
+            typealias IsElement = @convention(c) (AnyObject, Selector) -> Bool
+            isElement = unsafeBitCast(impl, to: IsElement.self)(node, selector)
+        }
+        return [
+            "class": String(describing: type(of: node)),
+            "role": attr(node, "accessibilityRole") as? String ?? "",
+            "identifier": attr(node, "accessibilityIdentifier") as? String ?? "",
+            "label": attr(node, "accessibilityLabel") as? String ?? "",
+            "value": attr(node, "accessibilityValue").map { String(describing: $0) } ?? "",
+            "frame": NSStringFromRect(frame(node)),
+            "isAccessibilityElement": isElement,
+            "queryReachable": accessibleNodes.contains { $0 === node },
+        ]
+    }
+    let undoMatches = accessibleNodes.filter { attr($0, "accessibilityLabel") as? String == "Undo" }.count
+    let diagnostic: [String: Any] = [
+        "rootClass": String(describing: type(of: root)),
+        "rootFrame": NSStringFromRect(root.frame),
+        "rootAccessibilityFrame": NSStringFromRect(frame(root)),
+        "ownerView": String(describing: NotchUndoFooter.self),
+        "contentOwnerView": String(describing: TasksCard.self),
+        "deletionState": deletionState,
+        "geometryIsNil": model.geometry == nil,
+        "footerPublishesContent": footerPublishesContent,
+        "stripInstalled": model.strips != nil,
+        "stripKind": activity.map { String(describing: $0.stripKind) } ?? "none",
+        "stripTitle": activity?.title ?? "",
+        "canUndo": store.canUndo,
+        "undoMatchesUnderQueriedRoot": undoMatches,
+        "nodes": tree,
+    ]
+    try! JSONSerialization.data(withJSONObject: diagnostic, options: [.prettyPrinted, .sortedKeys])
+        .write(to: output.appendingPathComponent(name + "-ax.json"))
+    print(
+        "Undo diagnostic \(name): owner=\(NotchUndoFooter.self) content=\(TasksCard.self) "
+            + "root=\(type(of: root)) deletionState=\(deletionState) "
+            + "footerPublishesContent=\(footerPublishesContent) UndoMatches=\(undoMatches)")
 }
 @MainActor
 func press(_ node: NSObject, _ label: String) {
@@ -1039,6 +1101,15 @@ MainActor.assumeIsolated {
                     require(
                         Set(store.planner.tasks.filter(\.done).map(\.id)) == expectedCompleted,
                         "\(name): keyUp does not activate the next row")
+                    recordUndoAccessibility(
+                        root, "\(name)-before-completion-undo", model: delegate.model, store: store, into: output)
+                    for (index, panel) in NSApp.windows.filter({ $0 is NotchPanel }).enumerated() {
+                        if let panelRoot = panel.contentView {
+                            recordUndoAccessibility(
+                                panelRoot, "\(name)-notch-panel-\(index)-before-completion-undo",
+                                model: delegate.model, store: store, into: output)
+                        }
+                    }
                     press("Undo", in: root); await settle()
                     require(
                         Set(store.planner.tasks.filter(\.done).map(\.id)) == completedBeforeSpace,

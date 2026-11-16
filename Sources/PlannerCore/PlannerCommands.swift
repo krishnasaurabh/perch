@@ -136,6 +136,23 @@ public final class PlannerCommands {
     }
 }
 
+/// Identifies a local deletion offer without exposing or replaying a history stack.
+/// Agent publications permanently supersede the offer, even if later undone.
+public struct PlannerDeletionUndoToken: Equatable, Sendable {
+    fileprivate let agentSequence: Int
+    fileprivate let taskIDs: Set<UUID>
+
+    public init(after planner: Planner, taskIDs: [UUID]) {
+        agentSequence = planner.agentActions.sequence
+        self.taskIDs = Set(taskIDs)
+    }
+
+    public func isValid(in planner: Planner) -> Bool {
+        !taskIDs.isEmpty && planner.agentActions.sequence == agentSequence
+            && !planner.tasks.contains { taskIDs.contains($0.id) }
+    }
+}
+
 /// One lock/load/validate/save path for app, CLI and MCP. A failed command leaves state and undo unchanged.
 public final class PlannerCommandPipeline {
     public let file: PlannerFile
@@ -201,6 +218,39 @@ public final class PlannerCommandPipeline {
             agentUndoOrdering.record(before: previous, after: restored)
         }
         return restored
+    }
+
+    /// Applies only the local inverse described by a deletion offer. Validation,
+    /// inverse selection and persistence share the same file lock. Throwing out of
+    /// the history transaction on rejection preserves both stacks and disk bytes,
+    /// including legacy documents which would otherwise migrate on a no-op save.
+    /// This path deliberately never selects a newer agent inverse.
+    @discardableResult
+    public func undoLocalDeletion(_ token: PlannerDeletionUndoToken) throws -> Planner? {
+        gate.lock(); defer { gate.unlock() }
+        let time = clock.now
+        struct Rejected: Error {}
+        var saved: Planner?
+        do {
+            try history.undo { change in
+                saved = try file.mutate { planner in
+                    guard token.isValid(in: planner) else { throw Rejected() }
+                    let before = planner
+                    change(&planner)
+                    let previousIDs = Set(before.tasks.map(\.id))
+                    let restoredIDs = Set(planner.tasks.map(\.id))
+                    guard restoredIDs.subtracting(previousIDs) == token.taskIDs,
+                        previousIDs.isSubset(of: restoredIDs)
+                    else { throw Rejected() }
+                    planner.stampTaskChanges(from: before, at: time)
+                    return planner
+                }
+            }
+        } catch is Rejected {
+            return nil
+        }
+        if saved != nil { agentUndoOrdering.traversed(redo: false) }
+        return saved
     }
 
     @discardableResult public func undo() throws -> Planner? { try traverse(redo: false) }

@@ -74,6 +74,13 @@ struct TasksCard: View {
                         if let id = value?.taskID { scroll.scrollTo(id) }
                     }
                 }
+                // Use viewport space, not the pinned capture row. Deletion keeps
+                // its existing strip/footer presentation below the composer.
+                .safeAreaInset(edge: .bottom, spacing: 8) {
+                    if store.canUndo, model.strips?.hasCompletionUndo == true {
+                        undoFooter(reviewOverdue: false)
+                    }
+                }
             }
             .frame(minHeight: 0, maxHeight: WorkspaceLayout.contentHeight)
             // Keep the bounded scroller in a flexible slot so header changes consume slack,
@@ -84,7 +91,9 @@ struct TasksCard: View {
             TaskComposer(day: .day(store.today), placeholder: "What would you like to do?", focus: $focus)
                 .fixedSize(horizontal: false, vertical: true)
                 .layoutPriority(1)
-            footer.fixedSize(horizontal: false, vertical: true).layoutPriority(1)
+            footer.modifier(NotchUndoFooter(focus: $focus, reviewingOverdue: $reviewingOverdue)).fixedSize(
+                horizontal: false, vertical: true
+            ).layoutPriority(1)
         }
         .card(.tasks)
         .onChange(of: finished.count, initial: true) { _, count in
@@ -111,7 +120,9 @@ struct TasksCard: View {
         }
     }
 
-    private var footer: some View {
+    private var footer: some View { undoFooter(reviewOverdue: true) }
+
+    private func undoFooter(reviewOverdue: Bool) -> some View {
         HStack(spacing: 8) {
             Button {
                 store.undo()
@@ -132,7 +143,7 @@ struct TasksCard: View {
             .accessibilityIdentifier("today-undo")
             .help("Undo the last edit, including task deletion (Command-Z)")
             Spacer(minLength: 0)
-            if !store.engine.overdue().isEmpty {
+            if reviewOverdue, !store.engine.overdue().isEmpty {
                 Button(AppL10n.format("Review overdue (%lld)", store.engine.overdue().count)) {
                     reviewingOverdue = true
                 }

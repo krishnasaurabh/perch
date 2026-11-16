@@ -33,13 +33,13 @@ CLIPS_KEYBOARD_ASSERTIONS = (
     "clips: Tab reaches the clip copy control",
     "clips: Space copies the clip once into the fake pasteboard",
     "clips: focus stays on the copy control after Space",
-    "clips: Tab reaches the clip actions menu",
-    "clips: Space opens the native clip actions menu",
-    "clips: Escape closes the clip actions menu",
-    "clips: focus returns to the clip actions menu after Escape",
-    "clips: cancelling the clip actions menu never pins or removes",
-    "clips: arrow keys and Return choose Copy in the actions menu",
-    "clips: focus returns to the clip actions menu after choosing Copy",
+    "clips: Tab reaches Clear on the shelf",
+    "clips: Space clears the shelf as one batch",
+    "clips: Tab reaches shelf Undo",
+    "clips: Space Undo restores persisted shelf identities and order",
+    "clips: Tab returns to the shelf item",
+    "clips: Delete removes only the focused shelf item",
+    "clips: Return opens the kept file without changing its original",
 )
 # The native producer records two successful setup preconditions per surface.
 # They are required separately, not counted as keyboard interaction coverage.

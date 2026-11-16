@@ -111,3 +111,12 @@ your-day-open --scenario today-empty --open your-day
 your-day-overlap --scenario today-running --open your-day-overlap
 your-day-multiline --scenario today-editing --open your-day-multiline
 your-day-late-empty --scenario today-late --open your-day-empty
+strip-data --scenario strip-data --open strip-data
+strip-reminder --scenario notch-reminder --open strip-reminder
+strip-ended --scenario strip-ended --open strip-ended
+strip-heads-up --scenario strip-heads-up --open strip-heads-up
+strip-agent --scenario strip-agent --open strip-agent
+strip-agent-delete --scenario strip-agent --open strip-agent-delete
+strip-undo --scenario strip-undo --open strip-undo
+drop-shelf --scenario strip-drop --open drop-shelf
+drop-shelf-empty --scenario strip-drop --open drop-shelf-empty

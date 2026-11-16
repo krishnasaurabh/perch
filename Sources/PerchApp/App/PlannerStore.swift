@@ -75,6 +75,8 @@ final class PlannerStore: ObservableObject {
     private var tickInFlight = false
     private var runtimeEnabled = false
     var focusFinished: (() -> Void)?
+    var stripDidCommit: ((Planner, Planner, PlannerCommandOrigin) -> Void)?
+    var stripHistoryChanged: (() -> Void)?
 
     enum TextTarget: Hashable {
         case title(UUID), notes(UUID), notepad(DayKey)
@@ -182,6 +184,7 @@ final class PlannerStore: ObservableObject {
     func performMutation<T>(origin: PlannerCommandOrigin, _ body: (PlannerCommands) throws -> T) -> T? {
         do {
             let result = try pipeline.perform(origin: origin, body)
+            stripDidCommit?(result.before, result.state, origin)
             publish(result.state)
             return result.value
         } catch {
@@ -191,7 +194,7 @@ final class PlannerStore: ObservableObject {
     }
 
     /// Replaces the planner with the newest readable backup. Callers flush pending text first.
-    func restoreLatestBackup() throws { publish(try pipeline.restoreLatestBackup()) }
+    func restoreLatestBackup() throws { publish(try pipeline.restoreLatestBackup()); stripHistoryChanged?() }
 
     func updatePrefs(_ body: (inout Preferences) -> Void) {
         apply { try $0.updatePrefs(body) }
@@ -293,6 +296,7 @@ final class PlannerStore: ObservableObject {
                     try target.apply(draft.text, using: commands)
                 }
             }
+            stripDidCommit?(result.before, result.state, .user)
             pendingText.removeAll()
             publish(result.state)
             return true
@@ -307,6 +311,15 @@ final class PlannerStore: ObservableObject {
     var canUndo: Bool { pipeline.canUndo || !pendingText.isEmpty }
     var canRedo: Bool { pipeline.canRedo }
 
+    /// Caller flushes pending text before revalidating the visible deletion offer.
+    func undoLocalDeletion(_ token: PlannerDeletionUndoToken) -> Bool {
+        do {
+            guard let saved = try pipeline.undoLocalDeletion(token) else { return false }
+            publish(saved); stripHistoryChanged?()
+            return true
+        } catch { report(error); return false }
+    }
+
     func undo() { traverseHistory(redo: false) }
     func redo() { traverseHistory(redo: true) }
 
@@ -315,7 +328,7 @@ final class PlannerStore: ObservableObject {
         guard redo ? pipeline.canRedo : pipeline.canUndo else { NSSound.beep(); return }
         do {
             let saved = try redo ? pipeline.redo() : pipeline.undo()
-            if let saved { publish(saved) }
+            if let saved { publish(saved); stripHistoryChanged?() }
         } catch { report(error) }
     }
 

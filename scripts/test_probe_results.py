@@ -560,7 +560,7 @@ print("settings checkbox selector controls passed")
         # The shared pill style registers focus on the actual button, which is how
         # the visible options control that opens the popover takes a Tab stop.
         self.assertIn(".focusable(enabled)\n                    .focused(externalFocus)", style)
-        self.assertIn(".focusable()\n                .focused($copyFocused)", clips)
+        self.assertRegex(clips, r"\.focusable\(enabled\)\s*\.focused\(\$copyFocused\)")
         self.assertIn("focused: copyFocused", clips)
         self.assertIn("clips.copy(clip)", clips)
         self.assertIn("Button(action: copyClip)", clips)

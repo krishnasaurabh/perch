@@ -48,6 +48,17 @@ import SwiftUI
                 "notch-progress-off": .closedNotch(hardware: true, progress: false),
                 "notch-reminder-off": .closedNotch(hardware: true, reminder: false),
                 "week": .workspace(.week),
+                "drop-shelf": .window(DropShelfPreview.windowID) { DropShelfPreview.show(app: $0) },
+                "drop-shelf-empty": .window(DropShelfPreview.windowID) { DropShelfPreview.show(app: $0, empty: true) },
+                "strip-data": .window(NotchStripPreview.windowID) { NotchStripPreview.show(.dataProblem, app: $0) },
+                "strip-reminder": .window(NotchStripPreview.windowID) { NotchStripPreview.show(.reminder, app: $0) },
+                "strip-ended": .window(NotchStripPreview.windowID) { NotchStripPreview.show(.blockEnded, app: $0) },
+                "strip-heads-up": .window(NotchStripPreview.windowID) { NotchStripPreview.show(.headsUp, app: $0) },
+                "strip-agent": .window(NotchStripPreview.windowID) { NotchStripPreview.show(.agentChange, app: $0) },
+                "strip-agent-delete": .window(NotchStripPreview.windowID) {
+                    NotchStripPreview.show(.agentChange, app: $0, deleting: true)
+                },
+                "strip-undo": .window(NotchStripPreview.windowID) { NotchStripPreview.show(.undo, app: $0) },
                 "week-expanded": .window("week-expanded") { WeekBoardPreview.expanded($0) },
                 "week-adding": .window("week-adding") { WeekBoardPreview.adding($0) },
                 "settings": .window("settings") { $0.openSettings() },
