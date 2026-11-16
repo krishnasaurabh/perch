@@ -263,7 +263,7 @@ struct SettingsGeneralPane: View {
             }
         }
         SettingsSection("Beside today's tasks") {
-            for id in HomeLayout.ordered(store.prefs.workspaceCardOrder) {
+            for id in HomeLayout.ordered(store.prefs.workspaceCardOrder).filter({ $0 != "notepad" }) {
                 SettingsRow(SettingsView().cardName(id)) {
                     HStack(spacing: SurfaceMetrics.gap) {
                         PerchSwitch(

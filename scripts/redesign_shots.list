@@ -93,6 +93,11 @@ workspace-band-week --scenario week-full --open workspace-week
 workspace-width-960 --scenario today-before --open workspace-today
 workspace-width-1280 --scenario week-full --open workspace-week
 workspace-week-narrow --scenario week-full --open workspace-narrow
+parking-running --scenario today-running --open workspace-today
+parking-before --scenario today-before --open workspace-today
+parking-empty --scenario today-empty --open workspace-today
+parking-thoughts --scenario today-running --open parking-thoughts
+parking-thoughts-empty --scenario today-empty --open parking-thoughts
 week-board-full --scenario week-full --open workspace-week
 week-board-empty --scenario today-empty --open workspace-week
 week-board-narrow --scenario week-full --open workspace-narrow

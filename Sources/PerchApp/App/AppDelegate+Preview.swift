@@ -10,6 +10,7 @@ import SwiftUI
         static var previewTargets: [String: PreviewTarget] {
             [
                 "today": .workspace(.home),
+                "parking-thoughts": .window("parking-thoughts") { ParkingLotPreview.show(app: $0) },
                 "menubar-icon": .menuBar(.icon),
                 "menubar-time": .menuBar(.timeLeft),
                 "menubar-tasks": .menuBar(.tasksLeft),
