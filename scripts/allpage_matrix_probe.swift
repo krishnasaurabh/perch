@@ -1348,7 +1348,7 @@ final class AllPageMatrix {
 
         // Detail markers are distinct from the five sidebar titles.
         let markers: [(SettingsView.Pane, String, String)] = [
-            (.general, "Opening", "Open the notch on"),
+            (.general, "Your day", "Hovering over the notch shows"),
             (.notch, "Around the notch", "Pill details"),
             (.calendar, "Calendar", "Apple Reminders"),
             (.agents, "Connect AI agents", "Or use Terminal"),
@@ -1419,11 +1419,106 @@ final class AllPageMatrix {
 
         // General: the Apple Intelligence control must present the real availability reason and
         // follow the real availability; nothing may touch the login item.
-        try selectPane(.general, window: window, host: host, root: root)
-        await mxReady(0.8)
         let loginStatus = SMAppService.mainApp.status
+        try selectPane(.general, window: window, host: host, root: root)
+        await mxReady(0.2)
+
+        func captureGeneral(_ phase: String) throws {
+            let controls = mxTree(root).filter { mxIdentifier($0) == "settings.general.more" }
+            let more = controls.count == 1 ? controls.first : nil
+            let value = more.flatMap { mxString($0, kAXValueAttribute as String) } ?? "missing"
+            let texts = mxText(root)
+            let frame = more.map { NSStringFromRect(mxFrame($0)) } ?? "missing"
+            mxLog(
+                "General More options phase=\(phase) matches=\(controls.count) value=\(value) frame=\(frame) texts=\(texts)"
+            )
+            report.record("generalMoreOptions-\(phase)", ["value": value, "texts": texts])
+            mxDumpAX(root, "general-more-options-\(phase)")
+            try writeAX(root, output.appendingPathComponent("general-more-options-\(phase).ax.json"))
+            try mxSave(host, output.appendingPathComponent("general-more-options-\(phase).png"))
+        }
+        try captureGeneral("before")
+
+        // scrollClipDisabled paints the disclosure below the clip view, but that overflow is
+        // not a mouse target. Drive the real scroll view with wheel events before clicking.
+        var pending = [host]
+        var scrollViews: [NSScrollView] = []
+        while let view = pending.popLast() {
+            if let scroll = view as? NSScrollView,
+                scroll.accessibilityIdentifier() == "settings.detail.general"
+            {
+                scrollViews.append(scroll)
+            }
+            pending.append(contentsOf: view.subviews)
+        }
+        guard scrollViews.count == 1, let scrollView = scrollViews.first else {
+            throw MatrixFailure(label: "expected one native General scroll view, saw \(scrollViews.count)")
+        }
+        func generalViewport() -> NSRect {
+            window.convertToScreen(scrollView.contentView.convert(scrollView.contentView.bounds, to: nil))
+        }
+        func scrollGeneral(_ delta: Int32) async throws {
+            let before = scrollView.contentView.bounds
+            guard
+                let wheel = CGEvent(
+                    scrollWheelEvent2Source: nil, units: .pixel, wheelCount: 1, wheel1: delta, wheel2: 0, wheel3: 0)
+            else { throw MatrixFailure(label: "could not create General scroll event") }
+            let viewport = generalViewport()
+            wheel.location = CGPoint(
+                x: viewport.midX, y: (NSScreen.screens.first?.frame.maxY ?? 0) - viewport.midY)
+            guard let event = NSEvent(cgEvent: wheel), event.type == .scrollWheel else {
+                throw MatrixFailure(label: "could not bridge General scroll event")
+            }
+            scrollView.scrollWheel(with: event)
+            await mxReady(0.3)
+            mxLog("General scroll delta=\(delta) before=\(before) after=\(scrollView.contentView.bounds)")
+        }
+        try await scrollGeneral(-180)
+        try captureGeneral("before-click")
+        let moreOptions = try mxIdentified(root, "settings.general.more")
+        try report.require(
+            mxString(moreOptions, kAXValueAttribute as String) == AppL10n.text("Collapsed"),
+            "general optional controls start collapsed")
+        try report.require(
+            generalViewport().contains(mxFrame(moreOptions)), "general More options is inside the scroll viewport",
+            "button=\(mxFrame(moreOptions)) viewport=\(generalViewport())")
+        try mxClick(host: host, window: window, screenRect: mxFrame(moreOptions))
+        await mxReady(0.8)
+        try captureGeneral("after-0.8s")
+        let afterClick = mxString(try mxIdentified(root, "settings.general.more"), kAXValueAttribute as String)
+        await mxReady(2.0)
+        try captureGeneral("after-2s")
+        if !mxHas(root, AppL10n.text("Auto-sort new tasks")) {
+            try captureGeneral("failure")
+        }
+        try report.require(
+            afterClick == AppL10n.text("Expanded"), "general More options expands after a reachable click")
+        try report.require(
+            mxString(try mxIdentified(root, "settings.general.more"), kAXValueAttribute as String)
+                == AppL10n.text("Expanded"), "general More options stays expanded without input")
+
         let expectedExplanation = SettingsView.appleIntelligenceExplanation(
             isSupported: AISorter.isSupported, unavailableReason: AISorter.unavailableReason)
+        // Expanded content is taller than 640 pt. Bring the real AI row and its explanation
+        // into the viewport; AX membership alone does not prove that the row is rendered.
+        for step in 0..<8 {
+            let targets = mxTree(root).filter {
+                (mxRole($0) == "AXCheckBox" && mxNames($0).contains(AppL10n.text("Auto-sort new tasks")))
+                    || mxNames($0).contains(expectedExplanation)
+            }
+            let band = targets.map(mxFrame).reduce(NSRect.null) { $0.union($1) }
+            if targets.count >= 2, generalViewport().contains(band) { break }
+            let delta = band.isNull ? -300 : Int32((band.midY - generalViewport().midY).rounded())
+            mxLog("General reveal step=\(step) target=\(band) viewport=\(generalViewport())")
+            try await scrollGeneral(delta)
+        }
+        try captureGeneral("auto-sort-visible")
+        let autoSort = mxTree(root).filter {
+            mxRole($0) == "AXCheckBox" && mxNames($0).contains(AppL10n.text("Auto-sort new tasks"))
+        }
+        try report.require(
+            autoSort.count == 1 && autoSort.allSatisfy { generalViewport().contains(mxFrame($0)) },
+            "general auto-sort checkbox is rendered inside the scroll viewport")
         try report.require(
             mxHas(root, AppL10n.text("Auto-sort new tasks")), "general pane exposes the auto-sort control",
             "texts \(mxText(root).prefix(16))")

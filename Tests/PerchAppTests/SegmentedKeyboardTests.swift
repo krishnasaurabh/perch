@@ -2,6 +2,7 @@
     import AppKit
     import ApplicationServices
     import SwiftUI
+    @testable import PlannerCore
     @testable import PerchApp
 
     @MainActor private final class SegmentedKeyboardDriver: ObservableObject {
@@ -37,6 +38,19 @@
             .onExitCommand {
                 if let original = driver.cancellationSelection { driver.minutes = original }
             }
+        }
+    }
+
+    private struct GeneralLengthKeyboardFixture: View {
+        @ObservedObject var store: PlannerStore
+        let driver: SegmentedKeyboardDriver
+        var body: some View {
+            VStack {
+                SegmentedKeyboardField(field: driver.before)
+                SettingsGeneralPane.defaultLengthControl(store: store)
+                SegmentedKeyboardField(field: driver.after)
+            }
+            .padding(20)
         }
     }
 
@@ -78,6 +92,8 @@
             try await testExitAndCancellation()
             try await testDisabledAndInactive()
             log("PASS: Segmented native arrows, ends, Tab, back-tab and cancellation")
+            try await testReloadedCustomDurations()
+            log("PASS: General reloaded 30/50-minute keyboard entry and persisted preset selection")
         }
 
         private func testArrowsAndEnds() async throws {
@@ -214,6 +230,96 @@
             try assertSelectedAndFocused(45)
             try await key(code: 123, characters: "\u{f702}")
             try assertSelectedAndFocused(25)
+        }
+
+        private func testReloadedCustomDurations() async throws {
+            for custom in [30, 50] {
+                let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+                let suite = "GeneralLengthKeyboard.\(UUID().uuidString)"
+                guard let defaults = UserDefaults(suiteName: suite) else {
+                    throw SegmentedKeyboardFailure(message: "Cannot create isolated duration preferences")
+                }
+                defer {
+                    defaults.removePersistentDomain(forName: suite)
+                    try? FileManager.default.removeItem(at: directory)
+                }
+                let file = PlannerFile(
+                    url: directory.appendingPathComponent("planner.json"),
+                    preferences: UserDefaultsPlannerPreferences(defaults: defaults))
+                var planner = Planner()
+                planner.preferences.defaultFocusMinutes = custom
+                try file.save(planner)
+                let store = PlannerStore(file: file, watching: false)
+                var expected = store.prefs
+                try require(expected.defaultFocusMinutes == custom, "Start from a reloaded custom duration")
+                let saved = try Data(contentsOf: file.url)
+                let host = NSHostingView(
+                    rootView: GeneralLengthKeyboardFixture(store: store, driver: driver)
+                        .environment(\.accessibilityEnabled, true))
+                host.sizingOptions = []
+                window.contentView = host
+                await settle()
+                try connectKeyLoop(in: host)
+                try require(window.makeFirstResponder(driver.before), "Focus before the real General control")
+                await settle()
+                try assertEditor(driver.before)
+                try await key(code: 48, characters: "\t")
+                try assertGeneralLength(store: store, expected: expected, focused: 15)
+                try require(try Data(contentsOf: file.url) == saved, "Tab entry must not round or save a preset")
+                // Neither traversal direction is an explicit selection action.
+                try await key(code: 48, characters: "\u{19}", modifiers: .shift)
+                try assertEditor(driver.before)
+                try await key(code: 48, characters: "\t")
+                try assertGeneralLength(store: store, expected: expected, focused: 15)
+                try await key(code: 48, characters: "\t")
+                try assertEditor(driver.after)
+                try await key(code: 48, characters: "\u{19}", modifiers: .shift)
+                try assertGeneralLength(store: store, expected: expected, focused: 15)
+                try require(try Data(contentsOf: file.url) == saved, "Traversing a custom duration must not write it")
+                // Space activates the fallback; an arrow chooses the adjacent preset directly.
+                if custom == 30 {
+                    try await key(code: 49, characters: " ")
+                    expected.defaultFocusMinutes = 15
+                } else {
+                    try await key(code: 124, characters: "\u{f703}")
+                    expected.defaultFocusMinutes = 25
+                }
+                try assertGeneralLength(store: store, expected: expected, focused: expected.defaultFocusMinutes)
+                try require(store.lastError == nil, "The keyboard selection must save successfully")
+                try await key(code: 48, characters: "\t")
+                try assertEditor(driver.after)
+                try assertGeneralLength(store: store, expected: expected, focused: nil)
+                try await key(code: 48, characters: "\u{19}", modifiers: .shift)
+                try assertGeneralLength(store: store, expected: expected, focused: expected.defaultFocusMinutes)
+                try require(window.makeFirstResponder(driver.before), "Release focus before replacing the fixture")
+            }
+        }
+
+        private func assertGeneralLength(store: PlannerStore, expected: Preferences, focused: Int?) throws {
+            let nodes = segmentNodes(
+                in: traceFocus("General length \(expected.defaultFocusMinutes); focus=\(String(describing: focused))"))
+            try require(nodes.count == 4, "General must retain exactly four preset buttons")
+            try require(store.prefs == expected, "The live preference must match without changing other preferences")
+            let reloaded = PlannerStore(file: store.file, watching: false)
+            try require(reloaded.prefs == expected, "Reloaded preferences must preserve the keyboard choice")
+            let eligible = nodes.compactMap { $0 as? PerchSegmentKeyView }.filter(\.acceptsFirstResponder)
+            let target = [15, 25, 45, 60].contains(expected.defaultFocusMinutes) ? expected.defaultFocusMinutes : 15
+            try require(eligible.count == 1 && label(eligible[0]) == String(target), "Exactly one eligible Tab target")
+            for value in [15, 25, 45, 60] {
+                let matches = nodes.filter { label($0) == String(value) }
+                try require(matches.count == 1, "Exactly one General preset for \(value)")
+                guard let node = matches.first else { return }
+                try require(
+                    boolean(node, "isAccessibilityFocused") == (value == focused),
+                    "AX focus must describe the actual fallback or selected preset")
+                try require(
+                    attribute(node, "accessibilityValue") as? String
+                        == (value == expected.defaultFocusMinutes ? "Selected" : "Not selected"),
+                    "Focusing the fallback must not report it as selected")
+                if value == focused {
+                    try require(window.firstResponder === node, "Tab must reach the real General segment")
+                }
+            }
         }
 
         private func connectKeyLoop(in host: NSView) throws {
@@ -583,6 +689,11 @@
             XCTAssertEqual(process.terminationReason, .exit)
             XCTAssertEqual(process.terminationStatus, 0, "Native segmented keyboard check failed:\n\(result)")
             XCTAssertTrue(result.contains("PASS: Segmented native arrows, ends, Tab, back-tab and cancellation"))
+            XCTAssertEqual(
+                result.components(
+                    separatedBy: "PASS: General reloaded 30/50-minute keyboard entry and persisted preset selection"
+                ).count - 1,
+                1)
         }
     }
 #endif

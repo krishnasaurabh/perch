@@ -25,12 +25,20 @@ class SettingsNotchPaneTests(unittest.TestCase):
                 self.assertIn(f"preferences.{control}", source)
         self.assertEqual(source.count("PerchSwitch("), 6)
         self.assertEqual(source.count("PerchSegmented("), 2)
+        # The independent opening control retains its shared legacy binding.
+        shared_controls = source.replace(
+            'Picker("Open the notch on", selection: SettingsView.openingPreference(store: store)) {',
+            "", 1)
         for title in ("Around the notch", "Pill details", "Menu bar"):
             self.assertIn(f'SettingsSection("{title}")', source)
-        # The independent opening control retains its shared legacy binding.
-        self.assertNotIn("Picker(", source.replace(
-            'Picker("Open the notch on", selection: SettingsView.openingPreference(store: store)) {',
-            "", 1))
+            section = shared_controls.split(f'SettingsSection("{title}")', 1)[1].split('SettingsSection(', 1)[0]
+            self.assertNotIn("Picker(", section)
+        self.assertEqual(shared_controls.count("Picker("), 1)
+        displays = source.split('SettingsSection("Displays")', 1)[1].split('\n#if DEBUG', 1)[0]
+        self.assertEqual(displays.count("Picker("), 1)
+        self.assertIn('SettingsRow("Show Perch on"', displays)
+        self.assertIn('Picker("Show Perch on", selection: preferences.showOnDisplay)', displays)
+        self.assertIn('binding(\\.showOnDisplay, update: PreferenceUpdate.showOnDisplay)', source)
         self.assertNotIn("ViewThatFits", source)
 
     def test_bindings_use_typed_actions_not_local_drafts(self):

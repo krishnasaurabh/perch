@@ -1,8 +1,14 @@
+import AppKit
 import PlannerCore
 import SwiftUI
 
 struct SettingsNotchPane: View {
     @EnvironmentObject var store: PlannerStore
+    var displays: () -> [SettingsNotchDisplay] = {
+        NSScreen.screens.map {
+            SettingsNotchDisplay(id: $0.displayID, name: $0.localizedName, isBuiltIn: $0.isBuiltIn)
+        }
+    }
 
     private var preferences: SettingsNotchPreferences { SettingsNotchPreferences(store: store) }
 
@@ -70,7 +76,35 @@ struct SettingsNotchPane: View {
                 .fixedSize(horizontal: false, vertical: true)
                 .frame(minHeight: SettingsMetrics.rowHeight, alignment: .leading)
         }
+        SettingsSection("Displays") {
+            let screens = displays()
+            SettingsRow("Show Perch on", help: "Choose Automatic to let Perch use any attached display.") {
+                Picker("Show Perch on", selection: preferences.showOnDisplay) {
+                    Text("Automatic").tag(String?.none)
+                    if screens.contains(where: \.isBuiltIn) {
+                        Text("Built-in display").tag(Optional("builtIn"))
+                    }
+                    ForEach(screens.filter { !$0.isBuiltIn }) { screen in
+                        Text(verbatim: screen.name).tag(Optional(screen.name))
+                    }
+                    if let selected = store.prefs.showOnDisplay,
+                        !screens.contains(where: { $0.isBuiltIn ? selected == "builtIn" : selected == $0.name })
+                    {
+                        Text(verbatim: selected).tag(Optional(selected))
+                    }
+                }
+                .labelsHidden()
+                .accessibilityIdentifier("settings.showOnDisplay")
+            }
+        }
     }
+}
+
+/// Snapshot of an attached display; names remain exact persisted routing values.
+struct SettingsNotchDisplay: Identifiable {
+    let id: UInt32
+    let name: String
+    let isBuiltIn: Bool
 }
 
 #if DEBUG || PERCH_TESTING
@@ -100,6 +134,7 @@ struct SettingsNotchPane: View {
 struct SettingsNotchPreferences {
     let store: PlannerStore
 
+    var showOnDisplay: Binding<String?> { binding(\.showOnDisplay, update: PreferenceUpdate.showOnDisplay) }
     var progressLine: Binding<Bool> { binding(\.notchProgressLine, update: PreferenceUpdate.notchProgressLine) }
     var timePill: Binding<Bool> { binding(\.notchTimePill, update: PreferenceUpdate.notchTimePill) }
     var taskPill: Binding<Bool> { binding(\.notchTaskCount, update: PreferenceUpdate.notchTaskCount) }
