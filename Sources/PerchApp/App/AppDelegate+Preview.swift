@@ -10,6 +10,12 @@ import SwiftUI
         static var previewTargets: [String: PreviewTarget] {
             [
                 "today": .workspace(.home),
+                "menubar-icon": .menuBar(.icon),
+                "menubar-time": .menuBar(.timeLeft),
+                "menubar-tasks": .menuBar(.tasksLeft),
+                "menubar-hidden": .menuBar(.hidden),
+                "menubar-private": .menuBar(.timeLeft, privacy: true),
+                "menubar-block": .menuBar(.timeLeft, block: true),
                 "your-day": .window("your-day-preview") { YourDayPreview.show(app: $0) },
                 "your-day-editing": .window("your-day-preview") { YourDayPreview.show(app: $0, editing: true) },
                 "your-day-capture": .window("your-day-preview") { YourDayPreview.show(app: $0, capture: true) },
@@ -31,6 +37,7 @@ import SwiftUI
                 "week-adding": .window("week-adding") { WeekBoardPreview.adding($0) },
                 "settings": .window("settings") { $0.openSettings() },
                 "settings/general": .window("settings") { SettingsWindow.preview(.general, app: $0) },
+                "settings/general-alternatives": .window("settings", open: SettingsGeneralPane.previewAlternatives),
                 "settings/notch": .window("settings") { SettingsWindow.preview(.notch, app: $0) },
                 "settings/notch-configured": .window("settings", open: SettingsNotchPreview.showConfigured),
                 "settings/calendar": .window("settings") { SettingsWindow.preview(.calendar, app: $0) },

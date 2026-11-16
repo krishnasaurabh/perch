@@ -35,6 +35,23 @@
         }
       }
     },
+    "%@ · %lld of %lld steps": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ · %lld of %lld steps"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦%@ · %lld öf %lld stëps ·~⟧"
+          }
+        }
+      }
+    },
     "%@, typed date": {
       "extractionState": "manual",
       "localizations": {
@@ -147,6 +164,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "⟦%lld dönë ·~⟧"
+          }
+        }
+      }
+    },
+    "%lld left": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld left"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦%lld lëft ·~⟧"
           }
         }
       }
@@ -554,6 +588,23 @@
         }
       }
     },
+    "+5 min": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "+5 min"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦+5 mïn ·~⟧"
+          }
+        }
+      }
+    },
     "999+ tasks": {
       "extractionState": "manual",
       "localizations": {
@@ -601,6 +652,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "⟦Ådd %@ ·~⟧"
+          }
+        }
+      }
+    },
+    "Add a task": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Add a task"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Ådd à tàsk ·~⟧"
           }
         }
       }
@@ -1234,6 +1302,23 @@
         }
       }
     },
+    "Hide counts and times": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hide counts and times"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Hïdë cöünts ànd tïmës ·~⟧"
+          }
+        }
+      }
+    },
     "If completed %@, next is %@": {
       "extractionState": "manual",
       "localizations": {
@@ -1540,6 +1625,40 @@
         }
       }
     },
+    "Open Today": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open Today"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Öpën Tödày ·~⟧"
+          }
+        }
+      }
+    },
+    "Open Week": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open Week"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Öpën Wëëk ·~⟧"
+          }
+        }
+      }
+    },
     "Open the task": {
       "extractionState": "manual",
       "localizations": {
@@ -1574,6 +1693,23 @@
         }
       }
     },
+    "Pause": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pause"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Pàüsë ·~⟧"
+          }
+        }
+      }
+    },
     "Pause or continue": {
       "extractionState": "manual",
       "localizations": {
@@ -1587,6 +1723,57 @@
           "stringUnit": {
             "state": "translated",
             "value": "⟦Pàüsë ör cöntïnüë ·~⟧"
+          }
+        }
+      }
+    },
+    "Paused": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Paused"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Pàüsëd ·~⟧"
+          }
+        }
+      }
+    },
+    "Perch": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Perch"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Përch ·~⟧"
+          }
+        }
+      }
+    },
+    "Perch. Counts and times hidden.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Perch. Counts and times hidden."
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Përch. Cöünts ànd tïmës hïddën. ·~⟧"
           }
         }
       }
@@ -1621,6 +1808,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "⟦Qüàrtërly ·~⟧"
+          }
+        }
+      }
+    },
+    "Quit Perch": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quit Perch"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Qüït Përch ·~⟧"
           }
         }
       }
@@ -1747,6 +1951,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "⟦Schëdülë thïs tàsk bëförë àddïng à rëpëàt. ·~⟧"
+          }
+        }
+      }
+    },
+    "Settings": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Settings"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Sëttïngs ·~⟧"
           }
         }
       }
@@ -1917,6 +2138,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "⟦Tïmë ·~⟧"
+          }
+        }
+      }
+    },
+    "Time set aside": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Time set aside"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Tïmë sët àsïdë ·~⟧"
           }
         }
       }
