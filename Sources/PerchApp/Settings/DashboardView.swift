@@ -338,7 +338,7 @@ enum DashboardKeyLoop {
     }
 
     static func install(in window: NSWindow) {
-        guard let root = window.contentView,
+        guard window.isVisible, let root = window.contentView,
             let host = descendants(root).compactMap({ $0 as? DashboardTabsHost }).first,
             !host.installingKeyLoop
         else { return }
@@ -346,6 +346,10 @@ enum DashboardKeyLoop {
         host.installingKeyLoop = true
         defer { host.installingKeyLoop = false }
         window.autorecalculatesKeyViewLoop = false
+        // Native page controls have a complete deterministic loop. Recalculating
+        // their nested hosting views on every layout re-enters SwiftUI focus
+        // updates, including while a closing window is tearing down.
+        if installNativePaneLoop(in: window, root: root, host: host) { return }
         window.recalculateKeyViewLoop()
         guard let tabs = tabKeyView(in: window) else { return }
         let following = nextPageKeyView(after: tabs, outside: host)
@@ -366,12 +370,6 @@ enum DashboardKeyLoop {
                 }
             }
         }
-        if host.selectionState?.tab == .projects {
-            let options = descendants(root).compactMap { $0 as? DashboardPaneActionView }.filter {
-                $0.identifier?.rawValue.hasPrefix("project-options-") == true && $0.canBecomeKeyView
-            }
-            if !options.isEmpty { linkPaneActions(options, after: tabs, tabs: tabs, outside: host) }
-        }
         guard host.selectionState?.tab == .history,
             let search = descendants(root).compactMap({ $0 as? NSTextField }).first(where: {
                 $0.identifier?.rawValue == searchIdentifier && !$0.isHiddenOrHasHiddenAncestor
@@ -380,37 +378,36 @@ enum DashboardKeyLoop {
         let afterSearch = nextPageKeyView(after: search, outside: host)
         tabs.nextKeyView = search
         search.nextKeyView = afterSearch === search ? tabs : (afterSearch ?? tabs)
-        let filters = ["everything", "carried", "time", "agent"].compactMap { name in
-            descendants(root).compactMap { $0 as? DashboardPaneActionView }.first {
-                $0.identifier?.rawValue == "history-filter-\(name)" && $0.canBecomeKeyView
-            }
-        }
-        if !filters.isEmpty { linkPaneActions(filters, after: search, tabs: tabs, outside: host) }
     }
 
-    /// Replace the bridge proxies with their native owners, retaining other page
-    /// controls after them rather than trapping Tab in only the filter/options subset.
-    private static func linkPaneActions(
-        _ actions: [DashboardPaneActionView], after entry: NSView, tabs: NSView, outside host: DashboardTabsHost
-    ) {
-        guard let first = actions.first else { return }
-        let remaining = naturalPageControls(after: tabs, outside: host).filter { candidate in
-            candidate !== entry && !actions.contains { candidate === $0 || candidate.isDescendant(of: $0) }
-        }
-        entry.nextKeyView = first
-        let controls: [NSView] = actions + remaining
-        for (index, control) in controls.enumerated() {
-            control.nextKeyView = index + 1 < controls.count ? controls[index + 1] : tabs
-        }
-    }
-
-    private static func naturalPageControls(after tabs: NSView, outside host: DashboardTabsHost) -> [NSView] {
-        guard let root = tabs.window?.contentView else { return [] }
-        // The page's native controls retain document order. The hosting view's
-        // representable proxies are not additional user controls.
-        return descendants(root).filter {
+    /// Link the named entry controls first, then every remaining native document
+    /// control. Only change edges when necessary; never rebuild a hosted focus
+    /// tree as a side effect of painting its focus ring.
+    private static func installNativePaneLoop(in window: NSWindow, root: NSView, host: DashboardTabsHost) -> Bool {
+        guard host.selectionState?.tab != .yourWeek, let tabs = tabKeyView(in: window) else { return false }
+        let page = descendants(root).filter {
             $0 is NSControl && $0.canBecomeKeyView && !$0.isDescendant(of: host)
         }
+        guard page.contains(where: { $0 is DashboardPaneActionView }) else { return false }
+        var entry: [NSView] = []
+        if host.selectionState?.tab == .history {
+            if let search = page.first(where: { $0.identifier?.rawValue == searchIdentifier }) { entry.append(search) }
+            for name in ["everything", "carried", "time", "agent"] {
+                if let filter = page.first(where: { $0.identifier?.rawValue == "history-filter-\(name)" }) {
+                    entry.append(filter)
+                }
+            }
+        } else {
+            entry = page.filter { $0.identifier?.rawValue.hasPrefix("project-options-") == true }
+        }
+        let controls = [tabs] + entry + page.filter { candidate in !entry.contains { $0 === candidate } }
+        if window.initialFirstResponder !== tabs { window.initialFirstResponder = tabs }
+        if root.nextKeyView !== tabs { root.nextKeyView = tabs }
+        for (index, control) in controls.enumerated() {
+            let next = controls[(index + 1) % controls.count]
+            if control.nextKeyView !== next { control.nextKeyView = next }
+        }
+        return true
     }
 
     /// Skip only hosting infrastructure and strip-internal proxies, preserving
