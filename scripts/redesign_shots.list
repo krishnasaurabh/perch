@@ -30,6 +30,9 @@ history-carried --scenario window-history --open history-carried
 history-time --scenario window-history --open history-time
 history-agent --scenario window-history --open history-agent
 projects-empty --scenario empty --open projects
+projects-new --scenario window-projects --open projects-new
+projects-rename --scenario window-projects --open projects-rename
+projects-options --scenario window-projects --open projects-options
 surfaces --scenario empty --open surfaces
 surfaces-focused --scenario empty --open surfaces-focused
 keys --scenario empty --open keys

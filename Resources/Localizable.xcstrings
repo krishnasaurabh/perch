@@ -607,6 +607,23 @@
         }
       }
     },
+    "%lld open tasks": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld open tasks"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦%lld öpën tàsks ·~⟧"
+          }
+        }
+      }
+    },
     "%lld open · %lld done": {
       "extractionState": "manual",
       "localizations": {
@@ -624,6 +641,23 @@
         }
       }
     },
+    "%lld open, %lld done": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld open, %lld done"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦%lld öpën, %lld dönë ·~⟧"
+          }
+        }
+      }
+    },
     "%lld percent": {
       "extractionState": "manual",
       "localizations": {
@@ -637,6 +671,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "⟦%lld përcënt ·~⟧"
+          }
+        }
+      }
+    },
+    "%lld percent done": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld percent done"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦%lld përcënt dönë ·~⟧"
           }
         }
       }
@@ -1944,6 +1995,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "⟦Ådd nëw scrëënshöts tö Clïps ·~⟧"
+          }
+        }
+      }
+    },
+    "Add project": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Add project"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Ådd pröjëct ·~⟧"
           }
         }
       }
@@ -4872,6 +4940,23 @@
         }
       }
     },
+    "Drag a task onto a project card to file it.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Drag a task onto a project card to file it."
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Dràg à tàsk öntö à pröjëct càrd tö fïlë ït. ·~⟧"
+          }
+        }
+      }
+    },
     "Drag here to reveal the week, then drop onto a day.": {
       "extractionState": "manual",
       "localizations": {
@@ -5225,6 +5310,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "⟦Ënglïsh ·~⟧"
+          }
+        }
+      }
+    },
+    "Enter a project name.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enter a project name."
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Ëntër à pröjëct nàmë. ·~⟧"
           }
         }
       }
@@ -7711,6 +7813,23 @@
         }
       }
     },
+    "New project": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "New project"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Nëw pröjëct ·~⟧"
+          }
+        }
+      }
+    },
     "New screenshots in %@ appear here.": {
       "extractionState": "manual",
       "localizations": {
@@ -7724,6 +7843,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "⟦Nëw scrëënshöts ïn %@ àppëàr hërë. ·~⟧"
+          }
+        }
+      }
+    },
+    "Next": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Next"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Nëxt ·~⟧"
           }
         }
       }
@@ -7898,6 +8034,23 @@
         }
       }
     },
+    "No project": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No project"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Nö pröjëct ·~⟧"
+          }
+        }
+      }
+    },
     "No projects yet. Add #project to a new task.": {
       "extractionState": "manual",
       "localizations": {
@@ -8030,6 +8183,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "⟦Nöt ïnstàllëd ·~⟧"
+          }
+        }
+      }
+    },
+    "Not now": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Not now"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Nöt nöw ·~⟧"
           }
         }
       }
@@ -8234,6 +8404,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "⟦Nöthïng tö àllöw yët ·~⟧"
+          }
+        }
+      }
+    },
+    "Nothing waiting in this project.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nothing waiting in this project."
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Nöthïng wàïtïng ïn thïs pröjëct. ·~⟧"
           }
         }
       }
@@ -9972,6 +10159,23 @@
         }
       }
     },
+    "Project options": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Project options"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Pröjëct öptïöns ·~⟧"
+          }
+        }
+      }
+    },
     "Projects": {
       "extractionState": "manual",
       "localizations": {
@@ -10608,6 +10812,23 @@
         }
       }
     },
+    "Rename project": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rename project"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Rënàmë pröjëct ·~⟧"
+          }
+        }
+      }
+    },
     "Reopen": {
       "extractionState": "manual",
       "localizations": {
@@ -11131,6 +11352,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "⟦Sàvë ·~⟧"
+          }
+        }
+      }
+    },
+    "Save name": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Save name"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Sàvë nàmë ·~⟧"
           }
         }
       }
@@ -12712,6 +12950,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "⟦Tëxtürë ·~⟧"
+          }
+        }
+      }
+    },
+    "That project is no longer available.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "That project is no longer available."
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Thàt pröjëct ïs nö löngër àvàïlàblë. ·~⟧"
           }
         }
       }
