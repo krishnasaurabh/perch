@@ -16,11 +16,17 @@ on:
         description: Run the macOS job
         type: boolean
         default: true
+      full:
+        description: Run the full suite (every probe and the motion evidence)
+        type: boolean
+        default: true
 
-# One run per branch; a new push cancels the older run.
+# One run per branch. A new pull request push cancels the older run. On main a run is never
+# cancelled; GitHub keeps only the newest queued run, which tests every merge since the last
+# verified main commit, so merges that land together are verified together.
 concurrency:
   group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   swift-format:
@@ -86,41 +92,38 @@ jobs:
   changes:
     name: macOS path filter
     runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      statuses: read
     outputs:
       macos: ${{ steps.filter.outputs.macos }}
+      full: ${{ steps.filter.outputs.full }}
+      behavior: ${{ steps.filter.outputs.behavior }}
+      layout: ${{ steps.filter.outputs.layout }}
+      suites: ${{ steps.filter.outputs.suites }}
+      skip_native: ${{ steps.filter.outputs.skip_native }}
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - name: Select macOS jobs
+      - name: Select suites for this change
+        # Pull requests run targeted suites; main runs the full suite every 10 merges.
+        # Unmapped paths and build plumbing fail open to the full suite.
         id: filter
         env:
+          GH_TOKEN: ${{ github.token }}
           EVENT_NAME: ${{ github.event_name }}
           FORCE_MACOS: ${{ inputs.macos }}
-          PUSH_BASE: ${{ github.event.before }}
+          FORCE_FULL: ${{ inputs.full }}
           PR_BASE: ${{ github.event.pull_request.base.sha }}
+          LABELS: ${{ toJSON(github.event.pull_request.labels) }}
         run: |
-          python3 - <<'PY'
-          import os, re, subprocess
-          if os.environ['EVENT_NAME'] == 'workflow_dispatch':
-              macos = os.environ['FORCE_MACOS'] == 'true'
-          else:
-              base = os.environ['PR_BASE'] or os.environ['PUSH_BASE']
-              if not base or set(base) == {'0'}:
-                  macos = True  # New branch: no trustworthy base, so run all gates.
-              else:
-                  try:
-                      paths = subprocess.check_output(['git', 'diff', '--no-renames', '--name-only', '-z', base, 'HEAD']).decode().split('\0')
-                  except subprocess.CalledProcessError:
-                      macos = True  # Rewritten/unavailable base: fail open to all tests.
-                  else:
-                      paths = [p for p in paths if p]
-                      core_only = lambda p: p.startswith(('Sources/PlannerCore/', 'Sources/PerchMCP/', 'Tests/PlannerCoreTests/', 'Tests/PerchMCPTests/', 'Tests/PerchUITests/', 'Tests/PlannerTestSupport/')) or re.fullmatch(r'scripts/test_[^/]*\.py', p) or p.startswith('docs/') or p.endswith('.md')
-                      macos = not paths or not all(core_only(p) for p in paths)
-          with open(os.environ['GITHUB_OUTPUT'], 'a') as out:
-              out.write(f'macos={str(macos).lower()}\n')
-          print(f'Run macOS jobs: {macos}')
-          PY
+          python3 -m unittest discover -s scripts -p test_ci_select.py
+          python3 scripts/ci_select.py --event "$EVENT_NAME" --base "$PR_BASE" \
+            --labels "${LABELS:-[]}" --force-full "${FORCE_FULL:-false}"
+          if [ "$EVENT_NAME" = workflow_dispatch ] && [ "$FORCE_MACOS" = false ]; then
+            echo macos=false >> "$GITHUB_OUTPUT"
+          fi
 
   app-macos:
     name: Perch.app (macOS)
@@ -134,9 +137,13 @@ jobs:
           sudo xcode-select -s "$(ls -d /Applications/Xcode_26*.app 2>/dev/null | sort -V | tail -1 || ls -d /Applications/Xcode*.app | sort -V | tail -1)"
           swift --version
       - name: Domain, MCP, UI logic and macOS app-layer tests
+        env:
+          SKIP_NATIVE: ${{ needs.changes.outputs.skip_native }}
         run: |
           python3 -m unittest discover -s Tests/ArchitectureTests
-          if ! swift test; then
+          SKIP=()
+          if [ -n "$SKIP_NATIVE" ]; then SKIP=(--skip "$SKIP_NATIVE"); echo "Skipping untouched native suites: $SKIP_NATIVE"; fi
+          if ! swift test "${SKIP[@]}"; then
             mkdir -p "$RUNNER_TEMP/native-diagnostics"
             # Preserve an actual native backtrace, rather than hiding a runner crash behind retries.
             lldb --batch -o 'settings set target.disable-aslr false' -o 'breakpoint set -n malloc_error_break' -o run -o 'thread backtrace all' -k 'thread backtrace all' -- \
@@ -193,7 +200,8 @@ jobs:
   probes-layout-macos:
     name: Perch layout probes (macOS)
     runs-on: macos-15
-    needs: app-macos
+    needs: [changes, app-macos]
+    if: needs.changes.outputs.layout == 'true'
     steps:
       - uses: actions/checkout@v4
       - name: Toolchain
@@ -211,7 +219,7 @@ jobs:
           mkdir -p dist
           tar -xzf "$RUNNER_TEMP/perch-bundle/perch-app.tar.gz" -C dist
       - name: Screenshots (grey wallpaper so the notch outline shows)
-        if: ${{ !cancelled() && steps.restore.outcome == 'success' }}
+        if: ${{ !cancelled() && steps.restore.outcome == 'success' && contains(fromJSON(needs.changes.outputs.suites), 'notch_layout') }}
         run: |
           python3 -c "import zlib,struct;w,h=64,64;raw=b''.join(b'\\x00'+bytes([120,124,135])*w for _ in range(h));c=lambda t,d:struct.pack('>I',len(d))+t+d+struct.pack('>I',zlib.crc32(t+d));open('/tmp/grey.png','wb').write(b'\\x89PNG\\r\\n\\x1a\\n'+c(b'IHDR',struct.pack('>IIBBBBB',w,h,8,2,0,0,0))+c(b'IDAT',zlib.compress(raw))+c(b'IEND',b''))"
           osascript -e 'tell application "System Events" to tell every desktop to set picture to "/tmp/grey.png"' || true
@@ -231,7 +239,7 @@ jobs:
           sleep 5; kill %1 || true
           ls -la $OUT $RUNNER_TEMP/perch-*.png
       - name: Home and Insights snapshots (empty, 3 tasks, timer running, insights)
-        if: ${{ !cancelled() && steps.restore.outcome == 'success' }}
+        if: ${{ !cancelled() && steps.restore.outcome == 'success' && contains(fromJSON(needs.changes.outputs.suites), 'home_snapshots') }}
         run: |
           for sc in empty:home three:home timer:home insights:insights empty:insights; do
             name=${sc%%:*}; page=${sc##*:}; OUT=$RUNNER_TEMP/notch/$name-$page; mkdir -p $OUT
@@ -240,11 +248,11 @@ jobs:
             ls $OUT/*.png || { echo "no snapshot for $name"; exit 1; }
           done
       - name: Redesign snapshots (light, dark and Reduce Motion at 2x)
-        if: ${{ !cancelled() && steps.restore.outcome == 'success' }}
+        if: ${{ !cancelled() && steps.restore.outcome == 'success' && contains(fromJSON(needs.changes.outputs.suites), 'redesign') }}
         timeout-minutes: 8
         run: bash scripts/redesign_shots.sh "$RUNNER_TEMP/redesign-shots"
       - name: Upload redesign snapshots
-        if: always()
+        if: always() && contains(fromJSON(needs.changes.outputs.suites), 'redesign')
         uses: actions/upload-artifact@v4
         with:
           name: redesign-shots
@@ -253,10 +261,10 @@ jobs:
             !**/planner.json.backups/**
           if-no-files-found: error
       - name: Home cards legibility (exact timer value, default and dot-matrix faces, heavy notepad)
-        if: ${{ !cancelled() && steps.restore.outcome == 'success' }}
+        if: ${{ !cancelled() && steps.restore.outcome == 'success' && contains(fromJSON(needs.changes.outputs.suites), 'homecards') }}
         run: bash scripts/homecards_shots.sh "$RUNNER_TEMP/notch/homecards"
       - name: NotchLayout frames (fixtures + live) and mouse routing
-        if: ${{ !cancelled() && steps.restore.outcome == 'success' }}
+        if: ${{ !cancelled() && steps.restore.outcome == 'success' && contains(fromJSON(needs.changes.outputs.suites), 'notch_layout') }}
         run: |
           OUT=$RUNNER_TEMP/notch
           NOTCH_LAYOUT_JSON=$OUT/fixtures.json swift test --filter NotchLayoutTests/testDumpFramesToJSON
@@ -333,25 +341,25 @@ jobs:
           sys.exit(1 if bad else 0)
           EOF
       - name: Theme contrast and Home Week Settings in both appearances
-        if: ${{ !cancelled() && steps.restore.outcome == 'success' }}
+        if: ${{ !cancelled() && steps.restore.outcome == 'success' && contains(fromJSON(needs.changes.outputs.suites), 'theme') }}
         run: |
           pip3 install --quiet --break-system-packages Pillow
           bash scripts/check_theme.sh "$RUNNER_TEMP/notch/theme"
       - name: Week with a busy today (overflow fade, +N more, pinned Add)
-        if: ${{ !cancelled() && steps.restore.outcome == 'success' }}
+        if: ${{ !cancelled() && steps.restore.outcome == 'success' && contains(fromJSON(needs.changes.outputs.suites), 'week') }}
         run: bash scripts/week_shots.sh "$RUNNER_TEMP/notch/week"
       - name: Compact Home bounds and stress snapshots
-        if: ${{ !cancelled() && steps.restore.outcome == 'success' }}
+        if: ${{ !cancelled() && steps.restore.outcome == 'success' && contains(fromJSON(needs.changes.outputs.suites), 'compact_home') }}
         run: |
           bash scripts/check_compact_home.sh "$RUNNER_TEMP/notch/compact-home"
       - name: Compact Insights stacked render (668pt page, the branch a 1024x768 display never shows)
-        if: ${{ !cancelled() && steps.restore.outcome == 'success' }}
+        if: ${{ !cancelled() && steps.restore.outcome == 'success' && contains(fromJSON(needs.changes.outputs.suites), 'compact_insights') }}
         run: |
           pip3 install --quiet --break-system-packages Pillow || pip3 install --quiet Pillow
           python3 -m unittest discover -s scripts -p test_measure_compact_insights.py
           bash scripts/check_compact_insights.sh "$RUNNER_TEMP/notch/compact-insights"
       - name: Larger flat desktop (best effort; the runner's virtual display defaults to 1024x768)
-        if: ${{ !cancelled() && steps.restore.outcome == 'success' }}
+        if: ${{ !cancelled() && steps.restore.outcome == 'success' && contains(fromJSON(needs.changes.outputs.suites), 'large_desktop') }}
         run: |
           OUT=$RUNNER_TEMP/notch/large; mkdir -p $OUT
           brew install --quiet jakehilborn/jakehilborn/displayplacer >/dev/null 2>&1 || true
@@ -377,7 +385,7 @@ jobs:
               assert not s["routing"]["menuBarRight"] and not s["routing"]["menuBarAboveWorkspaceEdge"], "menu bar must click through"
           EOF
       - name: Capture prompt contrast (rendered, resting + focused)
-        if: ${{ !cancelled() && steps.restore.outcome == 'success' }}
+        if: ${{ !cancelled() && steps.restore.outcome == 'success' && contains(fromJSON(needs.changes.outputs.suites), 'capture_contrast') }}
         run: bash scripts/check_capture_contrast.sh "$RUNNER_TEMP/capture-contrast"
       - uses: actions/upload-artifact@v4
         if: always()
@@ -387,12 +395,13 @@ jobs:
             ${{ runner.temp }}/perch-*.png
             ${{ runner.temp }}/notch/**
             ${{ runner.temp }}/capture-contrast/
-          if-no-files-found: error
+          if-no-files-found: ${{ needs.changes.outputs.full == 'true' && 'error' || 'warn' }}
 
   probes-behavior-macos:
     name: Perch behavior probes (macOS)
     runs-on: macos-15
-    needs: app-macos
+    needs: [changes, app-macos]
+    if: needs.changes.outputs.behavior == 'true'
     steps:
       - uses: actions/checkout@v4
       - name: Toolchain
@@ -410,28 +419,28 @@ jobs:
           mkdir -p dist
           tar -xzf "$RUNNER_TEMP/perch-bundle/perch-app.tar.gz" -C dist
       - name: Undo persistence and timer regression
-        if: ${{ !cancelled() && steps.restore.outcome == 'success' }}
+        if: ${{ !cancelled() && steps.restore.outcome == 'success' && contains(fromJSON(needs.changes.outputs.suites), 'undo') }}
         run: bash scripts/check_undo.sh "$RUNNER_TEMP/undo"
       - name: External URL confirmation regression
-        if: ${{ !cancelled() && steps.restore.outcome == 'success' }}
+        if: ${{ !cancelled() && steps.restore.outcome == 'success' && contains(fromJSON(needs.changes.outputs.suites), 'url_requests') }}
         run: bash scripts/check_url_requests.sh "$RUNNER_TEMP/url-requests"
       - name: Discoverable focus entry and real button lifecycle
-        if: ${{ !cancelled() && steps.restore.outcome == 'success' }}
+        if: ${{ !cancelled() && steps.restore.outcome == 'success' && contains(fromJSON(needs.changes.outputs.suites), 'focus_entry') }}
         run: bash scripts/check_focus_entry.sh "$RUNNER_TEMP/notch/focus-entry"
       - name: Integrated store, repeats, clips and settings
-        if: ${{ !cancelled() && steps.restore.outcome == 'success' }}
+        if: ${{ !cancelled() && steps.restore.outcome == 'success' && contains(fromJSON(needs.changes.outputs.suites), 'integration') }}
         run: bash scripts/check_integration.sh "$RUNNER_TEMP/integration"
       - name: Recovery stays read-only with synthetic data
-        if: ${{ !cancelled() && steps.restore.outcome == 'success' }}
+        if: ${{ !cancelled() && steps.restore.outcome == 'success' && contains(fromJSON(needs.changes.outputs.suites), 'recovery') }}
         run: bash scripts/check_recovery.sh "$RUNNER_TEMP/notch/recovery"
       - name: Reduced motion policy and nested transaction regression
-        if: ${{ !cancelled() && steps.restore.outcome == 'success' }}
+        if: ${{ !cancelled() && steps.restore.outcome == 'success' && contains(fromJSON(needs.changes.outputs.suites), 'motion_policy') }}
         run: bash scripts/check_motion.sh "$RUNNER_TEMP/motion-policy"
       - name: Empty states and capture focus
-        if: ${{ !cancelled() && steps.restore.outcome == 'success' }}
+        if: ${{ !cancelled() && steps.restore.outcome == 'success' && contains(fromJSON(needs.changes.outputs.suites), 'empty_states') }}
         run: bash scripts/check_empty_states.sh "$RUNNER_TEMP/empty-states"
       - name: Clips layout (empty/populated, dark/light, pixel bounds)
-        if: ${{ !cancelled() && steps.restore.outcome == 'success' }}
+        if: ${{ !cancelled() && steps.restore.outcome == 'success' && contains(fromJSON(needs.changes.outputs.suites), 'clips') }}
         run: |
           pip3 install --quiet --break-system-packages Pillow || pip3 install --quiet Pillow
           python3 -m unittest discover -s scripts -p test_measure_clips_bounds.py
@@ -448,12 +457,13 @@ jobs:
             ${{ runner.temp }}/integration/
             ${{ runner.temp }}/url-requests/
             ${{ runner.temp }}/undo/
-          if-no-files-found: error
+          if-no-files-found: ${{ needs.changes.outputs.full == 'true' && 'error' || 'warn' }}
 
   motion-macos:
     name: Perch motion evidence (macOS)
     runs-on: macos-15
-    needs: app-macos
+    needs: [changes, app-macos]
+    if: needs.changes.outputs.full == 'true'
     steps:
       - uses: actions/checkout@v4
       - name: Toolchain
@@ -501,6 +511,28 @@ jobs:
         run: |
           echo "$RESULTS"
           python3 -c 'import json,os,sys; r=json.loads(os.environ["RESULTS"]); bad=[x for x in r if x not in ("success","skipped")]; sys.exit(1 if bad or "success" not in r else 0)'
+
+  main-status:
+    name: Record main verification
+    # Marks main commits a green run verified. ci_select.py diffs the next main run against the
+    # newest one and runs the full suite when none of the last 10 merges has a green full run.
+    needs: [changes, ci-result]
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main' && needs.ci-result.result == 'success'
+    runs-on: ubuntu-24.04
+    permissions:
+      statuses: write
+    steps:
+      - name: Post statuses
+        env:
+          GH_TOKEN: ${{ github.token }}
+          FULL: ${{ needs.changes.outputs.full }}
+        run: |
+          gh api "repos/$GITHUB_REPOSITORY/statuses/$GITHUB_SHA" -f state=success -f context="Main verified" \
+            -f description="Main CI passed for every merge up to this commit"
+          if [ "$FULL" = true ]; then
+            gh api "repos/$GITHUB_REPOSITORY/statuses/$GITHUB_SHA" -f state=success -f context="Full suite" \
+              -f description="Every probe suite and the motion evidence passed"
+          fi
 
   isolate-close:
     if: github.event_name == 'workflow_dispatch' && inputs.motion_isolation

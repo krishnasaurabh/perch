@@ -1,73 +1,198 @@
 import AppKit
+import Combine
 import PerchUI
+import PlannerCore
 import SwiftUI
 
-// MARK: - Global shortcut
-
-/// The shortcut in Settings: shows what is live, records a replacement, and says so when macOS refuses one.
+/// The shortcut in Settings: records a replacement and keeps rejected chords out of stored preferences.
 struct ShortcutPreferenceRow: View {
+    // A standalone recorder remains available to existing keyboard integrations.
+    var store: PlannerStore? = nil
     @State private var shortcut: ShortcutKey = .default
     @State private var recording = false
     @State private var problem: String?
 
     var body: some View {
-        LabeledContent("Shortcut") {
-            VStack(alignment: .trailing, spacing: 4) {
-                HStack(spacing: 8) {
+        SettingsRow("Shortcut to open and start typing") {
+            VStack(alignment: .trailing, spacing: SettingsMetrics.titleGap) {
+                HStack(spacing: SurfaceMetrics.gap) {
                     if recording {
                         ShortcutRecorder(onRecord: choose, onCancel: { recording = false })
-                            .frame(width: 104, height: 24)
-                        Text("Press the keys you want. Esc cancels.").font(Theme.meta).foregroundStyle(Theme.secondary)
+                            .frame(width: Theme.Size.buttonHeight.value * 2, height: Theme.Size.smallButtonHeight.value)
+                            .overlay {
+                                FocusRing(
+                                    shape: RoundedRectangle(cornerRadius: Theme.Size.segmentRadius.value),
+                                    focused: true, surface: .paper)
+                            }
+                            .accessibilityLabel("Press the keys you want. Esc cancels.")
                     } else {
-                        Button {
-                            problem = nil; recording = true
-                        } label: {
-                            Text(shortcut.display)
-                                .font(Theme.title)
-                                .frame(minWidth: 64)
-                        }
-                        .help("Click, then press the keys you want to use")
+                        PerchButton(shortcut.display, kind: .soft, size: .small, action: beginRecording)
+                            .help("Click, then press the keys you want to use")
+                        PerchButton("Change", kind: .quiet, size: .small, action: beginRecording)
+                            .accessibilityLabel("Change shortcut")
                         if shortcut != .default {
-                            Button("Use ⌥N") { choose(.default) }.buttonStyle(PillStyle())
+                            PerchButton("Use ⌥N", kind: .quiet, size: .small) { choose(.default) }
                         }
                     }
                 }
+                if recording {
+                    Text("Press the keys you want. Esc cancels.")
+                        .perchFont(.detail).foregroundStyle(Theme.ink2)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
                 if let problem {
-                    Text(problem).font(Theme.meta).foregroundStyle(Theme.warning)
+                    Text(problem).perchFont(.detail).foregroundStyle(Theme.ink2)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
             }
         }
-        .onAppear { shortcut = ShortcutStore.load() }
+        .onAppear { shortcut = store.map { ShortcutPreferenceSync.key($0.prefs.openShortcut) } ?? ShortcutStore.load() }
+        .onChange(of: store?.prefs.openShortcut) { _, value in
+            if let value { shortcut = ShortcutPreferenceSync.key(value) }
+        }
         .onReceive(NotificationCenter.default.publisher(for: ShortcutStore.didFail)) { note in
-            // The live hot key kept the old chord; show what is actually registered now.
+            if let store, let rejected = note.userInfo?["key"] as? ShortcutKey,
+                let restored = note.userInfo?["restored"] as? ShortcutKey,
+                Self.currentKey(in: store) != rejected && Self.currentKey(in: store) != restored
+            {
+                return
+            }
             recording = false
             shortcut = note.userInfo?["restored"] as? ShortcutKey ?? ShortcutStore.load()
             problem = AppL10n.format("macOS wouldn't give up that combination. Kept %@.", shortcut.display)
         }
     }
 
+    private func beginRecording() {
+        problem = nil
+        recording = true
+    }
+
     private func choose(_ key: ShortcutKey) {
         recording = false
         problem = nil
+        if let store {
+            guard Self.save(key, in: store) else { return }
+            // The application-wide synchronizer applies successful choices, including unchanged values.
+        } else {
+            ShortcutStore.save(key)
+        }
         shortcut = key
-        ShortcutStore.save(key)  // the running hot key re-registers on this change, no relaunch
+    }
+
+    private static func currentKey(in store: PlannerStore) -> ShortcutKey {
+        ShortcutPreferenceSync.key(store.prefs.openShortcut)
+    }
+
+    static func save(_ key: ShortcutKey, in store: PlannerStore) -> Bool {
+        guard key.isValid,
+            store.apply({ try $0.updatePreference(.openShortcut(ShortcutPreferenceSync.preference(key))) }) != nil
+        else { return false }
+        // A saved default can be a no-op for the planner, but is still an explicit replacement.
+        NotificationCenter.default.post(name: ShortcutPreferenceSync.didChoose, object: store)
+        return true
     }
 }
 
-/// One key press, captured straight from the window so ⌘ combinations never reach the menu bar.
+/// Retains the legacy hot-key bridge while making the typed device preference authoritative.
+/// Lives independently of Settings so a reload or Undo also changes the live shortcut.
+@MainActor
+final class ShortcutPreferenceSync {
+    static let migrationKey = "perch.shortcutPreferenceMigrated"
+    fileprivate static let didChoose = Notification.Name("PerchShortcutPreferenceDidChoose")
+    private var observations = Set<AnyCancellable>()
+    private var pendingRestore: (rejected: ShortcutKey, restored: ShortcutKey)?
+    private weak var store: PlannerStore?
+    private let defaults: UserDefaults
+
+    static func key(_ value: OpenShortcut) -> ShortcutKey {
+        ShortcutKey.validated(ShortcutKey(keyCode: value.keyCode, modifiers: .init(rawValue: value.modifiers)))
+    }
+
+    static func preference(_ key: ShortcutKey) -> OpenShortcut {
+        OpenShortcut(keyCode: key.keyCode, modifiers: key.modifiers.rawValue)
+    }
+
+    static func connect(store: PlannerStore, defaults: UserDefaults = .standard) -> AnyCancellable {
+        let sync = ShortcutPreferenceSync(store: store, defaults: defaults)
+        return AnyCancellable { withExtendedLifetime(sync) {} }
+    }
+
+    init(store: PlannerStore, defaults: UserDefaults = .standard) {
+        self.store = store
+        self.defaults = defaults
+        // save posts on the main actor after persistence succeeds. Handle it synchronously so a
+        // queued planner publication cannot re-import the legacy chord over an explicit default.
+        NotificationCenter.default.publisher(for: Self.didChoose)
+            .sink { [weak self] note in
+                guard let self, let store = self.store, note.object as? PlannerStore === store else { return }
+                self.defaults.set(true, forKey: Self.migrationKey)
+                self.pendingRestore = nil
+                self.synchronize()
+            }.store(in: &observations)
+        // Always connect before importing: a storage failure must not disable later updates.
+        // Retain failed storage restorations until the next publication, even if the chord is unchanged.
+        store.$planner.dropFirst().receive(on: RunLoop.main)
+            .sink { [weak self] _ in self?.synchronize() }.store(in: &observations)
+        NotificationCenter.default.publisher(for: ShortcutStore.didFail)
+            .receive(on: RunLoop.main)
+            .sink { [weak self] note in
+                guard let self, let store = self.store,
+                    let rejected = note.userInfo?["key"] as? ShortcutKey,
+                    let restored = note.userInfo?["restored"] as? ShortcutKey,
+                    Self.key(store.prefs.openShortcut) == rejected
+                else { return }
+                self.pendingRestore = (rejected, restored)
+                self.synchronize()
+            }.store(in: &observations)
+        // Subscribe before the first registration attempt so a launch-time rejection is persisted too.
+        synchronize(registerCurrent: true)
+    }
+
+    private func synchronize(registerCurrent: Bool = false) {
+        guard let store else { return }
+        // Keep the legacy chord live until its import succeeds. A newer typed choice wins.
+        if !defaults.bool(forKey: Self.migrationKey) {
+            let legacy = ShortcutStore.load(defaults: defaults)
+            if store.prefs.openShortcut == OpenShortcut(), legacy != .default {
+                guard
+                    store.performMutation(
+                        origin: .background,
+                        {
+                            try $0.updatePreference(.openShortcut(Self.preference(legacy)))
+                        }) != nil
+                else { return }
+            }
+            defaults.set(true, forKey: Self.migrationKey)
+        }
+        let desired = Self.key(store.prefs.openShortcut)
+        if let pending = pendingRestore {
+            if desired == pending.rejected {
+                if store.performMutation(
+                    origin: .background,
+                    {
+                        try $0.updatePreference(.openShortcut(Self.preference(pending.restored)))
+                    }) != nil
+                {
+                    pendingRestore = nil
+                }
+                return
+            }
+            pendingRestore = nil
+        }
+        if registerCurrent || ShortcutStore.load(defaults: defaults) != desired {
+            ShortcutStore.save(desired, defaults: defaults)
+        }
+    }
+}
+
+/// One key press, captured straight from the window so command combinations never reach the menu bar.
 private final class ShortcutRecorderView: NSView {
     var onRecord: ((ShortcutKey) -> Void)?
     var onCancel: (() -> Void)?
 
     override var acceptsFirstResponder: Bool { true }
     override func becomeFirstResponder() -> Bool { true }
-
-    override func draw(_ dirtyRect: NSRect) {
-        let path = NSBezierPath(roundedRect: bounds.insetBy(dx: 1.5, dy: 1.5), xRadius: 6, yRadius: 6)
-        NSColor.controlAccentColor.setStroke()
-        path.lineWidth = 2
-        path.stroke()
-    }
 
     override func keyDown(with event: NSEvent) { capture(event) }
 
@@ -76,7 +201,7 @@ private final class ShortcutRecorderView: NSView {
         return capture(event) || super.performKeyEquivalent(with: event)
     }
 
-    /// Escape cancels; anything that isn't a usable chord beeps and keeps listening.
+    /// Escape cancels; anything that is not a usable chord beeps and keeps listening.
     @discardableResult
     private func capture(_ event: NSEvent) -> Bool {
         if event.keyCode == UInt16(ShortcutKey.escapeKeyCode) { onCancel?(); return true }
@@ -102,7 +227,6 @@ private struct ShortcutRecorder: NSViewRepresentable {
     func updateNSView(_ view: ShortcutRecorderView, context: Context) {
         view.onRecord = onRecord
         view.onCancel = onCancel
-        // SwiftUI inserts the view before it has a window; take the keyboard on the next pass.
         DispatchQueue.main.async {
             guard let window = view.window, window.firstResponder !== view else { return }
             window.makeFirstResponder(view)
