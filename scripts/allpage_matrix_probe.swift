@@ -1907,10 +1907,15 @@ final class AllPageMatrix {
         let historyRoot = try mxRoot("Matrix Dashboard History")
         try report.require(
             historyWindow.makeFirstResponder(destinations.before), "history fixture starts from a field")
-        _ = try await tabUntil(historyWindow, limit: 16, tag: "historySearchTraversal") { _, role in
-            role == "AXTextField"
+        let historySearch = try await tabUntil(historyWindow, limit: 16, tag: "historySearchTraversal") { _, role in
+            let field = (historyWindow.firstResponder as? NSTextView)?.delegate as? NSTextField
+            return role == "AXTextField" && field?.identifier?.rawValue == "dashboard-history-search"
         }
-        try report.require(true, "Tab reaches the history search field")
+        let historySearchField = (historyWindow.firstResponder as? NSTextView)?.delegate as? NSTextField
+        let historySearchIdentity = historySearchField?.identifier?.rawValue
+        try report.require(
+            historySearch == "AXTextField" && historySearchIdentity == "dashboard-history-search",
+            "Tab reaches the history search field", historySearchIdentity ?? historySearch)
         let before = mxStaticText(historyRoot).filter { $0.contains("Matrix history") }.count
         try report.require(before == 2, "history lists both seeded task lines", "count \(before)")
         for character in "Matrix history alpha".map(String.init) {
@@ -1919,9 +1924,13 @@ final class AllPageMatrix {
         }
         await mxReady(0.9)
         let typed = mxFocusedElement().flatMap { mxString($0, kAXValueAttribute as String) }
+        let typedField = (historyWindow.firstResponder as? NSTextView)?.delegate as? NSTextField
+        let typedIdentifier = typedField?.identifier?.rawValue
         try report.require(
-            typed == "Matrix history alpha", "typed keys land in the history search field",
-            "value \(typed ?? "none")")
+            typed == "Matrix history alpha" && typedIdentifier == "dashboard-history-search"
+                && typedField === historySearchField,
+            "typed keys land in the history search field",
+            "identifier \(typedIdentifier ?? "none") value \(typed ?? "none")")
         let after = mxStaticText(historyRoot).filter { $0.contains("Matrix history") }.count
         try report.require(after == 1, "typed search filters the task lines", "count \(after)")
         try mxSave(historyHost, output.appendingPathComponent("dashboard-history-search.png"))
