@@ -687,44 +687,31 @@ struct NotchStripContent: View {
     }
 }
 
-/// Today owns its keyboard destination even when geometry exists without a strip
-/// host, or a higher-priority strip preempts deletion. Completion uses only the
-/// viewport mount; the pinned destination does not expire with the six-second strip.
+/// Decorate Today's single viewport destination without remounting it as a
+/// deletion strip appears or expires. Geometry never determines keyboard ownership.
 struct NotchUndoFooter: ViewModifier {
-    let showsUndo: Bool
-    @Binding var reviewingOverdue: Bool
     @EnvironmentObject private var store: PlannerStore
     @EnvironmentObject private var model: NotchModel
 
     func body(content: Content) -> some View {
-        VStack(spacing: .zero) {
-            if showsUndo {
-                VStack(alignment: .leading, spacing: NotchStripMetrics.gap) {
-                    if let activity = inlineActivity {
-                        Text(activity.title).perchFont(.stripTitle).foregroundStyle(Theme.ink)
-                    }
-                    // Keep this mount stable as the optional strip appears/expires.
-                    content
-                    if inlineActivity != nil {
-                        TimelineView(.periodic(from: .now, by: NotchStripMetrics.clockInterval)) { context in
-                            GeometryReader { proxy in
-                                Rectangle().fill(Theme.ink2)
-                                Rectangle().fill(Theme.brandText).frame(
-                                    width: proxy.size.width * (model.strips?.fraction(at: context.date) ?? 0))
-                            }.frame(height: NotchStripMetrics.progressHeight).accessibilityHidden(true)
-                        }
-                    }
-                }
-                .padding(inlineActivity == nil ? .zero : NotchStripMetrics.gap)
-                .background {
-                    if inlineActivity != nil { Theme.paper }
-                }
-            } else if !store.engine.overdue().isEmpty {
-                Button(AppL10n.format("Still waiting (%lld)", store.engine.overdue().count)) {
-                    reviewingOverdue = true
-                }
-                .buttonStyle(PillStyle()).accessibilityIdentifier("today-review-overdue")
+        VStack(alignment: .leading, spacing: NotchStripMetrics.gap) {
+            if let activity = inlineActivity {
+                Text(activity.title).perchFont(.stripTitle).foregroundStyle(Theme.ink)
             }
+            content
+            if inlineActivity != nil {
+                TimelineView(.periodic(from: .now, by: NotchStripMetrics.clockInterval)) { context in
+                    GeometryReader { proxy in
+                        Rectangle().fill(Theme.ink2)
+                        Rectangle().fill(Theme.brandText).frame(
+                            width: proxy.size.width * (model.strips?.fraction(at: context.date) ?? 0))
+                    }.frame(height: NotchStripMetrics.progressHeight).accessibilityHidden(true)
+                }
+            }
+        }
+        .padding(inlineActivity == nil ? .zero : NotchStripMetrics.gap)
+        .background {
+            if inlineActivity != nil { Theme.paper }
         }
         .onAppear {
             if model.strips == nil { model.strips = NotchStrips(store: store, model: model) }

@@ -102,24 +102,23 @@ struct MatrixElement { let names: [String] }
         self.run_swift(support + predicate + checks)
         self.run_swift(support + '\n            identity == copyLabel\n' + checks, succeeds=False)
 
-    def test_completion_footer_reuses_the_control_without_moving_capture_or_deletion(self):
+    def test_edits_share_one_viewport_undo_without_moving_capture(self):
         tasks = (ROOT / "Sources/PerchApp/Workspace/TasksCard.swift").read_text()
         viewport = tasks.split('GeometryReader { viewport in', 1)[1].split('TaskComposer(day:', 1)[0]
         self.assertIn('.safeAreaInset(edge: .bottom, spacing: 8)', viewport)
-        self.assertIn('if completionUndoVisible {', viewport)
-        self.assertIn('store.canUndo && model.strips?.hasCompletionUndo == true', tasks)
-        self.assertIn('undoFooter(reviewOverdue: false)', viewport)
-        self.assertIn('footer.modifier(NotchUndoFooter(showsUndo: !completionUndoVisible, reviewingOverdue: $reviewingOverdue))', tasks)
-        footer = tasks.split('private func undoFooter(reviewOverdue: Bool) -> some View {', 1)[1].split('@ViewBuilder private var startFocus', 1)[0]
+        self.assertIn('footer.modifier(NotchUndoFooter())', viewport)
+        self.assertNotIn('hasCompletionUndo', viewport)
+        self.assertEqual(tasks.count('footer.modifier('), 1)
+        footer = tasks.split('private var footer: some View {', 1)[1].split('@ViewBuilder private var startFocus', 1)[0]
         for unchanged in ('Label("Undo", systemImage: "arrow.uturn.backward")',
                           '.accessibilityIdentifier("today-undo")', '.focused($focus, equals: .undo)',
                           'if press.phase == .down { store.undo() }'):
             self.assertIn(unchanged, footer)
         strips = (ROOT / "Sources/PerchApp/Notch/NotchStrips.swift").read_text()
         self.assertIn('guard model.geometry == nil, let activity = model.strips?.currentActivity, activity.stripKind == .undo', strips)
-        self.assertIn('if showsUndo {', strips)
-        self.assertIn('} else if !store.engine.overdue().isEmpty', strips)
-        self.assertIn('if reviewOverdue, !store.engine.overdue().isEmpty', footer)
+        decoration = strips.split('struct NotchUndoFooter: ViewModifier {', 1)[1].split('private var inlineActivity', 1)[0]
+        self.assertEqual(decoration.splitlines().count('            content'), 1)
+        self.assertIn('if !store.engine.overdue().isEmpty', footer)
 
 
 if __name__ == "__main__":
