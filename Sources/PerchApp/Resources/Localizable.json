@@ -423,6 +423,23 @@
         }
       }
     },
+    "%lld done": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld done"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦%lld dönë ·~⟧"
+          }
+        }
+      }
+    },
     "%lld hr": {
       "extractionState": "manual",
       "localizations": {
@@ -470,6 +487,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "⟦%lld mïn ·~⟧"
+          }
+        }
+      }
+    },
+    "%lld min in a block": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld min in a block"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦%lld mïn ïn à blöck ·~⟧"
           }
         }
       }
@@ -1982,6 +2016,40 @@
         }
       }
     },
+    "Added by %@": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Added by %@"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Åddëd by %@ ·~⟧"
+          }
+        }
+      }
+    },
+    "Added by an agent": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Added by an agent"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Åddëd by àn àgënt ·~⟧"
+          }
+        }
+      }
+    },
     "Added through MCP by %@": {
       "extractionState": "manual",
       "localizations": {
@@ -3053,6 +3121,23 @@
         }
       }
     },
+    "Carried over at least once": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Carried over at least once"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Càrrïëd övër àt lëàst öncë ·~⟧"
+          }
+        }
+      }
+    },
     "Carry over": {
       "extractionState": "manual",
       "localizations": {
@@ -3678,6 +3763,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "⟦Clösë ·~⟧"
+          }
+        }
+      }
+    },
+    "Close %@": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Close %@"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Clösë %@ ·~⟧"
           }
         }
       }
@@ -4906,6 +5008,23 @@
         }
       }
     },
+    "Earlier tasks": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Earlier tasks"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Ëàrlïër tàsks ·~⟧"
+          }
+        }
+      }
+    },
     "Ease out, no bounce.": {
       "extractionState": "manual",
       "localizations": {
@@ -5399,6 +5518,23 @@
         }
       }
     },
+    "Find a finished task": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Find a finished task"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Fïnd à fïnïshëd tàsk ·~⟧"
+          }
+        }
+      }
+    },
     "Finish one task and your week starts here.": {
       "extractionState": "manual",
       "localizations": {
@@ -5463,6 +5599,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "⟦Fïnïshëd tàsks öldër thàn %lld dàys wïll bë clëàrëd nöw ànd ön ëàch nëw dày. Öpën tàsks stày. Yöü càn ündö thïs chàngë whïlë Përch ïs öpën. ·~⟧"
+          }
+        }
+      }
+    },
+    "Finished tasks show up here.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Finished tasks show up here."
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Fïnïshëd tàsks shöw üp hërë. ·~⟧"
           }
         }
       }
@@ -5888,6 +6041,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "⟦Gröüp thë tàsks thàt bëlöng tögëthër. ·~⟧"
+          }
+        }
+      }
+    },
+    "Had time set aside": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Had time set aside"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Hàd tïmë sët àsïdë ·~⟧"
           }
         }
       }
@@ -7677,6 +7847,23 @@
         }
       }
     },
+    "No matches. Try another search or filter.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No matches. Try another search or filter."
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Nö màtchës. Try ànöthër sëàrch ör fïltër. ·~⟧"
+          }
+        }
+      }
+    },
     "No move needed: %@ is scheduled for %@.": {
       "extractionState": "manual",
       "localizations": {
@@ -8319,6 +8506,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "⟦Öpën ·~⟧"
+          }
+        }
+      }
+    },
+    "Open %@": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open %@"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Öpën %@ ·~⟧"
           }
         }
       }
@@ -11645,6 +11849,23 @@
         }
       }
     },
+    "So far this week": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "So far this week"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Sö fàr thïs wëëk ·~⟧"
+          }
+        }
+      }
+    },
     "Space": {
       "extractionState": "manual",
       "localizations": {
@@ -14756,6 +14977,23 @@
         }
       }
     },
+    "across %lld days": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "across %lld days"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦àcröss %lld dàys ·~⟧"
+          }
+        }
+      }
+    },
     "adds a task": {
       "extractionState": "manual",
       "localizations": {
@@ -14769,6 +15007,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "⟦àdds à tàsk ·~⟧"
+          }
+        }
+      }
+    },
+    "and %lld more": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "and %lld more"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦ànd %lld mörë ·~⟧"
           }
         }
       }

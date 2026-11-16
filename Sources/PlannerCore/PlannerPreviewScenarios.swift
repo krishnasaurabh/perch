@@ -115,6 +115,15 @@
             if ["week-full", "window-review", "window-history"].contains(name) {
                 addWeek(to: &fixture)
             }
+            if name == "window-history" {
+                fixture.planner.focus = nil
+                for index in fixture.planner.tasks.indices where fixture.planner.tasks[index].done {
+                    let task = fixture.planner.tasks[index]
+                    if task.minutes != nil { fixture.planner.tasks[index].focusedSeconds = 25 * 60 }
+                    if task.title == "Sort the receipts" { fixture.planner.tasks[index].agentID = "claude-code" }
+                    if task.title == "Email the landlord" { fixture.planner.tasks[index].carryCount = 1 }
+                }
+            }
             if name == "window-projects" { addProjects(to: &fixture) }
             if name == "window-review" {
                 fixture.planner.focus = nil
