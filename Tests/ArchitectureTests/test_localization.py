@@ -64,6 +64,7 @@ class LocalizationTests(unittest.TestCase):
         required = {
             'Add a task. Tab makes it a step.', 'Previous week', 'Next week', 'Add date', 'Clear', 'Apply',
             'Upcoming', 'Projects', '⌘↩ makes a task', 'All day',
+            'What would you like to do?', '⌘↩ makes a task for today',
             "macOS wouldn't give up that combination. Kept %@.",
         }
         agent = (ROOT / 'Sources/PerchApp/Services/AgentConnector.swift').read_text()
@@ -185,10 +186,10 @@ class LocalizationTests(unittest.TestCase):
         store = (ROOT / 'Sources/PerchApp/App/PlannerStore.swift').read_text()
         self.assertIn('guard let supported = parserLanguage() else', store)
         self.assertIn('return apply { try $0.addTasks(titles, on: day, literal: literal, language: language) }', store)
-        for relative in ('Workspace/TasksCard.swift', 'Workspace/WeekPage.swift', 'Workspace/HomeCards.swift'):
+        for relative in ('Workspace/TasksCard.swift', 'Workspace/WeekPage.swift', 'Workspace/ParkingLotCard.swift'):
             text = (ROOT / 'Sources/PerchApp' / relative).read_text()
             self.assertNotIn('try $0.addTasks', text, relative)
-            self.assertIn('store.addTasks', text, relative)
+            self.assertIn('try $0.promoteThought' if relative.endswith('ParkingLotCard.swift') else 'store.addTasks', text, relative)
         language = (ROOT / 'Sources/PlannerCore/TaskParserLanguage.swift').read_text()
         self.assertIn('case english = "en"', language)
         self.assertIn('throw UnsupportedTaskParserLanguage', language)

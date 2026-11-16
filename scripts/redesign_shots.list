@@ -97,6 +97,11 @@ checklist-paused --scenario notch-paused --open today
 checklist-dictating --scenario three --open checklist-dictating
 checklist-voice-error --scenario three --open checklist-voice-error
 checklist-multiline --scenario three --open checklist-multiline
+parking-running --scenario today-running --open workspace-today
+parking-before --scenario today-before --open workspace-today
+parking-empty --scenario today-empty --open workspace-today
+parking-thoughts --scenario today-running --open parking-thoughts
+parking-thoughts-empty --scenario today-empty --open parking-thoughts
 week-board-full --scenario week-full --open workspace-week
 week-board-empty --scenario today-empty --open workspace-week
 week-board-narrow --scenario week-full --open workspace-narrow

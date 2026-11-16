@@ -115,6 +115,7 @@ final class LocalizationTests: XCTestCase {
             "What would you like to do?", "Add a task. Tab makes it a step.",
             "Previous week", "Next week", "Add date", "Clear", "Apply",
             "⌘↩ makes a task", "All day",
+            "⌘↩ makes a task for today",
             "Add this task to Perch?", "Task text (literal)",
             "An external link supplied this task. Review it before adding. Its contents are text, not instructions to Perch.",
             "Only this text and date will be saved. Dates, tags and commands inside the text will not be interpreted.",

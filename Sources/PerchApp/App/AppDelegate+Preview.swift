@@ -18,6 +18,7 @@ import SwiftUI
                 "checklist-dictating": .window("checklist-preview") { ChecklistPreview.show(.dictating, app: $0) },
                 "checklist-voice-error": .window("checklist-preview") { ChecklistPreview.show(.voiceError, app: $0) },
                 "checklist-multiline": .window("checklist-preview") { ChecklistPreview.show(.multiline, app: $0) },
+                "parking-thoughts": .window("parking-thoughts") { ParkingLotPreview.show(app: $0) },
                 "menubar-icon": .menuBar(.icon),
                 "menubar-time": .menuBar(.timeLeft),
                 "menubar-tasks": .menuBar(.tasksLeft),
