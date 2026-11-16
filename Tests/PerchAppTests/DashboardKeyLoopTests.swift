@@ -209,6 +209,86 @@
         }
 
         @MainActor
+        func testHostedPaneActionsKeepNativeFocusAndSearchBacktab() async throws {
+            let window = NSWindow(
+                contentRect: NSRect(x: 0, y: 0, width: 720, height: 520),
+                styleMask: [.titled], backing: .buffered, defer: false)
+            window.isReleasedWhenClosed = false
+            defer { window.close() }
+            let root = NSView(frame: window.contentLayoutRect)
+            let selection = DashboardSelection(tab: .history)
+            let tabsHost = DashboardTabsHost(selection: selection, environment: EnvironmentValues())
+            tabsHost.frame = NSRect(x: 20, y: 450, width: 280, height: 30)
+            let search = DashboardSearchField(frame: NSRect(x: 20, y: 400, width: 280, height: 24))
+            search.identifier = NSUserInterfaceItemIdentifier(DashboardKeyLoop.searchIdentifier)
+            var changes = ""
+            search.onChange = { changes = $0 }
+            var activations = 0
+            let names = ["everything", "carried", "time", "agent"]
+            let pane = NSHostingView(
+                rootView: AnyView(
+                    VStack {
+                        ForEach(names.reversed(), id: \.self) { name in
+                            DashboardPaneButton(name, identifier: "history-filter-\(name)") { activations += 1 }
+                        }
+                        DashboardPaneButton("Disabled", identifier: "disabled") { activations += 100 }.disabled(true)
+                        DashboardPaneButton("Day disclosure", identifier: "history-day-test") { activations += 10 }
+                    }.environment(\.accessibilityEnabled, true)))
+            pane.frame = NSRect(x: 20, y: 40, width: 400, height: 320)
+            root.addSubview(tabsHost)
+            root.addSubview(search)
+            root.addSubview(pane)
+            window.contentView = root
+            try await Self.activateKeyWindow(window)
+            @MainActor func send(_ code: UInt16, _ text: String, flags: NSEvent.ModifierFlags = []) async {
+                for type in [NSEvent.EventType.keyDown, .keyUp] {
+                    let event = NSEvent.keyEvent(
+                        with: type, location: .zero, modifierFlags: flags,
+                        timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber,
+                        context: nil, characters: text, charactersIgnoringModifiers: text,
+                        isARepeat: false, keyCode: code)!
+                    NSApp.sendEvent(event)
+                }
+                try? await Task.sleep(nanoseconds: 50_000_000)
+            }
+            DashboardKeyLoop.install(in: window)
+            try require(window.makeFirstResponder(search))
+            for name in names {
+                await send(48, "\t")
+                let focused = try unwrap(window.firstResponder as? DashboardPaneActionView)
+                try equal(focused.identifier?.rawValue, "history-filter-\(name)")
+                try equal(focused.accessibilityLabel(), name)
+                try require(focused.isAccessibilityFocused())
+            }
+            await send(49, " ", flags: .command)
+            try equal(activations, 0)
+            await send(49, " ")
+            try equal(activations, 1)
+            for _ in names { await send(48, "\u{19}", flags: .shift) }
+            try require(search.currentEditor() === window.firstResponder)
+            await send(0, "a")
+            try equal(search.accessibilityValue() as? String, "a")
+            try equal(changes, "a")
+            for _ in 0..<5 { await send(48, "\t") }
+            try equal((window.firstResponder as? NSView)?.identifier?.rawValue, "history-day-test")
+            await send(49, " ")
+            try equal(activations, 11, "The rest of the document remains reachable after the filters")
+            pane.rootView = AnyView(
+                DashboardPaneButton("Project options", identifier: "project-options-test") { activations += 1 }
+                    .environment(\.accessibilityEnabled, true))
+            selection.tab = .projects
+            try? await Task.sleep(nanoseconds: 100_000_000)
+            root.layoutSubtreeIfNeeded()
+            DashboardKeyLoop.install(in: window)
+            try require(window.makeFirstResponder(try unwrap(DashboardKeyLoop.tabKeyView(in: window))))
+            await send(48, "\t")
+            let options = try unwrap(window.firstResponder as? DashboardPaneActionView)
+            try equal(options.identifier?.rawValue, "project-options-test")
+            await send(49, " ")
+            try equal(activations, 12)
+        }
+
+        @MainActor
         func testProjectActionsAreNativeTabStopsAndSpaceActivatesOnce() async throws {
             let window = NSWindow(
                 contentRect: NSRect(x: 0, y: 0, width: 720, height: 520),
@@ -414,6 +494,8 @@
             log("PASS: Dashboard testArrowAndSpaceUseCurrentSelectionAndDoNotStealPageKeys")
             try await check.testSelectionChangesPreserveHostedRootAndRefreshHistoryLinks()
             log("PASS: Dashboard testSelectionChangesPreserveHostedRootAndRefreshHistoryLinks")
+            try await check.testHostedPaneActionsKeepNativeFocusAndSearchBacktab()
+            log("PASS: Dashboard testHostedPaneActionsKeepNativeFocusAndSearchBacktab")
             try await check.testProjectActionsAreNativeTabStopsAndSpaceActivatesOnce()
             log("PASS: Dashboard testProjectActionsAreNativeTabStopsAndSpaceActivatesOnce")
         }
@@ -523,6 +605,7 @@
                 "PASS: Dashboard testEverySectionInstallsInitialTabStopWithoutRequiringSearch",
                 "PASS: Dashboard testArrowAndSpaceUseCurrentSelectionAndDoNotStealPageKeys",
                 "PASS: Dashboard testSelectionChangesPreserveHostedRootAndRefreshHistoryLinks",
+                "PASS: Dashboard testHostedPaneActionsKeepNativeFocusAndSearchBacktab",
                 "PASS: Dashboard testProjectActionsAreNativeTabStopsAndSpaceActivatesOnce",
             ] {
                 XCTAssertEqual(lines.filter { $0 == marker }.count, 1, "Missing or repeated native scenario: \(marker)")

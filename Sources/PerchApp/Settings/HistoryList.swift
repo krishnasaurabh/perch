@@ -53,7 +53,7 @@ struct HistoryList: View {
                             )
                             .padding(.bottom, SurfaceMetrics.compactGap)
                         ForEach(HistoryModel.Filter.allCases, id: \.self) { item in
-                            HistoryFilterButton(title: Self.title(item), selected: filter == item) {
+                            HistoryFilterButton(filter: item, selected: filter == item) {
                                 filter = item
                                 expanded = [:]
                             }
@@ -94,17 +94,19 @@ struct HistoryList: View {
                 Text(AppL10n.format("%lld done", group.tasks.count)).perchFont(.detailStrong)
                     .foregroundStyle(Theme.doneText)
                 Spacer(minLength: .zero)
-                PerchButton(open ? "Close" : "Open", kind: .quiet, size: .small) {
+                DashboardPaneButton(
+                    open ? "Close" : "Open", identifier: "history-day-\(group.day.raw)",
+                    accessibilityTitle: AppL10n.format(open ? "Close %@" : "Open %@", group.day.raw)
+                ) {
                     expanded[group.day] = !open
                 }
-                .accessibilityLabel(AppL10n.format(open ? "Close %@" : "Open %@", group.day.raw))
             }
             if open {
                 ForEach(tasks) { task in taskRow(task) }
                 if group.tasks.count > tasks.count {
-                    PerchButton(
+                    DashboardPaneButton(
                         AppL10n.format("and %lld more", group.tasks.count - tasks.count),
-                        kind: .quiet, size: .small
+                        identifier: "history-more-\(group.day.raw)"
                     ) {
                         showAll.insert(group.day)
                     }
@@ -151,33 +153,22 @@ struct HistoryList: View {
 }
 
 private struct HistoryFilterButton: View {
-    let title: String
+    let filter: HistoryModel.Filter
     let selected: Bool
     let action: () -> Void
-    @FocusState private var focused: Bool
 
     var body: some View {
-        Button(action: action) {
-            Text(title).perchFont(selected ? .detailStrong : .pill)
-                .frame(maxWidth: .infinity, minHeight: Theme.Size.pillMaxHeight.value, alignment: .leading)
-                .padding(.horizontal, SurfaceMetrics.fieldRadius)
-                .foregroundStyle(selected ? Theme.ink : Theme.ink2)
-                .background(
-                    RoundedRectangle(cornerRadius: Theme.Size.segmentRadius.value)
-                        .fill(selected ? Theme.butter : .clear)
-                )
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .focusable()
-        .focused($focused)
-        .focusEffectDisabled()
-        .overlay(
-            FocusRing(
-                shape: RoundedRectangle(cornerRadius: Theme.Size.segmentRadius.value),
-                focused: focused, surface: .paper)
-        )
-        .accessibilityAddTraits(selected ? [.isSelected] : [])
+        Text(HistoryList.title(filter)).perchFont(selected ? .detailStrong : .pill)
+            .frame(maxWidth: .infinity, minHeight: Theme.Size.pillMaxHeight.value, alignment: .leading)
+            .padding(.horizontal, SurfaceMetrics.fieldRadius)
+            .foregroundStyle(selected ? Theme.ink : Theme.ink2)
+            .background(
+                RoundedRectangle(cornerRadius: Theme.Size.segmentRadius.value)
+                    .fill(selected ? Theme.butter : .clear)
+            )
+            .dashboardPaneAction(
+                HistoryList.title(filter), identifier: "history-filter-\(filter.rawValue)",
+                selected: selected, action: action)
     }
 }
 

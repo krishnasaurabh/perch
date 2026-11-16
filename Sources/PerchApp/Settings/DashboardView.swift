@@ -366,6 +366,12 @@ enum DashboardKeyLoop {
                 }
             }
         }
+        if host.selectionState?.tab == .projects {
+            let options = descendants(root).compactMap { $0 as? DashboardPaneActionView }.filter {
+                $0.identifier?.rawValue.hasPrefix("project-options-") == true && $0.canBecomeKeyView
+            }
+            if !options.isEmpty { linkPaneActions(options, after: tabs, tabs: tabs, outside: host) }
+        }
         guard host.selectionState?.tab == .history,
             let search = descendants(root).compactMap({ $0 as? NSTextField }).first(where: {
                 $0.identifier?.rawValue == searchIdentifier && !$0.isHiddenOrHasHiddenAncestor
@@ -374,6 +380,37 @@ enum DashboardKeyLoop {
         let afterSearch = nextPageKeyView(after: search, outside: host)
         tabs.nextKeyView = search
         search.nextKeyView = afterSearch === search ? tabs : (afterSearch ?? tabs)
+        let filters = ["everything", "carried", "time", "agent"].compactMap { name in
+            descendants(root).compactMap { $0 as? DashboardPaneActionView }.first {
+                $0.identifier?.rawValue == "history-filter-\(name)" && $0.canBecomeKeyView
+            }
+        }
+        if !filters.isEmpty { linkPaneActions(filters, after: search, tabs: tabs, outside: host) }
+    }
+
+    /// Replace the bridge proxies with their native owners, retaining other page
+    /// controls after them rather than trapping Tab in only the filter/options subset.
+    private static func linkPaneActions(
+        _ actions: [DashboardPaneActionView], after entry: NSView, tabs: NSView, outside host: DashboardTabsHost
+    ) {
+        guard let first = actions.first else { return }
+        let remaining = naturalPageControls(after: tabs, outside: host).filter { candidate in
+            candidate !== entry && !actions.contains { candidate === $0 || candidate.isDescendant(of: $0) }
+        }
+        entry.nextKeyView = first
+        let controls: [NSView] = actions + remaining
+        for (index, control) in controls.enumerated() {
+            control.nextKeyView = index + 1 < controls.count ? controls[index + 1] : tabs
+        }
+    }
+
+    private static func naturalPageControls(after tabs: NSView, outside host: DashboardTabsHost) -> [NSView] {
+        guard let root = tabs.window?.contentView else { return [] }
+        // The page's native controls retain document order. The hosting view's
+        // representable proxies are not additional user controls.
+        return descendants(root).filter {
+            $0 is NSControl && $0.canBecomeKeyView && !$0.isDescendant(of: host)
+        }
     }
 
     /// Skip only hosting infrastructure and strip-internal proxies, preserving
