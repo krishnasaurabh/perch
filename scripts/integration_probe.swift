@@ -590,6 +590,30 @@ func matrixObservationTrace(_ host: NSView, phase: String, output: URL, text: Se
     FileHandle.standardError.write(Data((lines.joined(separator: "\n") + "\n").utf8))
 }
 
+/// Read the named native segment group's value and require one matching selected child.
+@MainActor
+func matrixSelectedSegment(_ host: NSView, title: String) -> String? {
+    var matches: [NSView] = []
+    func visit(_ view: NSView) {
+        guard !view.isHiddenOrHasHiddenAncestor else { return }
+        if view.accessibilityRole() == .group, view.accessibilityLabel() == title,
+            let segments = view.accessibilityChildren() as? [PerchSegmentKeyView], !segments.isEmpty
+        {
+            matches.append(view)
+        }
+        view.subviews.forEach(visit)
+    }
+    visit(host)
+    guard matches.count == 1, let group = matches.first,
+        let segments = group.accessibilityChildren() as? [PerchSegmentKeyView]
+    else { return nil }
+    let selected = segments.filter { $0.isAccessibilitySelected() }
+    guard selected.count == 1, let label = selected.first?.accessibilityLabel(),
+        group.accessibilityValue() as? String == label
+    else { return nil }
+    return label
+}
+
 @MainActor
 func checkSettingsMatrix(_ fixture: MatrixFixture, output: URL) async throws {
     let navigation = SettingsNavigation()
@@ -663,7 +687,11 @@ func checkSettingsFailure(
                 "general pane failure leaves persisted cards unchanged")
             fixture.store.lastError = nil
         }
-        matrixRequire(before.contains("45 min"), "general pane shows the persisted default length", before)
+        matrixRequire(
+            matrixSelectedSegment(host, title: "Time to set aside by default") == "45",
+            "general pane shows the persisted default length",
+            "selected=\(matrixSelectedSegment(host, title: "Time to set aside by default") ?? "missing or ambiguous")\n\(before)"
+        )
         let lock = MatrixStorageLock(fixture.file)
         fixture.store.updatePrefs { $0.defaultFocusMinutes = 30 }
         await matrixSettle()
@@ -672,8 +700,10 @@ func checkSettingsFailure(
         lock.release()
         matrixRequire(error.contains("Another process"), "general pane length edit reports busy storage", error)
         matrixRequire(
-            text.contains("45 min") && !text.contains("30 min"), "general pane keeps rendering the persisted length",
-            text)
+            matrixSelectedSegment(host, title: "Time to set aside by default") == "45",
+            "general pane keeps rendering the persisted length",
+            "selected=\(matrixSelectedSegment(host, title: "Time to set aside by default") ?? "missing or ambiguous")\n\(text)"
+        )
         matrixRequire(
             try fixture.file.load().preferences.defaultFocusMinutes == 45,
             "general pane length failure leaves the persisted length unchanged")

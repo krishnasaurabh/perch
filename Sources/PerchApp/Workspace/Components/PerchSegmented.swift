@@ -154,6 +154,7 @@ private struct PerchSegmentGroupTarget<Value: Hashable>: NSViewRepresentable {
     func register(_ view: PerchSegmentKeyView, value: Value) {
         views[value] = WeakSegmentView(view)
         view.selected = { [weak self] in self?.selection == value }
+        view.focusEligible = { [weak self] in self?.tabTarget == value }
         view.selectionEnabled = { [weak self] in self?.enabled == true }
         view.press = { [weak self] in self?.select(value, acquireFocus: true) }
         view.key = { [weak self] code in self?.key(code, from: value) == true }
@@ -162,6 +163,12 @@ private struct PerchSegmentGroupTarget<Value: Hashable>: NSViewRepresentable {
             Task { @MainActor [weak self] in self?.refreshFocusPaint() }
         }
         view.pressChanged = { [weak self] down in self?.pressed = down ? value : nil }
+    }
+
+    /// A custom stored value has no selected preset. Focus alone must not replace that value.
+    private var tabTarget: Value? {
+        if let selection, items.contains(selection) { return selection }
+        return items.first
     }
 
     func update(items: [Value], selection: Value, enabled: Bool, rightToLeft: Bool, change: @escaping (Value) -> Void) {
@@ -176,7 +183,7 @@ private struct PerchSegmentGroupTarget<Value: Hashable>: NSViewRepresentable {
             resign()
         } else if changed && ownsFocus {
             // All segment key views persist across selection changes: no queued restoration.
-            focus(selection)
+            if let target = tabTarget { focus(target) }
         }
     }
 
@@ -233,6 +240,7 @@ private struct PerchSegmentGroupTarget<Value: Hashable>: NSViewRepresentable {
 @MainActor final class PerchSegmentKeyView: NSControl {
     var active = true
     var selected: () -> Bool = { false }
+    var focusEligible: () -> Bool = { false }
     var selectionEnabled: () -> Bool = { false }
     var press: () -> Void = {}
     var key: (UInt16) -> Bool = { _ in false }
@@ -254,7 +262,7 @@ private struct PerchSegmentGroupTarget<Value: Hashable>: NSViewRepresentable {
         active = false
     }
 
-    override var acceptsFirstResponder: Bool { active && selectionEnabled() && selected() }
+    override var acceptsFirstResponder: Bool { active && selectionEnabled() && focusEligible() }
     var ownsKeyboardFocus: Bool { window?.firstResponder === self }
 
     override func becomeFirstResponder() -> Bool {
@@ -299,7 +307,7 @@ private struct PerchSegmentGroupTarget<Value: Hashable>: NSViewRepresentable {
     override func accessibilityValue() -> Any? { AppL10n.text(selected() ? "Selected" : "Not selected") }
     override func isAccessibilitySelected() -> Bool { selected() }
     override func isAccessibilityFocused() -> Bool {
-        active && selectionEnabled() && selected() && !isHiddenOrHasHiddenAncestor
+        acceptsFirstResponder && !isHiddenOrHasHiddenAncestor
             && window?.isKeyWindow == true && ownsKeyboardFocus
     }
     override var accessibilityFocusedUIElement: Any? {
