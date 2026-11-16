@@ -6,7 +6,7 @@ struct ProjectsView: View {
         AppL10n.text("Group the tasks that belong together.")
     }
 
-    var body: some View { ProjectsList() }
+    var body: some View { DashboardPane { ProjectsList() } }
 
     #if DEBUG || PERCH_TESTING
         static func preview(_ mode: ProjectsPreviewState.Mode, app: AppDelegate) {

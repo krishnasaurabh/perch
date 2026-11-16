@@ -63,6 +63,7 @@ final class DashboardUndoTests: XCTestCase {
         let window = try await fixture.open(tab: "Projects")
         let beforeDelete = fixture.store.planner
         let projectID = try XCTUnwrap(beforeDelete.projects.first?.id)
+        print("Dashboard Projects model: \(beforeDelete.projects.map(\.name))")
 
         // Delete through the card's own visible options control, never a hidden
         // button and never a direct model call.
@@ -103,6 +104,7 @@ final class DashboardUndoTests: XCTestCase {
         XCTAssertEqual(
             field.accessibilityLabel(), "Find a finished task", "The search is labelled for its finished rows")
         // History lists finished tasks only, so the open task never reaches the list.
+        print("Dashboard History model: \(fixture.store.planner.tasks.filter(\.done).map(\.title))")
         let texts = Self.nodes(window).flatMap { node -> [String] in
             guard Self.attribute(node, "accessibilityRole") as? String == "AXStaticText" else { return [] }
             return ["accessibilityLabel", "accessibilityValue"].compactMap { Self.attribute(node, $0) as? String }
