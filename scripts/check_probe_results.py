@@ -6,12 +6,41 @@ from pathlib import Path
 
 THEME_PAGES = {
     "settings-general", "settings-notch", "settings-calendar",
-    "settings-agents", "settings-data", "dashboard-Upcoming",
-    "dashboard-History", "dashboard-Insights", "dashboard-Projects",
+    "settings-agents", "settings-data", "dashboard-This week",
+    "dashboard-History", "dashboard-Projects",
     "welcome", "details", "details-removed", "week", "clips",
 }
 THEME_STATES = {"standard", "enlarged-type", "increased-contrast", "enlarged-increased"}
-CLIPS_KEYBOARD_ASSERTIONS = __import__("measure_clips_bounds").SHELF_KEYBOARD_ASSERTIONS
+# Preserve measureEffectiveStates' assertion density as the page inventory changes:
+# five measurements per capture, one cross-state contrast check per page, two
+# navigation checks per state for every noninitial Settings pane, and two growth
+# checks for each of its two status-label surfaces.
+THEME_MINIMUM_ASSERTIONS = (
+    len(THEME_PAGES) * (5 * len(THEME_STATES) + 1)
+    + (sum(page.startswith("settings-") for page in THEME_PAGES) - 1) * 2 * len(THEME_STATES)
+    + 4
+)
+CLIPS_KEYBOARD_ASSERTIONS = (
+    "week: Tab reaches the task-line actions menu",
+    "week: Space opens the native task-line menu",
+    "week: Escape closes the task-line menu",
+    "week: focus returns to the task-line menu after Escape",
+    "week: cancelling the task-line menu never mutates the task",
+    "week: arrow keys and Return choose Details and attach the sheet",
+    "week: nested Escape dismisses the details sheet",
+    "week: focus returns to the task-line menu after the sheet closes",
+    "week: cancelling the details sheet never mutates the task",
+    "clips: Tab reaches the clip copy control",
+    "clips: Space copies the clip once into the fake pasteboard",
+    "clips: focus stays on the copy control after Space",
+    "clips: Tab reaches Clear on the shelf",
+    "clips: Space clears the shelf as one batch",
+    "clips: Tab reaches shelf Undo",
+    "clips: Space Undo restores persisted shelf identities and order",
+    "clips: Tab returns to the shelf item",
+    "clips: Delete removes only the focused shelf item",
+    "clips: Return opens the kept file without changing its original",
+)
 # The native producer records two successful setup preconditions per surface.
 # They are required separately, not counted as keyboard interaction coverage.
 CLIPS_FIXTURE_ASSERTIONS = ("week fixture", "week fixture", "clips fixture", "clips fixture")
@@ -30,7 +59,7 @@ def labels(report, minimum):
 
 def validate(kind, report):
     if kind == "theme":
-        passed = labels(report, 330)
+        passed = labels(report, THEME_MINIMUM_ASSERTIONS)
         rows = report.get("rows", [])
         expected = {(page, state) for page in THEME_PAGES for state in THEME_STATES}
         observed = [(row.get("page"), row.get("state")) for row in rows]
@@ -66,7 +95,9 @@ def validate(kind, report):
         required = [f"settings {pane} pane renders its content" for pane in
                     ("general", "notch", "calendar", "agents", "data")]
         required += [f"dashboard {tab} tab renders its content" for tab in
-                     ("Upcoming", "History", "Insights", "Projects")]
+                     ("This week", "History", "Projects")]
+        required += ["dashboard has effective full keyboard access", "Tab enters the dashboard tab control"]
+        required += [f"dashboard arrow selects the {tab} tab" for tab in ("History", "Projects")]
         required += ["welcome never rewrites unreadable planner data",
                      "failed details save keeps the draft",
                      "Command-Z restores the deleted project and its task links"]

@@ -86,23 +86,6 @@
         }
       }
     },
-    "%@ changed %lld tasks": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ changed %lld tasks"
-          }
-        },
-        "zz": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "⟦%@ chàngëd %lld tàsks ·~⟧"
-          }
-        }
-      }
-    },
     "%@ couldn't be read, so Perch left it unchanged.": {
       "extractionState": "manual",
       "localizations": {
@@ -150,6 +133,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "⟦%@ dëlëtëd 1 tàsk ·~⟧"
+          }
+        }
+      }
+    },
+    "%@ left": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ left"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦%@ lëft ·~⟧"
           }
         }
       }
@@ -269,6 +269,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "⟦%@%lld%@ vs thë wëëk bëförë ·~⟧"
+          }
+        }
+      }
+    },
+    "%@, %@ left": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@, %@ left"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦%@, %@ lëft ·~⟧"
           }
         }
       }
@@ -671,6 +688,40 @@
                 }
               }
             }
+          }
+        }
+      }
+    },
+    "%lld more today": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld more today"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦%lld mörë tödày ·~⟧"
+          }
+        }
+      }
+    },
+    "%lld of %lld steps": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld of %lld steps"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦%lld öf %lld stëps ·~⟧"
           }
         }
       }
@@ -1434,6 +1485,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "⟦Å lïnkëd rëmïndër mövëd öütsïdë ïts lïst. Mövë ït bàck bëförë rëtryïng. ·~⟧"
+          }
+        }
+      }
+    },
+    "A look at what you did this week.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A look at what you did this week."
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Å löök àt whàt yöü dïd thïs wëëk. ·~⟧"
           }
         }
       }
@@ -3427,23 +3495,6 @@
         }
       }
     },
-    "Choose a task first.": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Choose a task first."
-          }
-        },
-        "zz": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "⟦Chöösë à tàsk fïrst. ·~⟧"
-          }
-        }
-      }
-    },
     "Choose an open task scheduled today before starting focus.": {
       "extractionState": "manual",
       "localizations": {
@@ -3729,6 +3780,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "⟦Clïck à prömpt tö cöpy ït ànd pàstë ït ïntö Clàüdë. Îts ëdïts àppëàr ïn thë nötch ïmmëdïàtëly; ⌘Z rëvërts thëm. ·~⟧"
+          }
+        }
+      }
+    },
+    "Click or ⌥N for everything": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Click or ⌥N for everything"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Clïck ör ⌥N för ëvërythïng ·~⟧"
           }
         }
       }
@@ -5501,6 +5569,23 @@
         }
       }
     },
+    "Everything you finished, day by day.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Everything you finished, day by day."
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Ëvërythïng yöü fïnïshëd, dày by dày. ·~⟧"
+          }
+        }
+      }
+    },
     "Expanded": {
       "extractionState": "manual",
       "localizations": {
@@ -6075,6 +6160,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "⟦Gïvë më 20 mïnütës öf föcüs tïmë ïn Përch ·~⟧"
+          }
+        }
+      }
+    },
+    "Group the tasks that belong together.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Group the tasks that belong together."
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Gröüp thë tàsks thàt bëlöng tögëthër. ·~⟧"
           }
         }
       }
@@ -8221,6 +8323,23 @@
         }
       }
     },
+    "Nothing planned yet": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nothing planned yet"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Nöthïng plànnëd yët ·~⟧"
+          }
+        }
+      }
+    },
     "Nothing to allow yet": {
       "extractionState": "manual",
       "localizations": {
@@ -9458,23 +9577,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "⟦Përsïmmön ·~⟧"
-          }
-        }
-      }
-    },
-    "Picture": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Picture"
-          }
-        },
-        "zz": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "⟦Pïctürë ·~⟧"
           }
         }
       }
@@ -11403,6 +11505,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "⟦Sëàrch hïstöry ·~⟧"
+          }
+        }
+      }
+    },
+    "Section": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Section"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Sëctïön ·~⟧"
           }
         }
       }
@@ -13345,23 +13464,6 @@
         }
       }
     },
-    "There are no steps left to move.": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "There are no steps left to move."
-          }
-        },
-        "zz": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "⟦Thërë àrë nö stëps lëft tö mövë. ·~⟧"
-          }
-        }
-      }
-    },
     "There are no unpinned clips to remove.": {
       "extractionState": "manual",
       "localizations": {
@@ -14535,6 +14637,23 @@
         }
       }
     },
+    "Until %@": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Until %@"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦Üntïl %@ ·~⟧"
+          }
+        }
+      }
+    },
     "Up to this hour, Perch still counts it as the previous day, so a late night stays on today's list.": {
       "extractionState": "manual",
       "localizations": {
@@ -15568,6 +15687,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "⟦mövës ït bàck öüt ·~⟧"
+          }
+        }
+      }
+    },
+    "next step": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "next step"
+          }
+        },
+        "zz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⟦nëxt stëp ·~⟧"
           }
         }
       }
