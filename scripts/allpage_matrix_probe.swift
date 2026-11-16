@@ -1631,9 +1631,9 @@ final class AllPageMatrix {
                 mxRole($0) == "AXButton" && mxNames($0).contains(AppL10n.text("Project options"))
             })
         else { throw MatrixFailure(label: "no project options control on the card") }
-        try mxClick(host: projectHost, window: window, screenRect: mxFrame(optionsControl))
+        try await mxKey(window, 49, " ")
         await mxReady(0.9)
-        func views(_ view: NSView) -> [NSView] { [view] + view.subviews.flatMap(views) }
+        @MainActor func views(_ view: NSView) -> [NSView] { [view] + view.subviews.flatMap(views) }
         guard
             let optionsWindow = NSApp.windows.first(where: {
                 $0 !== window && $0.isVisible && $0.contentView != nil
@@ -1648,9 +1648,13 @@ final class AllPageMatrix {
         try report.require(true, "the project options surface offers Delete project")
         try report.require(deleteControl.isEnabled, "Delete project is enabled in the options surface")
         try report.require(
-            views(optionsContent).compactMap { $0 as? NSButton }.contains(where: {
-                $0.title == AppL10n.text("Rename project")
-            }) || mxHas(projectRoot, AppL10n.text("Rename project")),
+            mxTree(mxApp()).contains {
+                mxRole($0) == "AXButton" && mxNames($0).contains(AppL10n.text("Rename project"))
+                    && optionsWindow.frame.contains(
+                        MatrixAX.snapshot.topLeftFrames
+                            ? mxCocoaRect(mxFrame($0), primaryHeight: NSScreen.screens.first?.frame.maxY ?? 0)
+                            : mxFrame($0))
+            },
             "the project options surface offers Rename project")
         // The revealed control is clicked where a person sees it, with real mouse events.
         guard

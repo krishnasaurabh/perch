@@ -5,6 +5,33 @@ import PlannerCore
 @testable import PerchApp
 
 final class ProjectCardsTests: XCTestCase {
+    @MainActor
+    func testTypedDropAdapterFilesAndUnfilesWithUndoAndRejectsMissingIdentitiesAtomically() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let now = Date(timeIntervalSince1970: 1_800_014_400)
+        let store = PlannerStore(
+            file: PlannerFile(url: root.appendingPathComponent("planner.json")),
+            now: { now }, watching: false)
+        let result = try XCTUnwrap(store.send(.createProject("Notes")))
+        let project = try XCTUnwrap(result.projects.first)
+        let tasks = try XCTUnwrap(store.apply { try $0.addTasks(["Read the notes"], literal: true) })
+        let task = try XCTUnwrap(tasks.first)
+        let items = [TaskDragItem(taskID: task.id)]
+        XCTAssertTrue(ProjectsList.file(items, in: project.id, store: store))
+        XCTAssertEqual(store.planner.tasks.first?.projectID, project.id)
+        store.undo()
+        XCTAssertNil(store.planner.tasks.first?.projectID)
+        store.redo()
+        XCTAssertEqual(store.planner.tasks.first?.projectID, project.id)
+        let before = store.planner
+        XCTAssertFalse(ProjectsList.file(items + [TaskDragItem(taskID: UUID())], in: nil, store: store))
+        XCTAssertEqual(store.planner, before)
+        XCTAssertFalse(ProjectsList.file([], in: project.id, store: store))
+        XCTAssertTrue(ProjectsList.file(items, in: nil, store: store))
+        XCTAssertNil(try store.file.load().tasks.first?.projectID)
+    }
+
     func testCountsUseEveryTaskAndNextUsesSavedOpenTaskOrder() {
         let project = TaskProject(name: "Work")
         let tasks = [

@@ -1,3 +1,4 @@
+import AppKit
 import PerchUI
 import PlannerCore
 import SwiftUI
@@ -188,7 +189,7 @@ private struct ProjectReviewCard: View {
                             PerchButton("Rename project", kind: .quiet) {
                                 beginRename(); options = false
                             }
-                            DashboardProjectDeleteButton { delete() }
+                            ProjectDeleteButton { delete() }
                         }
                         .padding(Theme.Size.cardPadding.value)
                         .background(Theme.paper)
@@ -237,7 +238,6 @@ private struct ProjectReviewCard: View {
         .onExitCommand {
             renaming = false; options = false; error = nil
         }
-        .accessibilityIdentifier("project-card-\(project.id.uuidString)")
         #if DEBUG || PERCH_TESTING
             .onReceive(preview.$mode) { mode in
                 guard project.id == store.planner.projects.first?.id else { return }
@@ -265,6 +265,48 @@ private struct ProjectReviewCard: View {
     private func delete() {
         options = false
         store.apply { try $0.deleteProject(project.id) }
+    }
+}
+
+/// New surface paint around the existing native action target. The legacy shell's
+/// delete paint is 11 pt; only its event/focus implementation is reused here.
+private struct ProjectDeleteButton: View {
+    let action: () -> Void
+    @Environment(\.isEnabled) private var enabled
+    @State private var focused = false
+    @State private var pressed = false
+
+    var body: some View {
+        Text(AppL10n.text("Delete project"))
+            .perchFont(.button)
+            .foregroundStyle(Theme.ink)
+            .padding(.horizontal, Theme.Size.buttonSidePadding.value)
+            .frame(minWidth: Theme.Size.minimumTarget.value, minHeight: Theme.Size.smallButtonHeight.value)
+            .background(Capsule().fill(Theme.field))
+            .overlay(FocusRing(shape: Capsule(), focused: focused && enabled, surface: .paper))
+            .perchControlFeedback(pressed: pressed)
+            .accessibilityHidden(true)
+            .overlay {
+                ProjectDeleteTarget(
+                    enabled: enabled, action: action,
+                    focusChanged: { focused = $0 }, pressChanged: { pressed = $0 })
+            }
+    }
+}
+
+private struct ProjectDeleteTarget: NSViewRepresentable {
+    let enabled: Bool
+    let action: () -> Void
+    let focusChanged: (Bool) -> Void
+    let pressChanged: (Bool) -> Void
+
+    func makeNSView(context: Context) -> DashboardProjectActionView { DashboardProjectActionView() }
+    func updateNSView(_ view: DashboardProjectActionView, context: Context) {
+        view.onAction = action
+        view.focusChanged = focusChanged
+        view.pressChanged = pressChanged
+        view.isEnabled = enabled
+        if !enabled, view.window?.firstResponder === view { view.window?.makeFirstResponder(nil) }
     }
 }
 

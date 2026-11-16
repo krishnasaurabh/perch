@@ -119,7 +119,9 @@
                 fixture.planner.focus = nil
                 for index in fixture.planner.tasks.indices where fixture.planner.tasks[index].done {
                     let task = fixture.planner.tasks[index]
-                    if task.minutes != nil { fixture.planner.tasks[index].focusedSeconds = 25 * 60 }
+                    if task.minutes != nil {
+                        fixture.planner.tasks[index].focusedSeconds = Double((task.minutes ?? 0) * 60)
+                    }
                     if task.title == "Sort the receipts" { fixture.planner.tasks[index].agentID = "claude-code" }
                     if task.title == "Email the landlord" { fixture.planner.tasks[index].carryCount = 1 }
                 }

@@ -432,7 +432,7 @@ struct MatrixFixture {
             past,
             // History lists finished tasks only, so every authored history row is done.
             PlanTask(title: "Matrix history beta", day: today.adding(days: -3), done: true),
-            PlanTask(title: "Matrix history gamma", day: today.adding(days: -1), done: true, agentID: "claude-code"),
+            PlanTask(title: "Matrix history gamma", day: today.adding(days: -2), done: true, agentID: "claude-code"),
             draft,
             PlanTask(title: "Matrix open project task", day: today, projectID: project.id),
             PlanTask(title: "Matrix future errand", day: today.adding(days: 2)),
@@ -928,7 +928,10 @@ enum MatrixControls {
 
     /// The options popover is an attached native window, not a second page.
     static func popover(besides window: NSWindow) -> NSWindow? {
-        NSApp.windows.first { $0 !== window && $0.isVisible && $0.contentView != nil && $0.attachedSheet == nil }
+        NSApp.windows.first {
+            $0 !== window && $0.isVisible && $0.contentView != nil && $0.attachedSheet == nil
+                && button(titled: "Delete project", in: $0) != nil
+        }
     }
 
     static func button(titled title: String, in window: NSWindow) -> NSButton? {
@@ -1174,7 +1177,7 @@ func checkDashboardMatrix(_ fixture: MatrixFixture, output: URL) async throws {
             matrixRequire(
                 everything.contains("Matrix history alpha") && everything.contains("Matrix history gamma"),
                 "the Everything filter restores every finished task", "\(everything.sorted())")
-            for _ in 0..<4 { await matrixKey(window, 48, "\t", .shift) }
+            for _ in 0..<1 { await matrixKey(window, 48, "\t", .shift) }
             matrixRequire(
                 (window.firstResponder as? NSTextView)?.delegate as? NSTextField === field,
                 "Shift-Tab returns focus to the history search",
@@ -1206,10 +1209,12 @@ func checkDashboardMatrix(_ fixture: MatrixFixture, output: URL) async throws {
     let before = fixture.store.planner
     await matrixKey(window, 48, "\t")
     try trace.record(window, phase: "behavior-project-tab")
+    matrixRequire(
+        dashboardAXFocusedLabel(window) == "Project options", "Tab focuses the visible project options control")
     let options = MatrixControls.projectOptions(in: host)
     matrixRequire(options != nil, "Tab reaches the project options control on the card")
     guard let options else { return }
-    matrixRequire(MatrixControls.press(options), "the project options control opens")
+    await matrixKey(window, 49, " ")
     await matrixSettle()
     try trace.record(window, phase: "behavior-project-options")
     matrixRequire(
@@ -1223,8 +1228,7 @@ func checkDashboardMatrix(_ fixture: MatrixFixture, output: URL) async throws {
     }
     matrixRequire(true, "the project options surface offers Delete project")
     matrixRequire(
-        MatrixControls.button(titled: "Rename project", in: optionsWindow) != nil
-            || MatrixControls.button(titled: "Rename project", in: window) != nil,
+        try dashboardAXButtonLabels(optionsWindow.contentView ?? host).contains("Rename project"),
         "the project options surface offers Rename project")
     matrixRequire(deleteControl.isEnabled, "Delete project is enabled for this project")
     deleteControl.performClick(nil)

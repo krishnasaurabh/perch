@@ -45,7 +45,8 @@ class ReviewWindowContracts(unittest.TestCase):
         self.assertIn('Button("Rename project"', source)
         self.assertIn('Button("Delete project"', source)
         self.assertIn(".popover(isPresented: $options)", source)
-        self.assertIn("DashboardProjectDeleteButton", source)
+        self.assertIn("ProjectDeleteButton", source)
+        self.assertIn("DashboardProjectActionView", source)
 
     def test_chart_height_can_grow_and_week_rollover_releases_priority_slots(self):
         source = (APP / "YourWeekView.swift").read_text()
