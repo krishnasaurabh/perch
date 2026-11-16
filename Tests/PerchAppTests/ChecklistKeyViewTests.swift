@@ -62,7 +62,7 @@
             logResponder("after makeFirstResponder(before)")
             XCTAssertFalse(group.isAccessibilityFocused(), responderState("before entering group"))
             // Text fields install a field editor as the window's actual first responder.
-            window.selectNextKeyView(window.firstResponder)
+            window.selectNextKeyView(before)
             logResponder("after selectNextKeyView(window.firstResponder)")
             XCTAssertTrue(window.firstResponder === group, responderState("Tab must enter the single checklist stop"))
             XCTAssertTrue(group.isAccessibilityFocused(), responderState("entered checklist must report AX focus"))
@@ -81,7 +81,7 @@
             XCTAssertFalse(group.isAccessibilityFocused(), responderState("Tab departure must clear AX focus"))
             XCTAssertNil(
                 group.accessibilityFocusedUIElement, responderState("Tab departure must clear focused AX element"))
-            window.selectPreviousKeyView(window.firstResponder)
+            window.selectPreviousKeyView(after)
             XCTAssertTrue(window.firstResponder === group, responderState("Shift-Tab must re-enter checklist"))
             group.keyDown(with: event(48, in: window, flags: .shift))
             XCTAssertTrue(
