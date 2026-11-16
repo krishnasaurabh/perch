@@ -1,363 +1,291 @@
 import PlannerCore
 import PerchUI
 import SwiftUI
+import UniformTypeIdentifiers
 
-enum TodayFocus: Hashable {
-    case capture
-    case undo
-    case task(UUID, RowAction)
-
-    enum RowAction: Hashable {
-        case complete, focus, details, delete, rename
-        var identifierPrefix: String {
-            switch self {
-            case .complete: "task-complete-"
-            case .focus: "task-focus-"
-            case .details: "task-details-"
-            case .delete: "task-delete-"
-            case .rename: "task-rename-"
-            }
+/// Export the typed identity and the legacy UUID text from a single drag. Week's
+/// existing String destinations remain usable while typed timelines adopt it.
+@MainActor enum ChecklistTaskDrag {
+    static func provider(for id: UUID) -> NSItemProvider {
+        let provider = NSItemProvider(object: id.uuidString as NSString)
+        let data = try? JSONEncoder().encode(TaskDragItem(taskID: id))
+        provider.registerDataRepresentation(forTypeIdentifier: UTType.perchTask.identifier, visibility: .ownProcess) {
+            completion in
+            completion(data, nil)
+            return nil
         }
-    }
-    var taskID: UUID? {
-        if case .task(let id, _) = self { return id }
-        return nil
+        return provider
     }
 }
 
-/// Stable, visible actions. Hover changes the background, never the row's layout or available controls.
+/// Capture and Undo stay outside the checklist's single keyboard stop.
+enum TodayFocus: Hashable {
+    case capture, undo, checklist
+}
+
+/// One row, one layout pass. The checklist owns keyboard movement; every action
+/// remains available to pointer and assistive technology without extra Tab stops.
 struct TaskRow: View {
     let task: PlanTask
     var compact = false
-    var focus: FocusState<TodayFocus?>.Binding? = nil
+    var current = false
+    var selected = false
+    var keyboardFocused = false
+    var inChecklist = false
+    var selectedStepID: UUID? = nil
+    var expanded: Binding<Bool>? = nil
+    var onSelect: () -> Void = {}
+    var onEdit: (() -> Void)? = nil
     @EnvironmentObject var store: PlannerStore
     @EnvironmentObject var model: NotchModel
-    @Environment(\.locale) private var locale
-    @FocusState private var localFocus: TodayFocus?
-    @State private var hover = false
-    @State private var editing = false
-    @State private var draft = ""
-    @State private var ticked = false
+    @State private var locallyExpanded = false
 
-    private var focusBinding: FocusState<TodayFocus?>.Binding { focus ?? $localFocus }
+    private var isExpanded: Bool { current || (expanded?.wrappedValue ?? locallyExpanded) }
+    private var surface: PerchSurface { current ? .butter : .paper }
     private var canFocus: Bool {
         !task.done && task.day == store.today
             && store.planner.focus.map { $0.state == .running || $0.state == .paused } != true
     }
 
     var body: some View {
-        HStack(alignment: .top, spacing: 8) {
-            completion
-            VStack(alignment: .leading, spacing: 5) {
-                if editing {
-                    TextField("Task title", text: $draft, axis: .vertical)
-                        .textFieldStyle(.plain).font(Theme.body)
-                        .focused(focusBinding, equals: .task(task.id, .rename))
-                        .onSubmit(commitRename)
-                        .onExitCommand {
-                            editing = false; focusBinding.wrappedValue = .task(task.id, .complete)
-                        }
-                } else {
-                    // Short titles keep their actions on the title line, so a compact Today shows more
-                    // rows. Titles that would wrap beside the actions keep their full width instead.
-                    TitleActionsLayout {
-                        accessibleTitle
-                        actions
-                    }
+        Group {
+            if current {
+                CurrentTaskBlock(task: task) {
+                    completion
+                } title: {
+                    accessibleTitle
+                } steps: {
+                    steps
                 }
-                if !compact { metadata }
+            } else {
+                VStack(alignment: .leading, spacing: .zero) {
+                    HStack(spacing: Theme.Size.focusGap.value) {
+                        disclosure
+                        completion
+                        accessibleTitle
+                        details.fixedSize(horizontal: true, vertical: false)
+                    }
+                    .frame(minHeight: Theme.Size.taskRowHeight.value)
+                    if isExpanded { steps }
+                }
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .padding(.horizontal, 7).padding(.vertical, 8)
-        .background(RoundedRectangle(cornerRadius: Theme.controlRadius).fill(hover ? Theme.fill : .clear))
         .contentShape(Rectangle())
-        .onHover { hover = $0 }
+        .onTapGesture {
+            onSelect(); if !task.steps.isEmpty && !current { toggleSteps() }
+        }
         .contextMenu { menu }
         .accessibilityElement(children: .contain)
-        .onChange(of: canFocus) { _, available in
-            if !available && focusBinding.wrappedValue == .task(task.id, .focus) {
-                focusBinding.wrappedValue = .task(task.id, .complete)
-            }
-        }
-        .task(id: ticked) {
-            guard ticked else { return }
-            do { try await Task.sleep(nanoseconds: Motion.reduceMotion ? 0 : 140_000_000) } catch { return }
-            guard !Task.isCancelled else { return }
-            Motion.animate(Motion.row) {
-                if task.day == store.today {
-                    store.apply { try $0.complete(task.id) }
-                } else if let day = task.day, day < store.today {
-                    store.send(.completeOverdue([task.id]))
-                } else {
-                    store.send(.complete(task.id))
-                }
-            }
-            ticked = false
-        }
+        .overlay(
+            FocusRing(
+                shape: RoundedRectangle(cornerRadius: Theme.Size.currentTaskRadius.value),
+                focused: keyboardFocused && selected && selectedStepID == nil, surface: surface)
+        )
+        .onDrag { ChecklistTaskDrag.provider(for: task.id) }
     }
 
-    // Keep native child buttons navigable, but publish the row summary on a leaf.
-    // macOS accessibility groups do not consistently expose a value or help text.
     private var accessibleTitle: some View {
-        Text(task.title).font(Theme.title)
-            .foregroundStyle(task.done ? Theme.secondary : Theme.text)
+        Text(task.title)
+            .perchFont(current ? .currentTask : .body)
+            .foregroundStyle(task.done ? Theme.ink3 : Theme.ink)
             .strikethrough(task.done)
             .fixedSize(horizontal: false, vertical: true)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .onTapGesture(count: 2, perform: beginRename)
+            .designMotion(.strikeThrough, value: task.done)
+            .onTapGesture(count: 2, perform: edit)
             .accessibilityIdentifier("task-row-\(task.id)")
             .accessibilityLabel(task.title)
             .accessibilityValue(accessibilitySummary)
-            .accessibilityHint(
-                "Use actions to complete or reopen, view details, focus, or delete this task. Deletion can be undone."
-            )
+            .accessibilityHint("Use the arrow keys to choose a task. Space checks it off. Return edits it.")
             .accessibilityActions {
                 Button(AppL10n.text(task.done ? "Reopen" : "Complete"), action: toggle)
-                Button("Details") { model.detailsTaskID = task.id }
+                Button("Details", action: edit)
                 Button("Delete", role: .destructive, action: delete)
-                if canFocus { Button("Focus", action: startFocus) }
+                Button("Park it for later", action: park)
+                if !task.steps.isEmpty && !current { Button("Show or hide its steps", action: toggleSteps) }
+                if canFocus { Button("Set time aside", action: startFocus) }
             }
     }
 
     private var completion: some View {
-        Button(action: toggle) {
-            let on = task.done || ticked
-            Image(systemName: on ? "checkmark.circle.fill" : "circle")
-                .font(.system(size: 18, weight: .medium))
-                .foregroundStyle(on ? Theme.text : Theme.secondary)
-                .frame(width: Theme.minimumTarget, height: Theme.minimumTarget)
+        PerchCheckbox(
+            title: task.title,
+            isOn: Binding(get: { task.done }, set: { _ in toggle() }),
+            surface: surface, keyboardFocusable: !inChecklist
+        )
+        .frame(width: Theme.Size.minimumTarget.value, height: Theme.Size.minimumTarget.value)
+        .accessibilityLabel(
+            task.done ? AppL10n.format("Reopen %@", task.title) : AppL10n.format("Complete %@", task.title)
+        )
+        .accessibilityValue(task.done ? AppL10n.text("Done") : AppL10n.text("Not completed"))
+        .accessibilityIdentifier("task-complete-\(task.id)")
+    }
+
+    private var disclosure: some View {
+        Button(action: toggleSteps) {
+            Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
+                .perchFont(.detailStrong)
+                .opacity(task.steps.isEmpty ? 0 : 1)
+                .frame(width: Theme.Size.minimumTarget.value, height: Theme.Size.minimumTarget.value)
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .focusable(true)
-        .focused(focusBinding, equals: .task(task.id, .complete))
-        .onKeyPress(.space, phases: [.down, .repeat, .up]) { press in
-            // This custom focus target must activate the same action as the button.
-            // Consume the rest of the gesture even if completion moves focus to another row.
-            guard focusBinding.wrappedValue == .task(task.id, .complete), press.modifiers.isEmpty else {
-                return .ignored
+        .foregroundStyle(Theme.ink2)
+        .disabled(task.steps.isEmpty)
+        .focusable(false)
+        .accessibilityHidden(task.steps.isEmpty)
+        .accessibilityLabel(AppL10n.format(isExpanded ? "Hide steps for %@" : "Show steps for %@", task.title))
+        .accessibilityValue(isExpanded ? AppL10n.text("Open") : AppL10n.text("Closed"))
+        .accessibilityIdentifier("task-steps-\(task.id)")
+    }
+
+    private var details: some View {
+        HStack(spacing: Theme.Size.focusGap.value) {
+            if task.done {
+                Text(AppL10n.text("Done"))
+            } else if let start = task.startAt {
+                Text(start.formatted(date: .omitted, time: .shortened))
             }
-            if press.phase == .down { toggle() }
-            return .handled
-        }
-        .focusEffectDisabled()
-        .overlay(
-            ControlFocusRing(
-                shape: RoundedRectangle(cornerRadius: 6),
-                focused: focusBinding.wrappedValue == .task(task.id, .complete))
-        )
-        .accessibilityLabel(
-            task.done
-                ? AppL10n.format("Reopen %@", task.title)
-                : AppL10n.format("Complete %@", task.title)
-        )
-        .accessibilityValue(task.done || ticked ? AppL10n.text("Completed") : AppL10n.text("Not completed"))
-        .accessibilityIdentifier("task-complete-\(task.id)")
-        .help(AppL10n.text(task.done ? "Reopen task" : "Complete task"))
-    }
-
-    private var actions: some View {
-        HStack(spacing: 8) {
-            if canFocus {
-                action("play.fill", title: "Focus", kind: .focus, perform: startFocus)
+            if !task.steps.isEmpty {
+                Label(
+                    AppL10n.format("%lld/%lld steps", task.steps.filter(\.done).count, task.steps.count),
+                    systemImage: "list.bullet")
             }
-            action("slider.horizontal.3", title: "Details", kind: .details) { model.detailsTaskID = task.id }
-            action("trash", title: "Delete", kind: .delete, role: .destructive, perform: delete)
-        }
-    }
-
-    private func action(
-        _ symbol: String, title: String, kind: TodayFocus.RowAction,
-        role: ButtonRole? = nil, perform: @escaping () -> Void
-    ) -> some View {
-        Button(role: role, action: perform) {
-            Label(AppL10n.text(title), systemImage: symbol).labelStyle(.titleOnly)
-                .foregroundStyle(role == .destructive ? Theme.danger : Theme.text)
-        }
-        .buttonStyle(PillStyle())
-        .focusable(true)
-        .focused(focusBinding, equals: .task(task.id, kind))
-        .onKeyPress(.space, phases: [.down, .repeat, .up]) { press in
-            guard focusBinding.wrappedValue == .task(task.id, kind), press.modifiers.isEmpty else {
-                return .ignored
+            if let c = task.carriedFrom {
+                Label(AppL10n.format("From %@", shortDay(c)), systemImage: "arrow.uturn.right")
             }
-            if press.phase == .down { perform() }
-            return .handled
+            if store.prefs.showAgentAttribution, let agent = task.agentID, let name = AgentName.short(agent) {
+                Label(AppL10n.format("Via %@", name), systemImage: "sparkles").help(
+                    AppL10n.format("Added through MCP by %@", agent))
+            }
         }
-        .focusEffectDisabled()
-        .overlay(
-            ControlFocusRing(
-                shape: Capsule(), focused: focusBinding.wrappedValue == .task(task.id, kind))
-        )
-        .accessibilityLabel(AppL10n.format("%@ %@", AppL10n.text(title), task.title))
-        .accessibilityIdentifier(kind.identifierPrefix + task.id.uuidString)
-        .help(
-            title == "Delete"
-                ? AppL10n.text("Delete task. Use Undo below the list to restore it.")
-                : AppL10n.format("%@ task", AppL10n.text(title)))
-    }
-
-    private var metadata: some View {
-        // A wrapping layout keeps priority and scheduling information readable rather than truncating chips.
-        ViewThatFits(in: .horizontal) {
-            HStack(alignment: .firstTextBaseline, spacing: 10) { metadataLabels }
-            VStack(alignment: .leading, spacing: 3) { metadataLabels }
-        }
-        .font(Theme.meta)
-        .foregroundStyle(Theme.secondary)
-        .fixedSize(horizontal: false, vertical: true)
-    }
-
-    @ViewBuilder private var metadataLabels: some View {
-        if task.priority != .none {
-            Label(AppL10n.priority(task.priority), systemImage: "flag.fill")
-                .foregroundStyle(Theme.priority(task.priority))
-                .accessibilityLabel(AppL10n.format("%@ priority", AppL10n.priority(task.priority)))
-        }
-        if let r = task.remindAt {
-            Label(r.formatted(date: .omitted, time: .shortened), systemImage: "bell")
-                .foregroundStyle(r < store.engine.now() && !task.done ? Theme.danger : Theme.secondary)
-        }
-        if let p = store.engine.project(id: task.projectID) { Label(p.name, systemImage: "number") }
-        if let d = task.deadline {
-            Label(AppL10n.format("Due %@", shortDay(d)), systemImage: "calendar")
-                .foregroundStyle(d < store.today && !task.done ? Theme.danger : Theme.secondary)
-        }
-        if let rule = task.repeatRule {
-            Label(RepeatPickerDraft(original: rule, anchor: task.day).summary(locale: locale), systemImage: "repeat")
-        }
-        if let m = task.minutes { Label(AppL10n.format("%lldm", m), systemImage: "timer") }
-        if !task.steps.isEmpty {
-            Label(
-                AppL10n.format("%lld/%lld steps", task.steps.filter(\.done).count, task.steps.count),
-                systemImage: "list.bullet")
-        }
-        if let c = task.carriedFrom { Label(AppL10n.format("From %@", shortDay(c)), systemImage: "arrow.uturn.right") }
-        if store.prefs.showAgentAttribution, let agent = task.agentID, let name = AgentName.short(agent) {
-            Label(AppL10n.format("Via %@", name), systemImage: "sparkles").help(
-                AppL10n.format("Added through MCP by %@", agent))
-        }
+        .perchFont(.detail)
+        .foregroundStyle(task.done ? Theme.doneText : task.carriedFrom != nil ? Theme.carried : Theme.ink2)
+        .accessibilityIdentifier("task-detail-\(task.id)")
     }
 
     private func shortDay(_ d: DayKey) -> String { d.date().formatted(.dateTime.month(.abbreviated).day()) }
 
+    private var detailText: String {
+        if task.done { return AppL10n.text("Done") }
+        var bits: [String] = []
+        if task.carriedFrom != nil { bits.append(AppL10n.text("Carried over")) }
+        if let start = task.startAt { bits.append(start.formatted(date: .omitted, time: .shortened)) }
+        if !task.steps.isEmpty {
+            bits.append(AppL10n.format("%lld of %lld", task.steps.filter(\.done).count, task.steps.count))
+        }
+        return bits.joined(separator: " · ")
+    }
+
+    private var steps: some View {
+        VStack(alignment: .leading, spacing: Theme.Size.focusGap.value) {
+            ForEach(task.steps) { step in
+                TaskStepRow(
+                    taskID: task.id, step: step,
+                    next: current && step.id == TodayTaskNavigation.nextStep(in: task.steps),
+                    selected: keyboardFocused && selected && selectedStepID == step.id,
+                    keyboardFocusable: false, surface: surface
+                )
+                .id(step.id)
+            }
+        }
+        .padding(.leading, Theme.Size.minimumTarget.value + Theme.Size.focusGap.value)
+    }
+
+    private var accessibilitySummary: String {
+        var bits = [task.done ? AppL10n.text("Done") : AppL10n.text("Not completed")]
+        if !detailText.isEmpty && !task.done { bits.append(detailText) }
+        if task.priority != .none { bits.append(AppL10n.format("%@ priority", AppL10n.priority(task.priority))) }
+        if let r = task.remindAt, r < store.engine.now() && !task.done {
+            bits.append(AppL10n.text("The reminder time has passed."))
+        }
+        return bits.joined(separator: ", ")
+    }
+
     @ViewBuilder private var menu: some View {
         if !task.done {
-            Button("Start focusing", action: startFocus).disabled(!canFocus)
-            Button("Set Time Limit…") { model.detailsTaskID = task.id }
-            Divider()
+            Button("Set time aside", action: startFocus).disabled(!canFocus)
             Button("Move to Tomorrow") { move(.day(store.today.adding(days: 1))) }
-            Button("Move to Inbox") { move(.inbox) }
+            Button("Park it for later", action: park)
             if task.day != store.today { Button("Move to Today") { move(.day(store.today)) } }
-            Divider()
             Menu("Priority") {
-                ForEach(TaskPriority.allCases.reversed(), id: \.self) { p in
-                    Button(AppL10n.priority(p)) {
-                        store.updateTask(task.id) { $0.priority = p }
-                    }
+                ForEach(TaskPriority.allCases.reversed(), id: \.self) { priority in
+                    Button(AppL10n.priority(priority)) { store.updateTask(task.id) { $0.priority = priority } }
                 }
             }
         }
-        Button("Rename", action: beginRename)
-        Button("Details…") { model.detailsTaskID = task.id }
+        Button("Edit task", action: edit)
         if task.repeatRule != nil { Button("Stop Repeating") { store.apply { try $0.endRepeat(of: task.id) } } }
         Divider()
         Button("Delete", role: .destructive, action: delete)
     }
 
-    private var accessibilitySummary: String {
-        let state = task.done || ticked ? AppL10n.text("Completed") : AppL10n.text("Not completed")
-        return task.priority == .none
-            ? state
-            : AppL10n.format("%@, %@ priority", state, AppL10n.priority(task.priority))
+    private func toggleSteps() {
+        guard !current else { return }
+        if let expanded { expanded.wrappedValue.toggle() } else { locallyExpanded.toggle() }
+        onSelect()
     }
-
+    private func edit() { if let onEdit { onEdit() } else { model.detailsTaskID = task.id } }
     private func startFocus() {
         guard canFocus else { return }
         store.apply { try $0.startTimer(task: task.id, minutes: nil) }
     }
-
     func toggle() {
-        if task.done { Motion.animate(Motion.row) { _ = store.apply { try $0.reopen(task.id) } }; return }
-        guard !ticked else { return }
-        ticked = true
+        onSelect()
+        if task.done {
+            store.apply { try $0.reopen(task.id) }
+        } else if let day = task.day, day < store.today {
+            store.send(.completeOverdue([task.id]))
+        } else {
+            store.send(.complete(task.id))
+        }
     }
-
-    private func beginRename() {
-        draft = task.title
-        editing = true
-        focusBinding.wrappedValue = .task(task.id, .rename)
+    private func move(_ day: DayRef) {
+        store.apply { try $0.move(task.id, from: task.day.map { .day($0) } ?? .inbox, to: day) }
     }
-    private func move(_ to: DayRef) {
-        store.apply { try $0.move(task.id, from: task.day.map { .day($0) } ?? .inbox, to: to) }
-    }
+    private func park() { store.apply { try TodayTaskNavigation.park(task.id, commands: $0) } }
     func delete() { store.apply { try $0.delete(task.id, on: task.day.map { .day($0) } ?? .inbox) } }
-    private func commitRename() {
-        editing = false
-        focusBinding.wrappedValue = .task(task.id, .complete)
-        guard draft != task.title else { return }
-        store.apply { try $0.rename(task.id, on: task.day.map { .day($0) } ?? .inbox, to: draft) }
-    }
 }
 
-/// Title and row actions in one pass: actions sit at the trailing end of the title line when the
-/// title fits beside them on one line, otherwise they drop below a full-width title. Unlike
-/// `ViewThatFits`, each subview is measured a fixed number of times, so long lists stay cheap.
-struct TitleActionsLayout: Layout {
-    var spacing: CGFloat = 8
-    var lineSpacing: CGFloat = 5
+/// Shared by the checklist and compact presentations of the current task.
+struct TaskStepRow: View {
+    let taskID: UUID
+    let step: Subtask
+    var next = false
+    var selected = false
+    var keyboardFocusable = true
+    var surface: PerchSurface = .paper
+    @EnvironmentObject var store: PlannerStore
 
-    private struct Plan {
-        var inline: Bool
-        var title: CGSize
-        var actions: CGSize
-    }
-
-    private func plan(_ width: CGFloat?, _ subviews: Subviews) -> Plan {
-        guard subviews.count == 2 else {
-            return Plan(inline: false, title: .zero, actions: .zero)
+    var body: some View {
+        HStack(spacing: Theme.Size.cardPadding.value / 2) {
+            PerchCheckbox(
+                title: step.title,
+                isOn: Binding(
+                    get: { step.done },
+                    set: { value in
+                        store.updateTask(taskID) { draft in
+                            if let index = draft.steps.firstIndex(where: { $0.id == step.id }) {
+                                draft.steps[index].done = value
+                            }
+                        }
+                    }), kind: .step, surface: surface, keyboardFocusable: keyboardFocusable
+            )
+            .frame(width: Theme.Size.minimumTarget.value, height: Theme.Size.minimumTarget.value)
+            .accessibilityIdentifier("step-complete-\(step.id)")
+            Text(step.title)
+                .perchFont(next ? .button : .body)
+                .strikethrough(step.done)
+                .foregroundStyle(step.done ? Theme.ink3 : Theme.ink)
+                .fixedSize(horizontal: false, vertical: true)
+                .designMotion(.strikeThrough, value: step.done)
+            if next { Text("next").perchFont(.detail).foregroundStyle(Theme.ink2) }
+            Spacer(minLength: .zero)
         }
-        let actions = subviews[1].sizeThatFits(.unspecified)
-        let ideal = subviews[0].sizeThatFits(.unspecified)
-        guard let width, width.isFinite else {
-            return Plan(inline: true, title: ideal, actions: actions)
-        }
-        if ideal.width + spacing + actions.width <= width {
-            return Plan(inline: true, title: ideal, actions: actions)
-        }
-        let wrapped = subviews[0].sizeThatFits(ProposedViewSize(width: width, height: nil))
-        return Plan(inline: false, title: wrapped, actions: actions)
-    }
-
-    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
-        let p = plan(proposal.width, subviews)
-        if p.inline {
-            let width = proposal.width ?? (p.title.width + spacing + p.actions.width)
-            return CGSize(width: width, height: max(p.title.height, p.actions.height))
-        }
-        let width = proposal.width ?? max(p.title.width, p.actions.width)
-        return CGSize(width: width, height: p.title.height + lineSpacing + p.actions.height)
-    }
-
-    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
-        guard subviews.count == 2 else { return }
-        let p = plan(bounds.width, subviews)
-        if p.inline {
-            let titleY = bounds.minY + max(0, (p.actions.height - p.title.height) / 2)
-            subviews[0].place(
-                at: CGPoint(x: bounds.minX, y: titleY), anchor: .topLeading,
-                proposal: ProposedViewSize(width: bounds.width - spacing - p.actions.width, height: p.title.height))
-            subviews[1].place(
-                at: CGPoint(x: bounds.maxX, y: bounds.minY), anchor: .topTrailing,
-                proposal: ProposedViewSize(p.actions))
-        } else {
-            subviews[0].place(
-                at: bounds.origin, anchor: .topLeading,
-                proposal: ProposedViewSize(width: bounds.width, height: p.title.height))
-            subviews[1].place(
-                at: CGPoint(x: bounds.minX, y: bounds.minY + p.title.height + lineSpacing), anchor: .topLeading,
-                proposal: ProposedViewSize(p.actions))
-        }
+        .frame(minHeight: Theme.Size.stepRowHeight.value)
+        .overlay(
+            FocusRing(
+                shape: RoundedRectangle(cornerRadius: Theme.Size.stepCheckboxRadius.value),
+                focused: selected, surface: surface))
     }
 }

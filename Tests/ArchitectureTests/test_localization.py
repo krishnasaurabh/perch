@@ -62,8 +62,9 @@ class LocalizationTests(unittest.TestCase):
     def test_dynamic_producers_and_helper_arguments_have_catalog_entries(self):
         app = json.loads((ROOT / 'Sources/PerchApp/Resources/Localizable.xcstrings').read_text())['strings']
         required = {
-            'What would you like to do?', 'Previous week', 'Next week', 'Add date', 'Clear', 'Apply',
-            'Upcoming', 'Projects', '⌘↩ makes a task for today', 'All day',
+            'Add a task. Tab makes it a step.', 'Previous week', 'Next week', 'Add date', 'Clear', 'Apply',
+            'Upcoming', 'Projects', '⌘↩ makes a task', 'All day',
+            'What would you like to do?', '⌘↩ makes a task for today',
             "macOS wouldn't give up that combination. Kept %@.",
         }
         agent = (ROOT / 'Sources/PerchApp/Services/AgentConnector.swift').read_text()

@@ -33,6 +33,14 @@ class EvidenceRulesTests(unittest.TestCase):
             m = self.marker(); m['via'] = via
             self.assertFalse(qualify(m, 'a'*40)['qualified'])
 
+    def test_legacy_focus_card_start_is_real_ax_but_removed_header_is_not_accepted(self):
+        m = self.marker(); m['via'] = 'ax-press:Start'
+        self.assertTrue(qualify(m, 'a'*40)['qualified'])
+        m['via'] = 'ax-press:Start focus'
+        result = qualify(m, 'a'*40)
+        self.assertFalse(result['qualified'])
+        self.assertIn('missing-real-control', result['reasons'])
+
     def test_controlled_clock_completion_requires_engine_tick_and_a_new_segment(self):
         m = self.marker()
         m.update(name='timer-stop', via='controlled-clock:engine-tick')

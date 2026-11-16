@@ -92,11 +92,9 @@
             let running = !["today-before", "today-editing", "notch-reminder", "strip-undo", "strip-agent"].contains(
                 name)
             fixture.planner.tasks = dayTasks(day, running: running)
-            // Sample scheduled blocks have their own start, independent of reminders.
-            fixture.planner.tasks = fixture.planner.tasks.map { original in
-                var task = original
-                task.startAt = task.remindAt
-                return task
+            // Start-time samples are separate from the reminders they originally illustrated.
+            for index in fixture.planner.tasks.indices {
+                fixture.planner.tasks[index].startAt = fixture.planner.tasks[index].remindAt
             }
             if running {
                 var focus = FocusSession(taskID: id(1), limit: 45 * 60, now: date(hour: 10))

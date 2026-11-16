@@ -10,7 +10,8 @@ class WorkspaceTaskViewportTests(unittest.TestCase):
     def test_legacy_task_viewport_is_capped_without_changing_shell_budget(self):
         card = (ROOT / "Sources/PerchApp/Workspace/TasksCard.swift").read_text()
         self.assertRegex(card, r"\.frame\(minHeight: 0, maxHeight: WorkspaceLayout\.contentHeight\)")
-        self.assertRegex(card, r'\.accessibilityIdentifier\(\s*"today-task-viewport"\)')
+        self.assertIn('enclosing.setAccessibilityIdentifier("today-task-viewport")', card)
+        self.assertNotRegex(card, r'\.accessibilityIdentifier\(\s*"today-task-viewport"\)')
         layout = (ROOT / "Sources/PerchUI/WorkspaceLayout.swift").read_text()
         self.assertIn("public static let contentHeight: CGFloat = 300", layout)
         self.assertIn("public static let sheetHeight: CGFloat = 510", layout)

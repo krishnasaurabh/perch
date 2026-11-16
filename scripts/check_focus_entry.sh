@@ -34,7 +34,7 @@ assert result['rowCustomActions'] == 'verified-native-handlers-exact-task'
 assert result['taskActivation'] == 'window-right-click-tracked-NSMenu-item-action'
 menu = json.loads((root / 'context-menu-trace.json').read_text())
 assert menu['mechanism'] == result['taskActivation'] and not menu['timedOut']
-assert any('Start focusing' in titles for titles in menu['menus'])
+assert any('Set time aside' in titles for titles in menu['menus'])
 assert {row['defaultMinutes'] for row in result['metrics']} == {25, 40}
 assert {row['startedMinutes'] for row in result['metrics']} == {25}
 # Empty time-card activation deliberately starts 25 minutes even when the configurable

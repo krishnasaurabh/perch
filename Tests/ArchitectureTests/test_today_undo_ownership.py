@@ -14,7 +14,7 @@ class TodayUndoOwnershipTests(unittest.TestCase):
         self.assertEqual(source.count("footer.modifier("), 1)
         self.assertEqual(source.count('accessibilityIdentifier("today-undo")'), 1)
         self.assertIn(".focused($focus, equals: .undo)", source)
-        pinned = source.split("TaskComposer(day:", 1)[1].split(".card(.tasks)", 1)[0]
+        pinned = source.split("TaskComposer(", 1)[1].split("\n        .card(", 1)[0]
         self.assertNotIn("footer", pinned)
         self.assertIn("overdueFooter.fixedSize", pinned)
 

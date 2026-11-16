@@ -10,6 +10,14 @@ import SwiftUI
         static var previewTargets: [String: PreviewTarget] {
             [
                 "today": .workspace(.home),
+                "checklist-expanded": .window("checklist-preview") { ChecklistPreview.show(.expanded, app: $0) },
+                "checklist-steps": .window("checklist-preview") { ChecklistPreview.show(.steps, app: $0) },
+                "checklist-selected": .window("checklist-preview") { ChecklistPreview.show(.selected, app: $0) },
+                "checklist-step-entry": .window("checklist-preview") { ChecklistPreview.show(.stepEntry, app: $0) },
+                "checklist-completed": .window("checklist-preview") { ChecklistPreview.show(.completed, app: $0) },
+                "checklist-dictating": .window("checklist-preview") { ChecklistPreview.show(.dictating, app: $0) },
+                "checklist-voice-error": .window("checklist-preview") { ChecklistPreview.show(.voiceError, app: $0) },
+                "checklist-multiline": .window("checklist-preview") { ChecklistPreview.show(.multiline, app: $0) },
                 "parking-thoughts": .window("parking-thoughts") { ParkingLotPreview.show(app: $0) },
                 "menubar-icon": .menuBar(.icon),
                 "menubar-time": .menuBar(.timeLeft),

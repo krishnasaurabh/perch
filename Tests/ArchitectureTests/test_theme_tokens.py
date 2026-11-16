@@ -59,7 +59,7 @@ class ThemeContrastTests(unittest.TestCase):
         original = Path.read_text
         def altered(path, *args, **kwargs):
             value = original(path, *args, **kwargs)
-            return value.replace('Theme.inputStroke', 'Theme.tertiary') if path.name == 'TasksCard.swift' else value
+            return value.replace('AddField(', 'MissingCapture(') if path.name == 'TasksCard.swift' else value
         with patch.object(Path, 'read_text', altered), self.assertRaises(AssertionError):
             THEME.source_rows()
 

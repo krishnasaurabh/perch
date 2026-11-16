@@ -22,7 +22,7 @@ class PreviewClockTests(unittest.TestCase):
         row = (workspace / "TaskRow.swift").read_text()
         # Compile the expressions the real views use, rather than restating the fix.
         header_date = re.search(r"Text\(([^\n]+), format: \.dateTime\.weekday", header)
-        reminder = re.search(r"\.foregroundStyle\(([^\n]+) \? Theme\.danger : Theme\.secondary\)", row)
+        reminder = re.search(r"if let r = task\.remindAt, ([^\n]+) \{", row)
         if header_date is None or reminder is None:
             raise AssertionError("Update the presentation probe when the view expressions change")
         program = r'''

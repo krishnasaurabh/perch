@@ -134,6 +134,14 @@ func taskViewport(in root: NSView, excluding editor: NSTextView? = nil) -> NSScr
     return lists[index]
 }
 
+/// Disclosure selects its last virtual row. Begin overflow checks at the real list origin.
+@MainActor
+func scrollToTaskOrigin(_ list: NSScrollView) {
+    guard let document = list.documentView else { return }
+    document.scroll(
+        NSPoint(x: document.bounds.minX, y: document.isFlipped ? document.bounds.minY : document.bounds.maxY))
+}
+
 @MainActor
 enum GeometryDiagnostics {
     static var measurements: [[String: Any]] = []
@@ -552,22 +560,10 @@ MainActor.assumeIsolated {
                         guard let captureBounds = controlFrame("Add a task", in: root) else {
                             require(false, "completed: capture bounds exist"); continue
                         }
-                        guard
-                            let button = axNodes(root).first(where: {
-                                matchesLabel($0, "Completed 3")
-                            })
-                        else { require(false, "completed: filter remains reachable"); continue }
-                        let selector = NSSelectorFromString("accessibilityPerformPress")
-                        guard button.responds(to: selector), let implementation = button.method(for: selector) else {
-                            require(false, "completed: filter exposes native action"); continue
-                        }
-                        typealias Press = @convention(c) (AnyObject, Selector) -> Bool
+                        // Finished tasks remain in the checklist; there is no separate filter.
                         require(
-                            unsafeBitCast(implementation, to: Press.self)(button, selector),
-                            "completed: filter action succeeds")
-                        await settle(); await wakeAX(); await settle()
-                        recordGeometry(
-                            scenario: "completed-filter-open", delegate: delegate, root: root, output: output)
+                            controlFrame("3 of 3 done", in: root) != nil,
+                            "completed: count includes all finished tasks")
                         let title = delegate.store.planner.tasks[0].title
                         require(
                             controlFrame("Reopen \(title)", in: root) != nil,
@@ -578,6 +574,24 @@ MainActor.assumeIsolated {
                     }
                     delegate.notch.snapshot(into: output.appendingPathComponent(scenario))
                     if scenario == "dense", let document = list.documentView {
+                        guard let later = axNodes(root).first(where: { matchesLabel($0, "20 more for later today") })
+                        else {
+                            require(false, "dense: folded tasks remain reachable"); continue
+                        }
+                        let selector = NSSelectorFromString("accessibilityPerformPress")
+                        guard later.responds(to: selector), let implementation = later.method(for: selector) else {
+                            require(false, "dense: later disclosure exposes a native action"); continue
+                        }
+                        typealias Press = @convention(c) (AnyObject, Selector) -> Bool
+                        require(
+                            unsafeBitCast(implementation, to: Press.self)(later, selector),
+                            "dense: later disclosure opens")
+                        await settle()
+                        scrollToTaskOrigin(list)
+                        await settle()
+                        guard let expandedCapture = controlFrame("Add a task", in: root) else {
+                            require(false, "dense: capture bounds exist after expanding"); continue
+                        }
                         require(
                             document.frame.height > list.contentSize.height,
                             "dense: content scrolls instead of growing shell")
@@ -585,7 +599,7 @@ MainActor.assumeIsolated {
                         await settle()
                         recordGeometry(scenario: "dense-scrolled", delegate: delegate, root: root, output: output)
                         require(
-                            editor.convert(editor.visibleRect, to: nil) == capture,
+                            controlFrame("Add a task", in: root) == expandedCapture,
                             "dense: capture does not move when tasks scroll")
                         delegate.notch.snapshot(into: output.appendingPathComponent("dense-scrolled"))
                     }
@@ -720,10 +734,29 @@ MainActor.assumeIsolated {
                             "\(name): fixture retains 24 actual multiline titles")
                         await settle(); await wakeAX(); await settle()
                         recordGeometry(scenario: name + "-dense", delegate: delegate, root: root, output: output)
+                        guard let later = axNodes(root).first(where: { matchesLabel($0, "20 more for later today") })
+                        else {
+                            require(false, "\(name): folded rows remain reachable"); window.orderOut(nil); continue
+                        }
+                        let selector = NSSelectorFromString("accessibilityPerformPress")
+                        guard later.responds(to: selector), let implementation = later.method(for: selector) else {
+                            require(false, "\(name): later disclosure is actionable"); window.orderOut(nil); continue
+                        }
+                        typealias Press = @convention(c) (AnyObject, Selector) -> Bool
+                        require(
+                            unsafeBitCast(implementation, to: Press.self)(later, selector), "\(name): later rows open")
+                        await settle()
                         guard let list = taskViewport(in: root), let document = list.documentView else {
                             require(false, "\(name): identified task viewport and document exist")
                             window.orderOut(nil); continue
                         }
+                        scrollToTaskOrigin(list)
+                        await settle()
+                        let origin = document.convert(list.contentView.bounds, from: list.contentView)
+                        require(
+                            document.isFlipped
+                                ? origin.minY <= document.bounds.minY + 1 : origin.maxY >= document.bounds.maxY - 1,
+                            "\(name): actual scroll origin reached")
                         require(
                             document.frame.height > list.contentSize.height, "\(name): multiline dense rows overflow")
                         require(controlFrame("Add a task", in: root) == capture, "\(name): dense capture unchanged")

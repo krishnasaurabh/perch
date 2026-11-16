@@ -9,25 +9,27 @@ struct AddField: View {
     @Binding var text: String
     var prompt: String? = nil
     var focus: FocusState<Bool>.Binding? = nil
+    var isDictating: Bool = false
     var onSubmit: () -> Void = {}
     let onDictate: () -> Void
 
     init(
         _ label: String, text: Binding<String>, prompt: String? = nil,
-        focus: FocusState<Bool>.Binding? = nil, onSubmit: @escaping () -> Void = {},
-        onDictate: @escaping () -> Void
+        focus: FocusState<Bool>.Binding? = nil, isDictating: Bool = false,
+        onSubmit: @escaping () -> Void = {}, onDictate: @escaping () -> Void
     ) {
         self.label = label
         self._text = text
         self.prompt = prompt
         self.focus = focus
+        self.isDictating = isDictating
         self.onSubmit = onSubmit
         self.onDictate = onDictate
     }
 
     var body: some View {
         SurfaceTextEntry(
-            label: label, text: $text, prompt: prompt, focus: focus,
+            label: label, text: $text, prompt: prompt, focus: focus, isDictating: isDictating,
             onSubmit: onSubmit, onDictate: onDictate)
     }
 }
@@ -61,6 +63,7 @@ private struct SurfaceTextEntry: View {
     @Binding var text: String
     let prompt: String?
     let focus: FocusState<Bool>.Binding?
+    var isDictating: Bool = false
     let onSubmit: () -> Void
     var onDictate: (() -> Void)? = nil
     @FocusState private var localFocus: Bool
@@ -74,6 +77,13 @@ private struct SurfaceTextEntry: View {
     private var fieldIdentifier: String {
         if isCapture { return "capture-add-task" }
         return "surface-text-field"
+    }
+    private var dictationSymbol: String {
+        if isDictating { return "stop.fill" }
+        return "mic"
+    }
+    private var dictationLabel: String {
+        AppL10n.text(isDictating ? "Stop listening" : "Dictate instead")
     }
 
     var body: some View {
@@ -108,7 +118,7 @@ private struct SurfaceTextEntry: View {
             if let onDictate {
                 Button(action: onDictate) {
                     // TODO: use the custom Dictate icon from the buttons and icons foundation lane.
-                    Image(systemName: "mic")
+                    Image(systemName: dictationSymbol)
                         .perchFont(.body)
                         .frame(width: Theme.Size.minimumTarget.value, height: Theme.Size.minimumTarget.value)
                         .contentShape(Rectangle())
@@ -122,8 +132,8 @@ private struct SurfaceTextEntry: View {
                         shape: RoundedRectangle(cornerRadius: SurfaceMetrics.gap),
                         focused: microphoneFocused, surface: surface)
                 )
-                .accessibilityLabel(AppL10n.text("Dictate instead"))
-                .help(AppL10n.text("Dictate instead"))
+                .accessibilityLabel(dictationLabel)
+                .help(dictationLabel)
             }
         }
         .padding(.leading, isCapture ? Theme.Size.sheetPadding.value : SurfaceMetrics.textInset)

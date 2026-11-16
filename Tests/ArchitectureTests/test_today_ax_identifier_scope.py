@@ -12,10 +12,16 @@ def assert_viewport_scope(case, source):
     # An identifier on that result (or GeometryReader) also renames Undo in AX.
     reader = source.split("ScrollViewReader { scroll in", 1)[1].split(
         ".safeAreaInset(edge: .bottom, spacing: 8)", 1)[0]
-    case.assertRegex(reader, r'\.accessibilityIdentifier\(\s*"today-task-viewport"\s*\)')
-    case.assertLess(reader.index('"today-task-viewport"'), reader.index(".scrollIndicators("))
+    case.assertIn("TasksContinuationObserver()", reader)
+    # Checklist publishes the identity on the resolved native scroller only:
+    # a SwiftUI identifier would also rename its semantic checklist group.
+    case.assertNotRegex(source, r'\.accessibilityIdentifier\(\s*"today-task-viewport"\s*\)')
+    observer = source.split("private struct TasksContinuationObserver:", 1)[1].split(
+        "enum ChecklistViewportAttachment", 1)[0]
+    case.assertIn("guard let enclosing = ChecklistViewportAttachment.resolve(from: self) else {", observer)
+    case.assertIn('enclosing.setAccessibilityIdentifier("today-task-viewport")', observer)
     after_inset = source.split(".safeAreaInset(edge: .bottom, spacing: 8)", 1)[1].split(
-        "TaskComposer(day:", 1)[0]
+        "TaskComposer(", 1)[0]
     case.assertNotIn('"today-task-viewport"', after_inset)
     case.assertEqual(source.count('"today-task-viewport"'), 1)
 
@@ -37,12 +43,16 @@ class TodayAXIdentifierScopeTests(unittest.TestCase):
     def test_rejects_identifier_on_inset_ancestor(self):
         source = TASKS.read_text()
         mutated, count = re.subn(
-            r'\s*\.accessibilityIdentifier\(\s*"today-task-viewport"\s*\)', "", source)
+            r'\s*enclosing\.setAccessibilityIdentifier\("today-task-viewport"\)', "", source)
         self.assertEqual(count, 1)
-        mutated = mutated.replace(
-            "            TaskComposer(day:",
-            '            .accessibilityIdentifier("today-task-viewport")\n            TaskComposer(day:',
-            1)
+        # Attach to GeometryReader's result, not the intervening Spacer.
+        mutated, count = re.subn(
+            r'(?m)^(            \.frame\(maxHeight: \.infinity, alignment: \.top\))$',
+            r'\1\n            .accessibilityIdentifier("today-task-viewport")',
+            mutated)
+        self.assertEqual(count, 1)
+        self.assertEqual(mutated.count('"today-task-viewport"'), 1)
+        self.assertIn('.accessibilityIdentifier("today-task-viewport")', mutated)
         with self.assertRaises(AssertionError):
             assert_viewport_scope(self, mutated)
 

@@ -62,7 +62,7 @@ def source_rows():
     assert 'Theme.fill)' not in pills, 'Nested segment track fill returned'
     tasks = (ROOT / 'Sources/PerchApp/Workspace/TasksCard.swift').read_text()
     week = (ROOT / 'Sources/PerchApp/Workspace/WeekPage.swift').read_text()
-    assert '.strokeBorder(Theme.inputStroke, lineWidth: focused ? 2 : 1)' in tasks
+    assert 'AddField(' in tasks and '.strokeBorder(Theme.brandFill, lineWidth: Theme.Size.fieldFocusWidth.value)' in (ROOT / 'Sources/PerchApp/Workspace/Components/AddField.swift').read_text()
     assert '.strokeBorder(Theme.cardStroke, lineWidth: Theme.focusWidth / 2)' in surface
     assert '.strokeBorder(Theme.cardStroke)' in week
     assert '.strokeBorder(Theme.inputStroke, lineWidth: 1)' in week

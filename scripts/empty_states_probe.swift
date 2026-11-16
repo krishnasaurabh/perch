@@ -179,30 +179,114 @@ func axObject(_ node: NSObject, _ name: String) -> Any? {
 }
 
 @MainActor
-func findControl(_ label: String, attribute: String = "accessibilityLabel") -> NSObject? {
-    func find(_ node: NSObject, depth: Int) -> NSObject? {
-        guard depth < 60 else { return nil }
-        if axObject(node, attribute) as? String == label { return node }
-        for child in (axObject(node, "accessibilityChildren") as? [NSObject]) ?? [] {
-            if let found = find(child, depth: depth + 1) { return found }
-        }
-        return nil
+func axText(_ node: NSObject, _ name: String) -> String {
+    let value = axObject(node, name)
+    return (value as? String) ?? (value as? NSAttributedString)?.string ?? ""
+}
+
+@MainActor
+func axRoots() -> [NSView] {
+    NSApp.windows.compactMap { window in
+        window is NotchPanel && window.isVisible ? window.contentView : nil
     }
-    for window in NSApp.windows where window is NotchPanel && window.isVisible {
-        if let root = window.contentView, let found = find(root, depth: 0) { return found }
+}
+
+@MainActor
+func axNodes(_ root: NSObject) -> [NSObject] {
+    var seen = Set<ObjectIdentifier>()
+    func walk(_ node: NSObject, depth: Int) -> [NSObject] {
+        guard depth < 60, seen.insert(ObjectIdentifier(node)).inserted else { return [] }
+        var children = ["accessibilityChildren", "accessibilityContents", "accessibilityChildrenInNavigationOrder"]
+            .flatMap { (axObject(node, $0) as? [NSObject]) ?? [] }
+        if let view = node as? NSView { children += view.subviews }
+        return [node] + children.flatMap { walk($0, depth: depth + 1) }
+    }
+    return walk(root, depth: 0)
+}
+
+@MainActor
+func axInventory() -> String {
+    axRoots().flatMap { axNodes($0) }.map { node in
+        let native: String
+        if let button = node as? NSButton {
+            native = "title=\(button.title)"
+        } else if let field = node as? NSTextField {
+            native = "editable=\(field.isEditable) placeholder=\(field.placeholderString ?? "nil")"
+        } else {
+            native = ""
+        }
+        return "\(type(of: node)) role=\(axText(node, "accessibilityRole")) "
+            + "id=\(axText(node, "accessibilityIdentifier")) label=\(axText(node, "accessibilityLabel")) "
+            + "value=\(axText(node, "accessibilityValue")) \(native)"
+    }.joined(separator: "\n")
+}
+
+@MainActor
+func findControl(_ label: String, attribute: String = "accessibilityLabel") -> NSObject? {
+    func find(_ root: NSView) -> NSObject? {
+        root.layoutSubtreeIfNeeded()
+        return axNodes(root).first { node in
+            if attribute == "accessibilityLabel" {
+                if let field = node as? NSTextField, field.isEditable,
+                    axText(field, "accessibilityLabel") == label || field.placeholderString == label
+                {
+                    return true
+                }
+                if let button = node as? NSButton,
+                    button.title == label || axText(button, "accessibilityLabel") == label
+                {
+                    return true
+                }
+            }
+            if attribute == "accessibilityIdentifier" {
+                if let button = node as? NSButton, button.accessibilityIdentifier() == label { return true }
+                if let field = node as? NSTextField, field.isEditable,
+                    field.accessibilityIdentifier() == label
+                {
+                    return true
+                }
+            }
+            return axText(node, attribute) == label
+        }
+    }
+    for root in axRoots() {
+        if let found = find(root) { return found }
     }
     return nil
 }
 
 @MainActor
-func pressControl(_ label: String, attribute: String = "accessibilityLabel") {
-    guard let node = findControl(label, attribute: attribute) else { require(false, "button exists: \(label)"); return }
+func waitForControl(_ label: String, attribute: String = "accessibilityLabel") async -> NSObject? {
+    for _ in 0..<100 {
+        for root in axRoots() { root.layoutSubtreeIfNeeded() }
+        if let found = findControl(label, attribute: attribute) { return found }
+        try? await Task.sleep(nanoseconds: 20_000_000)
+    }
+    print("AX inventory after missing \(attribute)=\(label):\n\(axInventory())")
+    return nil
+}
+
+@MainActor
+func pressControl(_ label: String, attribute: String = "accessibilityLabel") async {
+    guard let node = await waitForControl(label, attribute: attribute) else {
+        require(false, "button exists: \(label)")
+        return
+    }
     let selector = NSSelectorFromString("accessibilityPerformPress")
     guard node.responds(to: selector), let implementation = node.method(for: selector) else {
-        require(false, "button supports press: \(label)"); return
+        require(false, "button supports press: \(label)\n\(axInventory())")
+        return
     }
     typealias Press = @convention(c) (AnyObject, Selector) -> Bool
     require(unsafeBitCast(implementation, to: Press.self)(node, selector), "pressed real button: \(label)")
+}
+
+@MainActor
+func requireChecklistRows(_ ids: [UUID], message: String) async {
+    for id in ids {
+        let row = await waitForControl("task-complete-\(id)", attribute: "accessibilityIdentifier")
+        require(row != nil, "\(message): \(id)")
+    }
 }
 
 MainActor.assumeIsolated {
@@ -247,8 +331,12 @@ MainActor.assumeIsolated {
             require(captureEditor() != nil, "explicit opening refocuses an already-open Today")
             await wakeAccessibility()
             await settle()
-            require(findControl("To do 0") != nil, "empty Today exposes To do")
-            require(findControl("Completed 0") == nil, "empty Today hides Completed 0")
+            let emptyCount = await waitForControl("A fresh page")
+            let checklist = await waitForControl("The checklist")
+            require(emptyCount != nil && checklist != nil, "empty Today exposes one checklist and its empty count")
+            require(
+                findControl("To do 0") == nil && findControl("Completed 0") == nil,
+                "empty Today has no legacy task tabs")
             delegate.notch.snapshot(into: output.appendingPathComponent("today-empty"))
 
             for page in [NotchPage.week, .clips] {
@@ -281,58 +369,83 @@ MainActor.assumeIsolated {
             await settle()
             require(delegate.store.planner.tasks.count == 1, "Return creates one task")
             require(delegate.store.planner.tasks.first?.title == "Capture probe task", "capture text is persisted")
+            require(try! delegate.store.file.load().tasks == delegate.store.planner.tasks, "capture persists on disk")
             require(captureEditor()?.string == "", "capture clears and stays focused after add")
+            let populatedCount = await waitForControl("1 to do")
+            require(populatedCount != nil, "single checklist counts the captured task")
+            await requireChecklistRows(delegate.store.planner.tasks.map(\.id), message: "captured row is available")
             delegate.notch.snapshot(into: output.appendingPathComponent("today-populated"))
 
             let id = delegate.store.planner.tasks[0].id
             let completionID = "task-complete-\(id)"
-            delegate.store.apply { try $0.complete(id) }
+            await pressControl(completionID, attribute: "accessibilityIdentifier")
             await settle()
-            delegate.notch.snapshot(into: output.appendingPathComponent("today-cleared"))
+            let persistedCompletion = try! delegate.store.file.load()
+            require(
+                delegate.store.planner.tasks.first { $0.id == id }?.done == true
+                    && persistedCompletion.tasks.first { $0.id == id }?.done == true,
+                "the real Complete button persists the exact captured task")
             require(
                 delegate.store.engine.insights().allTimeCompleted == 1, "first completion records Insights progress")
+            let firstCount = await waitForControl("1 of 1 done")
+            let reopenOnly = await waitForControl("Reopen Capture probe task")
+            require(firstCount != nil && reopenOnly != nil, "completion updates the single-list count and action")
+            await requireChecklistRows([id], message: "completed captured row stays available")
+            delegate.notch.snapshot(into: output.appendingPathComponent("today-cleared"))
+
             delegate.store.apply { try $0.addTasks(["Sort the seed packets", "Rinse the paint tray"]) }
             await settle()
             require(delegate.store.engine.tasks(on: .day(delegate.store.today)).count == 3, "three-task Today fixture")
+            require(try! delegate.store.file.load().tasks.count == 3, "three-task fixture persists")
             let activeIDs = delegate.store.engine.tasks(on: .day(delegate.store.today)).filter { !$0.done }.map(\.id)
+            let allIDs = [id] + activeIDs
             require(activeIDs.count == 2, "two active task controls are expected")
-            require(findControl("Completed 1") != nil, "first completion makes Completed reachable")
+            let mixedCount = await waitForControl("1 of 3 done")
+            require(mixedCount != nil, "single checklist counts open and completed tasks together")
+            await requireChecklistRows(allIDs, message: "completed and active rows stay available together")
+            require(
+                findControl("Completed 1") == nil && findControl("To do 2") == nil,
+                "populated checklist has no legacy task tabs")
             delegate.notch.snapshot(into: output.appendingPathComponent("today-three-one-completed"))
-            pressControl("Completed 1")
+            let reopenCaptured = await waitForControl("Reopen Capture probe task")
+            require(reopenCaptured != nil, "completed task exposes Reopen without changing lists")
+            delegate.notch.snapshot(into: output.appendingPathComponent("today-single-checklist-completed"))
+
+            await pressControl(completionID, attribute: "accessibilityIdentifier")
             await settle()
+            let persistedReopen = try! delegate.store.file.load()
             require(
-                findControl(completionID, attribute: "accessibilityIdentifier") != nil
-                    && findControl("Reopen Capture probe task") != nil
-                    && activeIDs.allSatisfy {
-                        findControl("task-complete-\($0)", attribute: "accessibilityIdentifier") == nil
+                delegate.store.planner.tasks.first { $0.id == id }?.done == false
+                    && persistedReopen.tasks.first { $0.id == id }?.done == false,
+                "the real Reopen button persists the exact captured task")
+            require(
+                activeIDs.allSatisfy { activeID in
+                    persistedReopen.tasks.first { $0.id == activeID }?.done == false
+                },
+                "reopening preserves both active neighbors")
+            let reopenedCount = await waitForControl("3 to do")
+            let completeCaptured = await waitForControl("Complete Capture probe task")
+            require(reopenedCount != nil && completeCaptured != nil, "reopening restores the open count and action")
+            require(findControl("Reopen Capture probe task") == nil, "reopened task no longer offers Reopen")
+            await requireChecklistRows(allIDs, message: "all rows remain available after reopening")
+            delegate.notch.snapshot(into: output.appendingPathComponent("today-single-checklist-reopened"))
+
+            await pressControl(completionID, attribute: "accessibilityIdentifier")
+            await settle()
+            let persistedSecondCompletion = try! delegate.store.file.load()
+            require(
+                persistedSecondCompletion.tasks.first { $0.id == id }?.done == true
+                    && activeIDs.allSatisfy { activeID in
+                        persistedSecondCompletion.tasks.first { $0.id == activeID }?.done == false
                     },
-                "Completed shows only the finished row")
-            delegate.notch.snapshot(into: output.appendingPathComponent("today-completed-tab"))
-            pressControl(completionID, attribute: "accessibilityIdentifier")
-            await settle()
+                "second real completion persists only the captured task")
+            let secondCount = await waitForControl("1 of 3 done")
+            require(secondCount != nil, "second completion restores the mixed count")
+            await requireChecklistRows(allIDs, message: "all rows remain available after completing again")
             require(
-                delegate.store.planner.tasks.first { $0.id == id }?.done == false,
-                "the real Reopen button updates the exact captured task")
-            require(
-                findControl("Completed 0") == nil && findControl("To do 3") != nil,
-                "reopening the last completion hides its pill")
-            require(
-                ([id] + activeIDs).allSatisfy {
-                    findControl("task-complete-\($0)", attribute: "accessibilityIdentifier") != nil
-                }
-                    && findControl("Complete Capture probe task") != nil,
-                "last completion reopened: To do rows are visible")
-            delegate.notch.snapshot(into: output.appendingPathComponent("today-tab-fallback"))
-            delegate.store.apply { try $0.complete(id) }
-            await settle()
-            require(
-                findControl("Completed 1") != nil
-                    && activeIDs.allSatisfy {
-                        findControl("task-complete-\($0)", attribute: "accessibilityIdentifier") != nil
-                    }
-                    && findControl(completionID, attribute: "accessibilityIdentifier") == nil
-                    && findControl("Reopen Capture probe task") == nil,
-                "a new completion does not resurrect the hidden tab selection")
+                findControl("Completed 1") == nil && findControl("Complete Capture probe task") == nil
+                    && findControl("Reopen Capture probe task") != nil,
+                "second completion updates the row in place without tabs")
             delegate.store.seedFixture { engine in
                 engine.planner.tasks = []
                 _ = try engine.startStopwatch(taskID: nil)
@@ -359,7 +472,8 @@ MainActor.assumeIsolated {
             }
             for name in [
                 "today-empty", "week-empty", "clips-empty", "today-populated", "today-cleared",
-                "today-three-one-completed", "today-completed-tab", "today-tab-fallback", "insights-focus-only",
+                "today-three-one-completed", "today-single-checklist-completed", "today-single-checklist-reopened",
+                "insights-focus-only",
             ] {
                 let files =
                     (try? FileManager.default.contentsOfDirectory(

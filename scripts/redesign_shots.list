@@ -93,6 +93,17 @@ workspace-band-week --scenario week-full --open workspace-week
 workspace-width-960 --scenario today-before --open workspace-today
 workspace-width-1280 --scenario week-full --open workspace-week
 workspace-week-narrow --scenario week-full --open workspace-narrow
+checklist-folded --scenario today-running --open today
+checklist-all --scenario today-running --open checklist-expanded
+checklist-steps --scenario today-running --open checklist-steps
+checklist-selected --scenario today-running --open checklist-selected
+checklist-step-entry --scenario three --open checklist-step-entry
+checklist-completed --scenario today-running --open checklist-completed
+checklist-draft --scenario today-before --open today
+checklist-paused --scenario notch-paused --open today
+checklist-dictating --scenario three --open checklist-dictating
+checklist-voice-error --scenario three --open checklist-voice-error
+checklist-multiline --scenario three --open checklist-multiline
 parking-running --scenario today-running --open workspace-today
 parking-before --scenario today-before --open workspace-today
 parking-empty --scenario today-empty --open workspace-today
