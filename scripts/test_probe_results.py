@@ -55,6 +55,18 @@ def clips_report():
                        + ["clips fixture", "clips fixture"] + labels[9:]}]
 
 
+def swift_method(source, signature):
+    """Return one Swift method, from its signature through its matching brace."""
+    start = source.index(signature)
+    opening = source.index("{", start)
+    depth = 1
+    end = opening + 1
+    while depth:
+        depth += (source[end] == "{") - (source[end] == "}")
+        end += 1
+    return source[start:end]
+
+
 class ProbeReportTests(unittest.TestCase):
     def test_complete_synthetic_reports(self):
         for kind, report in (("integration", integration_report()), ("theme", theme_report()),
@@ -523,52 +535,193 @@ print("settings checkbox selector controls passed")
 
     def test_keyboard_products_opt_into_concrete_focus_registration(self):
         projects = (ROOT / "Sources/PerchApp/Settings/ProjectsList.swift").read_text()
+        shell = (ROOT / "Sources/PerchApp/Settings/DashboardView.swift").read_text()
         clips = (ROOT / "Sources/PerchApp/Workspace/ClipsPage.swift").read_text()
         style = (ROOT / "Sources/PerchApp/Workspace/Components/ControlStyle.swift").read_text()
-        self.assertIn("ProjectDeleteButton {", projects)
-        self.assertIn("@FocusState private var focused: Bool", projects)
-        self.assertIn(".buttonStyle(PillStyle(focus: $focused))", projects)
+        # Projects reach deletion through the card's visible options control and the
+        # popover action it reveals. That action is a concrete native target, so the
+        # card itself carries no SwiftUI Space handler and no retired delete button.
+        self.assertIn("ProjectDeleteTarget", projects)
+        self.assertNotIn("PillStyle(focus:", projects)
+        self.assertNotIn(".onKeyPress(", projects)
+        self.assertIn("PerchButton(kind: .quiet, size: .small, surface: value.surface, "
+                      "action: { options.toggle() }) {", projects)
+        self.assertIn(".popover(isPresented: $options)", projects)
+        self.assertIn("ProjectDeleteButton { delete() }", projects)
+        self.assertIn("struct DashboardProjectDeleteButton: View", shell)
+        control = projects.split("private struct ProjectDeleteButton: View", 1)[1].split(
+            "private struct ProjectDeleteTarget", 1)[0]
+        self.assertIn("ProjectDeleteTarget(", control)
+        self.assertNotIn(".focusable(", control)
+        self.assertNotIn("@FocusState", control)
+        self.assertIn("final class DashboardProjectActionView: NSButton", shell)
+        self.assertIn("override var acceptsFirstResponder: Bool { isEnabled && !isHiddenOrHasHiddenAncestor }",
+                      shell)
+        # The shared pill style registers focus on the actual button, which is how
+        # the visible options control that opens the popover takes a Tab stop.
         self.assertIn(".focusable(enabled)\n                    .focused(externalFocus)", style)
         self.assertIn(".focusable()\n                .focused($copyFocused)", clips)
         self.assertIn("focused: copyFocused", clips)
         self.assertIn("clips.copy(clip)", clips)
         self.assertIn("Button(action: copyClip)", clips)
-        for source in (projects, clips):
-            self.assertIn(".onKeyPress(.space, phases: .down)", source)
+        self.assertIn(".onKeyPress(.space, phases: .down)", clips)
+        self.assertNotIn(".onKeyPress(.space, phases: .all)", clips)
+        for source in (projects, shell):
             self.assertNotIn(".onKeyPress(.space, phases: .all)", source)
+        # Native Space handling is the button's own keyDown, not a SwiftUI phase.
+        activation = shell.split("final class DashboardProjectActionView: NSButton", 1)[1]
+        self.assertIn("override func keyDown(with event: NSEvent) {", activation)
+        self.assertIn("if event.keyCode == 49 {", activation)
+        self.assertNotIn(".onKeyPress(", activation)
 
     def test_keyboard_activation_consumes_once_and_rejects_disabled(self):
         swift = shutil.which("swiftc")
         assert swift is not None
-        sources = [
-            ("project", ROOT / "Sources/PerchApp/Settings/ProjectsList.swift"),
-            ("clip", ROOT / "Sources/PerchApp/Workspace/ClipsPage.swift"),
-        ]
-        functions = []
-        for name, path in sources:
-            source = path.read_text()
-            match = re.search(r'\.onKeyPress\(\.space, phases: \.down\) \{ _ in\n(.*?)\n\s*\}', source, re.S)
-            self.assertIsNotNone(match, path)
-            body = match.group(1)
-            functions.append(f"func {name}(_ enabled: Bool, action: () -> Void, copyClip: () -> Void) -> Result {{\n{body}\n}}")
-        program = "enum Result { case handled, ignored }\n" + "\n".join(functions) + '''
-for handler in [project, clip] {
-    var count = 0
-    let action = { count += 1 }
-    precondition(handler(false, action, action) == .ignored)
-    precondition(count == 0)
-    precondition(handler(true, action, action) == .handled)
-    precondition(count == 1)
+        clips_source = (ROOT / "Sources/PerchApp/Workspace/ClipsPage.swift").read_text()
+        match = re.search(r'\.onKeyPress\(\.space, phases: \.down\) \{ _ in\n(.*?)\n\s*\}', clips_source, re.S)
+        if match is None:
+            self.fail("ClipsPage.swift has no Space handler")
+        handler = (
+            "func clip(_ enabled: Bool, action: () -> Void, copyClip: () -> Void) -> Result {\n"
+            f"{match.group(1)}\n}}\n"
+        )
+        clip_program = "enum Result { case handled, ignored }\n" + handler + '''
+var count = 0
+let action = { count += 1 }
+precondition(clip(false, action: action, copyClip: action) == .ignored)
+precondition(count == 0)
+precondition(clip(true, action: action, copyClip: action) == .handled)
+precondition(count == 1)
+print("clip activation consumes once and rejects disabled")
+'''
+        # Projects activate through the native button's own AppKit handlers. Extract
+        # those handlers verbatim and run them against isolated stubs; this checks the
+        # guard logic, not AppKit dispatch, which only the macOS probes can observe.
+        shell = (ROOT / "Sources/PerchApp/Settings/DashboardView.swift").read_text()
+        native = shell.split("final class DashboardProjectActionView: NSButton", 1)[1]
+        handlers = []
+        for signature in (
+            "override func keyDown(with event: NSEvent)",
+            "override func keyUp(with event: NSEvent)",
+            "override func performClick(_ sender: Any?)",
+            "@objc private func activateProjectAction(_ sender: Any?)",
+            "private func withActivationEvent<T>",
+        ):
+            body = swift_method(native, signature)
+            body = re.sub(r"\s*#if DASHBOARD_KEYBOARD_PROBE.*?#endif", "", body, flags=re.S)
+            handlers.append(body.replace("@objc private func", "func"))
+        project_program = r'''
+import Foundation
+
+final class NSEvent {
+    enum EventType { case keyDown, keyUp, leftMouseDown }
+    struct ModifierFlags: OptionSet {
+        let rawValue: Int
+        static let command = Self(rawValue: 1)
+        static let control = Self(rawValue: 2)
+        static let option = Self(rawValue: 4)
+        static let shift = Self(rawValue: 8)
+    }
+    let type: EventType
+    let keyCode: UInt16
+    let modifierFlags: ModifierFlags
+    let isARepeat: Bool
+    let window: Window?
+    init(_ type: EventType = .keyDown, code: UInt16 = 49, flags: Int = 0,
+         repeatKey: Bool = false, window: Window?) {
+        self.type = type
+        keyCode = code
+        modifierFlags = ModifierFlags(rawValue: flags)
+        isARepeat = repeatKey
+        self.window = window
+    }
 }
+final class Window {
+    var isKeyWindow = true
+    var firstResponder: NSButton?
+    func selectPreviousKeyView(_ sender: NSButton) {}
+    func selectNextKeyView(_ sender: NSButton) {}
+}
+class NSButton {
+    var window: Window?
+    var acceptsFirstResponder = true
+    var onClick: () -> Void = {}
+    func performClick(_ sender: Any?) { onClick() }
+    func keyDown(with event: NSEvent) {}
+    func keyUp(with event: NSEvent) {}
+}
+enum NSApp { static var currentEvent: NSEvent? }
+final class ActionView: NSButton {
+    var onAction: () -> Void = {}
+    private var activationEvent: NSEvent?
+''' + "\n".join(handlers) + r'''
+}
+
+let window = Window()
+let button = ActionView()
+button.window = window
+window.firstResponder = button
+var actions = 0
+button.onAction = { actions += 1 }
+button.onClick = { button.activateProjectAction(nil) }
+func expect(_ count: Int, _ label: String) {
+    precondition(actions == count, "\(label): \(actions) != \(count)")
+    print("PASS: \(label)")
+}
+button.keyDown(with: NSEvent(window: window))
+expect(1, "plain focused Space calls one action")
+button.keyUp(with: NSEvent(.keyUp, window: window))
+expect(1, "releasing Space does not activate again")
+button.keyDown(with: NSEvent(repeatKey: true, window: window))
+expect(1, "held Space cannot repeat the action")
+for mask in 1..<16 {
+    button.keyDown(with: NSEvent(flags: mask, window: window))
+    expect(1, "modified Space \(mask) is rejected")
+}
+button.keyDown(with: NSEvent(window: Window()))
+expect(1, "Space from another window is rejected")
+window.isKeyWindow = false
+button.keyDown(with: NSEvent(window: window))
+expect(1, "Space in an inactive window is rejected")
+window.isKeyWindow = true
+window.firstResponder = NSButton()
+button.keyDown(with: NSEvent(window: window))
+expect(1, "Space without focus on the action is rejected")
+window.firstResponder = button
+button.acceptsFirstResponder = false
+button.keyDown(with: NSEvent(window: window))
+button.performClick(nil)
+expect(1, "a disabled action is rejected")
+button.acceptsFirstResponder = true
+button.window = nil
+button.keyDown(with: NSEvent(window: window))
+button.performClick(nil)
+expect(1, "a detached action is rejected")
+button.window = window
+button.performClick(nil)
+expect(2, "a programmatic press calls one action")
+for mask in 1..<16 {
+    NSApp.currentEvent = NSEvent(flags: mask, window: window)
+    button.performClick(nil)
+    expect(2, "performClick rejects modified currentEvent \(mask)")
+}
+NSApp.currentEvent = NSEvent(repeatKey: true, window: window)
+button.performClick(nil)
+expect(2, "performClick rejects a repeated currentEvent")
+NSApp.currentEvent = nil
+print("project native activation consumes once and rejects disabled")
 '''
         with tempfile.TemporaryDirectory() as directory:
-            source = Path(directory) / "main.swift"
-            source.write_text(program)
-            binary = Path(directory) / "activation"
-            built = subprocess.run([swift, str(source), "-o", str(binary)], capture_output=True, text=True)
-            self.assertEqual(built.returncode, 0, built.stderr)
-            ran = subprocess.run([str(binary)], capture_output=True, text=True)
-            self.assertEqual(ran.returncode, 0, ran.stderr)
+            for name, program, expected in (("clip", clip_program, "clip activation"),
+                                            ("project", project_program, "project native activation")):
+                source = Path(directory) / f"{name}.swift"
+                source.write_text(program)
+                binary = Path(directory) / name
+                built = subprocess.run([swift, str(source), "-o", str(binary)], capture_output=True, text=True)
+                self.assertEqual(built.returncode, 0, built.stderr)
+                ran = subprocess.run([str(binary)], capture_output=True, text=True)
+                self.assertEqual(ran.returncode, 0, ran.stdout + ran.stderr)
+                self.assertIn(expected, ran.stdout)
 
     def test_integration_accumulator_keeps_every_failure(self):
         swift = shutil.which("swiftc")

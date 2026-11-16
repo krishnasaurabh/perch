@@ -4,69 +4,222 @@ import PlannerCore
 import SwiftUI
 
 struct HistoryList: View {
-    @EnvironmentObject var store: PlannerStore
+    @EnvironmentObject private var store: PlannerStore
+    @Environment(\.dynamicTypeSize) private var textSize
     @State private var query = ""
-    @State private var agentFilter: String?
+    @State private var filter: HistoryModel.Filter = .everything
+    @State private var expanded: [DayKey: Bool] = [:]
+    @State private var showAll = Set<DayKey>()
+    #if DEBUG || PERCH_TESTING
+        @ObservedObject private var preview = HistoryPreviewState.shared
+    #endif
+
     var body: some View {
-        let history = store.planner.tasks.filter { ($0.day.map { $0 < store.today } ?? false) }
-        let agents = Array(Set(history.compactMap(\.agentID))).sorted()
-        let past = history.filter { agentFilter == nil || $0.agentID == agentFilter }
-            .filter { query.isEmpty || $0.title.localizedCaseInsensitiveContains(query) }
-        let groups = Dictionary(grouping: past, by: { $0.day! }).sorted { $0.key > $1.key }
-        VStack(alignment: .leading, spacing: 16) {
-            HStack {
-                DashboardHistorySearch(query: $query).frame(width: 280, height: 24)
-                Picker("Agent", selection: $agentFilter) {
-                    Text("All agents").tag(String?.none)
-                    ForEach(agents, id: \.self) { name in
-                        Text(AgentName.short(name) ?? name).tag(String?.some(name))
+        let history = HistoryModel(engine: store.engine, query: query, filter: filter)
+        ReviewColumns(weights: [1.6, 1], stacked: textSize.isAccessibilitySize) {
+            Card(.paper) {
+                VStack(alignment: .leading, spacing: Theme.Size.cardGap.value) {
+                    if history.groups.isEmpty && history.undated.isEmpty {
+                        Text(
+                            AppL10n.text(
+                                query.isEmpty && filter == .everything
+                                    ? "Finished tasks show up here." : "No matches. Try another search or filter.")
+                        )
+                        .foregroundStyle(Theme.ink2)
                     }
-                }.frame(width: 150)
+                    ForEach(history.groups, id: \.day) { group in
+                        dayGroup(group)
+                        if group.day != history.groups.last?.day { Divider().overlay(Theme.edge(.paper)) }
+                    }
+                    if !history.undated.isEmpty {
+                        Text("Earlier tasks").perchFont(.stripTitle)
+                        ForEach(history.undated) { task in taskRow(task) }
+                    }
+                    Spacer(minLength: .zero)
+                }
+                .frame(
+                    minHeight: Theme.Size.peekWidth.value - Theme.Size.cardPadding.value * 2,
+                    alignment: .topLeading)
             }
-            if groups.isEmpty {
+            VStack(alignment: .leading, spacing: SurfaceMetrics.fieldRadius) {
+                Card(.paper) {
+                    VStack(alignment: .leading, spacing: SurfaceMetrics.gap / 2) {
+                        DashboardHistorySearch(query: $query)
+                            .frame(
+                                height: max(
+                                    Theme.Size.buttonHeight.value,
+                                    DesignTokens.TypeRole.body.spec.scaledSize(for: textSize.tokenScale)
+                                        + Theme.Size.cardPadding.value)
+                            )
+                            .padding(.bottom, SurfaceMetrics.compactGap)
+                        ForEach(HistoryModel.Filter.allCases, id: \.self) { item in
+                            HistoryFilterButton(title: Self.title(item), selected: filter == item) {
+                                filter = item
+                                expanded = [:]
+                            }
+                        }
+                    }
+                }
+                Card(.mint) {
+                    VStack(alignment: .leading, spacing: SurfaceMetrics.gap / 2) {
+                        Text("So far this week").perchFont(.stripTitle)
+                        Spacer(minLength: Theme.Size.buttonHeight.value)
+                        Text(AppL10n.format("%lld done", history.weekDone)).perchFont(.timer)
+                        Text(AppL10n.format("across %lld days", history.weekActiveDays))
+                            .foregroundStyle(Theme.ink2)
+                    }
+                    .frame(maxHeight: .infinity, alignment: .topLeading)
+                }
+            }
+        }
+        .perchFont(.body)
+        #if DEBUG || PERCH_TESTING
+            .onReceive(preview.$filter) {
+                filter = $0; query = ""; expanded = [:]
+            }
+        #endif
+    }
+
+    private func dayGroup(_ group: HistoryModel.Group) -> some View {
+        let open = expanded[group.day] ?? group.initiallyExpanded
+        let tasks = showAll.contains(group.day) ? group.tasks : Array(group.tasks.prefix(3))
+        return VStack(alignment: .leading, spacing: Theme.Size.checkboxStroke.value) {
+            HStack(spacing: SurfaceMetrics.gap) {
                 Text(
-                    AppL10n.text(query.isEmpty ? "Finished days show up here." : "No matches. Change the search text.")
+                    group.day.date(calendar: store.engine.calendar).formatted(
+                        .dateTime.weekday(.wide).month(.abbreviated).day())
                 )
-                .foregroundStyle(Theme.secondary)
+                .perchFont(.stripTitle)
+                .foregroundStyle(open ? Theme.ink : Theme.ink2)
+                Text(AppL10n.format("%lld done", group.tasks.count)).perchFont(.detailStrong)
+                    .foregroundStyle(Theme.doneText)
+                Spacer(minLength: .zero)
+                PerchButton(open ? "Close" : "Open", kind: .quiet, size: .small) {
+                    expanded[group.day] = !open
+                }
+                .accessibilityLabel(AppL10n.format(open ? "Close %@" : "Open %@", group.day.raw))
             }
-            ForEach(groups, id: \.key) { day, tasks in
-                VStack(alignment: .leading, spacing: 4) {
-                    HStack {
-                        Text(day.date().formatted(.dateTime.weekday(.wide).month().day())).font(Theme.heading)
-                        Text(AppL10n.format("%lld/%lld done", tasks.filter(\.done).count, tasks.count)).foregroundStyle(
-                            Theme.secondary)
-                    }
-                    ForEach(tasks) { t in DashboardTaskLine(task: t) }
-                    let note = store.engine.notepad(on: day)
-                    if !note.isEmpty {
-                        Text(note).font(Theme.body).foregroundStyle(Theme.secondary).padding(.leading, 22)
+            if open {
+                ForEach(tasks) { task in taskRow(task) }
+                if group.tasks.count > tasks.count {
+                    PerchButton(
+                        AppL10n.format("and %lld more", group.tasks.count - tasks.count),
+                        kind: .quiet, size: .small
+                    ) {
+                        showAll.insert(group.day)
                     }
                 }
             }
-        }.frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
+    private func taskRow(_ task: PlanTask) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: SurfaceMetrics.gap) {
+            Image(systemName: "checkmark.circle").foregroundStyle(Theme.doneFill)
+                .frame(width: Theme.Size.taskCheckboxSize.value)
+                .accessibilityHidden(true)
+            Text(task.title).fixedSize(horizontal: false, vertical: true)
+                .accessibilityLabel(task.title)
+            Spacer(minLength: SurfaceMetrics.gap)
+            VStack(alignment: .trailing, spacing: Theme.Size.checkboxStroke.value) {
+                if let minutes = HistoryModel.recordedBlockMinutes(task) {
+                    Text(
+                        minutes == 0
+                            ? AppL10n.text("Less than 1 min in a block")
+                            : AppL10n.format("%lld min in a block", minutes))
+                } else if task.startAt != nil, let minutes = task.minutes {
+                    Text(AppL10n.format("%lld min set aside", minutes))
+                }
+                if store.prefs.showAgentAttribution, let id = task.agentID, let agent = AgentName.short(id) {
+                    Text(AppL10n.format("Added by %@", agent))
+                }
+            }
+            .perchFont(.detail).foregroundStyle(Theme.ink2)
+        }
+        .frame(minHeight: Theme.Size.taskRowHeight.value)
+        .accessibilityElement(children: .contain)
+    }
+
+    static func title(_ filter: HistoryModel.Filter) -> String {
+        switch filter {
+        case .everything: AppL10n.text("Everything")
+        case .carried: AppL10n.text("Carried over at least once")
+        case .time: AppL10n.text("Had time set aside")
+        case .agent: AppL10n.text("Added by an agent")
+        }
     }
 }
+
+private struct HistoryFilterButton: View {
+    let title: String
+    let selected: Bool
+    let action: () -> Void
+    @FocusState private var focused: Bool
+
+    var body: some View {
+        Button(action: action) {
+            Text(title).perchFont(selected ? .detailStrong : .pill)
+                .frame(maxWidth: .infinity, minHeight: Theme.Size.pillMaxHeight.value, alignment: .leading)
+                .padding(.horizontal, SurfaceMetrics.fieldRadius)
+                .foregroundStyle(selected ? Theme.ink : Theme.ink2)
+                .background(
+                    RoundedRectangle(cornerRadius: Theme.Size.segmentRadius.value)
+                        .fill(selected ? Theme.butter : .clear)
+                )
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .focusable()
+        .focused($focused)
+        .focusEffectDisabled()
+        .overlay(
+            FocusRing(
+                shape: RoundedRectangle(cornerRadius: Theme.Size.segmentRadius.value),
+                focused: focused, surface: .paper)
+        )
+        .accessibilityAddTraits(selected ? [.isSelected] : [])
+    }
+}
+
+#if DEBUG || PERCH_TESTING
+    @MainActor
+    final class HistoryPreviewState: ObservableObject {
+        static let shared = HistoryPreviewState()
+        @Published var filter: HistoryModel.Filter = .everything
+    }
+#endif
 
 /// A native search editor whose Tab commands use the dashboard's explicit
 /// key-view links instead of being swallowed by the SwiftUI field editor.
 struct DashboardHistorySearch: NSViewRepresentable {
     @Binding var query: String
+    @Environment(\.dynamicTypeSize) private var textSize
 
     func makeNSView(context: Context) -> DashboardSearchField {
         let field = DashboardSearchField()
         field.identifier = NSUserInterfaceItemIdentifier(DashboardKeyLoop.searchIdentifier)
-        field.placeholderString = AppL10n.text("Search history")
-        field.setAccessibilityLabel(AppL10n.text("Search history"))
+        field.placeholderString = AppL10n.text("Find a finished task")
+        field.setAccessibilityLabel(AppL10n.text("Find a finished task"))
         field.isEditable = true
         field.isSelectable = true
         field.isBezeled = true
         field.bezelStyle = .roundedBezel
-        field.font = .systemFont(ofSize: ThemeTokens.TypeSize.body)
+        field.font =
+            NSFont(
+                name: DesignTokens.FontResource.postScriptName(for: .medium), size: DesignTokens.TypeRole.body.spec.size
+            )
+            ?? .systemFont(ofSize: DesignTokens.TypeRole.body.spec.size)
+        field.textColor = NSColor(Theme.ink)
+        field.backgroundColor = NSColor(Theme.field)
         field.focusRingType = .exterior
         return field
     }
 
     func updateNSView(_ field: DashboardSearchField, context: Context) {
+        let pointSize = DesignTokens.TypeRole.body.spec.scaledSize(for: textSize.tokenScale)
+        field.font =
+            NSFont(name: DesignTokens.FontResource.postScriptName(for: .medium), size: pointSize)
+            ?? .systemFont(ofSize: pointSize)
         field.onChange = { query = $0 }
         if field.stringValue != query { field.stringValue = query }
     }

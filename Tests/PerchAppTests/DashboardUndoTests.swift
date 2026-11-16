@@ -63,8 +63,16 @@ final class DashboardUndoTests: XCTestCase {
         let window = try await fixture.open(tab: "Projects")
         let beforeDelete = fixture.store.planner
         let projectID = try XCTUnwrap(beforeDelete.projects.first?.id)
+        print("Dashboard Projects model: \(beforeDelete.projects.map(\.name))")
 
-        XCTAssertNotNil(fixture.store.apply { try $0.deleteProject(projectID) })
+        // Delete through the card's own visible options control, never a hidden
+        // button and never a direct model call.
+        let options = try await Self.control(named: "Project options", in: window)
+        try Self.press(options)
+        await Self.settle()
+        let optionsWindow = try await Self.popover(besides: window, offering: "Delete project")
+        let delete = try await Self.control(named: "Delete project", in: optionsWindow)
+        try Self.press(delete)
         await Self.settle()
         let deleted = try fixture.file.load()
         XCTAssertTrue(deleted.projects.isEmpty)
@@ -90,8 +98,19 @@ final class DashboardUndoTests: XCTestCase {
         defer { fixture.close() }
         let window = try await fixture.open(tab: "History")
         let beforeEditing = try fixture.file.load()
-        let fieldNode = try await Self.control(named: "Search history", role: .textField, in: window)
+        let fieldNode = try await Self.control(named: "Find a finished task", role: .textField, in: window)
         let field = try XCTUnwrap(fieldNode as? NSTextField)
+        XCTAssertEqual(field.identifier?.rawValue, "dashboard-history-search", "The native search keeps its identifier")
+        XCTAssertEqual(
+            field.accessibilityLabel(), "Find a finished task", "The search is labelled for its finished rows")
+        // History lists finished tasks only, so the open task never reaches the list.
+        print("Dashboard History model: \(fixture.store.planner.tasks.filter(\.done).map(\.title))")
+        let texts = Self.nodes(window).flatMap { node -> [String] in
+            guard Self.attribute(node, "accessibilityRole") as? String == "AXStaticText" else { return [] }
+            return ["accessibilityLabel", "accessibilityValue"].compactMap { Self.attribute(node, $0) as? String }
+        }
+        XCTAssertTrue(texts.contains("Finished synthetic task"), "History lists the finished task")
+        XCTAssertFalse(texts.contains("Open synthetic task"), "History never lists an open task")
         XCTAssertTrue(window.makeFirstResponder(field))
         let editor = try XCTUnwrap(field.currentEditor() as? NSTextView)
         fixture.undoTarget.editor = editor
@@ -159,6 +178,31 @@ fileprivate extension DashboardUndoTests {
         }.joined(separator: "\n")
         XCTFail("Missing Dashboard control \(name):\n\(diagnostics)")
         throw DashboardTestError.missingControl
+    }
+
+    /// The card's options surface is its own native window, so the visible
+    /// control and the actions it reveals are both exercised as a person sees them.
+    static func popover(besides window: NSWindow, offering name: String) async throws -> NSWindow {
+        for _ in 0..<30 {
+            await settle()
+            let candidates = NSApp.windows.filter {
+                $0 !== window && $0.isVisible && $0.contentView != nil && $0.attachedSheet == nil
+                    && nodes($0).contains { node in
+                        (node as? NSButton)?.title == name || attribute(node, "accessibilityLabel") as? String == name
+                    }
+            }
+            if let candidate = candidates.first { return candidate }
+        }
+        XCTFail("Missing project options surface offering \(name)")
+        throw DashboardTestError.missingControl
+    }
+
+    /// Perform a menu item's own target/action, the dispatch a click performs.
+    static func chooseMenuItem(named title: String, in menu: NSMenu) -> Bool {
+        guard let item = menu.items.first(where: { $0.title == title }), item.isEnabled,
+            let action = item.action, let target = item.target
+        else { return false }
+        return NSApp.sendAction(action, to: target, from: item)
     }
 
     static func press(_ node: NSObject) throws {
