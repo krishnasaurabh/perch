@@ -119,6 +119,7 @@ struct HistoryList: View {
                 .frame(width: Theme.Size.taskCheckboxSize.value)
                 .accessibilityHidden(true)
             Text(task.title).fixedSize(horizontal: false, vertical: true)
+                .accessibilityLabel(task.title)
             Spacer(minLength: SurfaceMetrics.gap)
             VStack(alignment: .trailing, spacing: Theme.Size.checkboxStroke.value) {
                 if let minutes = HistoryModel.recordedBlockMinutes(task) {
@@ -136,7 +137,7 @@ struct HistoryList: View {
             .perchFont(.detail).foregroundStyle(Theme.ink2)
         }
         .frame(minHeight: Theme.Size.taskRowHeight.value)
-        .accessibilityElement(children: .combine)
+        .accessibilityElement(children: .contain)
     }
 
     static func title(_ filter: HistoryModel.Filter) -> String {

@@ -47,6 +47,7 @@ struct ProjectsList: View {
             noProject
             newProject
         }
+        .accessibilityElement(children: .contain)
         .perchFont(.body)
         #if DEBUG || PERCH_TESTING
             .onReceive(preview.$mode) {
@@ -241,6 +242,7 @@ private struct ProjectReviewCard: View {
             Button("Rename project", action: beginRename)
             Button("Delete project", action: delete)
         }
+        .accessibilityElement(children: .contain)
         .onExitCommand {
             renaming = false; options = false; error = nil
         }
