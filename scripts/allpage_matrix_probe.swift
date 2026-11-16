@@ -964,6 +964,22 @@ func mxContrast(_ a: NSColor, _ b: NSColor) -> Double {
     return (max(first, second) + 0.05) / (min(first, second) + 0.05)
 }
 
+/// The contrast capture's opaque RGBA bytes are already sRGB codes. Reading them
+/// through colorAt applies the virtual display profile a second time.
+@MainActor
+func mxSRGBSample(_ bitmap: NSBitmapImageRep, x: Int, y: Int) -> NSColor? {
+    guard bitmap.bitsPerSample == 8, bitmap.samplesPerPixel == 4, bitmap.bitsPerPixel == 32,
+        bitmap.hasAlpha, !bitmap.isPlanar, bitmap.bitmapFormat.rawValue == 0,
+        bitmap.bytesPerRow >= bitmap.pixelsWide * bitmap.samplesPerPixel,
+        x >= 0, x < bitmap.pixelsWide, y >= 0, y < bitmap.pixelsHigh,
+        let data = bitmap.bitmapData
+    else { return nil }
+    let pixel = data + y * bitmap.bytesPerRow + x * bitmap.samplesPerPixel
+    return NSColor(
+        srgbRed: CGFloat(pixel[0]) / 255, green: CGFloat(pixel[1]) / 255,
+        blue: CGFloat(pixel[2]) / 255, alpha: CGFloat(pixel[3]) / 255)
+}
+
 /// Most common colour in a band: the rendered background behind real text.
 @MainActor
 func mxDominant(_ bitmap: NSBitmapImageRep, host: NSView, band: NSRect) -> NSColor? {
@@ -973,7 +989,7 @@ func mxDominant(_ bitmap: NSBitmapImageRep, host: NSView, band: NSRect) -> NSCol
     var colors: [String: NSColor] = [:]
     for y in area.y0..<area.y1 {
         for x in area.x0..<area.x1 {
-            guard let rgb = bitmap.colorAt(x: x, y: y)?.usingColorSpace(.sRGB) else { continue }
+            guard let rgb = mxSRGBSample(bitmap, x: x, y: y) else { return nil }
             // An unpainted band has no measurable backdrop. Never reinterpret its RGB
             // channels as black or select the foreground glyph as the background.
             guard rgb.alphaComponent == 1 else { return nil }
@@ -1000,7 +1016,7 @@ func mxInkSample(
     var bestDistance = CGFloat.greatestFiniteMagnitude
     for y in area.y0..<area.y1 {
         for x in area.x0..<area.x1 {
-            guard let rgb = bitmap.colorAt(x: x, y: y)?.usingColorSpace(.sRGB), rgb.alphaComponent == 1 else {
+            guard let rgb = mxSRGBSample(bitmap, x: x, y: y), rgb.alphaComponent == 1 else {
                 continue
             }
             let distance =
@@ -2376,13 +2392,7 @@ final class AllPageMatrix {
             try report.require(
                 effective == appearanceName.rawValue, "\(mode) window runs in the increased-contrast appearance",
                 "effective \(effective) name \(effectiveName) workspace \(systemIncreased)")
-            let captured = try mxBitmap(host)
-            // Cached display samples already carry the rendered sRGB token components,
-            // but a virtual display can tag them as Generic RGB. Retag without converting
-            // the samples, or colorAt(...).usingColorSpace(.sRGB) applies a second curve.
-            guard let bitmap = captured.retagging(with: .sRGB) else {
-                throw MatrixFailure(label: "could not tag rendered contrast samples as sRGB at \(mode)")
-            }
+            let bitmap = try mxBitmap(host)
             // Save the measured bitmap even if a band or contrast assertion below fails.
             try mxSave(bitmap, output.appendingPathComponent("contrast-\(mode).png"))
             // Reacquire the identified Text after the final appearance/layout pass. A name
@@ -2416,6 +2426,7 @@ final class AllPageMatrix {
             let sampledInk = mxInkSample(bitmap, host: host, band: detailRect, near: bodyInk)
             let samplingDiagnostic =
                 "mode=\(mode) dominantNil=\(sampledBackground == nil) inkNil=\(sampledInk == nil) "
+                + "profileConvertedDiagnostic: "
                 + mxContrastSamplingDiagnostic(bitmap, host: host, band: detailRect, near: bodyInk)
                 + " bitmapColorSpace=\(bitmap.colorSpace) bitsPerSample=\(bitmap.bitsPerSample) "
                 + "samplesPerPixel=\(bitmap.samplesPerPixel) hasAlpha=\(bitmap.hasAlpha) "
@@ -2426,7 +2437,7 @@ final class AllPageMatrix {
             do {
                 mxLog(
                     "contrast sample: mode=\(mode) dominantNil=\(sampledBackground == nil) inkNil=\(sampledInk == nil)")
-                for (label, image) in [("captured", captured), ("measured", bitmap)] {
+                for (label, image) in [("captured", bitmap)] {
                     mxLog("contrast profile: mode=\(mode) image=\(label) space=\(image.colorSpace)")
                     mxLog(
                         "contrast format: image=\(label) info=\(String(describing: image.cgImage?.bitmapInfo.rawValue)) bpp=\(image.bitsPerPixel)"
@@ -2442,6 +2453,13 @@ final class AllPageMatrix {
                                 Double(rgb.redComponent), Double(rgb.greenComponent),
                                 Double(rgb.blueComponent), Double(rgb.alphaComponent))
                             mxLog("contrast sRGB: mode=\(mode) image=\(label) xy=\(x),\(y) rgba=\(components)")
+                        }
+                        if let rgb = mxSRGBSample(image, x: x, y: y) {
+                            let components = String(
+                                format: "%.9f,%.9f,%.9f,%.9f",
+                                Double(rgb.redComponent), Double(rgb.greenComponent),
+                                Double(rgb.blueComponent), Double(rgb.alphaComponent))
+                            mxLog("contrast raw sRGB: mode=\(mode) xy=\(x),\(y) rgba=\(components)")
                         }
                     }
                 }
