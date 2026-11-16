@@ -196,23 +196,63 @@ def nearest_passing_rgb(foreground, background, minimum):
     return best[1]
 
 
+def week_checkbox_boxes(image, tokens):
+    """Locate the real 20pt empty completion outlines, excluding heading/detail glyphs.
+
+    A broad core mask only locates geometry; edge() still measures actual pixels
+    at its unchanged +/-2 tolerance and >=3:1 threshold.
+    """
+    scale = max(1, round(image.width / 868))
+    source = (ROOT / 'Sources/PerchUI/DesignTokens.swift').read_text()
+    size_token = re.search(r'case \.taskCheckboxSize: return ([0-9.]+)', source)
+    assert size_token, 'Missing Week checkbox size token'
+    size = float(size_token[1]) * scale
+    pixels = image.load()
+    points = {(x, y) for y in range(image.height) for x in range(image.width)
+              if max(abs(a-b) for a,b in zip(pixels[x,y], tokens['ink'])) <= 24}
+    boxes = []
+    while points:
+        seed = points.pop()
+        component, pending = [seed], [seed]
+        while pending:
+            x,y = pending.pop()
+            for dx,dy in ((1,0),(-1,0),(0,1),(0,-1),(1,1),(1,-1),(-1,1),(-1,-1)):
+                neighbor = (x+dx, y+dy)
+                if neighbor in points:
+                    points.remove(neighbor)
+                    pending.append(neighbor)
+                    component.append(neighbor)
+        xs, ys = zip(*component)
+        box = (min(xs), min(ys), max(xs)+1, max(ys)+1)
+        x0,y0,x1,y1 = box
+        if abs(x1-x0-size) <= scale and abs(y1-y0-size) <= scale:
+            center = pixels[(x0+x1)//2, (y0+y1)//2]
+            if max(abs(a-b) for a,b in zip(center, tokens['butter'])) <= 2:
+                boxes.append(box)
+    assert boxes, 'Missing production Week completion outlines'
+    return boxes
+
+
 def ui_pixels(directory):
     """Gate actual edges, plus the filled selected pill, in production Home/Week."""
     from PIL import Image
+    from measure_capture_contrast import board_tokens, mini_fills
     def near(a, b):
         return max(abs(x-y) for x,y in zip(a,b)) <= 2
-    def edge(image, foreground, background):
+    def edge(image, foreground, background, outside=None, boxes=None):
         pixels = image.load()
         scale = max(1, round(image.width / 868))
         matches = []
         for y in range(3*scale, image.height-3*scale):
             for x in range(3*scale, image.width-3*scale):
+                if boxes is not None and not any(x0 <= x < x1 and y0 <= y < y1 for x0,y0,x1,y1 in boxes):
+                    continue
                 fg = pixels[x,y]
                 if not near(fg, foreground):
                     continue
                 for dx,dy in ((2*scale,0),(-2*scale,0),(0,2*scale),(0,-2*scale)):
                     bg = pixels[x+dx,y+dy]
-                    if near(bg, background):
+                    if near(bg, background) and (outside is None or near(pixels[x-dx,y-dy], outside)):
                         matches.append(contrast(tuple(v/255 for v in fg), tuple(v/255 for v in bg)))
                         break
         assert len(matches) >= 30, ('Missing production boundary', foreground, background, len(matches))
@@ -224,18 +264,26 @@ def ui_pixels(directory):
     control = re.search(r'\bcontrol: 0x([A-Fa-f0-9]+)', dark[1])
     assert control, 'Missing Week control fill'
     week_fill = tuple(round(v * 255) for v in channels(int(control[1], 16)))
+    assert week_fill == mini_fills('dark')['control'], 'Legacy Week control token drift'
     evidence = {}
     for mode in ('light', 'dark'):
         home = Image.open(directory / f'{mode}-home.png').convert('RGB')
         focused = Image.open(directory / f'{mode}-home-focused.png').convert('RGB')
         week = Image.open(directory / f'{mode}-week.png').convert('RGB')
+        board = board_tokens(mode)
+        checkboxes = week_checkbox_boxes(week, board)
         evidence[mode] = {
             'home_card': edge(home, (47,61,51), (135,158,141)),
             'home_capture_resting': edge(home, (41,53,45), (124,145,130)),
             'home_capture_focused': edge(focused, (41,53,45), (119,139,124)),
-            'week_card': edge(week, (133,133,133), (29,29,29)),
-            'week_capture': edge(week, (153,153,153), week_fill),
+            # The new board has decorative paper edges, not legacy tile outlines.
+            # Require sheet on the other side of the Open-day boundary: body
+            # text using the same ink2 must not satisfy a missing dashed edge.
+            'week_card': edge(week, board['ink2'], board['paper'], outside=board['sheet']),
+            'week_capture': edge(week, board['ink'], board['butter'], boxes=checkboxes),
         }
+        evidence[mode]['week_card']['target'] = 'Open-day dashed boundary / paper / sheet'
+        evidence[mode]['week_capture']['target'] = 'completion outline / butter'
         # A 2 pt focused outline must contain appreciably more ink than the 1 pt resting edge.
         def count(image, color):
             colors = image.getcolors(image.width*image.height)
@@ -244,7 +292,7 @@ def ui_pixels(directory):
         resting_count, focused_count = count(home, (41,53,45)), count(focused, (41,53,45))
         assert focused_count > resting_count * 1.3, ('Capture did not focus', mode, resting_count, focused_count)
         assert count(home, (53,33,0)) >= 8, ('High-priority Home marker missing', mode)
-        assert count(week, (242,193,102)) >= 8, ('High-priority Week marker missing', mode)
+        assert count(week, board['ink']) >= 8 and checkboxes, ('Week completion outline missing', mode)
         selection_count = count(home, (157,173,161))
         assert selection_count > 50, ('Single opaque selected pill missing', mode)
         evidence[mode].update(resting_stroke_pixels=resting_count, focused_stroke_pixels=focused_count,

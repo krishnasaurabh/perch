@@ -12,8 +12,11 @@ final class NotchReminderObservation {
         store: PlannerStore, reminders: ReminderService, model: NotchModel,
         now: @escaping () -> Date = Date.init
     ) {
-        let edits = store.$planner.map { NotchActivityTimeline.triggers(planner: $0) }
-            .removeDuplicates().map { _ in () }
+        let edits = store.$planner.map { planner in
+            // The flag matters even for an empty timeline or an already missed occurrence.
+            (NotchActivityTimeline.triggers(planner: planner), planner.preferences.persistentReminders)
+        }
+        .removeDuplicates { $0.0 == $1.0 && $0.1 == $1.1 }.map { _ in () }
         // The owner publishes lastError on every reconciliation outcome, including
         // nil on success, after committing records. Hop past @Published's willSet.
         let outcomes = reminders.$lastError.map { _ in () }

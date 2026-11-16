@@ -70,7 +70,9 @@ public final class ReminderReconciler {
         try checkAccess()
         try validate()
         try await recoverCleanups(&ledger, validate: validate)
-        if ledger.twoWayEnabled {
+        // A document snapshot can restrict imports, but never grants ledger consent.
+        // Ignore retains standard mirroring's narrowly validated today's-completion exception.
+        if ledger.twoWayEnabled && planner.preferences.phoneEdits == .bringBack {
             try await TwoWayReminderReconciler(repository: repository, storage: storage).reconcile(
                 &ledger, planner: planner, today: today, validate: validate,
                 prepareImport: prepareImport, applyImport: applyImport)

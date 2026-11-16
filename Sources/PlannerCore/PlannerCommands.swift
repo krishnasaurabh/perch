@@ -81,8 +81,8 @@ public final class PlannerCommands {
     @discardableResult public func update(_ id: UUID, on day: DayRef, _ edit: TaskEdit) throws -> PlanTask {
         try execute(.update(id, edit)).tasks[0]
     }
-    @discardableResult public func snooze(_ id: UUID, minutes: Int = 5) throws -> PlanTask {
-        try execute(.snooze(id, minutes: minutes)).tasks[0]
+    @discardableResult public func snooze(_ id: UUID, minutes: Int? = nil) throws -> PlanTask {
+        try execute(.snooze(id, minutes: minutes ?? planner.preferences.snoozeMinutes.rawValue)).tasks[0]
     }
     public func endRepeat(of id: UUID) throws { try execute(.endRepeat(id)) }
     @discardableResult public func completeOverdue(_ ids: [UUID]) throws -> [PlanTask] {

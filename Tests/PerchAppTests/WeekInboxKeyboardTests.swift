@@ -110,6 +110,133 @@
             try equal(Self.string(try Self.control("week-inbox", in: window), "accessibilityLabel"), "Back to week")
             try equal(try file.load().tasks, tasksBefore, "Inbox navigation preserves every persisted task")
             Self.log("PASS: Week Inbox native Tab, Space, back-tab and Command-Option-I")
+            try await redesignedBoard(window: window, store: store, model: model)
+        }
+
+        @MainActor private static func redesignedBoard(
+            window: NSWindow, store: PlannerStore, model: NotchModel
+        ) async throws {
+            let today = store.today
+            let future = today.adding(days: 1, calendar: store.engine.calendar)
+            let task = try unwrap(store.addTasks(["Future keyboard task"], on: .day(future))?.first)
+            let before = NSTextField(string: "Before board")
+            let host = NSHostingView(
+                rootView: VStack {
+                    WeekKeyboardField(field: before)
+                    WeekBoard().frame(width: 932, height: 380)
+                }
+                .environmentObject(store).environmentObject(model)
+                .environment(\.accessibilityEnabled, true)
+                .environment(\.motionPolicyOverride, MotionPolicy(reduceMotion: true)))
+            host.sizingOptions = []
+            window.contentView = host
+            window.setContentSize(NSSize(width: 960, height: 440))
+            await activateKeyWindow(window)
+            try require(window.makeFirstResponder(before))
+            try await tabTo("week-day-focus-\(today.raw)", window: window)
+            try await key(window, code: 123, characters: "\u{f702}")
+            try require(
+                boolean(
+                    try control(
+                        "week-day-focus-\(today.adding(days: -1, calendar: store.engine.calendar).raw)", in: window),
+                    "isAccessibilityFocused") == true,
+                "Left arrow moves to the previous day")
+            try await key(window, code: 124, characters: "\u{f703}")
+            try require(
+                boolean(try control("week-day-focus-\(today.raw)", in: window), "isAccessibilityFocused") == true,
+                "Right arrow returns to today")
+            try await tabTo("week-menu-\(task.id)", window: window)
+            try await key(window, code: 124, characters: "\u{f703}", modifiers: .option)
+            let pushed = future.adding(days: 1, calendar: store.engine.calendar)
+            try equal(
+                try store.file.load().tasks.first { $0.id == task.id }?.day, pushed,
+                "Option-Right pushes exactly the selected task one day")
+            // Focusing a different checkbox must target that row, without first toggling it.
+            try notNil(store.send(.move(task.id, .day(future))))
+            let neighbor = try unwrap(store.addTasks(["Second future keyboard task"], on: .day(future))?.first)
+            await settle()
+            try await tabTo("week-menu-\(task.id)", window: window)
+            try await tabTo("week-check-\(neighbor.id)", window: window)
+            try await key(window, code: 124, characters: "\u{f703}", modifiers: .option)
+            let afterCheckboxPush = try store.file.load().tasks
+            try equal(
+                afterCheckboxPush.first { $0.id == neighbor.id }?.day, pushed,
+                "Option-Right from a checkbox pushes that exact row")
+            try equal(
+                afterCheckboxPush.first { $0.id == task.id }?.day, future,
+                "Option-Right from a checkbox does not push the previously focused menu row")
+            await settle()
+            try await tabTo("week-check-\(task.id)", window: window)
+            try await key(window, code: 49, characters: " ")
+            try equal(
+                try store.file.load().tasks.first { $0.id == task.id }?.done, true,
+                "Space checks a future task and persists the change")
+            try await key(window, code: 49, characters: " ")
+            try equal(
+                try store.file.load().tasks.first { $0.id == task.id }?.done, false,
+                "Space reopens the same future task")
+            try await tabTo("week-add-\(future.raw)", window: window)
+            let tasksBeforeAdding = try store.file.load().tasks
+            traceAdd(window, day: future, tag: "before-space")
+            try await key(window, code: 49, characters: " ")
+            traceAdd(window, day: future, tag: "after-space")
+            let editor = try unwrap(window.firstResponder as? NSTextView)
+            try equal(try store.file.load().tasks, tasksBeforeAdding, "Add Space must not toggle the previous task")
+            editor.insertText("Added from Week", replacementRange: editor.selectedRange())
+            try await key(window, code: 36, characters: "\r")
+            try require(
+                try store.file.load().tasks.contains { $0.title == "Added from Week" && $0.day == future },
+                "Return in the coming-day field adds a task on that day")
+            try capture(host, name: "week-board-keyboard")
+            log("PASS: Week board arrows, Option-Right, future Space and Add Return")
+            try await todayOverflowExpandsWithSpace(window: window, host: host, store: store, before: before)
+        }
+
+        @MainActor private static func todayOverflowExpandsWithSpace(
+            window: NSWindow, host: NSView, store: PlannerStore, before: NSTextField
+        ) async throws {
+            trace(window, tag: "overflow-entry")
+            let added = try unwrap(
+                store.addTasks((1...5).map { "Overflow keyboard task \($0)" }, on: .day(store.today)))
+            let hidden = try unwrap(added.last)
+            await settle()
+            try equal(store.planner.tasks.filter { $0.day == store.today }.count, 6)
+            let identifier = "week-check-\(hidden.id)"
+            try reject(
+                nodes(window).contains { string($0, "accessibilityIdentifier") == identifier },
+                "The sixth Today task must start hidden behind the overflow footer")
+            let tasksBefore = try store.file.load().tasks
+            // Return tears down the preceding add-field editor; seed the native Tab chain again.
+            try require(window.makeFirstResponder(before))
+            await settle()
+            trace(window, tag: "overflow-after-reseat")
+            try await tabTo("week-overflow-\(store.today.raw)", window: window)
+            trace(window, tag: "overflow-before-space")
+            try capture(host, name: "week-overflow-focused")
+            try await key(window, code: 49, characters: " ")
+            trace(window, tag: "overflow-after-space")
+            try equal(string(try control(identifier, in: window), "accessibilityRole"), "AXCheckBox")
+            try await tabTo(identifier, window: window)
+            try equal(boolean(try control(identifier, in: window), "isAccessibilityFocused"), true)
+            try equal(try store.file.load().tasks, tasksBefore, "Expanding Today must not toggle or edit any task")
+            try capture(host, name: "week-overflow-expanded")
+            log("PASS: Week Today overflow native Tab and Space reveals the sixth task")
+        }
+
+        @MainActor private static func tabTo(_ identifier: String, window: NSWindow) async throws {
+            var visited = Set<String>()
+            for _ in 0..<100 {
+                if nodes(window).contains(where: {
+                    string($0, "accessibilityIdentifier") == identifier && boolean($0, "isAccessibilityFocused") == true
+                }) {
+                    return
+                }
+                try await key(window, code: 48, characters: "\t")
+                let focused = nodes(window).filter { boolean($0, "isAccessibilityFocused") == true }
+                visited.formUnion(focused.compactMap { string($0, "accessibilityIdentifier") })
+            }
+            let responder = window.firstResponder.map { String(describing: type(of: $0)) } ?? "nil"
+            try fail("Tab never reached \(identifier); visited=\(visited.sorted()); firstResponder=\(responder)")
         }
 
         @MainActor private static func activateKeyWindow(_ window: NSWindow) async {
@@ -240,6 +367,21 @@
                 }
             }
             return retained
+        }
+
+        @MainActor private static func traceAdd(_ window: NSWindow, day: DayKey, tag: String) {
+            NotificationCenter.default.post(
+                name: Notification.Name("PerchWeekKeyboardProbe"), object: day.raw, userInfo: ["tag": tag])
+            let responder = window.firstResponder
+            let responderClass = responder.map { String(describing: type(of: $0)) } ?? "nil"
+            let responderID = responder.flatMap { string($0, "accessibilityIdentifier") } ?? "nil"
+            let fieldCount = nodes(window).filter {
+                string($0, "accessibilityIdentifier") == "week-add-field-\(day.raw)"
+            }.count
+            log(
+                "WEEK_ADD native tag=\(tag) firstResponder=\(responderClass) identifier=\(responderID) fieldAXCount=\(fieldCount)"
+            )
+            trace(window, tag: tag)
         }
 
         @MainActor private static func trace(_ window: NSWindow, tag: String) {
@@ -374,6 +516,8 @@
             XCTAssertEqual(process.terminationReason, .exit)
             XCTAssertEqual(process.terminationStatus, 0, "Native Week keyboard check failed:\n\(result)")
             XCTAssertTrue(result.contains("PASS: Week Inbox native Tab, Space, back-tab and Command-Option-I"))
+            XCTAssertTrue(result.contains("PASS: Week board arrows, Option-Right, future Space and Add Return"))
+            XCTAssertTrue(result.contains("PASS: Week Today overflow native Tab and Space reveals the sixth task"))
         }
     }
 #endif

@@ -885,6 +885,70 @@ func mxInkRows(
     return rows
 }
 
+/// Explain failed sampling without changing either sampler's acceptance rules.
+@MainActor
+func mxContrastSamplingDiagnostic(
+    _ bitmap: NSBitmapImageRep, host: NSView, band: NSRect, near ink: NSColor, tolerance: CGFloat = 0.2
+) -> String {
+    let area = mxBand(band, host: host, bitmap: bitmap)
+    let reference = ink.usingColorSpace(.sRGB)
+    func number(_ value: CGFloat) -> String { String(format: "%.17g", Double(value)) }
+    func components(_ rgb: NSColor) -> String {
+        "(\(number(rgb.redComponent)),\(number(rgb.greenComponent)),\(number(rgb.blueComponent)))"
+    }
+    var missingPixels = 0
+    var conversionFailures = 0
+    var rawNonOpaque = 0
+    var rejectedAlpha = 0
+    var firstRawNonOpaque = "none"
+    var firstRejectedAlpha = "none"
+    var bestDistance = CGFloat.greatestFiniteMagnitude
+    var bestAnyAlphaDistance = CGFloat.greatestFiniteMagnitude
+    var closest = "none"
+    if area.x1 > area.x0, area.y1 > area.y0 {
+        for y in area.y0..<area.y1 {
+            for x in area.x0..<area.x1 {
+                guard let raw = bitmap.colorAt(x: x, y: y) else {
+                    missingPixels += 1
+                    continue
+                }
+                if raw.alphaComponent != 1 {
+                    rawNonOpaque += 1
+                    if firstRawNonOpaque == "none" {
+                        firstRawNonOpaque = "(x:\(x),y:\(y),alpha:\(number(raw.alphaComponent)))"
+                    }
+                }
+                guard let rgb = raw.usingColorSpace(.sRGB) else {
+                    conversionFailures += 1
+                    continue
+                }
+                if rgb.alphaComponent != 1 {
+                    rejectedAlpha += 1
+                    if firstRejectedAlpha == "none" {
+                        firstRejectedAlpha =
+                            "(x:\(x),y:\(y),rawAlpha:\(number(raw.alphaComponent)),alpha:\(number(rgb.alphaComponent)),rgb:\(components(rgb)))"
+                    }
+                }
+                guard let reference else { continue }
+                let distance =
+                    abs(rgb.redComponent - reference.redComponent) + abs(rgb.greenComponent - reference.greenComponent)
+                    + abs(rgb.blueComponent - reference.blueComponent)
+                bestAnyAlphaDistance = min(bestAnyAlphaDistance, distance)
+                if rgb.alphaComponent == 1, distance < bestDistance {
+                    bestDistance = distance
+                    closest = "(x:\(x),y:\(y),rgb:\(components(rgb)))"
+                }
+            }
+        }
+    }
+    return "missingPixels=\(missingPixels) conversionFailures=\(conversionFailures) "
+        + "rawNonOpaque=\(rawNonOpaque) firstRawNonOpaque=\(firstRawNonOpaque) "
+        + "rejectedAlpha=\(rejectedAlpha) firstRejectedAlpha=\(firstRejectedAlpha) "
+        + "reference=\(reference.map(components) ?? "unavailable") "
+        + "bestDistance=\(number(bestDistance)) tolerance=\(number(tolerance)) closest=\(closest) "
+        + "bestAnyAlphaDistance=\(number(bestAnyAlphaDistance))"
+}
+
 @MainActor
 func mxContrast(_ a: NSColor, _ b: NSColor) -> Double {
     func luminance(_ color: NSColor) -> Double {
@@ -1467,8 +1531,35 @@ final class AllPageMatrix {
             "enabled=\(autoSortEnabled) supported=\(AISorter.isSupported)")
         try report.require(SMAppService.mainApp.status == loginStatus, "general pane never mutates the login item")
 
-        // Calendar: the calendar row must report the state the system actually holds, and
-        // reading it must not request access.
+        // Calendar: allowed and unrequested permissions stay quiet; failures have a scoped row.
+        @MainActor
+        func calendarPermissionMatches(_ root: MatrixElement, feature: String, state: PermissionState) -> Bool {
+            let rows = mxTree(root).filter { mxIdentifier($0) == "permission-row.\(feature)" }
+            switch state {
+            case .checking, .allowed, .notDetermined: return rows.isEmpty
+            default: return rows.count == 1 && mxHas(rows[0], state.title)
+            }
+        }
+        @MainActor
+        func calendarSegment(_ root: MatrixElement, name: String, expectedEnabled: Bool) throws -> MatrixElement {
+            let groups = mxTree(root).filter {
+                mxRole($0) == "AXGroup" && mxNames($0).contains(AppL10n.text("Edits made on your phone"))
+            }
+            guard groups.count == 1, let group = groups.first else {
+                throw MatrixFailure(label: "expected one phone edits group, saw \(groups.count)")
+            }
+            let matches = mxTree(group).filter {
+                mxRole($0) == "AXButton" && mxNames($0).contains(AppL10n.text(name))
+            }
+            guard matches.count == 1, let segment = matches.first else {
+                throw MatrixFailure(label: "expected one phone edits segment \(name), saw \(matches.count)")
+            }
+            guard let enabled = mxEnabled(segment), enabled == expectedEnabled else {
+                throw MatrixFailure(label: "unexpected enabled state for phone edits segment \(name)")
+            }
+            return segment
+        }
+        // Reading the real permission state must not request access.
         let calendarBefore = EKEventStore.authorizationStatus(for: .event)
         let calendarState = SettingsPermissionAccess.eventState(calendarBefore).state
         try selectPane(.calendar, window: window, host: host, root: root)
@@ -1476,7 +1567,8 @@ final class AllPageMatrix {
         mxDumpAX(root, "calendar-permissions")
         try mxSave(host, output.appendingPathComponent("calendar-permissions.png"))
         try report.require(
-            mxHas(root, calendarState.title), "calendar pane reports the real calendar permission state",
+            calendarPermissionMatches(root, feature: "calendar", state: calendarState),
+            "calendar pane reports the real calendar permission state",
             "expected \(calendarState.title)")
         try report.require(
             EKEventStore.authorizationStatus(for: .event) == calendarBefore,
@@ -1509,26 +1601,139 @@ final class AllPageMatrix {
             AgentConnector.App.allCases.map { AgentConnector.status($0) } == agentStatuses,
             "agents pane never mutates a connector")
 
-        // Calendar: the reminders row must report the real state, the dependent phone alert must be
-        // disabled while mirroring is off, and no sync may run.
+        // Calendar: phone edits depend on mirroring, and reading the real state never starts sync.
         let reminderBefore = EKEventStore.authorizationStatus(for: .reminder)
         let reminderState = SettingsPermissionAccess.eventState(reminderBefore).state
         let tasksBefore = fixture.store.planner.tasks.count
         try selectPane(.calendar, window: window, host: host, root: root)
         await mxReady(1.0)
         try report.require(
-            mxHas(root, reminderState.title), "calendar pane reports the real reminders permission state",
+            calendarPermissionMatches(root, feature: "reminders", state: reminderState),
+            "calendar pane reports the real reminders permission state",
             "expected \(reminderState.title)")
-        let phoneAlertEnabled = try mxSettingsCheckboxEnabled(
-            root, name: AppL10n.text("Alert on iPhone and Apple Watch too"))
-        try report.require(
-            phoneAlertEnabled == fixture.store.prefs.remindersSync,
-            "phone alert stays disabled while mirroring is off")
+        _ = try calendarSegment(root, name: "Ignore", expectedEnabled: false)
+        _ = try calendarSegment(root, name: "Bring back", expectedEnabled: false)
+        try report.require(!fixture.store.prefs.remindersSync, "phone edits stay disabled while mirroring is off")
         try report.require(
             EKEventStore.authorizationStatus(for: .reminder) == reminderBefore,
             "calendar pane never requests reminders access")
         try report.require(fixture.store.planner.tasks.count == tasksBefore, "calendar pane never mutates the planner")
         try mxSave(host, output.appendingPathComponent("settings-calendar-permissions.png"))
+
+        // The interactive fixture has its own store, not observed by the real services above.
+        // All permission requests and sync effects below are recording fakes.
+        @MainActor
+        final class CalendarProbeAccess: PermissionAccess {
+            var states: [PermissionFeature: PermissionReading] = [:]
+            var requests: [PermissionFeature] = []
+            func read(_ feature: PermissionFeature) async -> PermissionReading {
+                states[feature] ?? PermissionReading(.denied)
+            }
+            func request(_ feature: PermissionFeature) async throws { requests.append(feature) }
+        }
+        let calendarFile = PlannerFile(
+            url: fixture.directory.appendingPathComponent("calendar-controls.json"),
+            preferences: MemoryPlannerPreferences())
+        let calendarStore = PlannerStore(file: calendarFile, watching: false)
+        let calendarAccess = CalendarProbeAccess()
+        let calendarPermissions = PermissionPanelModel(access: calendarAccess)
+        var phoneModes: [Bool] = []
+        let calendarModel = CalendarSettingsModel(
+            store: calendarStore, permissions: calendarPermissions,
+            enableMirroring: { true },
+            setTwoWay: { enabled in
+                phoneModes.append(enabled)
+                return true
+            })
+        let calendarView = SettingsCalendarPane.probe(
+            store: calendarStore, services: fixture.services, model: calendarModel)
+        let (calendarWindow, calendarHost) = try matrixWindow(
+            "Matrix Calendar Controls", calendarView, size: SettingsMetrics.windowSize)
+        defer { calendarWindow.close() }
+        await mxReady()
+        let calendarRoot = try mxRoot("Matrix Calendar Controls")
+        for feature in ["calendar", "reminders"] {
+            let row = try mxPermissionRow(calendarRoot, feature: feature)
+            try report.require(
+                mxHas(row, PermissionState.denied.title), "calendar fixture shows denied \(feature) access")
+            let recovery = mxTree(row).filter {
+                mxRole($0) == "AXButton"
+                    && mxNames($0).contains(
+                        AppL10n.format(
+                            "Open %@ settings",
+                            feature == "calendar" ? PermissionFeature.calendar.title : PermissionFeature.reminders.title
+                        ))
+            }
+            try report.require(
+                recovery.count == 1 && mxEnabled(recovery[0]) == true,
+                "calendar fixture offers \(feature) System Settings recovery")
+        }
+        _ = try calendarSegment(calendarRoot, name: "Ignore", expectedEnabled: false)
+        _ = try calendarSegment(calendarRoot, name: "Bring back", expectedEnabled: false)
+        await calendarModel.setMirroring(true)
+        try report.require(
+            !(try calendarFile.load()).preferences.remindersSync,
+            "denied reminders access cannot enable mirroring")
+
+        calendarAccess.states[.calendar] = PermissionReading(.allowed)
+        calendarAccess.states[.reminders] = PermissionReading(.allowed)
+        await calendarPermissions.refresh()
+        await mxSettle()
+        try report.require(
+            calendarPermissionMatches(calendarRoot, feature: "calendar", state: .allowed)
+                && calendarPermissionMatches(calendarRoot, feature: "reminders", state: .allowed),
+            "calendar recovery hides allowed permission rows")
+        await calendarModel.setMirroring(true)
+        await mxSettle()
+        try report.require(
+            (try calendarFile.load()).preferences.remindersSync,
+            "recovered reminders access allows mirroring")
+        _ = try calendarSegment(calendarRoot, name: "Ignore", expectedEnabled: true)
+        _ = try calendarSegment(calendarRoot, name: "Bring back", expectedEnabled: true)
+
+        // Seed the other mode, then drive the real segment to verify its binding and disk write.
+        calendarModel.setPhoneEdits(.bringBack)
+        await mxSettle()
+        try report.require(
+            (try calendarFile.load()).preferences.phoneEdits == .bringBack,
+            "calendar phone edits fixture starts in Bring back")
+        let ignore = try calendarSegment(calendarRoot, name: "Ignore", expectedEnabled: true)
+        try mxClick(host: calendarHost, window: calendarWindow, screenRect: mxFrame(ignore))
+        await mxSettle()
+        try report.require(
+            (try calendarFile.load()).preferences.phoneEdits == .ignore && phoneModes == [true, false],
+            "phone edits segment persists Ignore and updates two-way consent")
+        let selectedIgnore = try calendarSegment(calendarRoot, name: "Ignore", expectedEnabled: true)
+        try report.require(
+            mxNames(selectedIgnore).contains(AppL10n.text("Selected")),
+            "phone edits segment displays its stored selection")
+        let bringBack = try calendarSegment(calendarRoot, name: "Bring back", expectedEnabled: true)
+        try mxClick(host: calendarHost, window: calendarWindow, screenRect: mxFrame(bringBack))
+        await mxSettle()
+        try report.require(
+            mxHasInApp(calendarRoot, AppL10n.text("Enable two-way sync for the Perch list?")),
+            "Bring back requires explicit confirmation")
+        guard let confirmation = calendarWindow.attachedSheet else {
+            throw MatrixFailure(label: "Bring back confirmation did not attach to its window")
+        }
+        try await mxKey(confirmation, 53, "\u{1b}")
+        await mxSettle()
+        try report.require(
+            !mxHasInApp(calendarRoot, AppL10n.text("Enable two-way sync for the Perch list?"))
+                && (try calendarFile.load()).preferences.phoneEdits == .ignore && phoneModes == [true, false],
+            "cancelling Bring back preserves the stored selection")
+        await calendarModel.setMirroring(false)
+        await mxSettle()
+        _ = try calendarSegment(calendarRoot, name: "Ignore", expectedEnabled: false)
+        _ = try calendarSegment(calendarRoot, name: "Bring back", expectedEnabled: false)
+        try report.require(
+            calendarAccess.requests.isEmpty
+                && EKEventStore.authorizationStatus(for: .event) == calendarBefore
+                && EKEventStore.authorizationStatus(for: .reminder) == reminderBefore,
+            "calendar control fixture never requests real permission")
+        try report.require(
+            !fixture.store.prefs.remindersSync && fixture.store.planner.tasks.count == tasksBefore,
+            "calendar control fixture never enables the live sync service")
     }
 
     // MARK: Dashboard: three tabs
@@ -2034,7 +2239,7 @@ final class AllPageMatrix {
         var measurements: [String: Any] = [:]
         // The status label paints Theme.warning in the dark palette; measure that opaque ink
         // rather than a dynamic colour resolved against the process appearance.
-        let warningInk = mxTokenColor(ThemeTokens.dark.warning)
+        let warningInk = mxTokenColor(DesignTokens.ColorToken.ink2.hex(in: .dark))
         for (name, size) in [("large", DynamicTypeSize.large), ("accessibility3", DynamicTypeSize.accessibility3)] {
             let view = VStack(alignment: .leading, spacing: 10) {
                 PermissionPanel(services: fixture.services, features: [.notifications])
@@ -2117,11 +2322,11 @@ final class AllPageMatrix {
         for (mode, appearanceName, scheme, bodyInk, lowInk) in [
             (
                 "dark-increased", NSAppearance.Name.accessibilityHighContrastDarkAqua, ColorScheme.dark,
-                mxTokenColor(ThemeTokens.dark.secondary), NSColor(white: 0.32, alpha: 1)
+                mxTokenColor(DesignTokens.ColorToken.ink2.hex(in: .dark)), NSColor(white: 0.32, alpha: 1)
             ),
             (
                 "light-increased", NSAppearance.Name.accessibilityHighContrastAqua, ColorScheme.light,
-                mxTokenColor(ThemeTokens.light.secondary), NSColor(white: 0.72, alpha: 1)
+                mxTokenColor(DesignTokens.ColorToken.ink2.hex(in: .light)), NSColor(white: 0.72, alpha: 1)
             ),
         ] {
             guard let appearance = NSAppearance(named: appearanceName) else {
@@ -2142,7 +2347,6 @@ final class AllPageMatrix {
             let (window, host) = try matrixWindow(
                 "Matrix Contrast \(mode)", view, size: NSSize(width: 440, height: 220), appearance: appearance)
             await mxReady(1.4)
-            let root = try mxRoot("Matrix Contrast \(mode)")
             mxLog(
                 "contrast before reapply: requested=\(appearanceName.rawValue) object=\(appearance.name.rawValue) window=\(String(describing: window.appearance?.name.rawValue)) host=\(String(describing: host.appearance?.name.rawValue))"
             )
@@ -2173,21 +2377,47 @@ final class AllPageMatrix {
             try report.require(
                 effective == appearanceName.rawValue, "\(mode) window runs in the increased-contrast appearance",
                 "effective \(effective) name \(effectiveName) workspace \(systemIncreased)")
-            // The panel renders the reading's own detail when it has one (an unbundled process
-            // cannot get notification access), so measure the line that is actually drawn.
-            let reading = await SettingsPermissionAccess(services: fixture.services).read(.notifications)
-            let detail = reading.detail ?? PermissionFeature.notifications.detail
-            guard let detailNode = mxFind(root, name: detail) else {
-                mxDumpAX(root, "contrast-\(mode)")
-                window.close()
-                throw MatrixFailure(label: "no permission detail text at \(mode)")
-            }
             let bitmap = try mxBitmap(host)
             // Save the measured bitmap even if a band or contrast assertion below fails.
             try mxSave(bitmap, output.appendingPathComponent("contrast-\(mode).png"))
-            let detailRect = mxHostRect(mxFrame(detailNode), window: window, host: host)
-            guard let background = mxDominant(bitmap, host: host, band: detailRect),
-                let ink = mxInkSample(bitmap, host: host, band: detailRect, near: bodyInk)
+            // Reacquire the identified Text after the final appearance/layout pass. A name
+            // lookup can resolve a containing row, and an earlier snapshot can be stale.
+            await MatrixAX.refresh()
+            let root = try mxRoot("Matrix Contrast \(mode)")
+            mxDumpAX(root, "contrast-\(mode)")
+            let detailNode = try mxIdentified(root, "permission-detail.notifications")
+            let detailFrame = mxFrame(detailNode)
+            // The main-actor reader supplies AppKit screen coordinates. mxHostRect converts
+            // those to host space; mxBand/mxRow already flip unflipped hosts to bitmap rows.
+            let detailRect = mxHostRect(detailFrame, window: window, host: host)
+            let pixelBounds = mxBand(detailRect, host: host, bitmap: bitmap)
+            let bandDiagnostic =
+                "axFrame=\(detailFrame) hostBand=\(detailRect) pixelBounds=\(pixelBounds) "
+                + "hostBounds=\(host.bounds) flipped=\(host.isFlipped) bitmap=\(bitmap.pixelsWide)x\(bitmap.pixelsHigh)"
+            report.record("contrast_\(mode)_band", bandDiagnostic)
+            mxLog("contrast band: mode=\(mode) \(bandDiagnostic)")
+            try report.require(
+                detailRect.width >= 40 && detailRect.height >= 6
+                    && host.bounds.contains(detailRect)
+                    && pixelBounds.x0 >= 0 && pixelBounds.x1 <= bitmap.pixelsWide
+                    && pixelBounds.y0 >= 0 && pixelBounds.y1 <= bitmap.pixelsHigh
+                    && CGFloat(pixelBounds.x1 - pixelBounds.x0) >= 40 * mxScale(host, bitmap)
+                    && CGFloat(pixelBounds.y1 - pixelBounds.y0) >= 6 * mxScale(host, bitmap),
+                "\(mode) text band is at least 40 by 6 pt and inside the bitmap", bandDiagnostic)
+            // Evaluate both helpers: optional binding would otherwise hide the ink result
+            // whenever dominance fails. Diagnose the original in-memory pixels, not a PNG
+            // decoder's potentially quantized or differently colour-managed representation.
+            let sampledBackground = mxDominant(bitmap, host: host, band: detailRect)
+            let sampledInk = mxInkSample(bitmap, host: host, band: detailRect, near: bodyInk)
+            let samplingDiagnostic =
+                "mode=\(mode) dominantNil=\(sampledBackground == nil) inkNil=\(sampledInk == nil) "
+                + mxContrastSamplingDiagnostic(bitmap, host: host, band: detailRect, near: bodyInk)
+                + " bitmapColorSpace=\(bitmap.colorSpace) bitsPerSample=\(bitmap.bitsPerSample) "
+                + "samplesPerPixel=\(bitmap.samplesPerPixel) hasAlpha=\(bitmap.hasAlpha) "
+                + "bitmapFormat=\(bitmap.bitmapFormat.rawValue) planar=\(bitmap.isPlanar) bytesPerRow=\(bitmap.bytesPerRow)"
+            report.record("contrast_\(mode)_sampling", samplingDiagnostic)
+            mxLog("contrast sampling: \(samplingDiagnostic)")
+            guard let background = sampledBackground, let ink = sampledInk
             else {
                 window.close()
                 throw MatrixFailure(label: "could not sample opaque rendered text at \(mode)")
@@ -2199,7 +2429,8 @@ final class AllPageMatrix {
             ])
             report.record("contrast", rows)
             mxLog(
-                "contrast pixels: mode=\(mode) ink=\(mxHex(ink)) background=\(mxHex(background)) ratio=\(ratio)"
+                "contrast pixels: mode=\(mode) ink=\(mxHex(ink)) background=\(mxHex(background)) ratio=\(ratio) "
+                    + bandDiagnostic
             )
             try report.require(
                 ratio >= 4.5, "\(mode) renders body text above 4.5:1", "measured \(String(format: "%.2f", ratio))")

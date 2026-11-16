@@ -59,7 +59,7 @@ struct WorkspaceView: View {
         case .home: HomePage()
         case .week:
             DotGridSheet {
-                WeekPage(workspaceShell: true).environment(\.colorScheme, .dark).task {
+                WeekPage(workspaceShell: true).task {
                     NotificationCenter.default.post(name: .perchWorkspaceWeekChanged, object: weekOffset)
                 }
             }

@@ -69,6 +69,8 @@ settings-general-alternatives --scenario empty --open settings/general-alternati
 settings-notch --scenario empty --open settings/notch
 settings-notch-configured --scenario empty --open settings/notch-configured
 settings-calendar --scenario empty --open settings/calendar
+settings-calendar-denied --scenario empty --open settings/calendar-denied
+settings-calendar-picker --scenario empty --open settings/calendar-picker
 settings-agents --scenario empty --open settings/agents
 settings-agents-connected --scenario empty --open settings/agents-connected
 settings-data --scenario empty --open settings/data
@@ -78,6 +80,11 @@ workspace-band-week --scenario week-full --open workspace-week
 workspace-width-960 --scenario today-before --open workspace-today
 workspace-width-1280 --scenario week-full --open workspace-week
 workspace-week-narrow --scenario week-full --open workspace-narrow
+week-board-full --scenario week-full --open workspace-week
+week-board-empty --scenario today-empty --open workspace-week
+week-board-narrow --scenario week-full --open workspace-narrow
+week-board-expanded --scenario week-full --open week-expanded
+week-board-adding --scenario week-full --open week-adding
 your-day-running --scenario today-running --open your-day
 your-day-before --scenario today-editing --open your-day
 your-day-editing --scenario today-editing --open your-day-editing

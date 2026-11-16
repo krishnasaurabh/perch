@@ -23,14 +23,27 @@ final class CalendarService: ObservableObject {
     @Published private(set) var calendars: [EKCalendar] = []
     let source: any CalendarAccess
     private let store: PlannerStore
+    private var subscriptions = Set<AnyCancellable>()
+
+    private struct Selection: Equatable {
+        let shown: Bool
+        let hidden: [String]
+        init(_ planner: Planner) {
+            shown = planner.preferences.showCalendarMeetings
+            hidden = planner.preferences.hiddenCalendarIDs
+        }
+    }
+
+    var showsMeetings: Bool { store.prefs.showCalendarMeetings }
 
     init(store: PlannerStore, source: (any CalendarAccess)? = nil) {
         self.store = store
         self.source = source ?? SystemCalendarAccess()
-        NotificationCenter.default.addObserver(forName: .EKEventStoreChanged, object: nil, queue: .main) {
-            [weak self] _ in
-            Task { @MainActor in self?.refresh() }
-        }
+        NotificationCenter.default.publisher(for: .EKEventStoreChanged).receive(on: RunLoop.main)
+            .sink { [weak self] _ in self?.refresh() }.store(in: &subscriptions)
+        // Observe the command store so Undo and external preference changes work with no Settings pane open.
+        store.$planner.map { Selection($0) }.removeDuplicates().dropFirst().receive(on: RunLoop.main)
+            .sink { [weak self] _ in self?.refresh() }.store(in: &subscriptions)
         refresh()
     }
 
@@ -46,6 +59,7 @@ final class CalendarService: ObservableObject {
         access = source.authorization
         guard hasAccess else { events = []; return }
         calendars = source.calendars()
+        guard showsMeetings else { events = []; return }
         let hidden = Set(store.prefs.hiddenCalendarIDs)
         let cals = calendars.filter { !hidden.contains($0.calendarIdentifier) }
         guard !cals.isEmpty else { events = []; return }
