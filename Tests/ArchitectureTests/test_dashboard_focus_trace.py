@@ -34,7 +34,9 @@ class DashboardFocusTraceTests(unittest.TestCase):
             'Tab moves from the tabs to the history search',
             'typed history search filters the task lines',
             'Shift-Tab returns focus to the dashboard tabs',
-            'Space on Delete project deletes the project',
+            'Tab reaches the project options control on the card',
+            'the project options surface offers Delete project',
+            "Delete project from the card's options deletes the project",
             'project deletion persists and keeps its tasks',
             'Command-Z restores the deleted project and its task links',
         ):

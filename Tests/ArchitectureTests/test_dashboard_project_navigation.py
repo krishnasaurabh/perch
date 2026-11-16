@@ -6,28 +6,24 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 class DashboardProjectNavigationTests(unittest.TestCase):
-    def test_project_action_has_one_native_target_and_no_swiftui_focus_proxy(self):
+    def test_project_deletion_is_reachable_from_the_visible_options_control(self):
         shell = (ROOT / 'Sources/PerchApp/Settings/DashboardView.swift').read_text()
-        self.assertIn('struct DashboardProjectDeleteButton: View', shell)
-        control = shell.split('struct DashboardProjectDeleteButton: View', 1)[1]
-        self.assertIn('DashboardProjectActionTarget(', control)
-        self.assertIn('.accessibilityHidden(true)', control)
-        self.assertNotIn('.focusable(', control)
-        self.assertIn('final class DashboardProjectActionView: NSButton', control)
-        self.assertIn('isTransparent = true', control)
-        self.assertIn('!event.isARepeat', control)
-        self.assertIn('event.window === window', control)
-        self.assertIn('window?.isKeyWindow == true', control)
-        self.assertIn('performClick(nil)', control)
-        self.assertIn('isEnabled && !isHiddenOrHasHiddenAncestor', control)
-        project = (ROOT / 'Sources/PerchApp/Settings/ProjectsList.swift').read_text()
-        self.assertIn('DashboardProjectDeleteButton {', project)
-        self.assertIn('store.apply { try $0.deleteProject(p.id) }', project)
+        projects = (ROOT / 'Sources/PerchApp/Settings/ProjectsList.swift').read_text()
+        view = (ROOT / 'Sources/PerchApp/Settings/ProjectsView.swift').read_text()
+        combined = shell + projects + view
+        # Every card carries a visible, accessible options control that reveals both
+        # actions; the destructive action is never only a bare control on the page.
+        self.assertIn('project-options-\\(project.id.uuidString)', projects)
+        self.assertIn('AppL10n.text("Project options")', projects)
+        self.assertIn('PerchButton("Rename project"', projects)
+        self.assertIn('.contextMenu', projects)
+        self.assertIn('Button("Delete project", action: delete)', projects)
+        self.assertIn('project-new', projects)
 
     def test_project_actions_are_linked_only_for_projects(self):
         shell = (ROOT / 'Sources/PerchApp/Settings/DashboardView.swift').read_text()
         self.assertIn('host.selectionState?.tab == .projects', shell)
-        self.assertIn('compactMap({ $0 as? DashboardProjectActionView })', shell)
+        self.assertIn('DashboardProjectActionView', shell)
         self.assertIn('tabs.nextKeyView = first', shell)
         self.assertIn('action.nextKeyView =', shell)
         self.assertIn('action.canBecomeKeyView', shell)
@@ -47,14 +43,18 @@ class DashboardProjectNavigationTests(unittest.TestCase):
         self.assertIn('AXStaticText', helper)
         self.assertNotIn('lowercased()', helper)
 
-    def test_project_observations_keep_the_single_tab_space_sequence(self):
+    def test_project_observations_keep_the_single_tab_options_sequence(self):
         probe = (ROOT / 'scripts/integration_probe.swift').read_text()
-        check = probe.split('// Project action: Tab to Delete project', 1)[1].split('func checkWelcomeMatrix(', 1)[0]
+        check = probe.split('// Project action: the card', 1)[1].split('func checkWelcomeMatrix(', 1)[0]
         self.assertLess(check.index('matrixKey(window, 48'), check.index('behavior-project-tab'))
-        self.assertLess(check.index('behavior-project-tab'), check.index('matrixKey(window, 49'))
-        self.assertLess(check.index('matrixKey(window, 49'), check.index('behavior-project-space'))
+        self.assertLess(check.index('behavior-project-tab'), check.index('MatrixControls.projectOptions'))
+        self.assertLess(check.index('MatrixControls.projectOptions'), check.index('performClick(nil)'))
         self.assertNotIn('store.apply', check)
-        self.assertIn('Space on Delete project deletes the project', check)
+        self.assertNotIn('fixture.store.apply', check)
+        self.assertIn('Tab reaches the project options control on the card', check)
+        self.assertIn('the card page never hosts a bare Delete project control', check)
+        self.assertIn('the project options surface offers Delete project', check)
+        self.assertIn("Delete project from the card's options deletes the project", check)
         self.assertIn('project deletion persists and keeps its tasks', check)
         self.assertIn('project deletion removes no task', check)
         self.assertIn('Command-Z restores the deleted project and its task links', check)
