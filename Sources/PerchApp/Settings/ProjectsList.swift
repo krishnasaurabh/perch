@@ -36,7 +36,7 @@ struct ProjectsList: View {
     #endif
 
     private var columns: [GridItem] {
-        [GridItem(.adaptive(minimum: Theme.Size.peekWidth.value / 2), spacing: SurfaceMetrics.fieldRadius)]
+        Array(repeating: GridItem(.flexible(minimum: 0), spacing: SurfaceMetrics.fieldRadius), count: 2)
     }
 
     var body: some View {
@@ -47,7 +47,6 @@ struct ProjectsList: View {
             noProject
             newProject
         }
-        .modifier(DashboardPaneDiagnostic(name: "Projects LazyVGrid", store: store))
         .accessibilityElement(children: .contain)
         .perchFont(.body)
         #if DEBUG || PERCH_TESTING

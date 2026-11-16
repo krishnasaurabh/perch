@@ -72,7 +72,6 @@ struct HistoryList: View {
                 }
             }
         }
-        .modifier(DashboardPaneDiagnostic(name: "History tab host", store: store, dumpTree: true))
         .perchFont(.body)
         #if DEBUG || PERCH_TESTING
             .onReceive(preview.$filter) {

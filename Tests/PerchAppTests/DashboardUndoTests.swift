@@ -103,9 +103,9 @@ final class DashboardUndoTests: XCTestCase {
         XCTAssertEqual(
             field.accessibilityLabel(), "Find a finished task", "The search is labelled for its finished rows")
         // History lists finished tasks only, so the open task never reaches the list.
-        let texts = Self.nodes(window).compactMap { node -> String? in
-            guard Self.attribute(node, "accessibilityRole") as? String == "AXStaticText" else { return nil }
-            return Self.attribute(node, "accessibilityLabel") as? String
+        let texts = Self.nodes(window).flatMap { node -> [String] in
+            guard Self.attribute(node, "accessibilityRole") as? String == "AXStaticText" else { return [] }
+            return ["accessibilityLabel", "accessibilityValue"].compactMap { Self.attribute(node, $0) as? String }
         }
         XCTAssertTrue(texts.contains("Finished synthetic task"), "History lists the finished task")
         XCTAssertFalse(texts.contains("Open synthetic task"), "History never lists an open task")
