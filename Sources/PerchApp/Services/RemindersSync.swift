@@ -74,7 +74,7 @@ final class RemindersSync: ObservableObject {
         self.scheduler = scheduler
         self.input = Input(store.planner)
         do {
-            twoWayEnabled = try reconciler.twoWayEnabled() && store.prefs.phoneEdits == .bringBack
+            twoWayEnabled = try reconciler.twoWayEnabled()
         } catch { lastError = .access(error.localizedDescription) }
         sawRedo = store.canRedo
         pausedForHistory = sawRedo
@@ -101,12 +101,12 @@ final class RemindersSync: ObservableObject {
 
     var hasAccess: Bool { source.hasAccess }
 
-    /// Refresh the effective Settings projection without granting consent or resuming a history-paused sync.
+    /// Refresh the Settings projection without granting consent or resuming a history-paused sync.
     func refreshTwoWayConsent() async -> Bool? {
         // Reconciliation owns the non-reentrant ledger lock across EventKit awaits.
         while running { await withCheckedContinuation { consentReaders.append($0) } }
         do {
-            let enabled = try reconciler.twoWayEnabled() && store.prefs.phoneEdits == .bringBack
+            let enabled = try reconciler.twoWayEnabled()
             if twoWayEnabled != enabled { twoWayEnabled = enabled }
             return enabled
         } catch {
@@ -198,7 +198,7 @@ final class RemindersSync: ObservableObject {
             for reader in readers { reader.resume() }
         }
         do {
-            twoWayEnabled = try reconciler.twoWayEnabled() && store.prefs.phoneEdits == .bringBack
+            twoWayEnabled = try reconciler.twoWayEnabled()
             // The shared file is authoritative, not a possibly stale published snapshot.
             var baseline = try store.file.load()
             guard Input(baseline) == Input(store.planner) else {
@@ -268,7 +268,7 @@ final class RemindersSync: ObservableObject {
                     baseline = self.store.planner
                     self.pending = true
                 })
-            twoWayEnabled = try reconciler.twoWayEnabled() && store.prefs.phoneEdits == .bringBack
+            twoWayEnabled = try reconciler.twoWayEnabled()
             retryCount = 0; lastError = nil
         } catch {
             lastError = pausedForHistory ? .historyPaused : .sync(error.localizedDescription)
