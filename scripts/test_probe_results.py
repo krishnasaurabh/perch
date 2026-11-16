@@ -23,16 +23,27 @@ def integration_report():
     required = [f"settings {p} pane renders its content" for p in
                 ("general", "notch", "calendar", "agents", "data")]
     required += [f"dashboard {p} tab renders its content" for p in
-                 ("Upcoming", "History", "Insights", "Projects")]
+                 ("This week", "History", "Projects")]
+    required += ["dashboard has effective full keyboard access", "Tab enters the dashboard tab control"]
+    required += [f"dashboard arrow selects the {tab} tab" for tab in ("History", "Projects")]
     required += ["welcome never rewrites unreadable planner data", "failed details save keeps the draft",
                  "Command-Z restores the deleted project and its task links"]
     return {"passed": required + [f"fixture {i}" for i in range(60)], "failed": []}
 
 
 def theme_report():
-    rows = [{"page": p, "state": s} for p in results.THEME_PAGES for s in results.THEME_STATES]
+    # Keep dashboard identities independent of the validator so stale names cannot
+    # silently make both its positive control and its expected pages agree.
+    pages = {page for page in results.THEME_PAGES if not page.startswith("dashboard-")}
+    pages.update(f"dashboard-{tab}" for tab in ("This week", "History", "Projects"))
+    rows = [{"page": p, "state": s} for p in sorted(pages) for s in sorted(results.THEME_STATES)]
     names = [f"{r['page']} [{r['state']}]: synthetic gate" for r in rows]
-    return {"rows": rows, "passed": names + [f"fixture {i}" for i in range(330 - len(names))], "failed": []}
+    # Each page records five checks per state and one cross-state contrast check.
+    # Noninitial Settings panes add two navigation checks per state; two status
+    # labels add two growth checks each. Preserve that density as pages change.
+    navigation = 2 * len(results.THEME_STATES) * (sum(p.startswith("settings-") for p in pages) - 1)
+    minimum = len(pages) * (5 * len(results.THEME_STATES) + 1) + navigation + 4
+    return {"rows": rows, "passed": names + [f"fixture {i}" for i in range(minimum - len(names))], "failed": []}
 
 
 def clips_report():
@@ -49,6 +60,79 @@ class ProbeReportTests(unittest.TestCase):
         for kind, report in (("integration", integration_report()), ("theme", theme_report()),
                              ("clips", clips_report())):
             self.assertGreater(results.validate(kind, report), 0)
+
+    def test_dashboard_contract_matches_the_view_and_both_native_producers(self):
+        view = (ROOT / "Sources/PerchApp/Settings/DashboardView.swift").read_text()
+        declaration = view.split("enum Tab: String, CaseIterable {", 1)[1].split("var windowTitle", 1)[0]
+        tabs = re.findall(r'(\w+)\s*=\s*"([^"]+)"', declaration)
+        self.assertEqual(tabs, [("yourWeek", "This week"), ("history", "History"), ("projects", "Projects")])
+        names = {label for _, label in tabs}
+        self.assertEqual({page.removeprefix("dashboard-") for page in results.THEME_PAGES
+                          if page.startswith("dashboard-")}, names)
+        required = {f"dashboard {name} tab renders its content" for name in names}
+        self.assertTrue(required.issubset(integration_report()["passed"]))
+        for filename, start, array in (
+            ("integration_probe.swift", "func checkDashboardMatrix(", "let tabs:"),
+            ("allpage_matrix_probe.swift", "func dashboardTabs()", "let markers:"),
+        ):
+            source = (ROOT / "scripts" / filename).read_text().split(start, 1)[1]
+            choices = source.split(array, 1)[1].split("= [", 1)[1].split("]", 1)[0]
+            cases = re.findall(r'\(\.(\w+),', choices)
+            self.assertCountEqual(cases, [case for case, _ in tabs], filename)
+            self.assertIn(r'dashboard \(tab.rawValue) tab renders its', source)
+        theme = (ROOT / "scripts/theme_probe.swift").read_text()
+        pages = theme.split("for tab in DashboardView.Tab.allCases {", 1)[1].split("pages.append", 2)[1]
+        self.assertIn(r'"dashboard-\(tab.rawValue)"', pages)
+        self.assertIn("DashboardView(tab: tab)", pages)
+
+    def test_each_dashboard_tab_is_required_in_integration_reports(self):
+        for tab in ("This week", "History", "Projects"):
+            label = f"dashboard {tab} tab renders its content"
+            for replacement in (None, "Upcoming", "Insights", "Unknown"):
+                report = integration_report()
+                report["passed"].remove(label)
+                if replacement:
+                    report["passed"].append(f"dashboard {replacement} tab renders its content")
+                with self.subTest(tab=tab, replacement=replacement), self.assertRaises(ValueError):
+                    results.validate("integration", report)
+
+    def test_each_dashboard_keyboard_phase_is_required(self):
+        labels = ["dashboard has effective full keyboard access", "Tab enters the dashboard tab control"]
+        labels += [f"dashboard arrow selects the {tab} tab" for tab in ("History", "Projects")]
+        for label in labels:
+            report = integration_report()
+            report["passed"].remove(label)
+            report["passed"].append("unrelated filler cannot replace keyboard coverage")
+            with self.subTest(label=label), self.assertRaises(ValueError):
+                results.validate("integration", report)
+
+    def test_removed_dashboard_tabs_cannot_satisfy_theme_coverage(self):
+        for tab in ("Upcoming", "Insights"):
+            report = theme_report()
+            for row in report["rows"]:
+                if row["page"] == "dashboard-This week":
+                    row["page"] = f"dashboard-{tab}"
+            with self.subTest(tab=tab), self.assertRaises(ValueError):
+                results.validate("theme", report)
+
+    def test_every_theme_capture_needs_its_own_observed_assertion(self):
+        for row in theme_report()["rows"]:
+            report = theme_report()
+            prefix = f"{row['page']} [{row['state']}]:"
+            report["passed"] = [label for label in report["passed"] if not label.startswith(prefix)]
+            report["passed"].append("padding cannot replace a missing capture observation")
+            with self.subTest(row=row), self.assertRaises(ValueError):
+                results.validate("theme", report)
+
+    def test_current_dashboard_reports_pass_the_real_cli(self):
+        with tempfile.TemporaryDirectory() as directory:
+            for kind, report in (("integration", integration_report()), ("theme", theme_report())):
+                path = Path(directory) / f"{kind}.json"
+                path.write_text(json.dumps(report))
+                run = subprocess.run([sys.executable, str(ROOT / "scripts/check_probe_results.py"),
+                                      kind, str(path)], capture_output=True, text=True)
+                self.assertEqual(run.returncode, 0, run.stderr)
+                self.assertIn(f"PASS: {kind}", run.stdout)
 
     def test_failures_and_missing_failure_lists_are_rejected(self):
         for kind, build in (("integration", integration_report), ("theme", theme_report)):
@@ -69,7 +153,7 @@ class ProbeReportTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             results.validate("theme", report)
         report = theme_report()
-        report["passed"] = report["passed"][:329]
+        report["passed"] = report["passed"][:-1]
         with self.assertRaises(ValueError):
             results.validate("theme", report)
 
@@ -160,6 +244,40 @@ class ProbeReportTests(unittest.TestCase):
         self.assertIn('mxRole($0) == "AXButton"', selector)
         self.assertIn("mxClick(", selector)
         self.assertNotIn('contains("Row")', selector)
+
+    def test_sidebar_focus_reacquires_published_owner_after_child_walk(self):
+        source = (ROOT / "scripts/integration_probe.swift").read_text()
+        walker = source.split("func matrixSettingsFocused(", 1)[1].split("func matrixObservationTrace(", 1)[0]
+        self.assertLess(walker.index("let childFocused = visit(host)"),
+                        walker.index('value(owner, "accessibilityFocusedUIElement")'))
+        self.assertIn("host.window?.firstResponder", walker)
+        self.assertIn('as? String == wanted', walker)
+        self.assertIn("return childFocused", walker)
+        self.assertNotIn("navigation.pane", walker)
+
+    def test_history_sampler_reads_exact_ax_values_from_visible_scroll_hit_tests(self):
+        source = (ROOT / "scripts/integration_probe.swift").read_text()
+        sampler = source.split("func dashboardAXScrollSamples(", 1)[1].split(
+            "func dashboardAXStaticText(", 1)[0]
+        for required in ("document.visibleRect.intersection(document.bounds)",
+                         "scroll.isHiddenOrHasHiddenAncestor", "convertPoint(toScreen:",
+                         "accessibilityHitTest(screenPoint)", "for owner in [root, scroll]",
+                         "DashboardAXSamplingLimit", "seen.insert(ObjectIdentifier(node))"):
+            self.assertIn(required, sampler)
+        for forbidden in ("Matrix history", "matrixText(", "VNRecognize", "fixture.store", "store.planner"):
+            self.assertNotIn(forbidden, sampler)
+        collector = source.split("func dashboardAXStaticText(", 1)[1].split("struct DashboardFocusTrace", 1)[0]
+        self.assertIn("try dashboardAXScrollSamples(root)", collector)
+        self.assertIn('as? String == "AXStaticText"', collector)
+        for attribute in ("accessibilityLabel", "accessibilityValue", "accessibilityTitle",
+                          "accessibilityChildren", "accessibilityContents", "accessibilityChildrenInNavigationOrder"):
+            self.assertIn(attribute, collector)
+        history = source.split("if tab == .history {", 1)[1].split("// Project action:", 1)[0]
+        for exact in ('unfiltered.contains("Matrix history alpha") && unfiltered.contains("Matrix history beta")',
+                      'filtered.contains("Matrix history alpha") && !filtered.contains("Matrix history beta")',
+                      '"history accessibility exposes both task titles before filtering"',
+                      '"typed history search filters the task lines"'):
+            self.assertIn(exact, history)
 
     def test_settings_enablement_reads_only_a_unique_checkbox(self):
         source = (ROOT / "scripts/allpage_matrix_probe.swift").read_text()
@@ -362,11 +480,31 @@ print("settings checkbox selector controls passed")
             source = path.read_text()
             code = source if name == "clips" else source.split("<<'PY'\n", 1)[1].split("\nPY", 1)[0]
             with tempfile.TemporaryDirectory() as directory:
-                with patch.object(sys, "argv", [str(path), "/synthetic-binary", directory]), \
-                     patch("subprocess.run") as run:
-                    exec(compile(code, str(path), "exec"), {})
-                args, kwargs = run.call_args
-                self.assertEqual(args[0][0], "/synthetic-binary")
+                binary = str(Path(directory) / ".build/release/Perch")
+                if name == "integration":
+                    support = Path(directory) / "Tests/ArchitectureTests"
+                    support.mkdir(parents=True)
+                    shutil.copyfile(ROOT / "Tests/ArchitectureTests/test_integration_keyboard.py",
+                                    support / "test_integration_keyboard.py")
+
+                def invoke(failure=None):
+                    def run(command, **kwargs):
+                        if command[0] == "defaults":
+                            return subprocess.CompletedProcess(command, 0, "2", "")
+                        if failure:
+                            raise failure
+                        return subprocess.CompletedProcess(command, 0)
+                    with patch.object(sys, "argv", [str(path), binary, directory]), \
+                         patch("subprocess.run", side_effect=run) as calls:
+                        exec(compile(code, str(path), "exec"), {})
+                    children = [call for call in calls.call_args_list if call.args[0][0] == binary]
+                    self.assertEqual(len(children), 1)
+                    if name == "integration":
+                        self.assertEqual(calls.call_args.args[0],
+                                         ["defaults", "write", "-g", "AppleKeyboardUIMode", "-int", "2"])
+                    return children[0].kwargs
+
+                kwargs = invoke()
                 self.assertIs(kwargs["check"], True)
                 self.assertGreaterEqual(kwargs["timeout"], 120)
                 planner = json.loads(Path(kwargs["env"]["PERCH_DATA"]).read_text())
@@ -374,9 +512,8 @@ print("settings checkbox selector controls passed")
                 self.assertIs(planner["preferences"]["catchScreenshots"], False)
                 for failure in (subprocess.CalledProcessError(1, "probe"),
                                 subprocess.TimeoutExpired("probe", kwargs["timeout"])):
-                    with patch.object(sys, "argv", [str(path), "/synthetic-binary", directory]), \
-                         patch("subprocess.run", side_effect=failure), self.assertRaises(type(failure)):
-                        exec(compile(code, str(path), "exec"), {})
+                    with self.assertRaises(type(failure)):
+                        invoke(failure)
 
     def test_keyboard_products_opt_into_concrete_focus_registration(self):
         projects = (ROOT / "Sources/PerchApp/Settings/ProjectsList.swift").read_text()
