@@ -1161,7 +1161,7 @@ func checkDashboardMatrix(_ fixture: MatrixFixture, output: URL) async throws {
             for filter in filters {
                 await matrixKey(window, 48, "\t")
                 matrixRequire(
-                    dashboardAXFocusedLabel(window) != "Find a finished task",
+                    dashboardAXFocusedLabel(window) == filter,
                     "Tab leaves the history search for the \(filter) filter",
                     "focused=\(dashboardAXFocusedLabel(window))")
             }

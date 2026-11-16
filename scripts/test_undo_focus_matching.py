@@ -132,25 +132,29 @@ struct MatrixElement { let names: [String] }
         self.run_swift(support + predicate + checks)
         self.run_swift(support + '\n            identity == copyLabel\n' + checks, succeeds=False)
 
-    def test_completion_footer_reuses_the_control_without_moving_capture_or_deletion(self):
+    def test_edits_share_one_viewport_undo_without_moving_capture(self):
         tasks = (ROOT / "Sources/PerchApp/Workspace/TasksCard.swift").read_text()
-        viewport = tasks.split('GeometryReader { viewport in', 1)[1].split('TaskComposer(day:', 1)[0]
+        viewport = tasks.split('GeometryReader { viewport in', 1)[1].split('TaskComposer(', 1)[0]
         self.assertIn('.safeAreaInset(edge: .bottom, spacing: 8)', viewport)
-        self.assertIn('if store.canUndo, model.strips?.hasCompletionUndo == true', viewport)
-        self.assertIn('undoFooter(reviewOverdue: false)', viewport)
-        self.assertIn('footer.modifier(NotchUndoFooter(focus: $focus, reviewingOverdue: $reviewingOverdue))', tasks)
-        footer = tasks.split('private func undoFooter(reviewOverdue: Bool) -> some View {', 1)[1].split('@ViewBuilder private var startFocus', 1)[0]
+        self.assertIn('footer.modifier(NotchUndoFooter())', viewport)
+        self.assertNotIn('hasCompletionUndo', viewport)
+        self.assertEqual(tasks.count('footer.modifier('), 1)
+        footer = tasks.split('private var footer: some View {', 1)[1].split('@ViewBuilder private var overdueFooter:', 1)[0]
         for unchanged in ('Label("Undo", systemImage: "arrow.uturn.backward")',
                           '.accessibilityIdentifier("today-undo")', '.focused($focus, equals: .undo)',
                           'if press.phase == .down { store.undo() }'):
             self.assertIn(unchanged, footer)
         strips = (ROOT / "Sources/PerchApp/Notch/NotchStrips.swift").read_text()
-        self.assertIn('if model.geometry == nil, let activity = model.strips?.currentActivity, activity.stripKind == .undo', strips)
-        self.assertIn('} else if store.canUndo || !store.engine.bringOverCandidates().isEmpty', strips)
-        self.assertIn('if reviewOverdue, !store.engine.bringOverCandidates().isEmpty', footer)
-        self.assertIn('Button("Bring over")', footer)
-        self.assertIn('if !reviewOverdue || showsFooterUndo', footer)
+        self.assertIn('guard model.geometry == nil, let activity = model.strips?.currentActivity, activity.stripKind == .undo', strips)
+        decoration = strips.split('struct NotchUndoFooter: ViewModifier {', 1)[1].split('private var inlineActivity', 1)[0]
+        self.assertEqual(decoration.splitlines().count('            content'), 1)
+        overdue = tasks.split('@ViewBuilder private var overdueFooter: some View {', 1)[1].split('private func select(', 1)[0]
+        self.assertIn('if !store.engine.bringOverCandidates().isEmpty', overdue)
+        self.assertIn('Button("Bring over")', overdue)
+        self.assertIn('.accessibilityIdentifier("today-review-overdue")', overdue)
+        self.assertIn('.disabled(!showsFooterUndo).focusable(store.canUndo)', footer)
         self.assertLess(tasks.index('footer.modifier(NotchUndoFooter('), tasks.index('TaskComposer('))
+        self.assertLess(tasks.index('TaskComposer('), tasks.index('overdueFooter.fixedSize'))
 
     def test_shared_footer_has_one_undo_for_each_history_presentation(self):
         tasks = (ROOT / "Sources/PerchApp/Workspace/TasksCard.swift").read_text()
@@ -177,10 +181,12 @@ func showsFooterUndo(store: Store, model: Model) -> Bool {
                         currentActivity: deletion ? Activity(stripKind: .undo) : nil)
                     let model = Model(strips: strips, geometry: physicalNotch ? 1 : nil)
                     let footer = showsFooterUndo(store: Store(canUndo: canUndo), model: model)
-                    let viewport = canUndo && completion
-                    let strip = canUndo && deletion && physicalNotch
-                    let visible = [footer, viewport, strip].filter { $0 }.count
+                    let viewport = footer
+                    // The separately identified notch.undo never borrows Today's focus binding.
+                    let stripOwnsTodayFocus = false
+                    let visible = [viewport, stripOwnsTodayFocus].filter { $0 }.count
                     precondition(visible == (canUndo ? 1 : 0), "Undo must have exactly one reachable owner")
+                    precondition(footer == canUndo, "The viewport destination must survive every strip state")
                 }
             }
         }
@@ -190,6 +196,11 @@ func showsFooterUndo(store: Store, model: Model) -> Bool {
         self.run_swift(support + body + checks)
         self.run_swift(support + '\ntrue\n' + checks, succeeds=False)
         self.run_swift(support + '\nfalse\n' + checks, succeeds=False)
+        former = '''
+        store.canUndo && model.strips?.hasCompletionUndo != true
+            && (model.geometry == nil || model.strips?.currentActivity?.stripKind != .undo)
+'''
+        self.run_swift(support + former + checks, succeeds=False)
 
 
 if __name__ == "__main__":

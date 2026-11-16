@@ -46,10 +46,12 @@ class ChecklistRecoveryAndScrollTests(unittest.TestCase):
     def test_dismissed_task_remains_recoverable_through_the_rendered_predicates(self):
         source = CARD.read_text()
         strips = (ROOT / "Sources/PerchApp/Notch/NotchStrips.swift").read_text()
-        footer_match = re.search(r"else if ([^\n]+) \{\s*// The shared footer", strips)
-        assert footer_match is not None, "Shared Undo footer must retain a visibility predicate"
-        footer = footer_match.group(1)
-        self.assertIn('footer.modifier(NotchUndoFooter(', source)
+        decoration = strips.split('struct NotchUndoFooter: ViewModifier {', 1)[1].split(
+            'private var inlineActivity', 1)[0]
+        self.assertEqual(decoration.splitlines().count('            content'), 1)
+        self.assertNotIn('else if', decoration)
+        self.assertEqual(source.count('footer.modifier(NotchUndoFooter())'), 1)
+        self.assertLess(source.index('TaskComposer('), source.index('overdueFooter.fixedSize'))
         button = re.search(r'if ([^\n]+) \{\s*Button\("Bring over"\)', source).group(1)
         review = source.split("private struct OverdueReview:", 1)[1]
         candidates = re.search(r"let tasks = ([^\n]+)", review).group(1)
@@ -86,8 +88,7 @@ var guarded = engine
 require(guarded.carryForward([original.id], to: today).isEmpty, "Ordinary carry must still reject dismissed ids")
 // Undo is deliberately unavailable: the footer must survive persisted dismissals after a restart too.
 let store = Store(engine: engine, canUndo: false)
-require(FOOTER, "Dismissed task must keep the footer visible")
-let reviewOverdue = true
+// The mounted decoration forwards content unconditionally (checked above).
 let buttonVisible: Bool
 if BUTTON { buttonVisible = true } else { buttonVisible = false }
 require(buttonVisible, "Dismissed task must keep Bring over visible")
@@ -111,8 +112,7 @@ require(repeated.tasks.filter { $0.day == today && !$0.done }.count == 1, "Recov
 print("Dismissed recovery: persisted, footer visible, button visible, one copy, original preserved, overdue empty")
 '''
         # Each expression/action is copied verbatim from the production view, not restated in this test.
-        for token, value in (("FOOTER", footer), ("BUTTON", button),
-                             ("CANDIDATES", candidates), ("ACTION", action)):
+        for token, value in (("BUTTON", button), ("CANDIDATES", candidates), ("ACTION", action)):
             program = program.replace(token, value)
         self.assertIn("one copy, original preserved, overdue empty", self.compile_and_run(program))
 
