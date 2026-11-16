@@ -1,6 +1,29 @@
 # name app arguments. Quoting and trailing comments follow shell word rules.
 # Each state runs in light/dark and normal/Reduce Motion, in four app sessions.
 # Screen lanes append targets and fixtures here as their presentations land.
+notch-peek-running --scenario notch-running --open notch-peek
+notch-peek-paused --scenario notch-paused --open notch-peek
+notch-peek-before --scenario today-editing --open notch-peek
+notch-peek-empty --scenario notch-idle --open notch-peek
+notch-peek-taskless-running --scenario notch-running --open notch-peek-taskless
+notch-peek-taskless-paused --scenario notch-paused --open notch-peek-taskless
+notch-peek-taskless-empty-running --scenario notch-running --open notch-peek-taskless-empty
+notch-peek-taskless-empty-paused --scenario notch-paused --open notch-peek-taskless-empty
+notch-peek-stopwatch-running --scenario notch-running --open notch-peek-stopwatch
+notch-peek-stopwatch-paused --scenario notch-paused --open notch-peek-stopwatch
+notch-peek-stopwatch-empty-running --scenario notch-running --open notch-peek-stopwatch-empty
+notch-peek-stopwatch-empty-paused --scenario notch-paused --open notch-peek-stopwatch-empty
+notch-pills-stopwatch-running --scenario notch-running --open notch-pills-stopwatch
+notch-pills-stopwatch-paused --scenario notch-paused --open notch-pills-stopwatch
+notch-pills-time --scenario notch-running --open notch-pills-time
+notch-pills-tasks --scenario notch-running --open notch-pills-tasks
+notch-pills-next --scenario notch-running --open notch-pills-next
+notch-pills-paused --scenario notch-paused --open notch-pills-paused
+notch-pills-both --scenario notch-running --open notch-pills-both
+notch-pills-left --scenario notch-running --open notch-pills-left
+notch-pills-private --scenario notch-running --open notch-pills-private
+notch-flat-private-running --scenario notch-running --open notch-flat-private
+notch-flat-private-paused --scenario notch-paused --open notch-flat-private
 welcome --scenario empty --open welcome
 menubar-icon --scenario notch-running --open menubar-icon
 menubar-time --scenario notch-running --open menubar-time
