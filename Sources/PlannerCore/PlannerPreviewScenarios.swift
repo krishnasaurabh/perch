@@ -129,6 +129,15 @@
             if ["week-full", "window-review", "window-history"].contains(name) {
                 addWeek(to: &fixture)
             }
+            if name == "week-full" {
+                for index in fixture.planner.tasks.indices where fixture.planner.tasks[index].day == day {
+                    fixture.planner.tasks[index].startAt = fixture.planner.tasks[index].remindAt
+                }
+                fixture.planner.parkedThoughts = ["Renew passport", "Research standing desks", "Back up photos"]
+                    .enumerated().map {
+                        ParkedThought(id: id(220 + $0.offset), text: $0.element, createdAt: now)
+                    }
+            }
             if name == "window-projects" { addProjects(to: &fixture) }
             return fixture
         }

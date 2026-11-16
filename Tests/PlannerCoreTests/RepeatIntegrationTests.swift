@@ -81,6 +81,36 @@ final class RepeatIntegrationTests: XCTestCase {
         XCTAssertEqual(e.planner.tasks.compactMap(\.day).filter { $0 > "2026-11-10" }, ["2026-11-13"])
     }
 
+    func testEarlyCompletionRelativeRepeatKeepsCompletionCadenceBeyondPlannedDay() throws {
+        let today: DayKey = "2026-11-13"
+        let cases: [(TaskRepeat, DayKey, DayKey)] = [
+            (TaskRepeat(unit: .day, fromCompletion: true), "2026-11-14", "2026-11-15"),
+            (TaskRepeat(unit: .day, fromCompletion: true), "2026-11-17", "2026-11-18"),
+            (TaskRepeat(unit: .day, interval: 3, fromCompletion: true), "2026-11-17", "2026-11-19"),
+            (TaskRepeat(unit: .day, interval: 3, fromCompletion: true), "2026-11-14", "2026-11-16"),
+            (TaskRepeat(unit: .day, weekdaysOnly: true, fromCompletion: true), "2026-11-16", "2026-11-17"),
+            (TaskRepeat(unit: .week, fromCompletion: true), "2026-11-20", "2026-11-27"),
+            (TaskRepeat(unit: .month, fromCompletion: true), "2026-12-13", "2027-01-13"),
+        ]
+        for (rule, planned, expected) in cases {
+            let root = PlanTask(title: "Early repeat", day: planned, repeatRule: rule)
+            var planner = Planner(); planner.tasks = [root]
+            var engine = PlannerEngine(
+                planner: planner, now: { Fixture.date("2026-11-13 15:00") }, calendar: Fixture.calendar)
+            XCTAssertEqual(engine.today, today)
+            XCTAssertThrowsError(try engine.execute(.complete(root.id)))
+            XCTAssertEqual(engine.planner, planner, "Legacy completion must still reject future tasks")
+            try engine.execute(.setScheduledCompletion(root.id, expectedDay: planned, completed: true))
+            XCTAssertTrue(try engine.task(root.id).done)
+            let successor = try XCTUnwrap(engine.planner.tasks.first { !$0.done })
+            XCTAssertEqual(successor.day, expected, "Completion cadence for \(rule), planned \(planned)")
+            XCTAssertEqual(successor.repeatSeriesID, root.repeatSeriesID)
+            XCTAssertEqual(engine.planner.tasks.filter { !$0.done }.count, 1)
+            try engine.execute(.setScheduledCompletion(root.id, expectedDay: planned, completed: true))
+            XCTAssertEqual(engine.planner.tasks.filter { !$0.done }.map(\.id), [successor.id])
+        }
+    }
+
     func testDeletingMonthlyRootPreservesAnchorAcrossReload() throws {
         var e = PlannerEngine(planner: Planner(), now: { Fixture.date("2026-01-31 15:00") }, calendar: Fixture.calendar)
         let root = try XCTUnwrap(e.addTasks(["Review queue every month"]).first)

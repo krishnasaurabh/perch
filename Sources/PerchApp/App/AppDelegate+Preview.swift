@@ -55,6 +55,8 @@ import SwiftUI
                 "notch-progress-off": .closedNotch(hardware: true, progress: false),
                 "notch-reminder-off": .closedNotch(hardware: true, reminder: false),
                 "week": .workspace(.week),
+                "week-expanded": .window("week-expanded") { WeekBoardPreview.expanded($0) },
+                "week-adding": .window("week-adding") { WeekBoardPreview.adding($0) },
                 "settings": .window("settings") { $0.openSettings() },
                 "settings/general": .window("settings") { SettingsWindow.preview(.general, app: $0) },
                 "settings/general-alternatives": .window("settings", open: SettingsGeneralPane.previewAlternatives),

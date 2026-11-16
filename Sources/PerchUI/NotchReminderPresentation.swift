@@ -9,7 +9,8 @@ public enum NotchReminderPresentation {
     public static func missedTask(
         in planner: Planner, records: [String: ReminderRecord], now: Date, dismissed: Set<String> = []
     ) -> PlanTask? {
-        planner.tasks.filter {
+        guard planner.preferences.persistentReminders else { return nil }
+        return planner.tasks.filter {
             isMissed(task: $0, records: records, now: now)
                 && !dismissed.contains(ScheduledReminder(task: $0).id)
         }.sorted {

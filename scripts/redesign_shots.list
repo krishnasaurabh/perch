@@ -89,6 +89,11 @@ checklist-paused --scenario notch-paused --open today
 checklist-dictating --scenario three --open checklist-dictating
 checklist-voice-error --scenario three --open checklist-voice-error
 checklist-multiline --scenario three --open checklist-multiline
+week-board-full --scenario week-full --open workspace-week
+week-board-empty --scenario today-empty --open workspace-week
+week-board-narrow --scenario week-full --open workspace-narrow
+week-board-expanded --scenario week-full --open week-expanded
+week-board-adding --scenario week-full --open week-adding
 your-day-running --scenario today-running --open your-day
 your-day-before --scenario today-editing --open your-day
 your-day-editing --scenario today-editing --open your-day-editing

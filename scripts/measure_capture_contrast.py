@@ -5,8 +5,10 @@ Usage:
   measure_capture_contrast.py STATE_DIR...          gate: placeholder >= 4.5:1, plus/mic >= 3:1, and a
                                                     directory named *-focused / *-unfocused / *-passive
                                                     must show the matching focused / resting fill
-  measure_capture_contrast.py ... --week WEEK_DIR   also gate every Week MiniComposer prompt (dark scheme)
-                                                    at >= 4.5:1, light ink on the white-5 % field
+  measure_capture_contrast.py ... --week DARK_DIR   gate Week prompts at >= 4.5:1 (--week-dark is an alias)
+                              --week-light LIGHT_DIR
+                                                    same rule and minimum in both appearances
+                              --week-board          sample live footer frames from week-footers.json
   measure_capture_contrast.py --report STATE_DIR... same measurements, never fails
   measure_capture_contrast.py --diff A.png B.png [--outside-field]
                                                     count changed pixels (optionally outside the field)
@@ -27,6 +29,7 @@ Method for measuring rendered capture-field contrast:
    quartile of ink pixels, a stricter anti-aliasing-aware figure, reported but not gated.
 This measures a settled own-window bitmap, not a physical display or every appearance.
 """
+import argparse
 import json
 import struct
 import sys
@@ -185,23 +188,96 @@ def measure(path):
     }
 
 
-def mini_fills():
-    """Week uses the opaque dark control token; retain historical fixture fills."""
+def mini_fills(scheme="dark"):
+    """Read the appearance's control token; retain the historical fixed-tone fixture fills."""
     import re
+    assert scheme in ("light", "dark"), f"Unknown Week appearance: {scheme}"
     tokens = (Path(__file__).resolve().parents[1] / 'Sources/PerchUI/ThemeTokens.swift').read_text()
-    dark = tokens.split('public static let dark = Palette(', 1)[1].split(')', 1)[0]
-    match = re.search(r'control: 0x([0-9A-Fa-f]+)', dark)
-    assert match, 'Missing Week control fill token'
-    value = int(match.group(1), 16)
-    return {"control": ((value >> 16) & 255, (value >> 8) & 255, value & 255),
-            "tile": (40, 40, 40), "today": (32, 32, 32)}
+    palette = tokens.split(f'public static let {scheme} = Palette(', 1)[1].split(')', 1)[0]
+
+    def rgb(pattern, source):
+        match = re.search(pattern, source)
+        assert match, 'Missing Week fill token'
+        value = int(match.group(1), 16)
+        return ((value >> 16) & 255, (value >> 8) & 255, value & 255)
+
+    # Legacy fields were white 5% over the tile or Today's white-8%-over-black column.
+    # Derive their RGB values from the fixed tile and white tokens, not a sampled bitmap.
+    tile = rgb(r'public static let tile: UInt32 = 0x([0-9A-Fa-f]+)', tokens)
+    light = tokens.split('public static let light = Palette(', 1)[1].split(')', 1)[0]
+    white = rgb(r'onAccent: 0x([0-9A-Fa-f]+)', light)
+    over = lambda base, alpha: tuple(round(v + (w - v) * alpha) for v, w in zip(base, white))
+    return {"control": rgb(r'control: 0x([0-9A-Fa-f]+)', palette),
+            "tile": over(tile, 0.05), "today": over(over((0, 0, 0), 0.08), 0.05)}
 
 
-def measure_week(path):
-    """Measure every Week MiniComposer prompt (dark tiles). Light-on-dark: the lightest colour occurring >= 5
-    times in the field ROI versus the field's modal colour."""
+def board_tokens(scheme):
+    """Read opaque surface roles used by the accepted Week board, not legacy control fills."""
+    import re
+    assert scheme in ("light", "dark"), f"Unknown Week appearance: {scheme}"
+    source = (Path(__file__).resolve().parents[1] / 'Sources/PerchUI/DesignTokens.swift').read_text()
+    tokens = {}
+    for name in ('sheet', 'paper', 'butter', 'ink', 'ink2', 'brandText'):
+        match = re.search(rf'case \.{name}: return AdaptiveColor\(light: 0x([A-Fa-f0-9]+), dark: 0x([A-Fa-f0-9]+)\)', source)
+        assert match, f'Missing Week board token: {name}'
+        value = int(match[1 if scheme == 'light' else 2], 16)
+        tokens[name] = tuple((value >> shift) & 255 for shift in (16, 8, 0))
+    return tokens
+
+
+def measure_week_board(path, scheme):
+    """Measure each visible collapsed Add footer using its live native frame.
+
+    The isolated renderer writes geometry, never expected colors or ratios. The
+    modal paper background and frequent glyph core are sampled from the PNG.
+    No fallback to a different surface or legacy composer is allowed.
+    """
+    import math
+    path = Path(path)
     img = read_png(path)
-    fills = mini_fills()
+    manifest = path.parent / 'week-footers.json'
+    assert manifest.is_file(), f"{path}: no Week composer band found (missing native footer frames)"
+    rows = json.loads(manifest.read_text())
+    assert isinstance(rows, list) and rows, f"{path}: no Week composer band found"
+    bands = [r for r in rows if r['image'] == path.name]
+    assert bands, f"{path}: no Week composer band found"
+    tokens = board_tokens(scheme)
+    fields, seen, k = [], set(), 1.0
+    for row in bands:
+        day = row['day']
+        assert day not in seen, f"{path}: duplicate Week footer: {day}"
+        seen.add(day)
+        x, y, w, h = row['xywh']
+        cw, ch = row['canvas']
+        assert all(isinstance(v, (int, float)) and math.isfinite(v) for v in (x, y, w, h, cw, ch))
+        assert cw > 0 and ch > 0 and w > 0 and h > 0, f"{path}: invalid Week footer frame"
+        k = len(img[0]) / cw
+        assert k in (1, 2) and abs(len(img) / ch - k) < .01, f"{path}: invalid Week backing scale"
+        x0, y0, x1, y1 = [round(v * k) for v in (x, y, x + w, y + h)]
+        assert 0 <= x0 < x1 <= len(img[0]) and 0 <= y0 < y1 <= len(img), f"{path}: clipped Week footer"
+        px = [p for line in img[y0:y1] for p in line[x0:x1]]
+        counts = Counter(px)
+        bg, count = counts.most_common(1)[0]
+        assert near(bg, tokens['paper'], 2) and count >= len(px) / 2, f"{path}: Week footer paper surface missing"
+        ink = Counter({p: n for p, n in counts.items() if max(abs(a-b) for a, b in zip(p, bg)) > 8})
+        frequent = [p for p, n in ink.items() if n >= 5]
+        assert frequent, f"{path}: Week field at x {x0}-{x1} has no prompt glyphs"
+        # The furthest opaque glyph core is dark on light paper, light on dark
+        # paper. Antialiased edge pixels cannot improve its measured contrast.
+        core = (min if scheme == 'light' else max)(frequent, key=luminance)
+        fields.append({"day": day, "over": "paper", "target": "collapsed Add a task",
+                       "field_xyxy": [x0, y0, x1, y1], "background_rgb": "#%02X%02X%02X" % bg,
+                       "ink_rgb": "#%02X%02X%02X" % core, "ink_pixels": sum(ink.values()),
+                       "ratio": round(ratio(core, bg), 3)})
+    assert fields, f"{path}: no Week composer fields found"
+    return {"image": str(path), "scheme": scheme, "scale": k, "fields": sorted(fields, key=lambda r: r['day'])}
+
+
+def measure_week(path, scheme="dark"):
+    """Measure every Week MiniComposer prompt in the supplied appearance: the lightest colour occurring >= 5
+    times in the field ROI versus the field's modal colour (the same rule in both schemes)."""
+    img = read_png(path)
+    fills = mini_fills(scheme)
     good = [sum(any(near(p, f, 2) for f in fills.values()) for p in row) >= 10 for row in img]
     bands, y = [], 0
     while y < len(img):
@@ -265,7 +341,7 @@ def measure_week(path):
         out.append({"over": under, "field_xyxy": [fx0, fy0, fx1, fy1], "background_rgb": "#%02X%02X%02X" % bg,
                     "ink_rgb": "#%02X%02X%02X" % light, "ink_pixels": sum(ink.values()),
                     "ratio": round(ratio(light, bg), 3)})
-    return {"image": str(path), "scale": k, "fields": out}
+    return {"image": str(path), "scheme": scheme, "scale": k, "fields": out}
 
 
 def diff(a, b, outside_field):
@@ -290,20 +366,24 @@ def main(argv):
     if argv and argv[0] == "--diff":
         print(json.dumps(diff(argv[1], argv[2], "--outside-field" in argv), indent=2))
         return 0
-    report = bool(argv) and argv[0] == "--report"
-    args = argv[1:] if report else list(argv)
-    week_dirs = [args[i + 1] for i, a in enumerate(args) if a == "--week"]
-    dirs = [a for i, a in enumerate(args) if a != "--week" and (i == 0 or args[i - 1] != "--week")]
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--report", action="store_true")
+    parser.add_argument("--week-board", action="store_true", help="sample native collapsed footer frames, not legacy fields")
+    parser.add_argument("--week", "--week-dark", dest="week_dark", action="append", default=[])
+    parser.add_argument("--week-light", action="append", default=[])
+    parser.add_argument("dirs", nargs="*")
+    args = parser.parse_args(argv)
+    week_dirs = [(d, "dark") for d in args.week_dark] + [(d, "light") for d in args.week_light]
     results, failures = {}, []
-    for d in week_dirs:
+    for d, scheme in week_dirs:
         pngs = sorted(Path(d).glob("notch-*-open.png"))
         assert pngs, f"{d}: no notch-*-open.png"
-        r = measure_week(pngs[0])
+        r = (measure_week_board if args.week_board else measure_week)(pngs[0], scheme)
         results[Path(d).name] = r
         for f in r["fields"]:
             if f["ratio"] < PLACEHOLDER_MIN:
                 failures.append(f"{Path(d).name}: Week prompt at x {f['field_xyxy'][0]} {f['ratio']}:1 < {PLACEHOLDER_MIN}:1")
-    for d in dirs:
+    for d in args.dirs:
         pngs = sorted(Path(d).glob("notch-*-open.png"))
         assert pngs, f"{d}: no notch-*-open.png"
         r = measure(pngs[0])
@@ -319,7 +399,7 @@ def main(argv):
             if r[k]["ratio"] < CONTROL_MIN:
                 failures.append(f"{Path(d).name}: {k} {r[k]['ratio']}:1 < {CONTROL_MIN}:1")
     print(json.dumps({"method": (__doc__ or "").split("Method")[-1].strip(), "results": results, "failures": failures}, indent=2))
-    return 1 if failures and not report else 0
+    return 1 if failures and not args.report else 0
 
 
 if __name__ == "__main__":

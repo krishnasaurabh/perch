@@ -1,6 +1,6 @@
 import Foundation
 import PerchReminders
-import PlannerCore
+@testable import PlannerCore
 import XCTest
 
 @MainActor
@@ -93,6 +93,7 @@ private final class TwoWayFixture {
     var invalidated = false
     init() {
         planner.preferences.resetHour = 0
+        planner.preferences.phoneEdits = .bringBack
         planner.tasks = [PlanTask(title: "Synthetic task", day: today, createdAt: now)]
         ledger.value.enabled = true; ledger.value.twoWayEnabled = true
     }
@@ -124,6 +125,73 @@ private final class TwoWayFixture {
 }
 
 final class TwoWayReminderTests: XCTestCase {
+    @MainActor private func persist(_ policy: PhoneEditPolicy, in fixture: TwoWayFixture) throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let file = PlannerFile(url: root.appendingPathComponent("planner.json"))
+        try file.save(fixture.planner)
+        let pipeline = PlannerCommandPipeline(file: file)
+        _ = try pipeline.perform(origin: .background) { try $0.updatePreference(.phoneEdits(policy)) }
+        fixture.planner = try file.load()
+    }
+
+    @MainActor func testStoredIgnoreRejectsPhoneTextWithExistingConsent() async throws {
+        let f = TwoWayFixture()
+        try await f.run()
+        try persist(.ignore, in: f)
+        f.remote.edit { $0.title = "Phone title" }
+        await f.expectStop()
+        XCTAssertEqual(f.planner.tasks[0].title, "Synthetic task")
+        XCTAssertEqual(f.remote.records[0].fields.title, "Phone title")
+        XCTAssertEqual(f.applied, 0)
+        XCTAssertTrue(f.ledger.value.twoWayEnabled)
+    }
+
+    @MainActor func testStoredBringBackImportsPhoneTextWithConsentWithoutRestart() async throws {
+        let f = TwoWayFixture()
+        try persist(.ignore, in: f)
+        try await f.run()
+        f.remote.edit { $0.title = "Phone title" }
+        await f.expectStop()
+        try persist(.bringBack, in: f)
+        try await f.run()
+        XCTAssertEqual(f.planner.tasks[0].title, "Phone title")
+        XCTAssertEqual(f.applied, 1)
+        XCTAssertEqual(f.remote.saves, 1)
+    }
+
+    @MainActor func testStoredBringBackWithoutConsentCannotImportTextOrDeletion() async throws {
+        let f = TwoWayFixture(); f.ledger.value.twoWayEnabled = false
+        try await f.run()
+        try persist(.bringBack, in: f)
+        f.remote.edit { $0.title = "Phone title" }
+        await f.expectStop()
+        XCTAssertEqual(f.applied, 0)
+        XCTAssertFalse(f.ledger.value.twoWayEnabled)
+        f.remote.records = []
+        await f.expectStop()
+        XCTAssertEqual(f.planner.tasks.count, 1)
+        XCTAssertEqual(f.remote.saves, 1)
+    }
+
+    @MainActor func testIgnorePreservesPendingImportUntilBringBackCanRecover() async throws {
+        let f = TwoWayFixture()
+        try await f.run()
+        f.remote.edit { $0.title = "Phone title" }
+        f.failLocal = true
+        await f.expectStop()
+        let pending = f.ledger.value.links
+        try persist(.ignore, in: f)
+        f.failLocal = false
+        await f.expectStop()
+        XCTAssertEqual(f.applied, 0)
+        XCTAssertEqual(f.ledger.value.links, pending)
+        try persist(.bringBack, in: f)
+        try await f.run()
+        XCTAssertEqual(f.planner.tasks[0].title, "Phone title")
+        XCTAssertNil(f.ledger.value.links[f.planner.tasks[0].id]?.pending)
+    }
+
     @MainActor func testOneWayInboxRoundTripPreservesIdentity() async throws {
         let f = TwoWayFixture(); f.ledger.value.twoWayEnabled = false
         try await f.run()
