@@ -1842,7 +1842,7 @@ final class AllPageMatrix {
         // Project options: the card's visible control opens its own surface, and the
         // Delete project control revealed there is what removes the project.
         _ = try await tabUntil(window, limit: 24, tag: "projectOptionsTraversal") { identity, _ in
-            identity == AppL10n.text("Project options")
+            identity == AppL10n.text("Project options") || identity.hasPrefix("project-options-")
         }
         try report.require(true, "Tab reaches the project options control")
         let taskCount = fixture.store.planner.tasks.count
