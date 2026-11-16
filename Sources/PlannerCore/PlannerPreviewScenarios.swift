@@ -124,6 +124,28 @@
                 }
             }
             if name == "strip-undo" { fixture.planner.tasks.removeAll { $0.id == id(2) } }
+            if name == "today-paused" { fixture.planner.focus?.pause(at: now) }
+            if name == "today-running-many-steps" || name == "today-paused-many-steps" {
+                if let index = fixture.planner.tasks.firstIndex(where: { $0.id == fixture.planner.focus?.taskID }) {
+                    fixture.planner.tasks[index].steps = (0..<20).map {
+                        Subtask(id: id(1000 + $0), title: "Checklist item \($0 + 1)", done: $0 < 7)
+                    }
+                }
+                if name == "today-paused-many-steps" { fixture.planner.focus?.pause(at: now) }
+            }
+            // Schedule fixtures use the independent block-start field, not reminders.
+            if name.hasPrefix("today-") {
+                for index in fixture.planner.tasks.indices {
+                    let hour: Int?
+                    switch fixture.planner.tasks[index].id {
+                    case id(1): hour = 10
+                    case id(3): hour = 11
+                    case id(4): hour = 16
+                    default: hour = nil
+                    }
+                    if let hour { fixture.planner.tasks[index].startAt = date(hour: hour) }
+                }
+            }
             if name == "today-before" {
                 fixture.captureText = "Prep for the design review at 1:30 for 20 min"
             }

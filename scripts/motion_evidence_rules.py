@@ -3,7 +3,12 @@ import math
 import re
 
 CLIPS = ('open', 'close', 'page', 'tick', 'timer')
-EXPECTED = {'page': 'ax-press:Week', 'tick': 'ax-press:task-complete-', 'timer': 'ax-press:Start focus'}
+EXPECTED = {
+    'page': 'ax-press:Week',
+    'tick': 'ax-press:task-complete-',
+    'timer': 'ax-press:time-card-primary',
+    'timer-stop': 'controlled-clock:engine-tick',
+}
 
 def qualify(marker, sha):
     reasons = []
@@ -33,8 +38,16 @@ def qualify(marker, sha):
         reasons.append('page-not-observed')
     if name == 'tick' and after.get('completed_tasks', -1) <= marker.get('session', {}).get('completed_tasks', -1):
         reasons.append('tick-not-observed')
-    if name == 'timer' and after.get('timer_present') is not True:
+    if name == 'timer' and (after.get('timer_present') is not True or after.get('timer_state') != 'running'):
         reasons.append('timer-not-observed')
+    if name == 'timer-stop':
+        if after.get('timer_state') != 'finished':
+            reasons.append('timer-stop-not-observed')
+        before_segments = marker.get('session', {}).get('focus_segments')
+        after_segments = after.get('focus_segments')
+        if (not isinstance(before_segments, int) or not isinstance(after_segments, int)
+                or after_segments <= before_segments):
+            reasons.append('timer-segment-not-observed')
     expected_control = EXPECTED.get(name)
     if name == 'tick':
         task_id = marker.get('task_id')
